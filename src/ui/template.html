@@ -178,7 +178,12 @@
   .mapbar label{margin:0;}
   .mapwrap{position:relative;background:#0E1112;border:1px solid var(--line);border-radius:4px;
     overflow:hidden;min-height:120px;user-select:none;}
-  .mapwrap img{display:block;width:100%;height:auto;pointer-events:none;}
+  .mapstage{position:absolute;left:0;top:0;width:100%;height:100%;}
+  .mapstage img{display:block;width:100%;height:100%;pointer-events:none;}
+  .terraincv{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;}
+  .mapwrap.panning,.ed-view.panning{cursor:grabbing;}
+  .mapwrap .mapzoom{position:absolute;right:8px;bottom:8px;z-index:60;font-family:'Courier New',monospace;font-size:11px;
+    color:#B8B29E;background:rgba(14,17,18,.75);border-radius:3px;padding:2px 6px;pointer-events:none;}
   .mapempty{padding:40px 20px;text-align:center;color:var(--muted);font-style:italic;font-size:13px;}
   .gridover{position:absolute;inset:0;pointer-events:none;
     background-image:linear-gradient(rgba(230,224,204,.16) 1px,transparent 1px),
@@ -261,6 +266,81 @@
     border-bottom:1px dotted var(--line);}
   .clist .fleft{display:flex;align-items:center;gap:7px;flex:1;}
   .clist .subline{padding-left:18px;color:var(--muted);}
+  /* ── сбор армий из текста ── */
+  textarea{background:#14181A;color:var(--text);border:1px solid #4A5A54;border-radius:4px;padding:7px 9px;
+    font-size:12px;font-family:'Courier New',monospace;width:100%;resize:vertical;min-height:130px;line-height:1.4;}
+  textarea:focus{outline:1px solid var(--brass);}
+  .imp-title{font-family:'Arial Narrow',sans-serif;font-size:16px;font-weight:700;color:var(--brass);
+    text-transform:uppercase;margin:12px 0 6px;}
+  .imp-warn{font-size:12px;color:#F0A090;background:rgba(176,64,46,.08);border-left:2px solid var(--red);
+    padding:6px 9px;margin:6px 0 10px;line-height:1.5;}
+  .imp-side{border:1px solid var(--line);border-radius:5px;padding:9px 10px;margin:10px 0;background:var(--panel2);}
+  .imp-cont{margin-top:8px;padding-left:8px;border-left:2px solid var(--line);}
+  .imp-cmdr{font-size:12px;color:var(--muted);font-style:italic;margin:4px 0 6px;}
+  .imp-line{padding:5px 0 6px;border-bottom:1px dotted var(--line);}
+  .imp-line.guess{background:rgba(201,123,46,.09);}
+  .imp-row1{display:grid;grid-template-columns:1fr 84px;gap:5px;margin-bottom:4px;}
+  .imp-row2{display:grid;grid-template-columns:1.2fr 1fr 70px;gap:5px;align-items:center;}
+  .imp-row1 input,.imp-row2 input,.imp-row2 select{padding:4px 6px;font-size:12px;}
+  .imp-res{grid-column:1 / -1;font-family:'Courier New',monospace;font-size:11px;color:var(--brass);}
+  .imp-guess{margin-top:3px;color:#E0A060;}
+  .imp-cmdsel{margin-top:4px;padding:4px 6px;font-size:12px;}
+  .imp-total{font-family:'Courier New',monospace;font-size:12px;color:#B8B29E;margin:10px 0 4px;line-height:1.5;}
+  .imp-total b{color:var(--brass);font-weight:400;}
+  /* ── шаблоны отрядов ── */
+  .draft{display:inline-block;font-size:10px;color:#14181A;background:#C97B2E;border-radius:3px;
+    padding:1px 6px;margin-left:6px;vertical-align:middle;letter-spacing:.02em;}
+  .tpl-row{display:grid;grid-template-columns:minmax(92px,1.6fr) repeat(7,minmax(32px,1fr));gap:3px;
+    align-items:center;margin-bottom:3px;}
+  .tpl-head span{font-family:'Arial Narrow',sans-serif;font-size:10px;color:var(--muted);text-transform:uppercase;text-align:center;}
+  .tpl-head span:first-child{text-align:left;}
+  .tpl-name{font-family:'Arial Narrow',sans-serif;font-size:12px;line-height:1.15;cursor:help;}
+  .tpl-name em{display:block;font-style:normal;font-size:10px;color:var(--muted);text-transform:uppercase;}
+  .tpl-row input{padding:3px 2px;font-size:11px;text-align:center;-moz-appearance:textfield;}
+  .tpl-row input::-webkit-outer-spin-button,.tpl-row input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .tpl-row input.ovr{border-color:var(--brass);color:#E0C34A;}
+  /* ── редактор карты ── */
+  body.noscroll{overflow:hidden;}
+  .editor{position:fixed;inset:0;z-index:500;background:var(--bg);display:grid;grid-template-columns:310px 1fr;}
+  .editor.hidden{display:none;}
+  .ed-side{overflow-y:auto;padding:14px;border-right:1px solid var(--line);background:var(--panel);}
+  .ed-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}
+  .ed-head h2{margin:0;font-size:16px;color:var(--brass);text-transform:uppercase;}
+  .ed-sec{border-top:1px solid var(--line);padding-top:10px;margin-top:10px;}
+  .ed-sec h3{font-family:'Arial Narrow',sans-serif;font-size:12px;color:var(--muted);text-transform:uppercase;
+    margin:0 0 6px;letter-spacing:.04em;}
+  .ed-info{font-family:'Courier New',monospace;font-size:12px;color:#B8B29E;margin-bottom:6px;}
+  .ed-tools{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;}
+  .ed-grp{font-size:10px;color:var(--muted);text-transform:uppercase;margin:8px 0 3px;font-family:'Arial Narrow',sans-serif;}
+  .ed-pal{display:grid;grid-template-columns:1fr 1fr;gap:3px;}
+  .ed-sw{display:flex;align-items:center;gap:6px;text-transform:none;font-family:Georgia,serif;font-weight:400;
+    font-size:12px;padding:4px 6px;letter-spacing:0;text-align:left;}
+  .ed-sw i{width:14px;height:14px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.45);}
+  .ed-sw.on{border-color:var(--brass);background:#33403C;color:#FFF3C4;}
+  .ed-size{display:grid;grid-template-columns:1fr 70px;gap:6px;align-items:center;}
+  .ed-view{position:relative;overflow:hidden;background:#0E1112;cursor:crosshair;}
+  .ed-cursor{position:absolute;border:1px solid rgba(255,255,255,.9);border-radius:50%;pointer-events:none;
+    box-shadow:0 0 0 1px rgba(0,0,0,.6);transform:translate(-50%,-50%);display:none;z-index:5;}
+  .ed-shape{position:absolute;pointer-events:none;border:2px dashed var(--brass);display:none;z-index:5;}
+  .ed-status{position:absolute;left:8px;bottom:8px;z-index:6;font-family:'Courier New',monospace;font-size:11px;
+    color:#E6E0CC;background:rgba(14,17,18,.8);border-radius:3px;padding:3px 7px;pointer-events:none;}
+  .ed-status:empty{display:none;}
+  .mr-sub{margin-left:24px;padding-left:10px;border-left:2px solid var(--line);}
+  .mr-sub.off{opacity:.45;pointer-events:none;}
+  #mapRulesBtn.on{border-color:#C97B2E;color:#F0C080;background:#3A2E1E;}
+  .tdisc.scaled{border-radius:1px;border-width:1px;box-shadow:0 1px 3px rgba(0,0,0,.7);}
+  .tdisc.scaled .tinit{font-size:9px;}
+  .targethint.ok{border-color:var(--green);color:#A8C888;}
+  .mapwrap.targeting .token.far-target{opacity:.5;}
+  .mapwrap.targeting .token.far-target .tdisc{box-shadow:0 0 0 3px #8A8A8A !important;}
+  .calibdot{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#E0C34A;
+    border:2px solid #14181A;z-index:70;pointer-events:none;}
+  .ed-librow{display:flex;align-items:center;gap:4px;font-size:12px;padding:3px 0;border-bottom:1px dotted var(--line);}
+  .ed-librow span{flex:1;}
+  .ed-librow em{color:var(--muted);font-style:normal;font-size:10px;display:block;font-family:'Courier New',monospace;}
+  .ed-genp{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0;align-items:end;}
+  .ed-genp .chk{grid-column:span 2;}
+  .ed-libsave{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -275,10 +355,32 @@
     <select id="rulesetSel" onchange="onRulesetChange()" title="Набор правил" style="width:auto"></select>
     <button class="gold" onclick="endTurn()">Конец хода</button>
     <button id="undoBtn" onclick="undo()">↶ Откатить</button>
+    <button id="mapRulesBtn" onclick="toggleMapRules()" title="Правила карты — черновик до ГМа">🗺 Правила карты: выкл</button>
     <button onclick="toggleNews()">Что нового</button>
     <button onclick="toggleRef()">Справка</button>
     <button class="red" onclick="resetAll()">Сбросить всё</button>
   </div>
+</div>
+
+<div class="panel hidden" id="mapRulesPanel" style="margin-bottom:16px">
+  <h2>Правила карты <span class="draft">черновик до ГМа</span></h2>
+  <label class="chk mb8"><input type="checkbox" id="mr_on" onchange="setMapRule('on', this.checked)">
+    <b>Включить правила карты</b> — расстояния в метрах, фишки в настоящем масштабе</label>
+  <div class="mr-sub" id="mrSub">
+    <label class="chk mb8"><input type="checkbox" id="mr_terrain" onchange="setMapRule('terrain', this.checked)">
+      Местность и высота в бою — режим боя по местности под целью, укрытие от стрел, удар сверху вниз +20% / снизу вверх −10%, усталость на песке ×2 и снегу ×1,5, натиск в лес, болото и брод невозможен</label>
+    <label class="chk mb8"><input type="checkbox" id="mr_move" onchange="setMapRule('move', this.checked)">
+      Движение — за ход пехота 100 м, пикинёры 80, конница 250, конные стрелки 300; местность и подъём дороже; зона досягаемости при перетаскивании; сверх нормы — запись в журнал; натиску нужен разбег 50 м</label>
+    <label class="chk mb8"><input type="checkbox" id="mr_range" onchange="setMapRule('range', this.checked)">
+      Дальности — лучники 200 м, конные стрелки 150 м (+10% за уровень высоты), ближний бой только вплотную; цели дальше — серые, атака по решению мастера</label>
+    <label class="chk mb8"><input type="checkbox" id="mr_panic" onchange="setMapRule('panic', this.checked)">
+      Каскадная паника — отряд побежал, и свои в радиусе 150 м (первое кольцо — только кто видел) бросают проверку на побег d100 ≤ дисциплина; побежавший запускает проверку у своих соседей; каждый — раз за волну</label>
+    <div class="mr-sub">
+      <label class="chk mb8"><input type="checkbox" id="mr_panicMorale" onchange="setMapRule('panicMorale', this.checked)">
+        −100 БД вместе с проверкой («побег ближних отрядов»)</label>
+    </div>
+  </div>
+  <div class="hint">Все числа — черновик для ГМа (таблица в SPEC, раздел 6а). Выключено — трекер считает ровно как v30.1: фишки-значки, местность только рисунок. Положение переключателей хранится в партии. Волна паники — одна запись журнала и откатывается вместе с побегом, который её вызвал.</div>
 </div>
 
 <div class="panel hidden" id="newsPanel" style="margin-bottom:16px">
@@ -311,6 +413,9 @@
     <button class="red" onclick="clearMapImage()">Убрать карту</button>
     <div class="grp"><label class="chk"><input type="checkbox" id="mapGrid" onchange="renderMap()"> Сетка</label></div>
     <div class="grp"><label class="chk"><input type="checkbox" id="mapSnap"> Привязка к сетке</label></div>
+    <div class="grp"><label>Ширина карты, м</label>
+      <input id="mapWidthM" type="number" value="2000" min="50" max="50000" step="50" style="width:90px" onchange="setMapWidth(this.value)"></div>
+    <button class="sm" id="calibBtn" onclick="startCalibrate()" title="Отметить на карте две точки и сказать, сколько между ними метров">📏 По двум точкам</button>
     <div class="grp"><label>Клеток по ширине</label>
       <input id="mapCells" type="number" value="20" min="4" max="80" style="width:70px" onchange="renderMap()"></div>
     <div class="grp"><label>Размер фишек</label>
@@ -321,15 +426,27 @@
         <option value="rough">Пересечённая местность</option>
       </select></div>
     <button onclick="clearTokens()">Убрать все фишки</button>
+    <button class="gold" onclick="openEditor()">✎ Редактор карты</button>
+    <div class="grp">
+      <button class="sm" onclick="zoomBattle(1/1.5)" title="Отдалить">−</button>
+      <button class="sm" onclick="zoomBattle(1.5)" title="Приблизить">+</button>
+      <button class="sm" onclick="fitBattle()" title="Показать всю карту">Вся карта</button>
+    </div>
   </div>
   <div class="mapwrap" id="mapWrap">
     <div class="mapempty" id="mapEmpty">Карта не загружена. Нажми «Загрузить карту» и выбери изображение поля боя — потом расставь фишки отрядов.</div>
-    <img id="mapImg" class="hidden" alt="">
-    <div class="gridover hidden" id="gridOver"></div>
-    <div class="tokenlayer" id="tokenLayer"></div>
+    <div class="mapstage" id="mapStage"><img id="mapImg" class="hidden" alt=""></div>
+    <canvas class="terraincv" id="terrainCanvas"></canvas>
+    <canvas class="terraincv" id="reachCanvas"></canvas>
+    <div class="mapstage" id="mapTop">
+      <div class="gridover hidden" id="gridOver"></div>
+      <div class="tokenlayer" id="tokenLayer"></div>
+    </div>
+    <div id="mapHint"></div>
+    <div class="mapzoom hidden" id="mapZoom"></div>
   </div>
-  <div class="hint">Наведи курсор на фишку — увидишь полное название и характеристики. Клик по фишке открывает меню отряда: атака, ход, проверки. Тип боя выбирается в меню фишки на каждую атаку отдельно: строй или пересечённая местность, с натиском или без. Переключатель «Местность по умолчанию» задаёт лишь начальный вариант. Фишки перетаскиваются мышью; выделенная группа двигается целиком. Зажми ЛКМ на пустом месте карты и протяни рамку, чтобы выделить сразу много отрядов (Shift — добавить к выделению).</div>
-  <div class="hint" style="margin-top:8px">Формы фишек по типу войск: ■ квадрат — пехота · ▬ прямоугольник — кавалерия · ▲ треугольник — лучники · ⌂ пятиугольник — пикинёры. Стрелка показывает, куда смотрит отряд: поворот — колесом мыши над фишкой (Shift — шаг 5°) или кнопками в меню. Размер отдельной фишки — Ctrl + колесо над ней или кнопки «Меньше / Больше» в меню; поле «Размер фишек» в панели задаёт общий базовый размер. Удар во фланг или в тыл лишает цель ответного удара. Бегущий отряд чернеет, но остаётся уязвимым.</div>
+  <div class="hint">Наведи курсор на фишку — увидишь полное название и характеристики. Клик по фишке открывает меню отряда: атака, ход, проверки. Тип боя выбирается в меню фишки на каждую атаку отдельно: строй или пересечённая местность, с натиском или без. Переключатель «Местность по умолчанию» задаёт лишь начальный вариант. Фишки перетаскиваются мышью; выделенная группа двигается целиком. Зажми ЛКМ на пустом месте карты и протяни рамку, чтобы выделить сразу много отрядов (Shift — добавить к выделению). Колесо над пустым местом приближает карту, правая кнопка (или пробел + левая) сдвигает её.</div>
+  <div class="hint" style="margin-top:8px">Формы фишек по типу войск: ■ квадрат — пехота · ▬ прямоугольник — кавалерия · ▲ треугольник — лучники · ⌂ пятиугольник — пикинёры. Стрелка показывает, куда смотрит отряд: поворот — колесом мыши над фишкой (Shift — шаг 5°) или кнопками в меню. Размер отдельной фишки — кнопки «Меньше / Больше» в её меню; поле «Размер фишек» в панели задаёт общий базовый размер. Удар во фланг или в тыл лишает цель ответного удара. Бегущий отряд чернеет, но остаётся уязвимым.</div>
   <div class="selbar hidden" id="selBar"></div>
   <div class="chiprow" id="unplacedRow"></div>
 </details>
@@ -402,6 +519,34 @@
       </div>
       <div class="hint" id="battleHint">Выбери фракцию и подфракцию для обеих сторон — списки отрядов появятся ниже.</div>
     </div>
+
+    <details class="panel" id="importPanel" style="margin-top:12px">
+      <summary>Сбор армий из текста</summary>
+      <textarea id="importText" rows="8" placeholder="Вставь «Силы сторон» из отчёта о битве, например:
+
+Красные Кольчуги,
+&quot;Бог войны&quot; Король Генрих Файрлайн
+18.000 всадников Красных Кольчуг
+VS
+Магистр ордена, сир Персиваль
+7.000 солдат ополчения Сильварейнов"></textarea>
+      <div class="btnrow">
+        <button class="gold" onclick="parseImport()">Разобрать</button>
+        <button onclick="clearImport()">Очистить</button>
+      </div>
+      <div id="importPreview"></div>
+      <div class="hint">Формат как в отчётах о битвах. Строка с запятой в конце — фракция; строка без числа — полководец, он командует отрядами ниже; «18.000 всадников …» — войска; «+» — союзники той же стороны, они станут подфракцией; «VS» — следующая сторона; «=» — итог стороны, он сверяется с суммой. Если в тексте есть «Силы сторон», разбор начнётся после них и остановится на «Ход боя» или «Убитые». Перед сбором всё правится: названия, численность, шаблон, тип и размер отряда. Сбор откатывается одной кнопкой «Откатить».</div>
+    </details>
+
+    <details class="panel" id="tplPanel" style="margin-top:12px">
+      <summary>Шаблоны отрядов <span class="draft">черновик до ГМа</span></summary>
+      <div class="frow2" style="align-items:end">
+        <div><label>Для кого</label><select id="tplScope" onchange="renderTemplates()"></select></div>
+        <div><button id="tplResetBtn" onclick="resetTplScope()" style="width:100%">Сбросить правки</button></div>
+      </div>
+      <div id="tplTable"></div>
+      <div class="hint">С этими характеристиками встают отряды, собранные из текста. База посчитана по сохранению armiya_hod1: медиана по отрядам каждой категории (наведи курсор на название шаблона — увидишь, по каким). «Все фракции» меняет базу этой партии, выбранная фракция — только её отряды: например, Кольчугам — конные рыцари с дисциплиной 80. Изменённое подсвечено; пустое поле возвращает прежнее значение. Уже стоящих отрядов правки не касаются.</div>
+    </details>
 
     <details class="panel" style="margin-top:12px" open>
       <summary>Фракции и подфракции</summary>
@@ -477,6 +622,47 @@
       <div class="hint" style="margin-top:0;margin-bottom:8px">Формулы расчёта свёрнуты: наведи курсор на запись или кликни по ней, чтобы раскрыть.</div>
       <div class="log" id="logList"></div>
     </div>
+  </div>
+</div>
+
+<div class="editor hidden" id="mapEditor">
+  <div class="ed-side">
+    <div class="ed-head"><h2>Редактор карты</h2><button class="gold" onclick="closeEditor()">Готово</button></div>
+    <div id="edMapInfo"></div>
+    <div class="ed-sec">
+      <h3>Шаблоны карт</h3>
+      <div id="edGen"></div>
+    </div>
+    <div class="ed-sec">
+      <h3>Инструмент</h3>
+      <div class="ed-tools" id="edTools"></div>
+      <label>Размер кисти, толщина линии и контура, м</label>
+      <div class="ed-size">
+        <input type="range" id="edSize" min="5" max="300" step="5" oninput="edSetSize(this.value)">
+        <input type="number" id="edSizeNum" min="5" max="1000" step="5" onchange="edSetSize(this.value)">
+      </div>
+      <label class="chk" id="edOutlineRow" style="margin-top:6px"><input type="checkbox" id="edOutline" onchange="ed.outline = this.checked"> Прямоугольник — только контур (стены)</label>
+      <div class="btnrow"><button class="sm" onclick="undo()">↶ Откатить мазок</button></div>
+    </div>
+    <div class="ed-sec">
+      <h3>Слой</h3>
+      <div class="ed-tools" id="edLayers"></div>
+      <div id="edPalette"></div>
+    </div>
+    <div class="ed-sec">
+      <h3>Свои шаблоны</h3>
+      <div id="edLibrary"></div>
+      <input type="file" id="edLibFile" class="hidden" accept=".json,.txt" onchange="libImport(event)">
+    </div>
+    <div class="hint">Левая кнопка — рисовать, колесо — приблизить, правая кнопка или пробел + левая — сдвинуть. Каждый мазок откатывается отдельно (Ctrl+Z). Клетка — 5 × 5 м. Высота — отдельный слой: лес на холме остаётся лесом.</div>
+  </div>
+  <div class="ed-view" id="edWrap">
+    <div class="mapstage" id="edStage"><img id="edImg" class="hidden" alt=""></div>
+    <canvas class="terraincv" id="edCanvas"></canvas>
+    <div class="mapstage" id="edTop"></div>
+    <div class="ed-cursor" id="edCursor"></div>
+    <div class="ed-shape" id="edShape"></div>
+    <div class="ed-status" id="edStatus"></div>
   </div>
 </div>
 

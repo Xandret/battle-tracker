@@ -9,12 +9,13 @@ const read = p => fs.readFileSync(new URL(p, ROOT), "utf8");
 const pkg = JSON.parse(read("package.json"));
 
 // Порядок важен: модуль может использовать только то, что объявлено выше.
-const ENGINE_FILES = ["util.js", "rules.js", "units.js", "morale.js", "combat.js", "turn.js"];
+const ENGINE_FILES = ["util.js", "rules.js", "units.js", "morale.js", "combat.js", "turn.js",
+                      "templates.js", "muster.js", "terrain.js", "mapgen.js", "battlemap.js", "panic.js"];
 
 const RELEASE = {
   version: pkg.version.replace(/\.0$/, ""),     // 30.0.0 → 30.0
   update: "Пушки и крепости",
-  patch: "Фундамент",
+  patch: "Паника",
 };
 
 function bundleEngine(){

@@ -11,8 +11,11 @@ export function endTurn(units, ctx){
       p.turnsActive = p.turnsActive + 1;
       const threshold = p.discipline >= F.eliteDisc ? F.eliteThreshold : F.threshold;
       if(p.turnsActive > threshold && p.fatigue < F.max){
-        p.fatigue = Math.min(F.max, p.fatigue + F.step);
-        L.push(`${u.name}: усталость +${F.step} → ${p.fatigue}`);
+        // ctx.fatigueMult — черновик карты (6а): песок, снег; не передан — шаг как в v29
+        const fm = ctx.fatigueMult ? ctx.fatigueMult(u) : null;
+        const step = fm ? Math.round(F.step * fm.mult) : F.step;
+        p.fatigue = Math.min(F.max, p.fatigue + step);
+        L.push(`${u.name}: усталость +${step} → ${p.fatigue}${fm ? ` (${fm.name.toLowerCase()} ×${fm.mult} · черновик)` : ""}`);
       }
       p.acted = false;
     }

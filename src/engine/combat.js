@@ -26,7 +26,9 @@ export function effStats(u, mode, L, ctx){
 }
 
 // Один удар att → def. Броски: d(численность атакующего), затем d(летальность), если есть потери.
-export function computeStrike(att, def, opts, L, ctx, isCharge, extraMult, extraNote, sector){
+// mapMod — модификаторы карты для этого удара (черновик 6а, только при включённых «Правилах карты»):
+// mult — высота в ближнем бою, coverPct — укрытие цели от стрел. Нет mapMod — расчёт ровно как v29.
+export function computeStrike(att, def, opts, L, ctx, isCharge, extraMult, extraNote, sector, mapMod){
   const R = ctx.rules;
   const A = effStats(att, opts.mode, L, ctx);
   const D = effStats(def, opts.mode, L, ctx);
@@ -95,6 +97,12 @@ export function computeStrike(att, def, opts, L, ctx, isCharge, extraMult, extra
     L.push(`${extraNote || "Особый модификатор"}: ×${extraMult} (${r1(before)} → ${r1(dmg)})`);
   }
 
+  if(mapMod && mapMod.mult && mapMod.mult !== 1 && isMeleeMode(opts.mode)){
+    const before = dmg;
+    dmg *= mapMod.mult;
+    L.push(`${mapMod.note}: ${mapMod.mult > 1 ? "+" : "−"}${Math.round(Math.abs(mapMod.mult - 1) * 100)}% урона (${r1(before)} → ${r1(dmg)}) · черновик`);
+  }
+
   if(A.cmdr && A.cmdr.buffDmg){
     const before = dmg;
     dmg *= 1 + A.cmdr.buffDmg/100;
@@ -129,6 +137,12 @@ export function computeStrike(att, def, opts, L, ctx, isCharge, extraMult, extra
     const before = dmg;
     dmg *= 1 - opts.sitPct/100;
     L.push(`Ситуативный модификатор: −${opts.sitPct}% от итогового урона (${r1(before)} → ${r1(dmg)})`);
+  }
+
+  if(mapMod && mapMod.coverPct > 0 && !isMeleeMode(opts.mode)){
+    const before = dmg;
+    dmg *= 1 - mapMod.coverPct/100;
+    L.push(`${mapMod.coverNote}: −${mapMod.coverPct}% от итогового урона (${r1(before)} → ${r1(dmg)}) · черновик`);
   }
 
   const casualties = Math.min(def.soldiers, Math.max(0, Math.round(dmg)));
@@ -197,8 +211,12 @@ export function resolveBattle(A, B, req, ctx){
 
   const opts = { mode: req.mode, sitPct: clamp(+req.sitPct || 0, 0, 100), fatigueMode: req.fatigueMode };
   const mutual = !!req.mutual;
-  const charge = !!req.charge && A.type === "cavalry" && isMeleeMode(opts.mode);
-  const counterCharge = !!req.counterCharge && B.type === "cavalry" && isMeleeMode(opts.mode) && B.status === "active";
+  // Модификаторы карты (battlemap.mapModsFor) — только при включённых «Правилах карты»;
+  // noCharge — причина, по которой натиска нет (местность, нет разбега)
+  const MM = req.mapMods || null;
+  const chargeBlocked = !!(MM && MM.noCharge);
+  const charge = !!req.charge && !chargeBlocked && A.type === "cavalry" && isMeleeMode(opts.mode);
+  const counterCharge = !!req.counterCharge && !chargeBlocked && B.type === "cavalry" && isMeleeMode(opts.mode) && B.status === "active";
 
   const A0 = Object.assign({}, A);
   const B0 = Object.assign({}, B);
@@ -215,6 +233,11 @@ export function resolveBattle(A, B, req, ctx){
   if(A.onMap && B.onMap){
     L.push(`Направление удара: ${SECTOR_RU[sector]} (фасинг «${B0.name}»: ${Math.round(B0.facing || 0)}°)`);
   }
+  if(MM){
+    MM.notes.forEach(n => L.push(n));
+    if(chargeBlocked && (req.charge || req.counterCharge) && isMeleeMode(opts.mode))
+      L.push(`🐎 Натиск невозможен — ${MM.noCharge} · черновик`);
+  }
   let effCharge = charge;
   if(pikeStop){
     if(charge){
@@ -226,7 +249,7 @@ export function resolveBattle(A, B, req, ctx){
   }
 
   L.push(`—— Удар: ${A0.name} → ${B0.name} ——`);
-  const resB = computeStrike(A0, B0, opts, L, ctx, effCharge, 1, "", sector);
+  const resB = computeStrike(A0, B0, opts, L, ctx, effCharge, 1, "", sector, MM ? MM.ab : null);
 
   let counter = mutual;
   let noCounterReason = "";
@@ -267,7 +290,7 @@ export function resolveBattle(A, B, req, ctx){
         ? `—— Встречный удар с натиском: ${B0.name} → ${A0.name} (по численности до потерь) ——`
         : `—— Ответный удар: ${B0.name} → ${A0.name} (по численности до потерь) ——`);
     resA = computeStrike(B0, A0, opts, L, ctx, counterCharge, pikeStop ? R.pikeCounterMult : 1,
-      pikeStop ? `🛡 Копья против конского строя: +${(R.pikeCounterMult - 1) * 100}% урона` : "", "front");
+      pikeStop ? `🛡 Копья против конского строя: +${(R.pikeCounterMult - 1) * 100}% урона` : "", "front", MM ? MM.ba : null);
   } else if(mutual && noCounterReason){
     L.push(`—— Без ответного удара ——`);
     L.push(noCounterReason);

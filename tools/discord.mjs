@@ -20,16 +20,21 @@ for(const line of md.split("\n")){
 }
 if(cur.length) blocks.push(cur.join("\n"));
 
-// 2. Жадно собираем части, оставляя запас под подпись
+// 2. Жадно собираем части, оставляя запас под подпись.
+// Каждая запись («# …» — новый патч или история) начинается с новой части:
+// тогда часть 1 — это ровно свежий патч, его и выкладываем.
 const RESERVE = 60;
 const parts = [];
 let buf = "";
 for(const b of blocks){
   if(b.length > LIMIT - RESERVE) throw new Error("раздел длиннее лимита Discord: " + b.slice(0, 60));
-  if((buf + "\n\n" + b).length > LIMIT - RESERVE && buf){ parts.push(buf); buf = b; }
+  const newEntry = /^# /.test(b);
+  if(buf && (newEntry || (buf + "\n\n" + b).length > LIMIT - RESERVE)){ parts.push(buf); buf = b; }
   else buf = buf ? buf + "\n\n" + b : b;
 }
 if(buf) parts.push(buf);
+// «---» между записями Discord показывает как текст — в конце части он не нужен
+for(let i = 0; i < parts.length; i++) parts[i] = parts[i].replace(/\n+---\s*$/, "");
 
 const dir = new URL("dist/discord/", ROOT);
 fs.rmSync(dir, { recursive: true, force: true });

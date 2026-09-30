@@ -37,6 +37,39 @@ export function graceByDisc(d, rules = BASE_RULES){
   return 0;
 }
 
+// ── Тип войск по названию отряда ──
+// Раньше жило в интерфейсе; перенесено в движок, потому что им пользуется импорт армий из текста,
+// а импорт должен проверяться тестами без браузера.
+export const TYPE_KEYWORDS = {
+  archer: ["лучник","лучниц","стрелк","стрелец","стрельц","арбалетчик","арбалетч","арбалетр",
+           "пращник","пращ","застрельщик","застрельщ","охотник","егер","мушкетёр","мушкетер",
+           "аркебуз","снайпер","метател","дротикомет","самура","самурай","йомен","лонгбоу"],
+  cavalry:["кавалер","конниц","конн","всадник","наездник","рыцар","драгун","гусар","улан",
+           "кирасир","катафракт","жандарм","ездов","верхов","витяз","паладин","сипах","мамлюк","роххирим","рохирим","рохиррим","роханц","степняк","орда"],
+  pike:   ["пикинёр","пикинер","пикейщ","копейщ","копьеносц","копьенос","сарисс","фаланг",
+           "алебард","бердыш","протазан","гвардейц с пиками"],
+  infantry:["пехот","ополчен","ополчение","мечник","дружин","стража","стражник","гвард","воин",
+            "латник","секирщ","топорщ","щитоносц","легионер","берсерк","наёмник","наемник","солдат",
+            "крестьян","горц"],
+};
+export const HORSE_ARCHERS = ["роххирим","рохирим","рохиррим","конные лучник","конных лучник","степняк","орда","всадники-лучник"];
+// «Пешие рыцари», «пешие солдаты»: слово «пеш…» отменяет кавалерию, которую подсказал бы «рыцарь».
+// Только с начала слова — иначе «Рыцари Цепешей» стали бы пехотой.
+export const FOOT_RE = /(^|[^а-яa-z])пеш/;
+export function guessUnitType(name){
+  const n = (name || "").toLowerCase().replace(/ё/g, "е");
+  if(HORSE_ARCHERS.some(w => n.includes(w))) return {type:"cavalry", weapon:"ranged", why:"конные лучники"};
+  const hit = key => TYPE_KEYWORDS[key].some(w => n.includes(w.replace(/ё/g, "е")));
+  const isFoot = FOOT_RE.test(n);
+  const isArcher = hit("archer"), isCav = !isFoot && hit("cavalry"), isPike = hit("pike");
+  if(isCav && isArcher) return {type:"cavalry", weapon:"ranged", why:"конные стрелки"};
+  if(isCav)    return {type:"cavalry",  weapon:"melee",  why:"кавалерия"};
+  if(isPike)   return {type:"pike",     weapon:"melee",  why:"пикинёры"};
+  if(isArcher) return {type:"archer",   weapon:"ranged", why:"лучники"};
+  if(isFoot || hit("infantry")) return {type:"infantry", weapon:"melee", why: isFoot ? "пешие" : "пехота"};
+  return null;
+}
+
 export const isCav = u => u.type === "cavalry";
 export const isPike = u => u.type === "pike";
 export const isArcherType = u => u.type === "archer";

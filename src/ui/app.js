@@ -3,7 +3,7 @@
 // ═══════════ связь с движком ═══════════
 // Всё боевое — в Engine (src/engine). Здесь только псевдонимы, чтобы интерфейсный код остался читаемым.
 const { clamp, r1, MODES, isMeleeMode, moraleStage, discStage, isCav, isPike, isArcherType,
-        canBeTargeted, SECTOR_RU, getRules, RULESETS, PLANNED_RULESETS } = Engine;
+        canBeTargeted, SECTOR_RU, getRules, RULESETS, PLANNED_RULESETS, guessUnitType } = Engine;
 let ruleset = "base";
 const currentRules = () => getRules(ruleset);
 const attackLimit  = u => Engine.attackLimit(u, currentRules());
@@ -11,21 +11,29 @@ const counterLimit = u => Engine.counterLimit(u, currentRules());
 const attackSector = (a, b) => Engine.attackSector(a, b, currentRules());
 const graceByDisc  = d => Engine.graceByDisc(d, currentRules());
 function engineCtx(){
-  return {
+  const ctx = {
     rules: currentRules(),
     rng: Math.random,
     commanderOf: u => getCmdr(u),
     factionName: id => factionName(id),
   };
+  // черновик карты (6а): на песке и снегу усталость копится быстрее — только при включённых правилах
+  if(terrainActive()) ctx.fatigueMult = u => u.onMap ? Engine.fatigueMultFor(u, mapGeo(), currentRules()) : null;
+  return ctx;
 }
 
 // ═══════════ состояние ═══════════
 let units = [], factions = [], subfactions = [], commanders = [], log = [];
 let turn = 1, nextId = 1, editingId = null;
 let collapsedGroups = {}, expandedUnits = {}, undoStack = [];
-let mapImage = null, mapOpts = {grid:false, snap:false, cells:20, tokenSize:42};
+let mapImage = null, mapOpts = {grid:false, snap:false, cells:20, tokenSize:42, widthM:2000};
+// Правила карты (К10, К26): общий переключатель и по одному на правило; всё — черновик до ГМа
+const MAP_RULES_DEFAULT = {on: false, terrain: true, move: true, range: true, panic: true, panicMorale: false};
+let mapRules = Object.assign({}, MAP_RULES_DEFAULT);
 let mapAttackerId = null, mapCharge = false, openMenuId = null, mapModeOverride = null;
 let selectedTokens = {};
+let templateOverrides = Engine.normalizeOverrides(null);   // правки шаблонов отрядов: {base, factions}
+let importDraft = null;                                    // предпросмотр импорта армий (не сохраняется)
 const LS_KEY = "battle_tracker_v13";
 const UNDO_MAX = 30;
 
@@ -35,31 +43,7 @@ const DEFAULT_COLOR = "#C9A227";
 
 
 const TYPE_NAMES = {infantry:"Пехота", cavalry:"Кавалерия", archer:"Лучники", pike:"Пикинёры"};
-// ключевые слова для автоопределения типа войск по названию отряда
-const TYPE_KEYWORDS = {
-  archer: ["лучник","лучниц","стрелк","стрелец","стрельц","арбалетчик","арбалетч","арбалетр",
-           "пращник","пращ","застрельщик","застрельщ","охотник","егер","мушкетёр","мушкетер",
-           "аркебуз","снайпер","метател","дротикомет","самура","самурай","йомен","лонгбоу"],
-  cavalry:["кавалер","конниц","конн","всадник","наездник","рыцар","драгун","гусар","улан",
-           "кирасир","катафракт","жандарм","ездов","верхов","витяз","паладин","сипах","мамлюк","роххирим","рохирим","рохиррим","роханц","степняк","орда"],
-  pike:   ["пикинёр","пикинер","пикейщ","копейщ","копьеносц","копьенос","сарисс","фаланг",
-           "алебард","бердыш","протазан","гвардейц с пиками"],
-  infantry:["пехот","ополчен","ополчение","мечник","дружин","стража","стражник","гвард","воин",
-            "латник","секирщ","топорщ","щитоносц","легионер","берсерк","наёмник","наемник","солдат"],
-};
-const HORSE_ARCHERS = ["роххирим","рохирим","рохиррим","конные лучник","конных лучник","степняк","орда","всадники-лучник"];
-function guessUnitType(name){
-  const n = (name || "").toLowerCase().replace(/ё/g, "е");
-  if(HORSE_ARCHERS.some(w => n.includes(w))) return {type:"cavalry", weapon:"ranged", why:"конные лучники"};
-  const hit = key => TYPE_KEYWORDS[key].some(w => n.includes(w.replace(/ё/g, "е")));
-  const isArcher = hit("archer"), isCav = hit("cavalry"), isPike = hit("pike");
-  if(isCav && isArcher) return {type:"cavalry", weapon:"ranged", why:"конные стрелки"};
-  if(isCav)    return {type:"cavalry",  weapon:"melee",  why:"кавалерия"};
-  if(isPike)   return {type:"pike",     weapon:"melee",  why:"пикинёры"};
-  if(isArcher) return {type:"archer",   weapon:"ranged", why:"лучники"};
-  if(hit("infantry")) return {type:"infantry", weapon:"melee", why:"пехота"};
-  return null;
-}
+// тип войск по названию — Engine.guessUnitType (src/engine/units.js)
 const TYPE_SHAPE = {infantry:"sq", cavalry:"rect", archer:"tri", pike:"pent"};
 function tokenShape(u){
   return TYPE_SHAPE[u.type] || (u.weapon === "ranged" ? "tri" : "sq");
@@ -89,12 +73,13 @@ function readMapOpts(){
     cells: clamp(+$("mapCells").value || 20, 4, 80),
     tokenSize: clamp(+$("tokenSize").value || 42, 16, 120),
     terrain: $("mapTerrain") ? $("mapTerrain").value : "form",
+    widthM: clamp(+(mapOpts.widthM) || 2000, 50, 50000),
   };
   return mapOpts;
 }
 function stateObj(){
   return {factions, subfactions, commanders, units, log: log.slice(0,300), turn, nextId, ruleset,
-          mapImage, mapOpts: readMapOpts()};
+          templateOverrides, battleMap: Engine.serializeTerrain(terrainMap), mapRules, mapImage, mapOpts: readMapOpts()};
 }
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(stateObj())); }
@@ -113,10 +98,16 @@ function applyLoadedState(s){
   units = (s.units || []).map(u => Object.assign(
     {weapon:"melee", factionId:null, subfactionId:null, commanderId:null,
      acted:false, attacksMade:0, countersMade:0, totKilled:0, totWounded:0,
-     onMap:false, mapX:50, mapY:50, facing:0, breakPenalty:0, tokenScale:1}, u));
+     onMap:false, mapX:50, mapY:50, facing:0, breakPenalty:0, tokenScale:1, movedM:0, runUpM:0, range:0}, u));
   log = s.log || []; turn = s.turn || 1; nextId = s.nextId || 1;
   ruleset = RULESETS[s.ruleset] ? s.ruleset : "base";
   if($("rulesetSel")) $("rulesetSel").value = ruleset;
+  // до v30.1 шаблонов в сохранении нет — остаются базовые
+  templateOverrides = Engine.normalizeOverrides(s.templateOverrides);
+  // до v30.3 местности нет; битая — не мешает открыть партию
+  terrainMap = Engine.deserializeTerrain(s.battleMap); terrainVersion++;
+  // до v30.5 правил карты нет — выключены
+  mapRules = Object.assign({}, MAP_RULES_DEFAULT, s.mapRules && typeof s.mapRules === "object" ? s.mapRules : {});
   mapImage = s.mapImage || null;
   if(s.mapOpts) mapOpts = Object.assign(mapOpts, s.mapOpts);
   if($("mapGrid")){
@@ -156,11 +147,13 @@ function renderUndoBtn(){
   b.title = last ? `Отменить: ${last.label}` : "Нечего откатывать";
 }
 function resetAll(){
-  if(!confirm("Стереть все фракции, подфракции, полководцев, юниты и журнал?")) return;
+  if(!confirm("Стереть все фракции, подфракции, полководцев, юниты и журнал? Шаблоны отрядов и их правки сохранятся.")) return;
   units = []; factions = []; subfactions = []; commanders = []; log = [];
   turn = 1; nextId = 1; undoStack = []; mapImage = null;
+  terrainMap = null; terrainVersion++;
   localStorage.removeItem(LS_KEY);
   renderAll(); renderUndoBtn();
+  saveState();   // шаблоны переживают сброс — это настройки, а не партия
 }
 
 // ═══════════ файлы ═══════════
@@ -222,7 +215,7 @@ function importUnitJson(ev){
         const u = {
           id: nextId++,
           name: String(d.name),
-          type: d.type === "cavalry" ? "cavalry" : "infantry",
+          type: TYPE_NAMES[d.type] ? d.type : "infantry",
           weapon: d.weapon === "ranged" ? "ranged" : "melee",
           factionId: getFaction(d.factionId) ? d.factionId : null,
           subfactionId: getSub(d.subfactionId) ? d.subfactionId : null,
@@ -236,6 +229,7 @@ function importUnitJson(ev){
           exp: clamp(+d.exp || 0, 0, 100),
           mastery: Math.max(0, +d.mastery || 0),
           fatigue: clamp(+d.fatigue || 0, 0, 100),
+          range: Math.max(0, Math.round(+d.range || 0)),
           status: "active", turnsActive: 0, fleeChecks: 0, breakGrace: 0, broken: false,
           acted: false, attacksMade: 0, countersMade: 0,
           totKilled: Math.max(0, Math.round(+d.totKilled || 0)),
@@ -254,6 +248,273 @@ function importUnitJson(ev){
   reader.readAsText(file);
 }
 
+// ═══════════ сбор армий из текста ═══════════
+// Разбор, подбор шаблонов и нарезка — в движке (Engine.parseArmyText → planMuster → expandMuster).
+// Здесь только предпросмотр с правкой и создание фракций, подфракций, полководцев и отрядов.
+const IMPORT_COLORS = ["#B0402E", "#5A8FB0", "#7FA05A", "#C97B2E", "#8E6FB0", "#3FA5A0", "#C9A227"];
+const UNIT_KINDS = [["infantry/melee", "Пехота"], ["cavalry/melee", "Кавалерия"], ["cavalry/ranged", "Конные стрелки"],
+                    ["archer/ranged", "Стрелки"], ["pike/melee", "Пикинёры"]];
+const fmtN = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const sameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+const findFactionByName = name => factions.find(f => sameName(f.name, name)) || null;
+const optionsHtml = (list, value) => list.map(([v, n]) =>
+  `<option value="${esc(v)}"${v === value ? " selected" : ""}>${esc(n)}</option>`).join("");
+
+// Уже стоящие отряды по фракциям — чтобы нумерация «№N» продолжалась, а не повторялась
+function existingNamesByFaction(){
+  const out = {};
+  units.forEach(u => {
+    const f = getFaction(u.factionId); if(!f) return;
+    const key = f.name.trim().toLowerCase();
+    (out[key] = out[key] || []).push(u.name);
+  });
+  return out;
+}
+function importExpand(){
+  return Engine.expandMuster(importDraft, {overrides: templateOverrides, existingNames: existingNamesByFaction()});
+}
+function parseImport(){
+  const text = $("importText").value;
+  if(!text.trim()){ $("importText").focus(); return; }
+  importDraft = Engine.planMuster(Engine.parseArmyText(text), {overrides: templateOverrides});
+  renderImportPreview();
+}
+function cancelImport(){ importDraft = null; renderImportPreview(); }
+function clearImport(){ $("importText").value = ""; cancelImport(); }
+
+function renderImportPreview(){
+  const box = $("importPreview"); if(!box) return;
+  if(!importDraft){ box.innerHTML = ""; renderTemplates(); return; }
+  const d = importDraft;
+  if(!d.sides.length){
+    box.innerHTML = '<div class="hint">Войска не найдены. Нужны строки вида «18.000 всадников Красных Кольчуг».</div>';
+    return;
+  }
+  const tplList = Engine.BASE_TEMPLATES.map(t => [t.id, t.name]);
+  let html = d.title ? `<div class="imp-title">${esc(d.title)}</div>` : "";
+  if(d.warnings.length) html += `<div class="imp-warn">${d.warnings.map(w =>
+    `⚠ ${w.line ? "стр. " + w.line + ": " : ""}${esc(w.text)}`).join("<br>")}</div>`;
+  d.sides.forEach((s, i) => {
+    html += `<div class="imp-side">
+      <label>Сторона ${i + 1} — фракция</label>
+      <input value="${esc(s.faction)}" oninput="impSide(${i}, this.value)">
+      <div class="hint" id="impFacNote_${i}" style="margin-top:3px"></div>`;
+    s.contingents.forEach((c, j) => {
+      html += `<div class="imp-cont">`;
+      if(s.contingents.length > 1)
+        html += `<label>Подфракция</label><input value="${esc(c.name)}" oninput="impCont(${i}, ${j}, this.value)">`;
+      if(c.commanders.length) html += `<div class="imp-cmdr">Полководцы: ${c.commanders.map(esc).join(" · ")}</div>`;
+      c.lines.forEach((l, k) => {
+        const at = `${i}, ${j}, ${k}`, id = `${i}_${j}_${k}`;
+        // Полководца строке назначает мастер (К1, К12): по умолчанию ближайший выше
+        const cmdrList = [["", "— без полководца —"], ...c.commanders.map(n => [n, n])];
+        html += `<div class="imp-line${l.fallback || l.cmdrCheck ? " guess" : ""}">
+          <div class="imp-row1">
+            <input value="${esc(l.name)}" title="Строка ${l.line}: ${esc(l.src)}" oninput="impLine(${at}, 'name', this.value)">
+            <input type="number" min="0" value="${l.count || 0}" title="Численность" oninput="impLine(${at}, 'count', +this.value)">
+          </div>
+          <div class="imp-row2">
+            <select title="Шаблон характеристик" onchange="impTemplate(${at}, this.value)">${optionsHtml(tplList, l.templateId)}</select>
+            <select title="Тип войск" onchange="impKind(${at}, this.value)">${optionsHtml(UNIT_KINDS, l.type + "/" + l.weapon)}</select>
+            <input type="number" min="1" id="impSize_${id}" value="${l.size || ""}" title="Размер отряда: пусто — из шаблона"
+              oninput="impLine(${at}, 'size', +this.value || null)">
+            <span class="imp-res" id="impRes_${id}"></span>
+          </div>
+          ${c.commanders.length ? `<select class="imp-cmdsel" title="Полководец этих отрядов" onchange="impCmdr(${at}, this.value)">${optionsHtml(cmdrList, l.commander || "")}</select>` : ""}
+          ${l.cmdrCheck ? '<div class="hint imp-guess">В строке выше несколько полководцев — отряды отданы первому. Выбери нужного.</div>' : ""}
+          ${l.fallback ? '<div class="hint imp-guess">Название не подсказало шаблон — взято ополчение. Проверь.</div>' : ""}
+          ${l.special ? '<div class="hint imp-guess">Своей механики у пушек, катапульт и слонов пока нет (этап 6б) — встанет обычным отрядом.</div>' : ""}
+        </div>`;
+      });
+      html += `</div>`;
+    });
+    html += `</div>`;
+  });
+  html += `<div class="imp-total" id="impTotal"></div>
+    <div class="btnrow"><button class="gold" onclick="commitImport()">Собрать армии</button>
+      <button onclick="cancelImport()">Отмена</button></div>`;
+  box.innerHTML = html;
+  updateImportResults();
+  renderTemplates();   // стороны из предпросмотра появляются в «Шаблоны отрядов → Для кого»
+}
+function sizesText(sizes){
+  if(sizes.length === 1) return `1 отряд · ${fmtN(sizes[0])}`;
+  const same = sizes.filter(x => x === sizes[0]).length;
+  if(same === sizes.length) return `${sizes.length} отр. по ${fmtN(sizes[0])}`;
+  return `${sizes.length} отр.: ${same} по ${fmtN(sizes[0])} + ${sizes.slice(same).map(fmtN).join(" + ")}`;
+}
+// Пересчёт без перерисовки полей — чтобы ввод не терял фокус
+function updateImportResults(){
+  if(!importDraft) return;
+  const r = importExpand();
+  importDraft.sides.forEach((s, i) => {
+    const note = $("impFacNote_" + i);
+    if(note){
+      const f = findFactionByName(s.faction || `Сторона ${i + 1}`);
+      note.textContent = f ? `Фракция «${f.name}» уже есть — отряды добавятся к ней.` : "Будет создана новая фракция.";
+    }
+    s.contingents.forEach((c, j) => c.lines.forEach((l, k) => {
+      const id = `${i}_${j}_${k}`, pl = r.perLine[`${i}.${j}.${k}`] || {units: 0, sizes: []};
+      const res = $("impRes_" + id);
+      if(res) res.textContent = pl.units ? "→ " + sizesText(pl.sizes) : "→ пропуск: нет численности или названия";
+      const sz = $("impSize_" + id);
+      if(sz) sz.placeholder = Engine.resolveTemplate(l.templateId, s.faction, templateOverrides).size;
+    }));
+  });
+  const t = $("impTotal");
+  if(t) t.innerHTML = `Будет собрано: <b>${r.unitsTotal}</b> отрядов · <b>${fmtN(r.soldiersTotal)}</b> солдат` +
+    r.factions.map(F => `<br>${esc(F.name)}: ${F.units.length} отр.` +
+      (F.subfactions.length ? ` · подфракций ${F.subfactions.length}` : "") +
+      (F.commanders.length ? ` · полководцев ${F.commanders.length}` : "")).join("");
+}
+const impLineAt = (i, j, k) => importDraft && importDraft.sides[i].contingents[j].lines[k];
+function impSide(i, v){ importDraft.sides[i].faction = v; updateImportResults(); renderTemplates(); }
+function impCont(i, j, v){ importDraft.sides[i].contingents[j].name = v; updateImportResults(); }
+function impLine(i, j, k, field, v){
+  const l = impLineAt(i, j, k); if(!l) return;
+  l[field] = v;
+  updateImportResults();
+}
+function impCmdr(i, j, k, v){
+  const l = impLineAt(i, j, k); if(!l) return;
+  l.commander = v || null; l.cmdrCheck = false;
+  renderImportPreview();
+}
+function impKind(i, j, k, v){
+  const l = impLineAt(i, j, k); if(!l) return;
+  [l.type, l.weapon] = v.split("/");
+}
+// Смена шаблона тянет за собой его тип войск: «Ополчение» → «Элитная конница» — это уже кавалерия
+function impTemplate(i, j, k, id){
+  const l = impLineAt(i, j, k), t = Engine.getTemplate(id); if(!l || !t) return;
+  l.templateId = id; l.type = t.type; l.weapon = t.weapon; l.fallback = false;
+  renderImportPreview();
+}
+
+function commitImport(){
+  if(!importDraft) return;
+  const r = importExpand();
+  if(!r.unitsTotal && !r.factions.some(F => F.commanders.length)){
+    alert("Нечего собирать: нет ни одной строки с численностью."); return;
+  }
+  pushUndo("сбор армий из текста");
+  const usedColors = new Set(factions.map(f => f.color));
+  const lines = [];
+  r.factions.forEach(F => {
+    let fac = findFactionByName(F.name);
+    const isNew = !fac;
+    if(isNew){
+      const color = IMPORT_COLORS.find(c => !usedColors.has(c)) || IMPORT_COLORS[factions.length % IMPORT_COLORS.length];
+      usedColors.add(color);
+      fac = {id: nextId++, name: F.name, color};
+      factions.push(fac);
+    }
+    const subIds = {}, cmdIds = {};
+    F.subfactions.forEach(name => {
+      let sf = subfactions.find(x => x.factionId === fac.id && sameName(x.name, name));
+      if(!sf){ sf = {id: nextId++, name, factionId: fac.id}; subfactions.push(sf); }
+      subIds[name] = sf.id;
+    });
+    F.commanders.forEach(name => {
+      let c = commanders.find(x => x.name === name && (x.factionId === fac.id || x.factionId === null));
+      if(!c){ c = {id: nextId++, name, factionId: fac.id, buffMorale: 0, buffDisc: 0, buffDmg: 0, buffDef: 0}; commanders.push(c); }
+      cmdIds[name] = c.id;
+    });
+    F.units.forEach(U => units.push(makeUnit({
+      name: U.name, type: U.type, weapon: U.weapon,
+      factionId: fac.id, subfactionId: U.subfaction ? subIds[U.subfaction] : null,
+      commanderId: U.commander ? cmdIds[U.commander] : null,
+      soldiers: U.soldiers, discipline: U.discipline, morale: U.morale,
+      eqAtk: U.eqAtk, eqDef: U.eqDef, exp: U.exp, mastery: U.mastery, fatigue: 0,
+    })));
+    const byTpl = {};
+    F.units.forEach(u => { byTpl[u.templateId] = (byTpl[u.templateId] || 0) + 1; });
+    lines.push(`${F.name}${isNew ? "" : " (пополнение)"}: ${F.units.length} отрядов · ${fmtN(F.units.reduce((a, u) => a + u.soldiers, 0))} солдат`);
+    if(F.units.length) lines.push("  по шаблонам: " + Object.entries(byTpl).map(([id, n]) => `${Engine.getTemplate(id).name} ${n}`).join(" · "));
+    if(F.subfactions.length) lines.push("  подфракции: " + F.subfactions.join(", "));
+    if(F.commanders.length) lines.push("  полководцы: " + F.commanders.join(", "));
+  });
+  importDraft.warnings.forEach(w => lines.push("⚠ " + w.text));
+  r.warnings.forEach(w => lines.push("⚠ " + w));
+  lines.push("Характеристики — из шаблонов отрядов (черновик до ГМа).");
+  addLog(`Армии собраны из текста${importDraft.title ? ": «" + importDraft.title + "»" : ""}`, lines);
+  importDraft = null;
+  renderImportPreview(); renderAll(); saveState();
+}
+
+// ═══════════ шаблоны отрядов ═══════════
+// База — черновик в Engine.BASE_TEMPLATES; правки партии — templateOverrides (общие и по фракциям).
+const TPL_COLS = [["size", "Отряд"], ["discipline", "Дисц"], ["morale", "БД"], ["eqAtk", "Атк"],
+                  ["eqDef", "Защ"], ["exp", "Опыт"], ["mastery", "ЭМ"]];
+const TPL_FIELD_RU = {size: "размер отряда", discipline: "дисциплина", morale: "БД", eqAtk: "снар. атака",
+                      eqDef: "снар. защита", exp: "опыт", mastery: "мастерство ЭМ"};
+// Для кого можно править: фракции партии, стороны из предпросмотра импорта и уже заведённые правки
+function tplScopeNames(){
+  const names = [];
+  const add = n => { if(n && String(n).trim() && !names.some(x => sameName(x, n))) names.push(String(n).trim()); };
+  factions.forEach(f => add(f.name));
+  if(importDraft) importDraft.sides.forEach(s => add(s.faction));
+  Object.keys(templateOverrides.factions).forEach(add);
+  return names;
+}
+const scopeOverrides = scope => scope ? Engine.factionOverrides(templateOverrides, scope) : templateOverrides.base;
+function renderTemplates(){
+  const sel = $("tplScope"), box = $("tplTable"); if(!sel || !box) return;
+  const prev = sel.value, names = tplScopeNames();
+  sel.innerHTML = '<option value="">Все фракции — база партии</option>' + names.map(n =>
+    `<option value="${esc(n)}">${esc(n)}${Object.keys(Engine.factionOverrides(templateOverrides, n)).length ? " ✎" : ""}</option>`).join("");
+  sel.value = names.includes(prev) ? prev : "";
+  const scope = sel.value, own = scopeOverrides(scope);
+  let html = `<div class="tpl-row tpl-head"><span>Шаблон</span>${TPL_COLS.map(([, n]) => `<span>${n}</span>`).join("")}</div>`;
+  Engine.BASE_TEMPLATES.forEach(t => {
+    const eff = Engine.resolveTemplate(t.id, scope, templateOverrides);
+    const parent = scope ? Engine.resolveTemplate(t.id, "", templateOverrides) : t;
+    const mine = own[t.id] || {};
+    html += `<div class="tpl-row"><span class="tpl-name" title="${esc(t.source)}">${esc(t.name)}<em>${TYPE_NAMES[t.type]}</em></span>` +
+      TPL_COLS.map(([k]) => {
+        const changed = k in mine;
+        return `<input type="number" class="${changed ? "ovr" : ""}" value="${eff[k]}"
+          title="${esc(TPL_FIELD_RU[k])}${changed ? ` · изменено, ${scope ? "база партии" : "черновик"}: ${parent[k]}` : ""}"
+          onchange="setTplValue('${t.id}', '${k}', this.value)">`;
+      }).join("") + `</div>`;
+  });
+  box.innerHTML = html;
+  $("tplResetBtn").disabled = !Object.keys(own).length;
+}
+function editOverrides(scope, fn){
+  const ov = JSON.parse(JSON.stringify(templateOverrides));
+  let bucket = ov.base;
+  if(scope){
+    const key = Object.keys(ov.factions).find(k => sameName(k, scope)) || scope;
+    bucket = ov.factions[key] = ov.factions[key] || {};
+  }
+  fn(bucket, ov);
+  templateOverrides = Engine.normalizeOverrides(ov);   // заодно выбрасывает пустые правки
+  renderTemplates(); saveState();
+  if(importDraft) updateImportResults();
+}
+// Пустое поле или значение, равное базе, снимает правку
+function setTplValue(id, field, raw){
+  const t = Engine.getTemplate(id); if(!t) return;
+  const scope = $("tplScope").value;
+  const parent = scope ? Engine.resolveTemplate(id, "", templateOverrides) : t;
+  const v = String(raw).trim() === "" ? parent[field] : Engine.clampField(field, +raw);
+  pushUndo(`шаблон «${t.name}»${scope ? " для «" + scope + "»" : ""}: ${TPL_FIELD_RU[field]}`);
+  editOverrides(scope, bucket => {
+    const patch = bucket[id] = bucket[id] || {};
+    if(v === parent[field]) delete patch[field]; else patch[field] = v;
+  });
+}
+function resetTplScope(){
+  const scope = $("tplScope").value;
+  if(!confirm(scope ? `Сбросить правки шаблонов для «${scope}»?` : "Вернуть общие шаблоны партии к черновику?")) return;
+  pushUndo(scope ? `сброс шаблонов для «${scope}»` : "сброс общих шаблонов");
+  editOverrides(scope, (bucket, ov) => {
+    if(scope) Object.keys(ov.factions).filter(k => sameName(k, scope)).forEach(k => delete ov.factions[k]);
+    else ov.base = {};
+  });
+}
+
 // ═══════════ журнал ═══════════
 function addLogNoUndo(title, lines, tone){
   log.unshift({id: Date.now()+Math.random(), turn, title, lines: lines||[], tone: tone||"info"});
@@ -262,7 +523,7 @@ function addLogNoUndo(title, lines, tone){
 }
 const addLog = addLogNoUndo;
 
-const DETAIL_RE = /^(Бросок d|Атака:|Усталость |Боевой дух |🐎 Натиск|Кавалерия без натиска|⚜ |Защита цели|Ситуативный модификатор|Помеха)|— стрелки в ближнем бою/;
+const DETAIL_RE = /^(Бросок d|Атака:|Усталость |Боевой дух |🐎 Натиск|Кавалерия без натиска|⚜ |Защита цели|Ситуативный модификатор|Помеха|⛰ |Укрытие «)|— стрелки в ближнем бою/;
 const BAD_RE = /^(☠|💥|⚠|✘)|уничтожен|Штраф БД|требуется проверка|обращён в бегство|падает до нуля/;
 const BIG_RE = /^(Потери «|Из них:|☠)/;
 function markNums(t){
@@ -523,9 +784,10 @@ function formHtml(isNew){
       <div><label>Снар. защита</label><input id="f_eqDef" type="number" value="30"></div>
       <div><label>Опыт 0–100</label><input id="f_exp" type="number" value="20"></div>
     </div>
-    <div class="frow2">
+    <div class="frow">
       <div><label>Мастерство ЭМ</label><input id="f_mastery" type="number" value="0"></div>
       <div><label>Усталость</label><input id="f_fatigue" type="number" value="0"></div>
+      <div><label>Дальность, м</label><input id="f_range" type="number" min="0" placeholder="по типу" title="Для стрелков при правилах карты; пусто — по типу войск"></div>
     </div>
     <div class="hint" id="typeHint" style="margin:0 0 8px"></div>
     <div class="btnrow" style="display:flex">
@@ -535,7 +797,7 @@ function formHtml(isNew){
   </div>`;
 }
 const FORM_IDS = ["f_name","f_type","f_weapon","f_faction","f_sub","f_cmdr","f_soldiers","f_disc",
-                  "f_morale","f_eqAtk","f_eqDef","f_exp","f_mastery","f_fatigue"];
+                  "f_morale","f_eqAtk","f_eqDef","f_exp","f_mastery","f_fatigue","f_range"];
 function snapshotForm(){
   if(!$("editBox")) return null;
   const o = {};
@@ -560,14 +822,14 @@ function fillForm(snap){
     $("f_sub").value=u.subfactionId || ""; $("f_cmdr").value=u.commanderId || "";
     $("f_soldiers").value=u.soldiers; $("f_disc").value=u.discipline; $("f_morale").value=u.morale;
     $("f_eqAtk").value=u.eqAtk; $("f_eqDef").value=u.eqDef; $("f_exp").value=u.exp;
-    $("f_mastery").value=u.mastery; $("f_fatigue").value=u.fatigue;
+    $("f_mastery").value=u.mastery; $("f_fatigue").value=u.fatigue; $("f_range").value=u.range || "";
   } else {
     $("f_name").value=""; $("f_type").value="infantry"; $("f_weapon").value="melee";
     $("f_faction").value=""; onUnitFactionChange();
     $("f_sub").value=""; $("f_cmdr").value="";
     $("f_soldiers").value=300; $("f_disc").value=50; $("f_morale").value=60;
     $("f_eqAtk").value=30; $("f_eqDef").value=30; $("f_exp").value=20;
-    $("f_mastery").value=0; $("f_fatigue").value=0;
+    $("f_mastery").value=0; $("f_fatigue").value=0; $("f_range").value="";
     if($("f_name").focus) $("f_name").focus();
   }
 }
@@ -639,6 +901,7 @@ function saveUnit(){
     exp: clamp(+$("f_exp").value || 0, 0, 100),
     mastery: Math.max(0, +$("f_mastery").value || 0),
     fatigue: clamp(+$("f_fatigue").value || 0, 0, 100),
+    range: Math.max(0, Math.round(+$("f_range").value || 0)),
   };
   const editing = editingId && editingId !== "new";
   pushUndo(editing ? `правка отряда «${name}»` : `создание отряда «${name}»`);
@@ -652,10 +915,7 @@ function saveUnit(){
       addLog(`Юнит «${clean.name}» изменён`, []);
     }
   } else {
-    units.push(Object.assign({id: nextId++, initial: clean.soldiers, status:"active",
-      turnsActive:0, fleeChecks:0, breakGrace:0, broken:false,
-      acted:false, attacksMade:0, countersMade:0, totKilled:0, totWounded:0,
-      onMap:false, mapX:50, mapY:50, facing:0}, clean));
+    units.push(makeUnit(clean));
     addLog(`Юнит «${clean.name}» встал в строй`,
       [`${clean.soldiers} солдат · дисц ${clean.discipline} · БД ${clean.morale} · ${factionName(clean.factionId)}${clean.subfactionId ? " / " + subName(clean.subfactionId) : ""}`]);
   }
@@ -663,6 +923,13 @@ function saveUnit(){
 }
 
 // ═══════════ юниты: операции ═══════════
+// Новый отряд в строю: служебные поля по умолчанию + то, что пришло из формы или импорта
+function makeUnit(clean){
+  return Object.assign({id: nextId++, initial: clean.soldiers, status:"active",
+    turnsActive:0, fleeChecks:0, breakGrace:0, broken:false,
+    acted:false, attacksMade:0, countersMade:0, totKilled:0, totWounded:0,
+    onMap:false, mapX:50, mapY:50, facing:0, movedM:0, runUpM:0}, clean);
+}
 function updUnit(id, patch){
   units = units.map(u => u.id === id ? Object.assign({}, u, patch) : u);
 }
@@ -707,6 +974,7 @@ function markFled(id){
   pushUndo(`«${u.name}» покинул поле боя`);
   updUnit(id, {status: "fled"});
   addLog(`«${u.name}» покинул поле боя`, ["Отмечен мастером как сбежавший."], "danger");
+  runPanic([id]);
   renderAll(); saveState();
 }
 function ralliedUnit(id){
@@ -907,8 +1175,9 @@ function renderQueue(){
 }
 function renderAll(){
   $("turnNum").textContent = turn;
-  renderFactions(); renderCmdrs(); renderUnits(); renderLog(); renderNecro();
+  renderFactions(); renderCmdrs(); renderUnits(); renderLog(); renderNecro(); renderTemplates();
   renderSummary(); renderQueue(); renderUndoBtn(); renderMap();
+  if(ed.open) refreshEditor();
 }
 
 // ═══════════ перетаскивание ═══════════
@@ -1109,10 +1378,31 @@ function resolveBattle(){
     charge: !$("chargeBox").classList.contains("hidden") && $("charge").checked,
     counterCharge: !$("counterChargeBox").classList.contains("hidden") && $("counterCharge").checked,
   };
+  const onMapBoth = A && B && A.onMap && B.onMap;
+  let mm = null;
+  const blankMods = () => ({ab: {}, ba: {}, notes: [], noCharge: null});
+  if(terrainActive() && onMapBoth){
+    mm = Engine.mapModsFor(A, B, mapGeo(), currentRules());
+    if(mm && mm.mode){ req.mode = (isMeleeMode(req.mode) ? "melee_" : "ranged_") + mm.mode; $("modeSel").value = req.mode; }
+  }
+  if(rangeActive() && onMapBoth){
+    const reach = Engine.attackReach(A, B, isMeleeMode(req.mode), mapGeo(), currentRules());
+    if(!reach.ok){
+      if(!confirm(`${reach.text}.\n\nЦель вне досягаемости. Провести атаку всё равно — решение мастера?`)) return;
+      mm = mm || blankMods();
+      mm.notes.push(`⚠ Вне досягаемости: ${reach.text} — решение мастера · черновик`);
+    }
+  }
+  if(moveActive() && onMapBoth && req.charge && A.type === "cavalry"){
+    const block = Engine.runUpBlock(A, currentRules());
+    if(block){ mm = mm || blankMods(); mm.noCharge = mm.noCharge || block; }
+  }
+  if(mm) req.mapMods = mm;
   const r = Engine.resolveBattle(A, B, req, engineCtx());
   if(!r.ok){ addLog(r.title, r.lines, r.tone); return; }
   pushUndo(`бой ${A.name} → ${B.name}`);
   r.patches.forEach(p => updUnit(p.id, p.patch));
+  if(moveActive() && A.onMap) updUnit(A.id, {runUpM: 0});   // разбег истрачен на удар
   addLog(r.title, r.lines, r.tone);
   if($("counterCharge")) $("counterCharge").checked = false;
   renderAll(); saveState();
@@ -1133,17 +1423,21 @@ function fleeCheck(id){
   const r = Engine.fleeCheck(u, engineCtx());
   updUnit(u.id, r.patch);
   addLog(r.title, r.lines, r.tone === "info" ? undefined : r.tone);
+  if(r.patch.status === "fled") runPanic([u.id]);
   renderAll(); saveState();
 }
 
 // ═══════════ конец хода ═══════════
 function endTurn(){
   pushUndo(`конец хода ${turn}`);
+  const wasActive = new Set(units.filter(u => u.status === "active").map(u => u.id));
   const r = Engine.endTurn(units, engineCtx());
-  units = r.units;
+  units = r.units.map(u => (u.movedM || u.runUpM) ? Object.assign({}, u, {movedM: 0, runUpM: 0}) : u);
   turn += 1;
   $("turnNum").textContent = turn;
   addLog(`— Конец хода ${turn - 1} —`, r.lines.length ? r.lines : ["Без изменений"]);
+  // побег без броска (дисциплина иссякла) тоже запускает волну
+  runPanic(units.filter(u => u.status === "fled" && wasActive.has(u.id)).map(u => u.id));
   renderAll(); saveState();
 }
 
@@ -1221,6 +1515,7 @@ function loadMapImage(ev){
       }catch(err){
         mapImage = reader.result;
       }
+      imageAspect = h / w;
       pushUndo("загрузка карты боя");
       renderMap(); saveState();
       addLog("Карта боя загружена", [`Файл: ${file.name} · ${w}×${h}`]);
@@ -1260,6 +1555,7 @@ function isValidTarget(att, def){
       && def.factionId && att.factionId && def.factionId !== att.factionId;
 }
 function mapMode(att){
+  if(mapModeOverride === "auto") return (att.weapon === "ranged" ? "ranged_" : "melee_") + readMapOpts().terrain;
   if(mapModeOverride) return mapModeOverride;
   const terrain = $("mapTerrain") ? $("mapTerrain").value : "form";
   return (att.weapon === "ranged" ? "ranged_" : "melee_") + terrain;
@@ -1272,7 +1568,11 @@ function tokenMenuHtml(u){
   const roughMode = ranged ? "ranged_rough" : "melee_rough";
   let items = "";
   if(u.status === "active"){
-    if(canAttack){
+    if(canAttack && terrainActive()){
+      items += `<button class="gold" onclick="startTargeting(${u.id}, false, 'auto')">⚔ Атаковать · режим по местности</button>`;
+      if(u.type === "cavalry" && !ranged)
+        items += `<button class="gold" onclick="startTargeting(${u.id}, true, 'auto')">🐎 Натиск · режим по местности</button>`;
+    } else if(canAttack){
       items += `<button class="gold" onclick="startTargeting(${u.id}, false, '${formMode}')">⚔ ${esc(MODES[formMode])}</button>`;
       items += `<button class="gold" onclick="startTargeting(${u.id}, false, '${roughMode}')">⚔ ${esc(MODES[roughMode])}</button>`;
       if(u.type === "cavalry" && !ranged){
@@ -1298,7 +1598,7 @@ function tokenMenuHtml(u){
       <button style="flex:1" onclick="setFacing(${u.id},0);openTokenMenu(${u.id})">↑ 0°</button>
       <button style="flex:1" onclick="rotateUnit(${u.id},45);openTokenMenu(${u.id})">↻ 45°</button>
     </div>`;
-  items += `<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center">
+  if(!mapActive()) items += `<div style="display:flex;gap:5px;margin-bottom:5px;align-items:center">
       <button style="flex:1" onclick="scaleToken(${u.id},0.8);openTokenMenu(${u.id})">− Меньше</button>
       <button style="flex:1" onclick="resetTokenScale(${u.id});openTokenMenu(${u.id})">${Math.round((u.tokenScale || 1) * 100)}%</button>
       <button style="flex:1" onclick="scaleToken(${u.id},1.25);openTokenMenu(${u.id})">+ Больше</button>
@@ -1487,15 +1787,249 @@ function tokenClick(id){
   }
   openTokenMenu(id);
 }
+// ═══════════ вид карты: приближение, сдвиг, местность (К20, К30) ═══════════
+// Карта — «окно» (#mapWrap) и «сцена» внутри него: сцена = окно × приближение. Фишки стоят на сцене
+// в процентах, как и раньше, поэтому вся логика перетаскивания и выделения не меняется.
+// Местность рисуется холстом размером с окно между картинкой и фишками: фишки и меню не раздуваются.
+let terrainMap = null;       // местность партии: Engine.createTerrain / deserializeTerrain
+let terrainVersion = 0;      // растёт при каждой правке — по нему перестраивается растр
+let imageAspect = null;      // высота / ширина загруженной картинки
+let spaceDown = false;       // пробел зажат — левая кнопка сдвигает карту
+const ZOOM_MAX = 40;
+
+// Цвет и узор каждого вида местности. Что клетка значит в бою — не здесь, а в движке и rules.js.
+const TERRAIN_STYLE = {
+  field:    {c: "#6F7F4A"},
+  road:     {c: "#A08D63"},
+  sand:     {c: "#CDB27A", p: "stipple", pc: "#A48A56"},
+  snow:     {c: "#DCE3E6", p: "stipple", pc: "#FFFFFF"},
+  shrub:    {c: "#5D7A3E", p: "bush",    pc: "#3C5626"},
+  forest:   {c: "#35583A", p: "tree",    pc: "#1C3620"},
+  water:    {c: "#2E5A7A", p: "wave",    pc: "#79A8C6"},
+  ford:     {c: "#5C8CA8", p: "wave",    pc: "#A4CAE0"},
+  bridge:   {c: "#8A6A45", p: "plank",   pc: "#5A4226"},
+  swamp:    {c: "#4E5E3E", p: "reed",    pc: "#26321C"},
+  rocks:    {c: "#716C66", p: "rock",    pc: "#46423E"},
+  wall:     {c: "#8E8E8A", p: "brick",   pc: "#55554F"},
+  gate:     {c: "#7A5230", p: "plank",   pc: "#42290F"},
+  tower:    {c: "#A8A8A2", p: "brick",   pc: "#63635D"},
+  palisade: {c: "#7A5A38", p: "stake",   pc: "#43301B"},
+  moat:     {c: "#3B4C58", p: "wave",    pc: "#62808F"},
+  trench:   {c: "#6B5B45", p: "dash",    pc: "#3E3426"},
+  building: {c: "#8A4B3A", p: "roof",    pc: "#56291F"},
+  pavement: {c: "#8E8878", p: "stipple", pc: "#666052"},
+  breach:   {c: "#6E5E50", p: "rock",    pc: "#443A31"},
+};
+const EMPTY_RGB = [32, 40, 42];
+const HEIGHT_RGB = [124, 104, 74];
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const heightColor = z => ["#6F7F4A", "#86925C", "#9EA56E", "#B8B982"][z] || "#6F7F4A";
+
+function makeView(ids){ return {ids, z: 1, ox: 0, oy: 0, vw: 0, vh: 0, bw: 0, bh: 0, sw: 0, sh: 0}; }
+const battleView = makeView({wrap: "mapWrap", stage: "mapStage", top: "mapTop", canvas: "terrainCanvas"});
+const editorView = makeView({wrap: "edWrap", stage: "edStage", top: "edTop", canvas: "edCanvas"});
+
+const hasMapSurface = () => !!mapImage || !!terrainMap;
+function mapAspect(){
+  if(mapImage) return imageAspect || (terrainMap ? terrainMap.h / terrainMap.w : 0.6);
+  return terrainMap ? terrainMap.h / terrainMap.w : 0.6;
+}
+// Размеры окна и сцены; для поля боя высота окна = ширина × пропорции карты
+function layoutView(v){
+  const wrap = $(v.ids.wrap); if(!wrap) return;
+  const full = v === editorView;
+  const aspect = mapAspect();
+  v.vw = wrap.clientWidth || 800;
+  if(full) v.vh = wrap.clientHeight || 600;
+  else {
+    v.vh = Math.round(v.vw * aspect);
+    wrap.style.height = hasMapSurface() ? v.vh + "px" : "";
+  }
+  // при приближении 1 карта целиком вписана в окно
+  v.bw = Math.min(v.vw, v.vh / aspect); v.bh = v.bw * aspect;
+  v.sw = v.bw * v.z; v.sh = v.bh * v.z;
+  clampView(v);
+}
+function clampView(v){
+  v.ox = v.sw <= v.vw ? (v.vw - v.sw) / 2 : Math.min(0, Math.max(v.vw - v.sw, v.ox));
+  v.oy = v.sh <= v.vh ? (v.vh - v.sh) / 2 : Math.min(0, Math.max(v.vh - v.sh, v.oy));
+}
+function applyView(v){
+  if(v === battleView) drawReach();
+  const geo = `left:${v.ox}px;top:${v.oy}px;width:${v.sw}px;height:${v.sh}px`;
+  [v.ids.stage, v.ids.top].forEach(id => { const el = $(id); if(el) el.style.cssText = hasMapSurface() || v === editorView ? geo : ""; });
+  drawTerrain(v);
+  const zl = v === battleView ? $("mapZoom") : null;
+  if(zl){ zl.classList.toggle("hidden", v.z <= 1.001); zl.textContent = "×" + (Math.round(v.z * 10) / 10); }
+}
+// Приближение к точке (cx, cy — пиксели окна): точка карты под курсором остаётся на месте
+function zoomView(v, factor, cx, cy){
+  const z2 = clamp(v.z * factor, 1, ZOOM_MAX);
+  if(z2 === v.z) return;
+  if(cx === undefined){ cx = v.vw / 2; cy = v.vh / 2; }
+  const fx = (cx - v.ox) / v.sw, fy = (cy - v.oy) / v.sh;
+  v.z = z2; v.sw = v.bw * z2; v.sh = v.bh * z2;
+  v.ox = cx - fx * v.sw; v.oy = cy - fy * v.sh;
+  clampView(v); applyView(v);
+}
+function panView(v, dx, dy){ v.ox += dx; v.oy += dy; clampView(v); applyView(v); }
+function zoomBattle(f){ if(hasMapSurface()) zoomView(battleView, f); }
+function fitBattle(){ battleView.z = 1; layoutView(battleView); applyView(battleView); }
+
+// ── растр местности: одна точка на клетку, высота светлее, край холма темнее ──
+let canvasBroken = false;   // нет холста (например, в проверке без браузера) — местность просто не рисуется
+function canvasCtx(cv){
+  if(canvasBroken || !cv) return null;
+  try{ const c = cv.getContext("2d"); if(!c) canvasBroken = true; return c; }
+  catch(e){ canvasBroken = true; return null; }
+}
+let terrainCache = {key: "", cv: null};
+function terrainRaster(){
+  const m = terrainMap; if(!m) return null;
+  const key = terrainVersion + "|" + !!mapImage;
+  if(terrainCache.key === key && terrainCache.map === m) return terrainCache.cv;
+  const cv = document.createElement("canvas");
+  cv.width = m.w; cv.height = m.h;
+  const ctx = canvasCtx(cv); if(!ctx) return null;
+  const img = ctx.createImageData(m.w, m.h), d = img.data;
+  const rgb = [];
+  Engine.TERRAIN.forEach(t => { rgb[t.id] = hexRgb(TERRAIN_STYLE[t.key].c); });
+  const see = !!mapImage;   // поверх картинки «не задано» прозрачно
+  for(let y = 0; y < m.h; y++) for(let x = 0; x < m.w; x++){
+    const i = y * m.w + x, t = m.t[i], z = m.z[i], o = i * 4;
+    const c = t ? rgb[t] : z ? HEIGHT_RGB : EMPTY_RGB;
+    let k = 1 + 0.1 * z;
+    if(z && ((x > 0 && m.z[i - 1] < z) || (x < m.w - 1 && m.z[i + 1] < z) ||
+             (y > 0 && m.z[i - m.w] < z) || (y < m.h - 1 && m.z[i + m.w] < z))) k *= 0.6;   // горизонталь
+    d[o] = Math.min(255, c[0] * k); d[o + 1] = Math.min(255, c[1] * k); d[o + 2] = Math.min(255, c[2] * k);
+    d[o + 3] = t ? 255 : z ? (see ? 130 : 255) : (see ? 0 : 255);
+  }
+  ctx.putImageData(img, 0, 0);
+  terrainCache = {key, map: m, cv};
+  return cv;
+}
+function hash2(x, y){
+  let h = Math.imul(x, 73856093) ^ Math.imul(y, 19349663);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+function drawTerrain(v){
+  const cv = $(v.ids.canvas); if(!cv) return;
+  const ctx = canvasCtx(cv); if(!ctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.round(v.vw * dpr), H = Math.round(v.vh * dpr);
+  if(cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, v.vw, v.vh);
+  const r = terrainRaster();
+  if(r){
+    const m = terrainMap, cellPx = v.sw / m.w;
+    ctx.imageSmoothingEnabled = cellPx >= 1.5 && cellPx < 6;   // издали — мягкие края, вблизи — чёткие клетки
+    ctx.globalAlpha = mapImage ? 0.6 : 1;
+    ctx.drawImage(r, v.ox, v.oy, v.sw, v.sh);
+    ctx.globalAlpha = mapImage ? 0.75 : 1;
+    drawPatterns(ctx, v, cellPx);
+    ctx.globalAlpha = 1;
+  }
+  if(v === editorView) drawUnitDots(ctx, v);
+}
+// Узор с постоянной плотностью на экране (~ каждые 13 px), привязан к клеткам — при сдвиге не «плывёт»
+function drawPatterns(ctx, v, cellPx){
+  const m = terrainMap;
+  const s = Math.max(1, Math.ceil(13 / cellPx));
+  const size = Math.min(s * cellPx * 0.42, 9);
+  if(size < 1.3) return;
+  const x0 = Math.max(0, Math.floor(-v.ox / cellPx / s) * s), x1 = Math.min(m.w, Math.ceil((v.vw - v.ox) / cellPx));
+  const y0 = Math.max(0, Math.floor(-v.oy / cellPx / s) * s), y1 = Math.min(m.h, Math.ceil((v.vh - v.oy) / cellPx));
+  for(let y = y0; y < y1; y += s) for(let x = x0; x < x1; x += s){
+    const h = hash2(x, y);
+    const jx = (h & 1023) / 1024 * s, jy = ((h >>> 10) & 1023) / 1024 * s;
+    const cx = Math.min(m.w - 1, Math.floor(x + jx)), cy = Math.min(m.h - 1, Math.floor(y + jy));
+    const t = m.t[cy * m.w + cx]; if(!t) continue;
+    const st = TERRAIN_STYLE[Engine.TERRAIN_BY_ID[t].key]; if(!st.p) continue;
+    drawSymbol(ctx, st.p, v.ox + (x + jx) * cellPx, v.oy + (y + jy) * cellPx, size, st.pc, h, cellPx);
+  }
+}
+function drawSymbol(ctx, p, x, y, s, col, h, cellPx){
+  ctx.fillStyle = col; ctx.strokeStyle = col;
+  ctx.lineWidth = Math.max(0.8, s * 0.14);
+  ctx.beginPath();
+  switch(p){
+    case "tree":
+      ctx.arc(x, y, s * 0.55, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.beginPath(); ctx.arc(x - s * 0.15, y - s * 0.15, s * 0.25, 0, Math.PI * 2); ctx.fill();
+      return;
+    case "bush":
+      ctx.arc(x - s * 0.2, y, s * 0.3, 0, Math.PI * 2); ctx.arc(x + s * 0.22, y + s * 0.1, s * 0.26, 0, Math.PI * 2); ctx.fill();
+      return;
+    case "stipple": {
+      const r = Math.max(0.6, s * 0.11);
+      [[0, 0], [0.5, 0.3], [-0.4, 0.45]].forEach(([a, b]) => { ctx.moveTo(x + a * s + r, y + b * s); ctx.arc(x + a * s, y + b * s, r, 0, Math.PI * 2); });
+      ctx.fill(); return;
+    }
+    case "wave":
+      ctx.moveTo(x - s * 0.6, y); ctx.quadraticCurveTo(x - s * 0.3, y - s * 0.35, x, y); ctx.quadraticCurveTo(x + s * 0.3, y + s * 0.35, x + s * 0.6, y);
+      ctx.stroke(); return;
+    case "reed":
+      for(const k of [-0.35, 0, 0.35]){ ctx.moveTo(x + k * s, y + s * 0.3); ctx.lineTo(x + k * s + s * 0.08, y - s * 0.35); }
+      ctx.stroke(); return;
+    case "rock":
+      ctx.moveTo(x - s * 0.45, y + s * 0.3); ctx.lineTo(x, y - s * 0.4); ctx.lineTo(x + s * 0.45, y + s * 0.3); ctx.closePath();
+      ctx.fill(); return;
+    case "brick":
+      if(cellPx < 2.5) return;
+      ctx.moveTo(x - s * 0.5, y); ctx.lineTo(x + s * 0.5, y); ctx.moveTo(x + ((h & 1) ? -0.2 : 0.2) * s, y - s * 0.35); ctx.lineTo(x + ((h & 1) ? -0.2 : 0.2) * s, y);
+      ctx.stroke(); return;
+    case "plank":
+      ctx.moveTo(x - s * 0.5, y - s * 0.2); ctx.lineTo(x + s * 0.5, y - s * 0.2); ctx.moveTo(x - s * 0.5, y + s * 0.2); ctx.lineTo(x + s * 0.5, y + s * 0.2);
+      ctx.stroke(); return;
+    case "stake":
+      ctx.moveTo(x, y + s * 0.35); ctx.lineTo(x, y - s * 0.35); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x - s * 0.15, y - s * 0.3); ctx.lineTo(x, y - s * 0.5); ctx.lineTo(x + s * 0.15, y - s * 0.3); ctx.fill();
+      return;
+    case "dash":
+      ctx.moveTo(x - s * 0.45, y); ctx.lineTo(x + s * 0.45, y); ctx.stroke(); return;
+    case "roof":
+      ctx.moveTo(x - s * 0.45, y + s * 0.3); ctx.lineTo(x, y - s * 0.3); ctx.lineTo(x + s * 0.45, y + s * 0.3); ctx.stroke(); return;
+  }
+}
+function drawUnitDots(ctx, v){
+  units.filter(u => u.onMap && u.status !== "destroyed").forEach(u => {
+    ctx.beginPath();
+    ctx.arc(v.ox + u.mapX / 100 * v.sw, v.oy + u.mapY / 100 * v.sh, 4, 0, Math.PI * 2);
+    ctx.fillStyle = factionColor(u.factionId); ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = "#14181A"; ctx.stroke();
+  });
+}
+// Местность под фишкой — для подсказки на карте
+function terrainUnder(u){
+  if(!terrainMap) return null;
+  const c = Engine.cellAt(terrainMap, u.mapX / 100, u.mapY / 100);
+  return c.t || c.z ? Engine.terrainName(c.t) + (c.z ? ` · высота ${c.z}` : "") : null;
+}
+
+// Пропорции картинки известны только после загрузки — тогда и пересчитываем окно
+(function(){
+  const img = $("mapImg");
+  if(img) img.addEventListener("load", () => {
+    const a = img.naturalWidth ? img.naturalHeight / img.naturalWidth : null;
+    if(a && a !== imageAspect){ imageAspect = a; layoutView(battleView); applyView(battleView); }
+  });
+})();
+
 function renderMap(){
   const wrap = $("mapWrap"); if(!wrap) return;
   const o = readMapOpts();
   const img = $("mapImg"), empty = $("mapEmpty"), gover = $("gridOver");
   if(mapImage){
-    img.src = mapImage; img.classList.remove("hidden"); empty.classList.add("hidden");
+    if(img.getAttribute("src") !== mapImage) img.src = mapImage;
+    img.classList.remove("hidden");
   } else {
-    img.classList.add("hidden"); img.removeAttribute("src"); empty.classList.remove("hidden");
+    img.classList.add("hidden"); img.removeAttribute("src");
   }
+  empty.classList.toggle("hidden", hasMapSurface());
+  layoutView(battleView); applyView(battleView);
+  renderMapScale();
   gover.classList.toggle("hidden", !o.grid);
   if(o.grid){
     const step = 100 / o.cells;
@@ -1505,24 +2039,36 @@ function renderMap(){
   const layer = $("tokenLayer");
   const attacker = mapAttackerId ? units.find(u => u.id === mapAttackerId) : null;
   wrap.classList.toggle("targeting", !!attacker);
+  const scaled = mapActive();
+  const ppm = scaled ? battleView.sw / mapWidthMeters() : 0;   // пикселей на метр
   layer.innerHTML = units.filter(u => u.onMap).map(u => {
     const col = factionColor(u.factionId);
     const sel = u.id === attId ? "sel-a" : u.id === defId ? "sel-b" : "";
     const stateCls = u.status === "fled" ? "fled" : u.status === "destroyed" ? "dead" : "";
     const size = Math.round(o.tokenSize * (u.tokenScale || 1));
-    const shape = tokenShape(u);
-    const tw = shape === "rect" ? Math.round(size * 1.45) : shape === "tri" ? Math.round(size * 1.2) : size;
-    const th = shape === "rect" ? Math.round(size * 0.72) : size;
+    let shape = tokenShape(u);
+    let tw = shape === "rect" ? Math.round(size * 1.45) : shape === "tri" ? Math.round(size * 1.2) : size;
+    let th = shape === "rect" ? Math.round(size * 0.72) : size;
+    // правила карты: прямоугольник строя в настоящем размере (видимый минимум — 6 × 3 px)
+    const fp = scaled ? Engine.footprint(u, currentRules()) : null;
+    if(fp){ shape = "scaled"; tw = Math.max(6, Math.round(fp.front * ppm)); th = Math.max(3, Math.round(fp.depth * ppm)); }
     const fsz = Math.round((shape === "tri" ? size * 0.3 : size * 0.38));
     const fac = Math.round(u.facing || 0);
     const initials = u.name.split(/\s+/).slice(0,2).map(x => x[0] || "").join("").toUpperCase();
-    let targetCls = "";
+    let targetCls = "", farText = "";
     if(attacker){
       if(u.id === attacker.id) targetCls = "attacker";
-      else if(isValidTarget(attacker, u)) targetCls = "valid-target";
+      else if(isValidTarget(attacker, u)){
+        targetCls = "valid-target";
+        if(rangeActive()){
+          const rr = Engine.attackReach(attacker, u, isMeleeMode(mapMode(attacker)), mapGeo(), currentRules());
+          if(!rr.ok){ targetCls += " far-target"; farText = rr.text; }
+        }
+      }
     }
     const st = moraleStage(u.morale);
     const cmdr = getCmdr(u);
+    const under = terrainUnder(u);
     const statusWord = u.status === "fled" ? "БЕЖАЛ" : u.status === "destroyed" ? "УНИЧТОЖЕН" : st.label;
     const selCls = selectedTokens[u.id] ? "selected" : "";
     return `<div class="token ${sel} ${stateCls} ${targetCls} ${selCls}" data-tid="${u.id}"
@@ -1533,6 +2079,11 @@ function renderMap(){
         <div class="tt-line">Солдаты <b>${u.soldiers}</b>/${u.initial} · ${esc(statusWord)}</div>
         <div class="tt-line">БД <b>${u.morale}</b> · дисц <b>${u.discipline}</b> · усталость <b>${u.fatigue}</b></div>
         <div class="tt-line">Снар. <b>${u.eqAtk}</b>/<b>${u.eqDef}</b> · опыт <b>${u.exp}</b> · мастерство <b>${u.mastery}</b></div>
+        ${under ? `<div class="tt-line">Местность: <b>${esc(under)}</b></div>` : ""}
+        ${fp ? `<div class="tt-line">Строй: <b>${fp.front}</b> × <b>${fp.depth}</b> м</div>` : ""}
+        ${moveActive() && u.onMap ? `<div class="tt-line">Прошёл за ход: <b>${Math.round(u.movedM || 0)}</b> / ${Engine.unitSpeed(u, currentRules())} м${u.type === "cavalry" ? ` · разбег ${Math.round(u.runUpM || 0)} м` : ""}</div>` : ""}
+        ${rangeActive() && u.weapon === "ranged" ? `<div class="tt-line">Дальность: <b>${Engine.rangeOf(u, currentRules())}</b> м</div>` : ""}
+        ${farText ? `<div class="tt-line" style="color:#E08A76">Вне досягаемости: ${esc(farText)}</div>` : ""}
         <div class="tt-line">${esc(TYPE_NAMES[u.type] || "Пехота")} · ${u.weapon === "ranged" ? "дальний бой" : "ближний бой"} · смотрит на ${Math.round(u.facing || 0)}° · атак ${u.attacksMade || 0}/${attackLimit(u)} · ответных ${u.countersMade || 0}/${counterLimit(u)}${u.acted ? " · походил" : ""}</div>
       </div>
       <div class="tbody" style="transform:rotate(${fac}deg)">
@@ -1543,10 +2094,10 @@ function renderMap(){
       <div class="tcount" style="color:${u.status === "fled" ? "#E08A76" : strengthColor(u)}">${u.soldiers}${u.acted ? " ✓" : ""}</div>
     </div>`;
   }).join("");
-  if(attacker){
-    layer.insertAdjacentHTML("beforeend",
-      `<div class="targethint">Выбери цель для «${esc(attacker.name)}» · ${esc(MODES[mapMode(attacker)])}${mapCharge ? " · натиск" : ""} · Esc — отмена</div>`);
-  }
+  // подсказка выбора цели — в окне, а не на сцене: при приближении она не уезжает за край
+  if(!moveZone) $("mapHint").innerHTML = attacker
+    ? `<div class="targethint">Выбери цель для «${esc(attacker.name)}» · ${esc(mapModeOverride === "auto" ? "режим по местности" : MODES[mapMode(attacker)])}${mapCharge ? " · натиск" : ""} · Esc — отмена</div>`
+    : calib ? `<div class="targethint">${calib.a ? "Теперь вторую точку" : "Отметь на карте первую точку"} · Esc — отмена</div>` : "";
   if(openMenuId){
     const mu = units.find(u => u.id === openMenuId);
     if(mu && mu.onMap) layer.insertAdjacentHTML("beforeend", tokenMenuHtml(mu));
@@ -1561,30 +2112,42 @@ function renderMap(){
           onclick="placeOnMap(${u.id})">${esc(u.name)} — ${u.soldiers}</span>`).join("")
     : '<span class="hint" style="margin:0">Все активные отряды расставлены на карте.</span>';
 }
-// перетаскивание фишек
+// перетаскивание фишек, рамка выделения, приближение и сдвиг карты
+// Проценты считаются от сцены (#mapTop), а не от окна: при приближении сцена больше окна.
 (function(){
   let tok = null, tid = null, moved = false, groupStart = null, dragStart = null;
   let marquee = null, mqStart = null, mqShift = false;
+  let pan = null, overMap = false;
+  document.addEventListener("mouseover", e => { overMap = !!(e.target.closest && e.target.closest("#mapWrap")); });
+  const topRect = () => $("mapTop").getBoundingClientRect();
+  const pct = (cx, cy, r) => ({x: (cx - r.left) / r.width * 100, y: (cy - r.top) / r.height * 100});
+  const typing = e => e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
   document.addEventListener("mousedown", e => {
+    const wrap = $("mapWrap"); if(!wrap || ed.open) return;
+    // сдвиг карты: правая кнопка или пробел + левая
+    if(wrap.contains(e.target) && (e.button === 2 || (e.button === 0 && spaceDown)) && !e.target.closest(".tmenu")){
+      pan = {x: e.clientX, y: e.clientY}; wrap.classList.add("panning"); e.preventDefault();
+      return;
+    }
     if(e.button !== 0) return;
-    const wrap = $("mapWrap"); if(!wrap) return;
     const t = e.target.closest && e.target.closest(".token");
     if(t){
       tok = t; tid = +t.dataset.tid; moved = false;
       t.classList.add("dragging");
-      const r = wrap.getBoundingClientRect();
-      dragStart = {x: (e.clientX - r.left) / r.width * 100, y: (e.clientY - r.top) / r.height * 100};
+      dragStart = pct(e.clientX, e.clientY, topRect());
       // тянем всю выделенную группу, если фишка входит в выделение
       groupStart = selectedTokens[tid] && selectedIds().length > 1
         ? selectedIds().map(id => { const u = units.find(z => z.id === id); return {id, x: u.mapX, y: u.mapY}; })
         : null;
+      if(!groupStart) beginMoveZone(tid);
       e.preventDefault();
       return;
     }
     if(e.target.closest(".tmenu") || e.target.closest(".selbar")) return;
     if(!wrap.contains(e.target)) return;
-    // рамка выделения по пустому месту карты
+    if(calib){ const q = pct(e.clientX, e.clientY, topRect()); calibrateClick(q.x / 100, q.y / 100); e.preventDefault(); return; }
+    // рамка выделения по пустому месту карты (в пикселях окна)
     const r = wrap.getBoundingClientRect();
     mqShift = e.shiftKey;
     mqStart = {x: e.clientX - r.left, y: e.clientY - r.top};
@@ -1598,8 +2161,8 @@ function renderMap(){
 
   document.addEventListener("mousemove", e => {
     const wrap = $("mapWrap"); if(!wrap) return;
+    if(pan){ panView(battleView, e.clientX - pan.x, e.clientY - pan.y); pan = {x: e.clientX, y: e.clientY}; return; }
     const r = wrap.getBoundingClientRect();
-
     if(marquee && mqStart){
       const x = clamp(e.clientX - r.left, 0, r.width), y = clamp(e.clientY - r.top, 0, r.height);
       marquee.style.left = Math.min(x, mqStart.x) + "px";
@@ -1609,8 +2172,8 @@ function renderMap(){
       return;
     }
     if(!tok) return;
-    let x = clamp((e.clientX - r.left) / r.width * 100, 0, 100);
-    let y = clamp((e.clientY - r.top) / r.height * 100, 0, 100);
+    const p = pct(e.clientX, e.clientY, topRect());
+    let x = clamp(p.x, 0, 100), y = clamp(p.y, 0, 100);
     const o = readMapOpts();
     if(o.snap && !groupStart){
       const step = 100 / o.cells;
@@ -1625,18 +2188,20 @@ function renderMap(){
       });
     } else {
       tok.style.left = x + "%"; tok.style.top = y + "%";
+      moveZoneHint(tid, x / 100, y / 100);
     }
     moved = true;
   });
 
   document.addEventListener("mouseup", e => {
     const wrap = $("mapWrap");
+    if(pan){ pan = null; if(wrap) wrap.classList.remove("panning"); return; }
     if(marquee && mqStart && wrap){
-      const r = wrap.getBoundingClientRect();
+      const r = wrap.getBoundingClientRect(), tr = topRect();
       const x2 = clamp(e.clientX - r.left, 0, r.width), y2 = clamp(e.clientY - r.top, 0, r.height);
-      const x1 = mqStart.x, y1 = mqStart.y;
-      const box = {l: Math.min(x1,x2)/r.width*100, t: Math.min(y1,y2)/r.height*100,
-                   rt: Math.max(x1,x2)/r.width*100, b: Math.max(y1,y2)/r.height*100};
+      const a = pct(r.left + Math.min(mqStart.x, x2), r.top + Math.min(mqStart.y, y2), tr);
+      const b = pct(r.left + Math.max(mqStart.x, x2), r.top + Math.max(mqStart.y, y2), tr);
+      const box = {l: a.x, t: a.y, rt: b.x, b: b.y};
       marquee.remove(); marquee = null; mqStart = null;
       const tiny = (box.rt - box.l) < 0.7 && (box.b - box.t) < 0.7;
       if(tiny){
@@ -1656,15 +2221,24 @@ function renderMap(){
     if(moved){
       if(groupStart){
         pushUndo(`перемещение группы (${groupStart.length} отр.)`);
+        const moves = [];
         groupStart.forEach(g => {
           const el = document.querySelector(`.token[data-tid="${g.id}"]`);
-          if(el) updUnit(g.id, {mapX: parseFloat(el.style.left), mapY: parseFloat(el.style.top)});
+          if(el) moves.push({id: g.id, from: [g.x / 100, g.y / 100], to: [parseFloat(el.style.left) / 100, parseFloat(el.style.top) / 100]});
         });
+        moves.forEach(mv => updUnit(mv.id, {mapX: mv.to[0] * 100, mapY: mv.to[1] * 100}));
+        accountMoves(moves);
       } else {
-        updUnit(tid, {mapX: parseFloat(tok.style.left), mapY: parseFloat(tok.style.top)});
+        const u0 = units.find(z => z.id === tid);
+        const mv = {id: tid, from: [u0.mapX / 100, u0.mapY / 100], to: [parseFloat(tok.style.left) / 100, parseFloat(tok.style.top) / 100]};
+        if(moveActive()) pushUndo(`перемещение «${u0.name}»`);
+        updUnit(tid, {mapX: mv.to[0] * 100, mapY: mv.to[1] * 100});
+        accountMoves([mv], moveZone);
       }
+      endMoveZone();
       saveState(); renderMap();
     } else {
+      endMoveZone();
       if(e.shiftKey){
         if(selectedTokens[tid]) delete selectedTokens[tid]; else selectedTokens[tid] = true;
         renderMap();
@@ -1678,26 +2252,39 @@ function renderMap(){
     const t = e.target.closest && e.target.closest(".token");
     if(t) removeFromMap(+t.dataset.tid);
   });
+  // колесо: над фишкой — поворот, над пустым местом — приближение к курсору
   document.addEventListener("wheel", e => {
+    if(ed.open) return;
     const t = e.target.closest && e.target.closest(".token");
-    if(!t) return;
-    e.preventDefault();
-    const id = +t.dataset.tid;
-    const u = units.find(z => z.id === id); if(!u) return;
-    if(e.ctrlKey || e.altKey){
-      scaleToken(id, e.deltaY > 0 ? 0.9 : 1.111);
+    if(t){
+      e.preventDefault();
+      const id = +t.dataset.tid;
+      const u = units.find(z => z.id === id); if(!u) return;
+      const step = e.shiftKey ? 5 : 15;
+      rotateUnit(id, e.deltaY > 0 ? step : -step);
       return;
     }
-    const step = e.shiftKey ? 5 : 15;
-    rotateUnit(id, e.deltaY > 0 ? step : -step);
+    const wrap = $("mapWrap");
+    if(!wrap || !wrap.contains(e.target) || !hasMapSurface() || e.target.closest(".tmenu")) return;
+    e.preventDefault();
+    const r = wrap.getBoundingClientRect();
+    zoomView(battleView, e.deltaY > 0 ? 1 / 1.2 : 1.2, e.clientX - r.left, e.clientY - r.top);
   }, {passive:false});
+  document.addEventListener("contextmenu", e => {
+    const inMap = ["mapWrap", "edWrap"].some(id => { const w = $(id); return w && w.contains(e.target); });
+    if(inMap) e.preventDefault();
+  });
   document.addEventListener("keydown", e => {
+    // пробел над картой — сдвиг, а не прокрутка страницы
+    if(e.code === "Space" && !typing(e)){ spaceDown = true; if(ed.open || overMap) e.preventDefault(); }
     if(e.key === "Escape"){
-      if(mapAttackerId) cancelTargeting();
+      if(calib){ calib = null; document.querySelectorAll(".calibdot").forEach(el => el.remove()); renderMap(); }
+      else if(mapAttackerId) cancelTargeting();
       else if(openMenuId) closeTokenMenu();
       else if(selectedIds().length) clearSelection();
     }
   });
+  document.addEventListener("keyup", e => { if(e.code === "Space") spaceDown = false; });
   document.addEventListener("mousedown", e => {
     if(!e.target.closest) return;
     if(e.target.closest(".tmenu") || e.target.closest(".token") || e.target.closest(".selbar")) return;
@@ -1705,6 +2292,545 @@ function renderMap(){
     else if(mapAttackerId && e.target.closest("#mapWrap")) cancelTargeting();
   });
 })();
+
+// ═══════════ редактор карты (К18) ═══════════
+// Полноэкранный режим поверх трекера. Все правки клеток — функции движка (Engine.paintDisc и др.),
+// здесь только мышь, панель и отрисовка. Каждый мазок — один шаг отката.
+const ED_TOOLS = [["brush", "Кисть"], ["erase", "Ластик"], ["fill", "Заливка"], ["line", "Линия"],
+                  ["rect", "Прямоугольник"], ["pick", "Пипетка"]];
+const ed = {open: false, tool: "brush", layer: "t", value: 1, zValue: 1, sizeM: 20, outline: true,
+            stroke: null, pan: null, changed: 0, showNew: false, newW: 2000, newH: 1500, raf: 0,
+            gen: {id: "field", params: {}, seed: 0}, startVersion: 0, notes: []};
+
+function openEditor(){
+  ed.open = true;
+  $("mapEditor").classList.remove("hidden");
+  document.body.classList.add("noscroll");
+  editorView.z = 1;
+  ed.startVersion = terrainVersion; ed.notes = [];
+  if(!ed.gen.seed) ed.gen.seed = newSeed();
+  refreshEditor();
+  // окно редактора только что показано — на следующем кадре размеры точно устоялись
+  if(window.requestAnimationFrame) requestAnimationFrame(() => { if(ed.open){ layoutView(editorView); applyView(editorView); } });
+}
+function closeEditor(){
+  ed.open = false; ed.stroke = null; ed.pan = null;
+  $("mapEditor").classList.add("hidden");
+  document.body.classList.remove("noscroll");
+  if(terrainVersion !== ed.startVersion){
+    addLog(terrainMap ? "Карта местности обновлена" : "Карта местности убрана",
+           terrainMap ? [mapDescription(terrainMap), ...ed.notes] : []);
+    saveState();
+  }
+  renderMap();
+}
+const newSeed = () => Math.floor(Math.random() * 2147483646) + 1;   // зерно — из интерфейса; сам генератор случайности не берёт
+function mapDescription(m){
+  const what = m.meta && m.meta.template ? `«${m.meta.name}» · зерно ${m.meta.seed}${m.meta.edited ? " · правлена вручную" : ""}` : "нарисована вручную";
+  return `${fmtN(Engine.mapWidthM(m))} × ${fmtN(Engine.mapHeightM(m))} м · ${what}`;
+}
+function refreshEditor(){
+  if(!ed.open) return;
+  renderEditorPanel();
+  const img = $("edImg");
+  if(mapImage){ img.src = mapImage; img.classList.remove("hidden"); }
+  else { img.classList.add("hidden"); img.removeAttribute("src"); }
+  layoutView(editorView); applyView(editorView);
+}
+function edRedraw(){
+  if(!ed.open || ed.raf) return;
+  const run = () => { ed.raf = 0; drawTerrain(editorView); };
+  ed.raf = window.requestAnimationFrame ? requestAnimationFrame(run) : (run(), 0);
+}
+
+// ── панель ──
+function renderEditorPanel(){
+  const m = terrainMap;
+  let html = "";
+  if(m){
+    html += `<div class="ed-info">${esc(mapDescription(m))}<br>${m.w} × ${m.h} клеток по ${m.cell} м</div>`;
+    if(!ed.showNew) html += `<div class="btnrow" style="margin-top:0"><button class="sm" onclick="ed.showNew = true; renderEditorPanel()">Новая карта…</button>
+      <button class="sm red" onclick="edDeleteTerrain()">Убрать местность</button></div>`;
+  } else {
+    html += `<div class="hint" style="margin-top:0">Местности ещё нет. Задай размер поля — клетки по 5 м${mapImage ? "; слой ляжет поверх загруженной картинки" : ""}.</div>`;
+  }
+  if(!m || ed.showNew){
+    const aspect = mapImage ? (imageAspect || 0.6) : null;
+    const h = aspect ? Math.round(ed.newW * aspect) : ed.newH;
+    html += `<div class="frow2" style="margin-top:8px">
+        <div><label>Ширина, м</label><input id="edNewW" type="number" min="50" step="50" value="${ed.newW}" oninput="edNewSize()"></div>
+        <div><label>Глубина, м</label><input id="edNewH" type="number" min="50" step="50" value="${h}"
+          ${aspect ? 'disabled title="по пропорциям картинки"' : ""} oninput="edNewSize()"></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="edNewFill" ${mapImage ? "" : "checked"}> Залить полем${mapImage ? " (без галочки видна картинка)" : ""}</label>
+      <div class="hint" id="edNewInfo"></div>
+      <div class="btnrow"><button class="gold sm" onclick="edCreate()">Создать</button>
+        ${m ? '<button class="sm" onclick="ed.showNew = false; renderEditorPanel()">Отмена</button>' : ""}</div>`;
+  }
+  $("edMapInfo").innerHTML = html;
+  edNewSize();
+  renderGen();
+
+  $("edTools").innerHTML = ED_TOOLS.map(([k, n]) =>
+    `<button class="sm ${ed.tool === k ? "gold" : ""}" onclick="edSetTool('${k}')">${n}</button>`).join("");
+  $("edSize").value = Math.min(300, ed.sizeM); $("edSizeNum").value = ed.sizeM;
+  $("edOutline").checked = ed.outline;
+  $("edOutlineRow").style.display = ed.tool === "rect" ? "" : "none";
+
+  $("edLayers").innerHTML = [["t", "Местность"], ["z", "Высота"]].map(([k, n]) =>
+    `<button class="sm ${ed.layer === k ? "gold" : ""}" onclick="edSetLayer('${k}')">${n}</button>`).join("");
+  $("edPalette").innerHTML = ed.layer === "z" ? heightsHtml() : paletteHtml();
+  renderLibrary();
+}
+function paletteHtml(){
+  const groups = {};
+  Engine.TERRAIN.filter(t => !t.system).forEach(t => { (groups[t.group] = groups[t.group] || []).push(t); });
+  return Object.entries(groups).map(([g, list]) => `<div class="ed-grp">${esc(g)}</div><div class="ed-pal">` +
+    list.map(t => `<button class="ed-sw ${ed.value === t.id ? "on" : ""}" onclick="edSetValue(${t.id})">
+      <i style="background:${TERRAIN_STYLE[t.key].c}"></i>${esc(t.name)}</button>`).join("") + "</div>").join("");
+}
+function heightsHtml(){
+  return '<div class="ed-pal" style="margin-top:6px">' + [0, 1, 2, 3].map(z =>
+    `<button class="ed-sw ${ed.zValue === z ? "on" : ""}" onclick="edSetZ(${z})"><i style="background:${heightColor(z)}"></i>Уровень ${z}</button>`).join("") +
+    '</div><div class="hint">0 — равнина. Край холма рисуется тёмной линией. Высота не стирает местность под собой.</div>';
+}
+function edNewSize(){
+  const wEl = $("edNewW"); if(!wEl) return;
+  ed.newW = Math.max(50, +wEl.value || 2000);
+  const aspect = mapImage ? (imageAspect || 0.6) : null;
+  if(aspect) $("edNewH").value = Math.round(ed.newW * aspect);
+  else ed.newH = Math.max(50, +$("edNewH").value || 1500);
+  const H = aspect ? Math.round(ed.newW * aspect) : ed.newH;
+  const cells = Math.round(ed.newW / Engine.CELL_M) * Math.round(H / Engine.CELL_M);
+  $("edNewInfo").textContent = cells > Engine.MAX_CELLS ? `Слишком много клеток (${fmtN(cells)}), предел ${fmtN(Engine.MAX_CELLS)}.`
+    : `${fmtN(Math.round(ed.newW / Engine.CELL_M))} × ${fmtN(Math.round(H / Engine.CELL_M))} клеток`;
+}
+function edSetTool(k){ ed.tool = k; renderEditorPanel(); }
+function edSetLayer(k){ ed.layer = k; if(ed.tool === "pick") ed.tool = "brush"; renderEditorPanel(); }
+function edSetValue(id){ ed.value = id; if(ed.tool === "erase" || ed.tool === "pick") ed.tool = "brush"; renderEditorPanel(); }
+function edSetZ(z){ ed.zValue = z; if(ed.tool === "erase" || ed.tool === "pick") ed.tool = "brush"; renderEditorPanel(); }
+function edSetSize(v){ ed.sizeM = clamp(Math.round(+v || 5), 5, 1000); $("edSize").value = Math.min(300, ed.sizeM); $("edSizeNum").value = ed.sizeM; }
+
+function edCreate(){
+  const aspect = mapImage ? (imageAspect || 0.6) : null;
+  const W = ed.newW, H = aspect ? Math.round(W * aspect) : ed.newH;
+  let m;
+  try{ m = Engine.createTerrain(W, H, $("edNewFill").checked ? Engine.TERRAIN_BY_KEY.field.id : 0); }
+  catch(err){ alert(err.message); return; }
+  if(terrainMap && !confirm("Заменить текущую местность новой пустой картой?")) return;
+  pushUndo("новая карта местности");
+  terrainMap = m; terrainVersion++;
+  ed.showNew = false; editorView.z = 1;
+  refreshEditor(); saveState();
+}
+function edDeleteTerrain(){
+  if(!terrainMap || !confirm("Убрать слой местности с карты? Фишки и картинка останутся.")) return;
+  pushUndo("удаление местности");
+  terrainMap = null; terrainVersion++;
+  refreshEditor(); saveState();
+}
+
+// ── мазки ──
+const edToolName = () => (ED_TOOLS.find(t => t[0] === ed.tool) || ["", ""])[1].toLowerCase();
+const edRadius = () => Math.max(0.5, ed.sizeM / 2 / terrainMap.cell);
+const edValue = () => ed.tool === "erase" ? 0 : ed.layer === "z" ? ed.zValue : ed.value;
+function edPoint(clientX, clientY){
+  const r = $("edWrap").getBoundingClientRect(), v = editorView, m = terrainMap;
+  const fx = (clientX - r.left - v.ox) / v.sw, fy = (clientY - r.top - v.oy) / v.sh;
+  return {x: fx * m.w, y: fy * m.h, fx, fy, sx: clientX - r.left, sy: clientY - r.top};
+}
+function edBegin(p){
+  const m = terrainMap; if(!m) return;
+  if(ed.tool === "pick"){
+    const c = Engine.cellAt(m, p.fx, p.fy);
+    if(ed.layer === "z") ed.zValue = c.z; else if(c.t) ed.value = c.t;
+    ed.tool = "brush"; renderEditorPanel();
+    return;
+  }
+  pushUndo(`редактор карты: ${edToolName()}`);
+  ed.changed = 0;
+  if(ed.tool === "fill"){
+    ed.changed = Engine.floodFill(m, ed.layer, p.x, p.y, edValue());
+    edTouched(); edEnd();
+    return;
+  }
+  ed.stroke = {start: p, last: p, end: p};
+  if(ed.tool === "brush" || ed.tool === "erase"){
+    ed.changed += Engine.paintDisc(m, ed.layer, p.x, p.y, edRadius(), edValue());
+    edTouched();
+  } else edPreview();
+}
+function edMove(p){
+  const s = ed.stroke, m = terrainMap; if(!s || !m) return;
+  if(ed.tool === "brush" || ed.tool === "erase"){
+    ed.changed += Engine.paintSegment(m, ed.layer, s.last.x, s.last.y, p.x, p.y, edRadius(), edValue());
+    s.last = p; edTouched();
+  } else { s.end = p; edPreview(); }
+}
+function edEnd(){
+  const s = ed.stroke, m = terrainMap;
+  if(s && m){
+    const a = s.start, b = s.end;
+    if(ed.tool === "line") ed.changed += Engine.paintSegment(m, ed.layer, a.x, a.y, b.x, b.y, edRadius(), edValue());
+    if(ed.tool === "rect") ed.changed += Engine.paintRect(m, ed.layer, a.x, a.y, b.x, b.y, edValue(),
+                                                           ed.outline ? Math.max(1, Math.round(ed.sizeM / m.cell)) : 0);
+    if(ed.tool === "line" || ed.tool === "rect") edTouched();
+  }
+  ed.stroke = null;
+  $("edShape").style.display = "none";
+  if(!ed.changed){ undoStack.pop(); renderUndoBtn(); }   // пустой мазок не засоряет откат
+  else saveState();
+  ed.changed = 0;
+}
+function edTouched(){ terrainVersion++; if(terrainMap) terrainMap.meta.edited = true; edRedraw(); }
+function noteAspect(m){
+  if(mapImage && imageAspect && Math.abs(imageAspect - m.h / m.w) > 0.05)
+    ed.notes.push("⚠ Пропорции карты и картинки разные — местность растянута под картинку.");
+}
+
+// ── шаблоны карт (К8, К27): генератор в движке, здесь — выбор, настройки, зерно ──
+function renderGen(){
+  const box = $("edGen"); if(!box) return;
+  const t = Engine.getMapTemplate(ed.gen.id);
+  const groups = {};
+  Engine.MAP_TEMPLATES.forEach(x => { (groups[x.group] = groups[x.group] || []).push(x); });
+  const p = Engine.mapParams(t.id, ed.gen.params);
+  const field = d => {
+    const v = p[d.key];
+    if(d.type === "bool") return `<label class="chk"><input type="checkbox" ${v ? "checked" : ""} onchange="edGenSet('${d.key}', this.checked)"> ${esc(d.name)}</label>`;
+    if(d.type === "select") return `<div><label>${esc(d.name)}</label><select onchange="edGenSet('${d.key}', this.value)">${optionsHtml(d.options, v)}</select></div>`;
+    return `<div><label>${esc(d.name)}</label><input type="number" min="${d.min}" max="${d.max}" step="${d.step}" value="${v}" onchange="edGenSet('${d.key}', this.value)"></div>`;
+  };
+  box.innerHTML = `<select onchange="edGenPick(this.value)">` + Object.entries(groups).map(([g, list]) =>
+      `<optgroup label="${esc(g)}">${list.map(x => `<option value="${x.id}"${x.id === t.id ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</optgroup>`).join("") + `</select>
+    <div class="ed-genp">${t.params.map(field).join("")}
+      <div><label>Зерно</label><input type="number" id="edSeed" min="1" value="${ed.gen.seed}" onchange="ed.gen.seed = Math.max(1, Math.round(+this.value) || 1)"></div></div>
+    <div class="btnrow" style="margin-top:0"><button class="gold sm" onclick="edGenerate(false)">Создать</button>
+      <button class="sm" onclick="edGenerate(true)" title="Новое зерно — другая карта с теми же настройками">Ещё вариант</button></div>
+    <div class="hint">С тем же зерном и настройками карта повторится — так её можно воспроизвести у игроков.</div>`;
+}
+function edGenPick(id){ ed.gen.id = id; ed.gen.params = {}; renderGen(); }
+function edGenSet(key, v){ ed.gen.params[key] = v; }
+function edGenerate(another){
+  const t = Engine.getMapTemplate(ed.gen.id);
+  if(another) ed.gen.seed = newSeed();
+  const handMade = terrainMap && (!terrainMap.meta.template || terrainMap.meta.edited);
+  if(handMade && !confirm("Текущая карта нарисована или поправлена вручную. Заменить её картой по шаблону?")) return;
+  let m;
+  try{ m = Engine.generateMap(t.id, ed.gen.params, ed.gen.seed); }
+  catch(err){ alert(err.message); return; }
+  pushUndo(`карта по шаблону «${t.name}»`);
+  terrainMap = m; terrainVersion++; editorView.z = 1;
+  noteAspect(m);
+  refreshEditor(); saveState();
+}
+// Предпросмотр линии и прямоугольника
+function edPreview(){
+  const s = ed.stroke, el = $("edShape"), v = editorView, m = terrainMap;
+  const px = p => v.ox + p.x / m.w * v.sw, py = p => v.oy + p.y / m.h * v.sh;
+  const cellPx = v.sw / m.w;
+  el.style.display = "block";
+  if(ed.tool === "line"){
+    const x1 = px(s.start), y1 = py(s.start), x2 = px(s.end), y2 = py(s.end);
+    const len = Math.hypot(x2 - x1, y2 - y1), th = Math.max(2, edRadius() * 2 * cellPx);
+    el.style.cssText = `display:block;left:${x1}px;top:${y1 - th / 2}px;width:${len}px;height:${th}px;` +
+      `transform-origin:0 50%;transform:rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`;
+  } else {
+    const l = Math.min(px(s.start), px(s.end)), t = Math.min(py(s.start), py(s.end));
+    el.style.cssText = `display:block;left:${l}px;top:${t}px;width:${Math.abs(px(s.end) - px(s.start))}px;height:${Math.abs(py(s.end) - py(s.start))}px`;
+  }
+}
+function edCursor(p){
+  const cur = $("edCursor"), m = terrainMap;
+  const show = m && ["brush", "erase", "line", "rect"].includes(ed.tool) && !ed.pan;
+  cur.style.display = show ? "block" : "none";
+  if(show){
+    const d = Math.max(4, ed.sizeM / m.cell * (editorView.sw / m.w));
+    cur.style.left = p.sx + "px"; cur.style.top = p.sy + "px"; cur.style.width = d + "px"; cur.style.height = d + "px";
+  }
+  if(m && p.fx >= 0 && p.fx <= 1 && p.fy >= 0 && p.fy <= 1){
+    const c = Engine.cellAt(m, p.fx, p.fy);
+    $("edStatus").textContent = `${Math.round(p.fx * Engine.mapWidthM(m))} × ${Math.round(p.fy * Engine.mapHeightM(m))} м · ${Engine.terrainName(c.t)}${c.z ? " · высота " + c.z : ""} · ×${Math.round(editorView.z * 10) / 10}`;
+  }
+}
+(function(){
+  document.addEventListener("mousedown", e => {
+    if(!ed.open) return;
+    const wrap = $("edWrap"); if(!wrap || !wrap.contains(e.target)) return;
+    if(e.button === 2 || (e.button === 0 && spaceDown)){ ed.pan = {x: e.clientX, y: e.clientY}; wrap.classList.add("panning"); e.preventDefault(); return; }
+    if(e.button !== 0 || !terrainMap) return;
+    e.preventDefault();
+    edBegin(edPoint(e.clientX, e.clientY));
+  });
+  document.addEventListener("mousemove", e => {
+    if(!ed.open) return;
+    if(ed.pan){ panView(editorView, e.clientX - ed.pan.x, e.clientY - ed.pan.y); ed.pan = {x: e.clientX, y: e.clientY}; return; }
+    if(!terrainMap) return;
+    const p = edPoint(e.clientX, e.clientY);
+    edCursor(p);
+    if(ed.stroke) edMove(p);
+  });
+  document.addEventListener("mouseup", () => {
+    if(!ed.open) return;
+    if(ed.pan){ ed.pan = null; $("edWrap").classList.remove("panning"); return; }
+    if(ed.stroke) edEnd();
+  });
+  document.addEventListener("wheel", e => {
+    if(!ed.open) return;
+    const wrap = $("edWrap"); if(!wrap || !wrap.contains(e.target)) return;
+    e.preventDefault();
+    const r = wrap.getBoundingClientRect();
+    zoomView(editorView, e.deltaY > 0 ? 1 / 1.2 : 1.2, e.clientX - r.left, e.clientY - r.top);
+  }, {passive: false});
+  document.addEventListener("keydown", e => {
+    if(!ed.open) return;
+    if((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "я")){ e.preventDefault(); undo(); }
+  });
+  window.addEventListener("resize", () => { if(ed.open) refreshEditor(); else renderMap(); });
+})();
+
+// ── свои шаблоны карт (К19): в браузере, отдельно от партии, и файлом ──
+// Отдельный ключ: библиотека не должна попадать в каждый снимок отката и переживает «Сбросить всё».
+const MAPLIB_KEY = "battle_tracker_maps_v1";
+function libRead(){
+  try{ const a = JSON.parse(localStorage.getItem(MAPLIB_KEY) || "[]"); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function libWrite(list){
+  try{ localStorage.setItem(MAPLIB_KEY, JSON.stringify(list)); return true; }
+  catch(e){ alert("Не удалось сохранить шаблон: в браузере кончилось место. Выгрузи шаблоны файлами и удали лишние."); return false; }
+}
+const libSize = e => e.map ? `${fmtN(e.map.w * (e.map.cell || 5))} × ${fmtN(e.map.h * (e.map.cell || 5))} м` : "";
+function renderLibrary(){
+  const box = $("edLibrary"); if(!box) return;
+  const list = libRead();
+  box.innerHTML = (list.length ? list.map(e => `<div class="ed-librow"><span>${esc(e.name)}<em>${libSize(e)} · ${esc(e.created || "")}</em></span>
+      <button class="sm" onclick="libApply(${e.id})">Взять</button>
+      <button class="sm" onclick="libExport(${e.id})" title="Выгрузить файлом">Файл</button>
+      <button class="sm red" onclick="libDelete(${e.id})">✕</button></div>`).join("")
+    : '<div class="hint" style="margin-top:0">Пока пусто. Нарисуй карту и сохрани — например, «Тринидар».</div>') +
+    `<div class="ed-libsave"><input id="edLibName" placeholder="Название шаблона"${terrainMap ? "" : " disabled"}>
+      <button class="gold sm" onclick="libSaveCurrent()"${terrainMap ? "" : " disabled"}>Сохранить</button></div>
+    <div class="btnrow"><button class="sm" onclick="document.getElementById('edLibFile').click()">Загрузить из файла</button></div>`;
+}
+function libSaveCurrent(){
+  if(!terrainMap) return;
+  const name = ($("edLibName").value || "").trim() || "Карта " + new Date().toLocaleDateString("ru-RU");
+  const list = libRead();
+  list.push({id: Date.now() + list.length, name, created: new Date().toISOString().slice(0, 10), map: Engine.serializeTerrain(terrainMap)});
+  if(libWrite(list)) renderLibrary();
+}
+function libApply(id){
+  const e = libRead().find(x => x.id === id);
+  const m = e && Engine.deserializeTerrain(e.map);
+  if(!m){ alert("Шаблон повреждён — открыть не получилось."); return; }
+  if(terrainMap && !confirm(`Заменить текущую местность шаблоном «${e.name}»?`)) return;
+  pushUndo(`карта из шаблона «${e.name}»`);
+  terrainMap = m; terrainVersion++; editorView.z = 1;
+  m.meta = Object.assign({}, m.meta, {library: e.name});
+  ed.notes.push(`из своего шаблона «${e.name}»`);
+  noteAspect(m);
+  refreshEditor(); saveState();
+}
+function libDelete(id){
+  const e = libRead().find(x => x.id === id); if(!e) return;
+  if(!confirm(`Удалить шаблон «${e.name}» из браузера? Если нужен — сначала выгрузи его файлом.`)) return;
+  libWrite(libRead().filter(x => x.id !== id)); renderLibrary();
+}
+function libExport(id){
+  const e = libRead().find(x => x.id === id); if(!e) return;
+  downloadText(`karta_${safeFileName(e.name)}.json`, JSON.stringify({kind: "battle-map", v: 1, name: e.name, map: e.map}), "application/json");
+}
+function libImport(ev){
+  const file = ev.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const d = JSON.parse(reader.result);
+      if(d.kind !== "battle-map" || !Engine.deserializeTerrain(d.map)) throw new Error("не карта");
+      const list = libRead();
+      list.push({id: Date.now() + list.length, name: String(d.name || file.name), created: new Date().toISOString().slice(0, 10), map: d.map});
+      if(libWrite(list)) renderLibrary();
+    }catch(e){ alert("Не удалось прочитать файл: это не выгрузка карты трекера."); }
+    ev.target.value = "";
+  };
+  reader.readAsText(file);
+}
+
+// ═══════════ движение по карте (К22, К29) — черновик ═══════════
+// Зона досягаемости и цена пути — движок (Engine.reachMap, pathCost); здесь только показ и учёт.
+let moveZone = null;   // {id, u, speed, remaining, reach, bitmap} — пока тянем одну фишку
+function beginMoveZone(id){
+  moveZone = null;
+  if(!moveActive()) return;
+  const u = units.find(z => z.id === id); if(!u || u.status !== "active") return;
+  const R = currentRules(), speed = Engine.unitSpeed(u, R), remaining = Math.max(0, speed - (u.movedM || 0));
+  moveZone = {id, u: Object.assign({}, u), speed, remaining, reach: Engine.reachMap(u, mapGeo(), R, remaining * 2 + 100)};
+  drawReach();
+}
+function moveZoneHint(id, fx, fy){
+  if(!moveZone || moveZone.id !== id) return;
+  const c = Engine.pathCost(moveZone.reach, moveZone.u, fx, fy, mapGeo());
+  const ok = isFinite(c) && c <= moveZone.remaining + 0.5;
+  const txt = isFinite(c) ? `${Math.round(c)} м из ${Math.round(moveZone.remaining)}${ok ? "" : " — сверх нормы"}` : "дальше вдвое нормы или непроходимо";
+  $("mapHint").innerHTML = `<div class="targethint${ok ? " ok" : ""}">«${esc(moveZone.u.name)}»: ${txt}</div>`;
+}
+function endMoveZone(){
+  if(!moveZone) return;
+  moveZone = null; drawReach(); $("mapHint").innerHTML = "";
+}
+function drawReach(){
+  const cv = $("reachCanvas"); if(!cv) return;
+  const ctx = canvasCtx(cv); if(!ctx) return;
+  const v = battleView, dpr = window.devicePixelRatio || 1;
+  const W = Math.round(v.vw * dpr), H = Math.round(v.vh * dpr);
+  if(cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, v.vw, v.vh);
+  const z = moveZone; if(!z) return;
+  if(z.reach){
+    if(!z.bitmap){
+      const r = z.reach, bm = document.createElement("canvas");
+      bm.width = r.w; bm.height = r.h;
+      const bctx = canvasCtx(bm); if(!bctx) return;
+      const img = bctx.createImageData(r.w, r.h), d = img.data;
+      const inside = i => r.cost[i] <= z.remaining;
+      for(let y = 0; y < r.h; y++) for(let x = 0; x < r.w; x++){
+        const i = y * r.w + x; if(!inside(i)) continue;
+        const edge = (x > 0 && !inside(i - 1)) || (x < r.w - 1 && !inside(i + 1)) || (y > 0 && !inside(i - r.w)) || (y < r.h - 1 && !inside(i + r.w));
+        d[i * 4] = 224; d[i * 4 + 1] = 195; d[i * 4 + 2] = 74; d[i * 4 + 3] = edge ? 200 : 55;
+      }
+      bctx.putImageData(img, 0, 0);
+      z.bitmap = bm;
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(z.bitmap, v.ox, v.oy, v.sw, v.sh);
+  } else {
+    // без местности — круг по прямой
+    const cx = v.ox + z.u.mapX / 100 * v.sw, cy = v.oy + z.u.mapY / 100 * v.sh;
+    ctx.beginPath(); ctx.arc(cx, cy, z.remaining * v.sw / mapWidthMeters(), 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(224,195,74,.15)"; ctx.fill();
+    ctx.strokeStyle = "rgba(224,195,74,.85)"; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+}
+// Учёт хода: сколько прошёл (по местности, а без неё — по прямой), разбег для натиска; сверх нормы — в журнал
+function accountMoves(moves, zone){
+  if(!moveActive()) return;
+  const R = currentRules(), geo = mapGeo(), over = [];
+  moves.forEach(mv => {
+    const u = units.find(z => z.id === mv.id); if(!u || u.status !== "active") return;
+    const at = Object.assign({}, u, {mapX: mv.from[0] * 100, mapY: mv.from[1] * 100});
+    const speed = Engine.unitSpeed(at, R), before = u.movedM || 0;
+    const reach = zone && zone.id === mv.id ? zone.reach : Engine.reachMap(at, geo, R, Math.max(0, speed - before) * 2 + 100);
+    const straight = Engine.pathCost(null, at, mv.to[0], mv.to[1], geo);
+    let cost = Engine.pathCost(reach, at, mv.to[0], mv.to[1], geo);
+    // зона считалась от остатка хода; ушёл дальше — пересчитываем от длины самого хода (местность до ×4, подъём)
+    if(!isFinite(cost) && reach) cost = Engine.pathCost(Engine.reachMap(at, geo, R, Math.min(straight * 6 + 100, 5000)), at, mv.to[0], mv.to[1], geo);
+    const lost = !isFinite(cost);
+    if(lost) cost = straight;
+    const run = Engine.runOver(at, mv.from, mv.to, geo, R);
+    const after = before + cost;
+    updUnit(u.id, {movedM: Math.round(after), runUpM: run.clear ? Math.round((u.runUpM || 0) + run.len) : 0});
+    if(after > speed + 0.5 || lost)
+      over.push(`«${u.name}»: ${lost ? "по местности пути нет (непроходимо), по прямой " : ""}${Math.round(cost)} м — за ход ${Math.round(after)} из ${speed} м`);
+  });
+  if(over.length) addLog("Движение сверх нормы — решение мастера", over.concat(["Черновик до ГМа: скорости и местность — SPEC, раздел 6а."]));
+}
+
+// ═══════════ правила карты и масштаб (К10, К26, К31, К32) ═══════════
+const mapWidthMeters = () => terrainMap ? Engine.mapWidthM(terrainMap) : (mapOpts.widthM || 2000);
+const mapHeightMeters = () => terrainMap ? Engine.mapHeightM(terrainMap) : mapWidthMeters() * mapAspect();
+const mapGeo = () => ({map: terrainMap, W: mapWidthMeters(), H: mapHeightMeters()});
+// Правила карты работают, когда включены и есть поверхность карты (картинка или местность)
+const mapActive = () => mapRules.on && hasMapSurface();
+const terrainActive = () => mapActive() && mapRules.terrain && !!terrainMap;
+const MAP_RULE_NAMES = {on: "правила карты", terrain: "местность и высота в бою", move: "движение", range: "дальности",
+                        panic: "каскадная паника", panicMorale: "−100 БД вместе с проверкой"};
+const panicActive = () => mapActive() && mapRules.panic;
+// Каскадная паника (К25): после каждого побега — волна; в том же шаге отката, одной записью на источник
+function runPanic(ids){
+  if(!panicActive()) return;
+  ids.forEach(id => {
+    const src = units.find(u => u.id === id);
+    if(!src || !src.onMap || src.status !== "fled") return;
+    const r = Engine.panicWave(units, id, mapGeo(), engineCtx(), {moraleLoss: !!mapRules.panicMorale});
+    if(!r.lines.length) return;
+    r.patches.forEach(p => updUnit(p.id, p.patch));
+    addLog(`🏳 Каскадная паника: бегство «${src.name}»`,
+      r.lines.concat(["Черновик до ГМа: радиус 150 м, первое кольцо — по видимости (SPEC, 6а)."]), r.fled.length ? "danger" : undefined);
+  });
+}
+const moveActive = () => mapActive() && mapRules.move;
+const rangeActive = () => mapActive() && mapRules.range;
+function toggleMapRules(){ $("mapRulesPanel").classList.toggle("hidden"); renderMapRules(); }
+function renderMapRules(){
+  const b = $("mapRulesBtn"); if(!b) return;
+  b.textContent = "🗺 Правила карты: " + (mapRules.on ? "вкл (черновик)" : "выкл");
+  b.classList.toggle("on", mapRules.on);
+  $("mr_on").checked = mapRules.on;
+  $("mr_terrain").checked = !!mapRules.terrain;
+  $("mr_move").checked = !!mapRules.move;
+  $("mr_range").checked = !!mapRules.range;
+  $("mr_panic").checked = !!mapRules.panic;
+  $("mr_panicMorale").checked = !!mapRules.panicMorale;
+  $("mrSub").classList.toggle("off", !mapRules.on);
+}
+function setMapRule(key, val){
+  if(!!mapRules[key] === !!val) return;
+  pushUndo(`правила карты: ${MAP_RULE_NAMES[key]}`);
+  mapRules[key] = !!val;
+  addLog(key === "on" ? `Правила карты ${val ? "включены" : "выключены"}` : `Правило карты «${MAP_RULE_NAMES[key]}»: ${val ? "вкл" : "выкл"}`,
+    val ? ["Черновик до ГМа: числа — в SPEC, раздел 6а."] : []);
+  renderAll(); saveState();
+}
+function renderMapScale(){
+  const inp = $("mapWidthM"); if(!inp) return;
+  inp.value = Math.round(mapWidthMeters());
+  inp.disabled = !!terrainMap;
+  inp.title = terrainMap ? "Масштаб задан картой местности (клетки по 5 м)" : "Ширина картинки в метрах";
+  $("calibBtn").disabled = !!terrainMap || !mapImage;
+  renderMapRules();
+}
+function setMapWidth(v){
+  if(terrainMap) return;
+  const w = clamp(Math.round(+v || 2000), 50, 50000);
+  if(w === mapOpts.widthM) return;
+  pushUndo("ширина карты");
+  mapOpts.widthM = w;
+  addLog(`Масштаб карты: ширина ${fmtN(w)} м`, []);
+  renderMap(); saveState();
+}
+// Калибровка (К32 в): две точки на карте и расстояние между ними в метрах
+let calib = null;
+function startCalibrate(){
+  if(terrainMap || !mapImage) return;
+  calib = {a: null};
+  $("mapHint").innerHTML = '<div class="targethint">Отметь на карте первую точку · Esc — отмена</div>';
+}
+function calibrateClick(fx, fy){
+  if(!calib) return false;
+  if(!calib.a){
+    calib.a = [fx, fy];
+    $("mapHint").innerHTML = '<div class="targethint">Теперь вторую точку</div>';
+    $("mapTop").insertAdjacentHTML("beforeend", `<div class="calibdot" style="left:${fx * 100}%;top:${fy * 100}%"></div>`);
+    return true;
+  }
+  const a = calib.a; calib = null;
+  const m = prompt("Сколько метров между этими точками?", "300");
+  applyCalibration(a, [fx, fy], +m);
+  return true;
+}
+function applyCalibration(a, b, meters){
+  calib = null;
+  document.querySelectorAll(".calibdot").forEach(el => el.remove());
+  const d = Math.hypot(b[0] - a[0], (b[1] - a[1]) * mapAspect());   // в долях ширины карты
+  if(!(meters > 0) || d < 0.005){ renderMap(); return; }
+  const w = clamp(Math.round(meters / d), 50, 50000);
+  pushUndo("калибровка масштаба");
+  mapOpts.widthM = w;
+  addLog(`Масштаб карты по двум точкам: ширина ${fmtN(w)} м`, [`Между точками — ${fmtN(meters)} м`]);
+  renderMap(); saveState();
+}
 
 function toggleNews(){ $("newsPanel").classList.toggle("hidden"); }
 function renderPatchNotes(){

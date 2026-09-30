@@ -6,7 +6,10 @@ const require = createRequire(import.meta.url);
 const { JSDOM } = require("jsdom");
 
 const html = fs.readFileSync(new URL("../dist/tracker.html", import.meta.url), "utf8");
-const dom = new JSDOM(html, { runScripts: "dangerously", pretendToBeVisual: true });
+// url нужен, чтобы работал localStorage: без него jsdom считает страницу «непрозрачным источником»
+// Холста в jsdom нет: трекер это переживает (местность просто не рисуется), заглушка убирает шум в выводе
+const dom = new JSDOM(html, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost/",
+  beforeParse(win){ win.HTMLCanvasElement.prototype.getContext = () => null; } });
 const w = dom.window;
 w.confirm = () => true; w.alert = () => {};
 const ev = c => w.eval(c);
@@ -68,5 +71,268 @@ ev(`applyLoadedState(${JSON.stringify(Object.assign({}, saved, {ruleset: "неи
 ok(ev("ruleset") === "base", "неизвестный набор при загрузке откатывается к набору 1");
 ev("undo()");
 ok(true, "откат отработал без ошибок");
+
+console.log("Тип войск по названию (теперь в движке)");
+ev(`newUnit(); document.getElementById('f_name').value = 'Пешие рыцари Сильварейнов'; autoDetectType();`);
+ok(ev("document.getElementById('f_type').value") === "infantry", "«Пешие рыцари» — пехота, а не конница");
+ev("hideForm()");
+
+console.log("Сбор армий из текста: Штурм Тринидара");
+const trinidar = fs.readFileSync(new URL("../tests/fixtures/trinidar.txt", import.meta.url), "utf8");
+const count = () => JSON.parse(ev("JSON.stringify({u: units.length, f: factions.length, c: commanders.length, undo: undoStack.length})"));
+const before = count();
+ev(`document.getElementById('importText').value = ${JSON.stringify(trinidar)}; parseImport();`);
+ok(ev("document.querySelectorAll('#importPreview .imp-side').length") === 2, "предпросмотр: две стороны");
+ok(ev("document.querySelector('#importPreview .imp-warn').textContent").includes("22 000"), "видно расхождение итога у Персиваля");
+ok(ev("document.getElementById('impTotal').textContent").includes("50 отрядов"), "предпросмотр: 50 отрядов");
+ok(ev("[...document.getElementById('tplScope').options].some(o => o.value === 'Красные Кольчуги')"),
+   "сторона из предпросмотра доступна в шаблонах");
+ev(`document.getElementById('tplScope').value = 'Красные Кольчуги'; renderTemplates(); setTplValue('knights', 'discipline', '80');`);
+ok(ev("Engine.resolveTemplate('knights', 'Красные Кольчуги', templateOverrides).discipline") === 80, "правка шаблона для фракции");
+ok(ev("document.querySelectorAll('#tplTable input.ovr').length") === 1, "изменённое значение подсвечено");
+ev(`impLine(0, 0, 0, 'size', 2000);`);
+const res = ev("document.getElementById('impRes_0_0_0').textContent");
+ok(res.includes("9 отр. по 2 000"), "размер отряда переопределён в предпросмотре: " + res);
+ev("commitImport()");
+const after = count();
+ok(after.u - before.u === 41, "собрано 41 отряд (9 + 6 + 3 + 1 и 22): " + (after.u - before.u));
+ok(after.f - before.f === 2 && after.c - before.c === 2, "две фракции и два полководца");
+const rider = JSON.parse(ev("JSON.stringify(units.find(u => u.name === 'Всадники Красных Кольчуг'))"));
+ok(rider.type === "cavalry" && rider.discipline === 80 && rider.soldiers === 2000 && rider.initial === 2000,
+   "всадники: кавалерия, дисциплина 80 от правки фракции, по 2000");
+ok(ev(`commanders.find(c => c.id === ${rider.commanderId}).name`) === '"Бог войны" Король Генрих Файрлайн', "всадники под Генрихом");
+ok(ev("log[0].title").includes("Штурм Тринидара"), "запись в журнале: " + ev("log[0].title"));
+ok(ev("importDraft") === null && ev("document.getElementById('importPreview').innerHTML") === "", "предпросмотр закрыт");
+ok(after.undo - before.undo === 2, "правка шаблона и сбор — два шага отката");
+ev(`parseImport(); commitImport();`);
+ok(ev("units.some(u => u.name === 'Всадники Красных Кольчуг №10')"), "повторный сбор продолжает нумерацию");
+ok(ev("factions.filter(f => f.name === 'Красные Кольчуги').length") === 1, "фракция не задвоилась");
+ok(ev("commanders.length") === after.c, "полководцы не задвоились");
+ev("undo()"); ev("undo()");
+ok(ev("units.length") === before.u, "два отката убрали оба сбора");
+ok(ev("Engine.resolveTemplate('knights', 'Красные Кольчуги', templateOverrides).discipline") === 80, "правка шаблона раньше сбора осталась");
+
+console.log("Шаблоны в сохранении");
+const withTpl = JSON.parse(ev("JSON.stringify(stateObj())"));
+ok(withTpl.templateOverrides.factions["Красные Кольчуги"].knights.discipline === 80, "правки шаблонов записаны в партию");
+ev(`applyLoadedState(${JSON.stringify(Object.assign({}, withTpl, {templateOverrides: undefined}))})`);
+ok(ev("JSON.stringify(templateOverrides)") === JSON.stringify({base: {}, factions: {}}), "старое сохранение без шаблонов открывается");
+ev(`applyLoadedState(${JSON.stringify(withTpl)}); resetAll();`);
+ok(ev("units.length") === 0 && ev("templateOverrides.factions['Красные Кольчуги'].knights.discipline") === 80,
+   "«Сбросить всё» стирает партию, но не шаблоны");
+
+console.log("Загрузка отряда из JSON");
+await new Promise(done => {
+  const file = new w.File([JSON.stringify({name: "Наёмные арбалетчики", type: "archer", weapon: "ranged", soldiers: 300})], "otryad.json");
+  w.eval("importUnitJson")({target: {files: [file], value: ""}});
+  setTimeout(done, 50);
+});
+ok(ev("units.find(u => u.name === 'Наёмные арбалетчики').type") === "archer", "арбалетчики остались стрелками, а не пехотой");
+
+console.log("Полководцы при сборе: Вторая битва при Пикшарпе");
+const piksharp = fs.readFileSync(new URL("../tests/fixtures/pikshsharp2.txt", import.meta.url), "utf8");
+ev(`document.getElementById('importText').value = ${JSON.stringify(piksharp)}; parseImport();`);
+ok(ev("document.querySelectorAll('#importPreview .imp-side')[1].querySelector('.imp-cmdsel').options.length") === 5,
+   "в списке четыре полководца и «без полководца»");
+ok(ev("document.querySelectorAll('#importPreview .imp-line.guess').length") >= 2, "строки с несколькими полководцами подсвечены");
+ev(`impCmdr(1, 0, 1, 'принц Токимори Тосава'); commitImport();`);
+const konn = JSON.parse(ev(`JSON.stringify(units.filter(u => u.name.startsWith('Конные')).map(u => commanders.find(c => c.id === u.commanderId).name))`));
+ok(konn.length === 4 && konn.every(n => n === "принц Токимори Тосава"), "конные ушли Токимори");
+ok(ev("commanders.filter(c => ['Лорд Андреас Дарлтон','принц Токимори Тосава','виконт Кельдар Берг','герцог Вольфганг Дарлтон'].includes(c.name)).length") === 4,
+   "заведены все четыре полководца");
+
+console.log("Редактор карты (v30.3)");
+const T = k => ev(`Engine.TERRAIN_BY_KEY.${k}.id`);
+const cells = id => ev(`Array.from(terrainMap.t).filter(v => v === ${id}).length`);
+ev("openEditor()");
+ok(!ev("document.getElementById('mapEditor').classList.contains('hidden')"), "редактор открылся поверх трекера");
+ok(ev("document.getElementById('edMapInfo').textContent").includes("Местности ещё нет"), "без местности предлагает создать карту");
+ev(`document.getElementById('edNewW').value = '1000'; document.getElementById('edNewH').value = '600'; edNewSize(); edCreate();`);
+ok(ev("terrainMap.w") === 200 && ev("terrainMap.h") === 120, "1000 × 600 м — это 200 × 120 клеток по 5 м");
+ok(cells(T("field")) === 200 * 120, "новая карта залита полем");
+const undo0 = ev("undoStack.length");
+ev(`edSetValue(${T("forest")}); edSetSize(50);
+    edBegin({x: 50, y: 50, fx: .25, fy: 50/120}); edMove({x: 70, y: 50, fx: .35, fy: 50/120}); edEnd();`);
+ok(cells(T("forest")) > 150, "кисть 50 м нарисовала лес: " + cells(T("forest")) + " клеток");
+ok(ev("undoStack.length") === undo0 + 1, "мазок — один шаг отката");
+ev(`edSetValue(${T("wall")}); edSetTool('rect'); edSetSize(5);
+    edBegin({x: 120, y: 20, fx: .6, fy: 20/120}); edMove({x: 150, y: 50, fx: .75, fy: 50/120}); edEnd();`);
+ok(cells(T("wall")) === 120, "контур 31 × 31 клетку стеной толщиной 5 м — 120 клеток: " + cells(T("wall")));
+ev(`edSetValue(${T("sand")}); edSetTool('fill'); edBegin({x: 135, y: 35, fx: 135/200, fy: 35/120});`);
+ok(cells(T("sand")) === 29 * 29, "заливка двора остановилась на стенах: " + cells(T("sand")));
+const undo1 = ev("undoStack.length");
+ev(`edBegin({x: 135, y: 35, fx: 135/200, fy: 35/120});`);
+ok(ev("undoStack.length") === undo1, "пустой мазок не засоряет откат");
+ev(`edSetLayer('z'); edSetZ(2); edSetTool('brush'); edSetSize(30); edBegin({x: 30, y: 90, fx: .15, fy: .75}); edEnd();`);
+ok(ev("Engine.cellAt(terrainMap, .15, .75).z") === 2 && ev("Engine.cellAt(terrainMap, .15, .75).t") === T("field"),
+   "высота нарисована отдельным слоем, поле под ней осталось");
+ev(`edSetLayer('t'); edSetTool('pick'); edBegin({x: 135, y: 35, fx: 135/200, fy: 35/120});`);
+ok(ev("ed.value") === T("sand") && ev("ed.tool") === "brush", "пипетка взяла песок и вернула кисть");
+ev("undo()");
+ok(ev("Engine.cellAt(terrainMap, .15, .75).z") === 0, "откат убрал последний мазок — холм");
+ok(ev("document.getElementById('edTools').textContent").includes("Прямоугольник"), "панель инструментов на месте");
+ev(`document.getElementById('edLibName').value = 'Проба'; libSaveCurrent();`);
+ok(ev("libRead().length") === 1 && ev("libRead()[0].name") === "Проба", "карта сохранена в свои шаблоны");
+ev("closeEditor()");
+ok(ev("document.getElementById('mapEditor').classList.contains('hidden')"), "«Готово» закрывает редактор");
+const arb = ev("units.find(u => u.name === 'Наёмные арбалетчики').id");
+ev(`placeOnMap(${arb}, 30, ${50 / 120 * 100}); renderMap();`);
+ok(ev(`document.querySelector('.token[data-tid="${arb}"] .ttip').textContent`).includes("Местность: Лес"), "в подсказке фишки — местность под ней");
+ev("zoomBattle(1.5)");
+ok(ev("battleView.z") === 1.5, "карта приближается");
+ev("fitBattle()");
+ok(ev("battleView.z") === 1, "«Вся карта» возвращает масштаб");
+const withMap = JSON.parse(ev("JSON.stringify(stateObj())"));
+ok(withMap.battleMap && withMap.battleMap.w === 200 && JSON.stringify(withMap.battleMap).length < 5000,
+   "местность в сохранении партии, сжата до " + JSON.stringify(withMap.battleMap).length + " символов");
+ev(`applyLoadedState(${JSON.stringify(Object.assign({}, withMap, {battleMap: undefined}))})`);
+ok(ev("terrainMap") === null, "старое сохранение без местности открывается");
+ev(`applyLoadedState(${JSON.stringify(withMap)})`);
+ok(cells(T("sand")) === 29 * 29, "местность вернулась из сохранения");
+ev("resetAll()");
+ok(ev("terrainMap") === null && ev("libRead().length") === 1, "«Сбросить всё» стирает карту партии, но не свои шаблоны");
+ev("openEditor(); libApply(libRead()[0].id); closeEditor();");
+ok(ev("terrainMap && terrainMap.w") === 200 && cells(T("wall")) === 120, "карта взята из своих шаблонов");
+
+console.log("Шаблоны карт (v30.4)");
+let asked = 0;
+w.confirm = () => { asked++; return true; };
+ev("openEditor()");
+ok(ev("document.getElementById('edGen').querySelectorAll('option').length") >= 8, "в списке восемь шаблонов");
+ev(`edGenPick('castle'); edGenSet('gateSide', 'north'); ed.gen.seed = 123; edGenerate(false);`);
+ok(asked === 1, "карта была нарисована руками — трекер спросил, заменять ли");
+ok(ev("terrainMap.meta.template") === "castle" && ev("terrainMap.meta.seed") === 123, "замок по шаблону, зерно 123");
+ok(cells(T("wall")) > 50 && cells(T("tower")) > 20 && cells(T("gate")) > 0, "стены, башни и ворота на месте");
+const castle123 = ev("JSON.stringify(Engine.serializeTerrain(terrainMap).t)");
+ev("edGenerate(true)");
+ok(asked === 1, "непоправленную карту по шаблону заменяет без вопроса");
+ok(ev("terrainMap.meta.seed") !== 123 && ev("JSON.stringify(Engine.serializeTerrain(terrainMap).t)") !== castle123, "«Ещё вариант» — новое зерно, другая карта");
+ev(`ed.gen.seed = 123; edGenerate(false);`);
+ok(ev("JSON.stringify(Engine.serializeTerrain(terrainMap).t)") === castle123, "то же зерно — та же карта");
+ev(`edGenPick('river'); edGenSet('bridges', 2); edGenerate(true);`);
+ok(cells(T("water")) > 100 && cells(T("bridge")) > 0, "река с мостами");
+ev("closeEditor()");
+ok(ev("log[0].title") === "Карта местности обновлена" && ev("log[0].lines[0]").includes("«Река»"),
+   "одна запись в журнал за сеанс правки: " + ev("log[0].lines[0]"));
+
+console.log("Правила карты: метры и местность (v30.5)");
+ev(`terrainMap = Engine.createTerrain(2000, 1000, ${T("field")}); Engine.paintRect(terrainMap, 't', 0, 0, 399, 99, ${T("forest")}); terrainVersion++;
+    document.getElementById('fx_name').value = 'Лучники Севера'; addFaction();
+    document.getElementById('fx_name').value = 'Лесные'; addFaction();`);
+const mkU = (name, fac, x, y, extra) => ev(`newUnit(); document.getElementById('f_name').value = ${JSON.stringify(name)};
+  document.getElementById('f_faction').value = String(factions.find(f => f.name === ${JSON.stringify(fac)}).id); onUnitFactionChange();
+  autoDetectType(); ${extra || ""} saveUnit(); placeOnMap(units[units.length - 1].id, ${x}, ${y}); units[units.length - 1].id`);
+const bows = mkU("Лучники на опушке", "Лучники Севера", 50, 75, "document.getElementById('f_soldiers').value = '1000';");
+const wood = mkU("Ополчение в лесу", "Лесные", 50, 25, "document.getElementById('f_soldiers').value = '1000';");
+ok(ev("mapActive()") === false, "по умолчанию правила карты выключены");
+ev(`openTokenMenu(${bows})`);
+ok(!ev("document.querySelector('.tmenu').textContent").includes("по местности"), "выключены — в меню прежние кнопки строя");
+ev(`closeTokenMenu(); setMapRule('on', true);`);
+ok(ev("mapRules.on") === true && ev("document.getElementById('mapRulesBtn').textContent").includes("вкл"), "правила карты включены, кнопка в шапке это показывает");
+ok(ev("log[0].title") === "Правила карты включены", "включение записано в журнал");
+ev("renderMap()");
+const tw = ev(`parseInt(document.querySelector('.token[data-tid="${bows}"] .tdisc').style.width)`);
+const expectW = ev(`Math.max(6, Math.round(Engine.footprint(units.find(u => u.id === ${bows}), currentRules()).front * battleView.sw / mapWidthMeters()))`);
+ok(ev(`document.querySelector('.token[data-tid="${bows}"] .tdisc').classList.contains('scaled')`) && tw === expectW,
+   `фишка — прямоугольник строя в масштабе: ${tw} px`);
+ok(ev(`document.querySelector('.token[data-tid="${bows}"] .ttip').textContent`).includes("Строй: 200 × 5 м"), "в подсказке — размер строя в метрах");
+ev(`openTokenMenu(${bows})`);
+const menu = ev("document.querySelector('.tmenu').textContent");
+ok(menu.includes("режим по местности") && !menu.includes("Меньше"), "в меню — атака «по местности», ручного размера нет");
+ev(`startTargeting(${bows}, false, 'auto'); tokenClick(${wood});`);
+ok(ev("log[0].title").includes("Дальний бой · пересечённая"), "цель в лесу — режим «пересечённая»: " + ev("log[0].title"));
+const L5 = JSON.parse(ev("JSON.stringify(log[0].lines)"));
+ok(L5.some(l => l.startsWith("🗺 Местность: «Ополчение в лесу» — лес")), "в журнале — местность обеих сторон");
+ok(L5.some(l => l.startsWith("Укрытие «Ополчение в лесу» (лес): −30%") && l.endsWith("черновик")), "укрытие от стрел 30% с пометкой «черновик»");
+ok(ev("document.getElementById('mapWidthM').disabled") === true, "с местностью масштаб задан ею — поле ширины заблокировано");
+ev(`Engine.paintRect(terrainMap, 't', 0, 100, 399, 199, ${T("sand")}); terrainVersion++;
+    updUnit(${bows}, {acted: true, turnsActive: 9, fatigue: 0}); endTurn();`);
+ok(ev(`units.find(u => u.id === ${bows}).fatigue`) === 20, "на песке усталость копится вдвое быстрее (черновик)");
+const withRules = JSON.parse(ev("JSON.stringify(stateObj())"));
+ok(withRules.mapRules.on === true, "положение переключателей хранится в партии");
+ev(`applyLoadedState(${JSON.stringify(Object.assign({}, withRules, {mapRules: undefined}))}); renderAll();`);
+ok(ev("mapRules.on") === false, "старое сохранение — правила карты выключены");
+ev(`applyLoadedState(${JSON.stringify(withRules)}); setMapRule('terrain', false);`);
+ev(`units.forEach(u => updUnit(u.id, {attacksMade: 0})); startTargeting(${bows}, false, 'ranged_form'); tokenClick(${wood});`);
+ok(!JSON.parse(ev("JSON.stringify(log[0].lines)")).some(l => l.startsWith("Укрытие")), "местность выключена отдельно — укрытия нет, остальное работает");
+ev(`setMapRule('on', false); renderMap();`);
+ok(!ev(`document.querySelector('.token[data-tid="${bows}"] .tdisc').classList.contains('scaled')`), "выключены — снова фишки-значки");
+ev(`terrainMap = null; terrainVersion++; mapImage = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='; renderMap();
+    applyCalibration([0.1, 0.5], [0.6, 0.5], 300);`);
+ok(ev("mapOpts.widthM") === 600 && ev("document.getElementById('mapWidthM').value") === "600", "калибровка: 300 м на половину ширины — карта 600 м");
+ev("mapImage = null; renderMap();");
+
+console.log("Движение и дальности (v30.6)");
+let confirms = 0;
+w.confirm = () => { confirms++; return true; };
+ev(`terrainMap = Engine.createTerrain(1000, 1000, ${T("field")}); Engine.paintRect(terrainMap, 't', 100, 0, 199, 199, ${T("forest")}); terrainVersion++;
+    setMapRule('on', true); units.forEach(u => updUnit(u.id, {onMap: false, attacksMade: 0, movedM: 0, runUpM: 0})); renderAll();`);
+ok(ev("moveActive() && rangeActive()") === true, "движение и дальности включены вместе с правилами карты");
+const foot = mkU("Пехота на марше", "Лучники Севера", 20, 50);
+ev(`accountMoves([{id: ${foot}, from: [.2, .5], to: [.3, .5]}]);`);
+ok(ev(`units.find(u => u.id === ${foot}).movedM`) === 100 && ev("log[0].title") !== "Движение сверх нормы — решение мастера",
+   "100 м по полю — в норме, без записи");
+ev(`updUnit(${foot}, {mapX: 30}); accountMoves([{id: ${foot}, from: [.3, .5], to: [.4, .5]}]);`);
+ok(ev("log[0].title") === "Движение сверх нормы — решение мастера" && ev("log[0].lines[0]").includes("за ход 200 из 100 м"),
+   "ещё 100 м — сверх нормы, запись в журнал: " + ev("log[0].lines[0]"));
+ev(`updUnit(${foot}, {mapX: 40}); accountMoves([{id: ${foot}, from: [.4, .5], to: [.55, .5]}]);`);
+const went = +/за ход ([0-9]+) из/.exec(ev("log[0].lines[0]"))[1];
+ok(went >= 395 && went <= 410, "лес дороже: 50 м полем и 50 м лесом ×2 — ещё около 200 м (до клетки): " + ev("log[0].lines[0]"));
+ev("endTurn()");
+ok(ev(`units.find(u => u.id === ${foot}).movedM`) === 0, "конец хода сбрасывает пройденное");
+ev(`renderMap();`);
+ok(ev(`document.querySelector('.token[data-tid="${foot}"] .ttip').textContent`).includes("Прошёл за ход: 0 / 100 м"), "в подсказке — пройденное за ход");
+// разбег для натиска
+const riders = mkU("Всадники с разбегу", "Лучники Севера", 30, 80, "document.getElementById('f_soldiers').value = '100';");
+const pikes = mkU("Пехота врага", "Лесные", 30, 81.5, "document.getElementById('f_soldiers').value = '100';");
+ev(`setSide('att', ${riders}); setSide('def', ${pikes}); document.getElementById('modeSel').value = 'melee_form'; onModeChange(); updateChargeBox();
+    document.getElementById('charge').checked = true; resolveBattle();`);
+ok(JSON.parse(ev("JSON.stringify(log[0].lines)")).some(l => l.startsWith("🐎 Натиск невозможен — разбег 0 м из 50")), "без разбега натиска нет");
+ev(`units.forEach(u => updUnit(u.id, {attacksMade: 0})); updUnit(${riders}, {mapY: 70});
+    accountMoves([{id: ${riders}, from: [.3, .7], to: [.3, .8]}]); updUnit(${riders}, {mapY: 80});`);
+ok(ev(`units.find(u => u.id === ${riders}).runUpM`) === 100, "100 м по полю — разбег есть");
+ev(`setSide('att', ${riders}); setSide('def', ${pikes}); document.getElementById('modeSel').value = 'melee_form'; onModeChange(); updateChargeBox();
+    document.getElementById('charge').checked = true; resolveBattle();`);
+const Lc = JSON.parse(ev("JSON.stringify(log[0].lines)"));
+ok(!Lc.some(l => l.includes("Натиск невозможен")) && Lc.some(l => l.startsWith("🐎 Натиск")), "с разбегом — натиск");
+ok(ev(`units.find(u => u.id === ${riders}).runUpM`) === 0, "разбег истрачен на удар");
+// дальности
+const bowsFar = mkU("Лучники дозора", "Лучники Севера", 50, 95, "document.getElementById('f_soldiers').value = '300';");
+const farT = mkU("Дальняя цель", "Лесные", 50, 5, "document.getElementById('f_soldiers').value = '300';");
+ev(`startTargeting(${bowsFar}, false, 'auto');`);
+ok(ev(`document.querySelector('.token[data-tid="${farT}"]').classList.contains('far-target')`), "цель в 900 м — серая");
+const c0 = confirms;
+ev(`tokenClick(${farT});`);
+ok(confirms === c0 + 1 && JSON.parse(ev("JSON.stringify(log[0].lines)")).some(l => l.startsWith("⚠ Вне досягаемости: до «Дальняя цель»")),
+   "атака вне досягаемости — только с подтверждения мастера и с пометкой");
+ev(`newUnit(); document.getElementById('f_name').value = 'Лучники с длинными луками'; autoDetectType(); document.getElementById('f_range').value = '260'; saveUnit();`);
+ok(ev("units[units.length - 1].range") === 260 && ev("Engine.rangeOf(units[units.length - 1], currentRules())") === 260, "своя дальность в карточке отряда");
+ev(`setMapRule('move', false); accountMoves([{id: ${foot}, from: [.4, .5], to: [.9, .5]}]);`);
+ok(ev(`units.find(u => u.id === ${foot}).movedM`) === 0, "движение выключено отдельно — путь не считается");
+ev("setMapRule('on', false);");
+
+console.log("Каскадная паника (v30.7)");
+ev(`terrainMap = Engine.createTerrain(1000, 1000, ${T("field")}); terrainVersion++;
+    units.forEach(u => updUnit(u.id, {onMap: false})); setMapRule('on', true);`);
+ok(ev("panicActive()") === true && ev("mapRules.panicMorale") === false, "паника включена с правилами карты, «−100 БД» — выключено");
+const line = [0, 1, 2, 3].map(i => mkU("Звено " + i, "Лучники Севера", 20 + i * 11, 50, "document.getElementById('f_soldiers').value = '400'; document.getElementById('f_disc').value = '1';"));
+const foe7 = mkU("Враг рядом", "Лесные", 25, 55, "document.getElementById('f_soldiers').value = '400'; document.getElementById('f_disc').value = '1';");
+ev(`markFled(${line[0]})`);
+ok(ev("log[0].title") === "🏳 Каскадная паника: бегство «Звено 0»", "волна паники — отдельной записью: " + ev("log[0].title"));
+ok(line.every(id => ev(`units.find(u => u.id === ${id}).status`) === "fled"), "вся цепочка побежала — волна за волной");
+ok(ev(`units.find(u => u.id === ${foe7}).status`) === "active", "бегство врага паники не вызывает");
+ok(ev("log[0].lines.some(l => l.includes('волна 3'))"), "в журнале видно кольца волны");
+ok(ev("undoStack[undoStack.length - 1].label") === "«Звено 0» покинул поле боя", "побег и вся волна — один шаг отката");
+ev("undo()");
+ok(line.every(id => ev(`units.find(u => u.id === ${id}).status`) === "active"), "откат вернул всех");
+ev(`setMapRule('panicMorale', true); markFled(${line[3]});`);
+ok(ev("log[0].lines.some(l => l.includes('−100'))"), "«−100 БД вместе с проверкой» — в журнале");
+ev(`undo(); undo(); setMapRule('panic', false); markFled(${line[0]});`);
+ok(ev("log[0].title") === "«Звено 0» покинул поле боя" && ev(`units.find(u => u.id === ${line[1]}).status`) === "active",
+   "паника выключена отдельно — бегство без волны");
+ev(`undo(); setMapRule('panic', true); updUnit(${line[1]}, {morale: 0, fleeChecks: 1}); fleeCheck(${line[1]});`);
+ok(ev(`units.find(u => u.id === ${line[1]}).status`) !== "fled" || ev("log[0].title").startsWith("🏳 Каскадная паника"),
+   "проваленная проверка на побег тоже запускает волну");
+ev("setMapRule('on', false);");
 
 console.log(process.exitCode ? "\nЕСТЬ ОШИБКИ" : "\nВсё в порядке");
