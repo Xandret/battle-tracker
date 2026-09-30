@@ -6,7 +6,7 @@
 
 ```
 tracker/   трекер для ГМа: один HTML-файл, движок правил на JavaScript (см. tracker/README.md)
-core/      движок правил на C# для игры: те же правила, без Unity (netstandard2.1)
+core/      движок правил на C# для игры: те же правила, без Unity (локальный пакет Unity + тесты на .NET 10)
 game/      игра на Unity — одновременные ходы, живые фигурки солдат (Г1–Г23 в SPEC)
 shared/    общее для обеих реализаций:
   golden/    эталон v29 (golden.json) и замороженные сценарии (scenarios.json)
@@ -21,5 +21,5 @@ shared/    общее для обеих реализаций:
 
 ```
 cd tracker && npm install && npm run check
-cd core && dotnet test
+cd core && dotnet run --project Tests
 ```
