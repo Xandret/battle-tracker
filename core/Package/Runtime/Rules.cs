@@ -47,6 +47,29 @@ namespace BattleCore
         public FatigueR Fatigue = new FatigueR();
         public SectorsR Sectors = new SectorsR();
 
+        // ── Карта в метрах (черновик 6а) — пока перенесены строй и высота; остальное — вместе с battlemap.js ──
+        public sealed class FormationR
+        {
+            public double PerMan, Ranks, RankDepth;
+            public FormationR(double perMan, double ranks, double rankDepth) { PerMan = perMan; Ranks = ranks; RankDepth = rankDepth; }
+        }
+        public sealed class HeightR { public double DownhillMelee = 1.2, UphillMelee = 0.9, RangePerLevel = 0.1, ClimbCost = 1.5; }
+        public sealed class MapR
+        {
+            public bool Draft = true;
+            // строй (К21): метров по фронту на бойца, шеренг, метров на шеренгу вглубь
+            public System.Collections.Generic.Dictionary<string, FormationR> Formation = new System.Collections.Generic.Dictionary<string, FormationR>
+            {
+                ["infantry"] = new FormationR(1, 8, 1),     // 1000 → 125 × 8 м
+                ["pike"] = new FormationR(1, 10, 1),        // 1000 → 100 × 10 м
+                ["archer"] = new FormationR(1, 5, 1),       // 1000 → 200 × 5 м
+                ["cavalry"] = new FormationR(1.5, 5, 3),    // 1000 → 300 × 15 м
+            };
+            public HeightR Height = new HeightR();
+            public double MeleeGap = 5;
+        }
+        public MapR Map = new MapR();
+
         public double ModeDivFor(string mode)
         {
             switch (mode)
