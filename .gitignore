@@ -1,2 +1,23 @@
+# трекер
 node_modules/
 dist/
+
+# движок на C#
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Unity (game/)
+game/[Ll]ibrary/
+game/[Tt]emp/
+game/[Oo]bj/
+game/[Bb]uild/
+game/[Bb]uilds/
+game/[Ll]ogs/
+game/[Uu]ser[Ss]ettings/
+game/[Mm]emoryCaptures/
+game/*.csproj
+game/*.sln
+game/*.slnx

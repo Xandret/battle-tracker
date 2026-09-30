@@ -78,7 +78,7 @@ ok(ev("document.getElementById('f_type').value") === "infantry", "«Пешие �
 ev("hideForm()");
 
 console.log("Сбор армий из текста: Штурм Тринидара");
-const trinidar = fs.readFileSync(new URL("../tests/fixtures/trinidar.txt", import.meta.url), "utf8");
+const trinidar = fs.readFileSync(new URL("../../shared/battles/trinidar.txt", import.meta.url), "utf8");
 const count = () => JSON.parse(ev("JSON.stringify({u: units.length, f: factions.length, c: commanders.length, undo: undoStack.length})"));
 const before = count();
 ev(`document.getElementById('importText').value = ${JSON.stringify(trinidar)}; parseImport();`);
@@ -130,7 +130,7 @@ await new Promise(done => {
 ok(ev("units.find(u => u.name === 'Наёмные арбалетчики').type") === "archer", "арбалетчики остались стрелками, а не пехотой");
 
 console.log("Полководцы при сборе: Вторая битва при Пикшарпе");
-const piksharp = fs.readFileSync(new URL("../tests/fixtures/pikshsharp2.txt", import.meta.url), "utf8");
+const piksharp = fs.readFileSync(new URL("../../shared/battles/pikshsharp2.txt", import.meta.url), "utf8");
 ev(`document.getElementById('importText').value = ${JSON.stringify(piksharp)}; parseImport();`);
 ok(ev("document.querySelectorAll('#importPreview .imp-side')[1].querySelector('.imp-cmdsel').options.length") === 5,
    "в списке четыре полководца и «без полководца»");

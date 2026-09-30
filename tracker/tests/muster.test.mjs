@@ -1,11 +1,11 @@
 // ═══════════ muster.test.mjs — импорт армий из текста и шаблоны отрядов ═══════════
-// Образцы в tests/fixtures — настоящие отчёты о битвах из «Кодекса Альтера», без правок.
+// Образцы в shared/battles — настоящие отчёты о битвах из «Кодекса Альтера», без правок.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as E from "../src/engine/index.js";
 
-const fixture = name => fs.readFileSync(new URL(`./fixtures/${name}.txt`, import.meta.url), "utf8");
+const fixture = name => fs.readFileSync(new URL(`../../shared/battles/${name}.txt`, import.meta.url), "utf8");
 const lines = side => side.contingents.flatMap(c => c.lines);
 
 // ── числа ──

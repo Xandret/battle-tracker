@@ -1,6 +1,6 @@
 // ═══════════ make-golden.mjs — эталон поведения v29 ═══════════
 // Прогоняет сценарии через оригинальный v29 в эмуляторе браузера (jsdom) с сидированным Math.random
-// и сохраняет результат в tests/golden.json. Запускается один раз; тесты потом работают без jsdom.
+// и сохраняет результат в shared/golden/golden.json. Запускается один раз; тесты потом работают без jsdom.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import { buildScenarios } from "../tests/scenarios.mjs";
@@ -57,5 +57,5 @@ for(const sc of scenarios){
   const units = ev(`JSON.stringify(units)`);
   out.push({ n: sc.n, log: JSON.parse(entry), units: JSON.parse(units), turn: ev("turn") });
 }
-fs.writeFileSync(new URL("../tests/golden.json", import.meta.url), JSON.stringify(out));
+fs.writeFileSync(new URL("../../shared/golden/golden.json", import.meta.url), JSON.stringify(out));
 console.log(`эталон записан: ${out.length} сценариев`);

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { buildScenarios } from "./scenarios.mjs";
 import * as E from "../src/engine/index.js";
 
-const golden = JSON.parse(fs.readFileSync(new URL("./golden.json", import.meta.url), "utf8"));
+const golden = JSON.parse(fs.readFileSync(new URL("../../shared/golden/golden.json", import.meta.url), "utf8"));
 const scenarios = buildScenarios();
 
 // Прогон одного сценария через новый движок — так, как это делает интерфейс.
@@ -43,6 +43,12 @@ function runEngine(sc){
 
 test("эталон содержит все сценарии", () => {
   assert.equal(golden.length, scenarios.length);
+});
+
+// Движок на C# (core/) читает замороженные сценарии — генератор не должен тихо от них уйти
+test("замороженные сценарии в shared/ совпадают с генератором", () => {
+  const frozen = JSON.parse(fs.readFileSync(new URL("../../shared/golden/scenarios.json", import.meta.url), "utf8"));
+  assert.deepEqual(frozen, JSON.parse(JSON.stringify(scenarios)));
 });
 
 for(const sc of scenarios){
