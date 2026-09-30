@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Журнал боевых действий — v__VERSION__ «__PATCHNAME__»</title>
+<style>
+  :root{
+    --bg:#14181A; --panel:#1C2224; --panel2:#20282A; --line:#33403C;
+    --text:#E6E0CC; --muted:#98A08F; --brass:#C9A227; --red:#B0402E; --green:#7FA05A; --blue:#5A8FB0;
+  }
+  *{box-sizing:border-box;}
+  body{min-height:100vh;margin:0;width:100%;background:var(--bg);
+    background-image:radial-gradient(ellipse at 20% -10%,#1D2426 0%,#14181A 60%);
+    color:var(--text);font-family:Georgia,'Times New Roman',serif;padding:20px;}
+  h1,h2,h3,button,.tag,label,summary{font-family:'Arial Narrow','Oswald',Arial,sans-serif;letter-spacing:.04em;}
+  h1{font-size:26px;font-weight:700;margin:0;text-transform:uppercase;}
+  h1 span{color:var(--brass);}
+  .sub{color:var(--muted);font-size:13px;margin-top:2px;font-style:italic;}
+  .topbar{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;
+    border-bottom:2px solid var(--brass);padding-bottom:12px;margin-bottom:18px;}
+  .turnbox{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .turnnum{font-family:'Courier New',monospace;font-size:22px;color:var(--brass);}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(380px,0.95fr) minmax(0,1.15fr);
+    gap:18px;align-items:start;width:100%;}
+  @media(min-width:2200px){.grid{grid-template-columns:minmax(0,1.15fr) 480px minmax(0,1.2fr);gap:24px;}
+    body{padding:28px 40px;} h1{font-size:32px;} .uname{font-size:23px;}
+    .lentry,.necro,.lline,.lresult{font-size:13px;} .stats{font-size:13px;}}
+  @media(min-width:3400px){.grid{max-width:3200px;margin:0 auto;}}
+  @media(max-width:1300px){.grid{grid-template-columns:1fr 1fr;}}
+  @media(max-width:820px){.grid{grid-template-columns:1fr;}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;}
+  .panel h2{font-size:14px;font-weight:700;text-transform:uppercase;color:var(--brass);margin:0 0 10px;
+    border-bottom:1px solid var(--line);padding-bottom:6px;}
+  details.panel > summary{font-size:14px;font-weight:700;text-transform:uppercase;color:var(--brass);
+    border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:10px;cursor:pointer;
+    list-style:none;user-select:none;}
+  details.panel > summary::-webkit-details-marker{display:none;}
+  details.panel > summary::before{content:"▸ ";color:var(--muted);}
+  details[open].panel > summary::before{content:"▾ ";}
+  details.panel:not([open]) > summary{margin-bottom:0;border-bottom:none;padding-bottom:0;}
+
+  button{background:#26312E;color:var(--text);border:1px solid #4A5A54;border-radius:4px;
+    padding:7px 14px;font-size:13px;cursor:pointer;text-transform:uppercase;font-weight:600;}
+  button:hover{background:#33403C;border-color:var(--brass);}
+  button:focus-visible{outline:2px solid var(--brass);outline-offset:2px;}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  button.gold{background:var(--brass);color:#14181A;border-color:var(--brass);}
+  button.gold:hover{background:#E0C34A;}
+  button.red{border-color:var(--red);color:#E08A76;}
+  button.red:hover{background:#3A2320;}
+  button.green{border-color:var(--green);color:#A8C888;}
+  button.green:hover{background:#22301E;}
+  button.blue{border-color:var(--blue);color:#9CC4E0;}
+  button.blue:hover{background:#1E2A34;}
+  button.sm{padding:4px 9px;font-size:11px;}
+  button.check{width:100%;margin-top:8px;background:#3A2320;border-color:var(--red);color:#F0A090;
+    padding:8px;font-size:13px;}
+  button.check:hover{background:#4A2A24;}
+  button.fight{width:100%;padding:16px;font-size:19px;letter-spacing:.08em;margin-top:4px;}
+
+  input,select{background:#14181A;color:var(--text);border:1px solid #4A5A54;border-radius:4px;
+    padding:7px 9px;font-size:13px;font-family:'Courier New',monospace;width:100%;}
+  #battlePanel select,#battlePanel input{padding:9px;font-size:14px;}
+  input:focus,select:focus{outline:1px solid var(--brass);}
+  input[type=checkbox]{width:auto;}
+  input[type=color]{padding:1px 2px;height:30px;cursor:pointer;}
+  input.fx-color{width:38px;flex:none;}
+  label{font-size:11px;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:3px;}
+  .chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer;
+    font-family:Georgia,serif;text-transform:none;margin-bottom:0;}
+  .frow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;}
+  .frow2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+  .frow4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px;}
+  .fxrow{display:grid;grid-template-columns:38px 1fr auto;gap:8px;margin-bottom:8px;}
+  .subrow{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:8px;}
+  .mb8{margin-bottom:8px;}
+  .mb12{margin-bottom:12px;}
+
+  /* ── список юнитов ── */
+  .fhead{font-family:'Arial Narrow',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;
+    margin:14px 0 6px;border-bottom:1px dashed var(--line);padding-bottom:3px;
+    display:flex;align-items:center;gap:8px;justify-content:space-between;cursor:pointer;user-select:none;}
+  .fhead:first-child{margin-top:0;}
+  .shead{font-family:'Arial Narrow',sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;
+    margin:8px 0 5px 10px;padding-bottom:2px;color:var(--muted);
+    display:flex;align-items:center;gap:7px;justify-content:space-between;cursor:pointer;user-select:none;
+    border-bottom:1px dotted var(--line);}
+  .fleftgrp{display:flex;align-items:center;gap:8px;}
+  .fcaret{color:var(--muted);font-size:11px;font-weight:400;}
+  .fdot{width:10px;height:10px;border-radius:50%;flex:none;display:inline-block;}
+  .sdot{width:6px;height:6px;border-radius:50%;flex:none;display:inline-block;}
+
+  .ucard{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--brass);
+    border-radius:4px;padding:7px 11px;margin:0 0 5px 10px;cursor:grab;}
+  .ucard.dragging{opacity:.45;border-style:dashed;}
+  .ucard.drop-before{box-shadow:0 -3px 0 0 var(--brass);}
+  .ucard.drop-after{box-shadow:0 3px 0 0 var(--brass);}
+  .uname{font-family:'Arial Narrow',sans-serif;font-size:19px;font-weight:700;
+    display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .uname .ucount{font-weight:400;}
+  .tag{font-size:10px;padding:2px 7px;border-radius:3px;text-transform:uppercase;font-weight:600;}
+  .stats{display:none;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:4px 12px;margin:8px 0 6px;
+    font-family:'Courier New',monospace;font-size:12px;}
+  .stats b{color:var(--brass);font-weight:normal;}
+  .stats b.hp{font-weight:400;}
+  .stats span{color:var(--muted);font-size:10px;text-transform:uppercase;font-family:'Arial Narrow',sans-serif;display:block;}
+  .stats em{color:#8FB07A;font-style:normal;font-size:10px;display:block;}
+  .stats em.neg{color:#C88A7A;}
+  .stageline{display:none;font-size:11px;color:var(--muted);font-style:italic;margin-bottom:6px;}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .ucard .btnrow{display:none;}
+  .ucard.reveal .stats{display:grid;}
+  .ucard.reveal .stageline{display:block;}
+  .ucard.reveal .btnrow{display:flex;}
+  .ucard.reveal{border-color:var(--brass);}
+  .ucard .uname{cursor:pointer;}
+  .fhead.drop-target,.shead.drop-target{background:rgba(201,162,39,.16);outline:1px dashed var(--brass);}
+
+  .editbox{background:#181E20;border:1px solid var(--brass);border-radius:4px;
+    padding:12px;margin:0 0 10px 10px;}
+  .editbox h3{font-family:'Arial Narrow',sans-serif;font-size:13px;text-transform:uppercase;
+    color:var(--brass);margin:0 0 10px;letter-spacing:.04em;}
+
+  /* ── журнал ── */
+  .log{max-height:78vh;overflow-y:auto;}
+  .unitscroll{max-height:calc(100vh - 230px);overflow-y:auto;padding-right:6px;}
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:16px;}
+  .scard{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--brass);
+    border-radius:6px;padding:10px 12px;}
+  .sname{font-family:'Arial Narrow',sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;
+    display:flex;align-items:center;gap:7px;margin-bottom:6px;}
+  .srow{font-family:'Courier New',monospace;font-size:12px;color:#B8B29E;display:flex;
+    justify-content:space-between;gap:10px;padding:1px 0;}
+  .srow b{color:var(--brass);font-weight:400;}
+  .bar{height:5px;border-radius:3px;background:#2A3234;margin:6px 0 4px;overflow:hidden;}
+  .bar i{display:block;height:100%;}
+  .queue{font-family:'Courier New',monospace;font-size:12px;color:#B8B29E;max-height:26vh;overflow-y:auto;}
+  .qrow{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;
+    border-bottom:1px dotted var(--line);}
+  .qrow .qname{flex:1;}
+  .lentry{border-left:2px solid #4A5A54;padding:6px 10px;margin-bottom:10px;
+    font-family:'Courier New',monospace;font-size:12px;}
+  .lentry.attack{border-left-color:var(--brass);}
+  .lentry.danger{border-left-color:var(--red);background:rgba(176,64,46,.07);}
+  .lentry.hasdetails{cursor:pointer;}
+  .lentry.hasdetails > .ltitle::after{content:" ⋯";color:var(--muted);}
+  .ltitle{font-family:'Arial Narrow',sans-serif;font-size:14px;font-weight:600;color:var(--text);}
+  .lturn{color:var(--muted);font-size:10px;}
+  .lline{color:#B8B29E;margin-top:2px;line-height:1.45;}
+  .lline.sep{color:var(--brass);margin-top:6px;}
+  .lresult{color:#E6E0CC;margin-top:3px;line-height:1.45;}
+  .lresult b.num{color:#E0C34A;font-weight:400;}
+  .lresult.bad{color:#F0A090;}
+  .lresult.bad b.num{color:#FF9E88;}
+  .lresult.big{font-size:16px;line-height:1.5;margin-top:6px;}
+  .lresult.big b.num{font-size:19px;font-weight:700;}
+  .ldetails{display:none;border-left:2px solid var(--line);margin:4px 0 4px 6px;padding-left:8px;}
+  .lentry.open .ldetails,.lentry:hover .ldetails{display:block;}
+
+  .refbox{font-size:12px;line-height:1.5;color:#B8B29E;}
+  .refbox b{color:var(--brass);font-weight:normal;}
+  .hint{font-size:11px;color:var(--muted);font-style:italic;margin-top:6px;}
+  .hidden{display:none;}
+  .news{max-height:60vh;overflow-y:auto;font-size:13px;line-height:1.55;color:#C8C2AE;}
+  .news h2{font-size:18px;color:var(--brass);margin:6px 0 8px;border:none;padding:0;}
+  .news h3{font-family:'Arial Narrow',sans-serif;font-size:15px;color:var(--brass);margin:14px 0 6px;text-transform:uppercase;}
+  .news h4{font-family:'Arial Narrow',sans-serif;font-size:13px;color:var(--text);margin:10px 0 4px;}
+  .news pre{background:#14181A;border:1px solid var(--line);border-radius:4px;padding:8px 10px;
+    font-family:'Courier New',monospace;font-size:12px;overflow-x:auto;white-space:pre;}
+  .news code{background:#14181A;padding:1px 4px;border-radius:3px;font-family:'Courier New',monospace;}
+  .news ul{margin:4px 0 8px;padding-left:20px;}
+  .news hr{border:none;border-top:1px solid var(--line);margin:14px 0;}
+  .mapbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  .mapbar .grp{display:flex;gap:6px;align-items:center;}
+  .mapbar label{margin:0;}
+  .mapwrap{position:relative;background:#0E1112;border:1px solid var(--line);border-radius:4px;
+    overflow:hidden;min-height:120px;user-select:none;}
+  .mapwrap img{display:block;width:100%;height:auto;pointer-events:none;}
+  .mapempty{padding:40px 20px;text-align:center;color:var(--muted);font-style:italic;font-size:13px;}
+  .gridover{position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(rgba(230,224,204,.16) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(230,224,204,.16) 1px,transparent 1px);}
+  .tokenlayer{position:absolute;inset:0;}
+  .token{position:absolute;transform:translate(-50%,-50%);cursor:grab;text-align:center;
+    font-family:'Arial Narrow',sans-serif;line-height:1.05;}
+  .token.dragging{cursor:grabbing;z-index:50;}
+  .tdisc{border:3px solid #14181A;display:flex;align-items:center;justify-content:center;
+    font-weight:700;color:#14181A;box-shadow:0 2px 6px rgba(0,0,0,.6);margin:0 auto;}
+  .tdisc.sq{border-radius:5px;}
+  .tdisc.rect{border-radius:4px;}
+  .tdisc.tri{border:none;border-radius:0;align-items:flex-end;padding-bottom:6%;
+    clip-path:polygon(50% 0%,100% 100%,0% 100%);
+    filter:drop-shadow(0 1px 2px rgba(0,0,0,.8));}
+  .tdisc.pent{border:none;border-radius:0;
+    clip-path:polygon(50% 0%,100% 32%,100% 100%,0% 100%,0% 32%);
+    filter:drop-shadow(0 1px 2px rgba(0,0,0,.8));}
+  .tbody{position:relative;display:inline-block;}
+  .tarrow{position:absolute;left:50%;top:-11px;transform:translateX(-50%);
+    width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;
+    border-bottom:9px solid var(--text);opacity:.9;filter:drop-shadow(0 1px 2px #000);}
+  .token.fled .tarrow{border-bottom-color:var(--red);}
+  .tinit{display:block;}
+  .token.sel-a .tdisc{box-shadow:0 0 0 3px var(--brass),0 2px 8px rgba(0,0,0,.7);}
+  .token.sel-b .tdisc{box-shadow:0 0 0 3px var(--blue),0 2px 8px rgba(0,0,0,.7);}
+  .token.sel-a .tdisc.tri,.token.sel-a .tdisc.pent{box-shadow:none;filter:drop-shadow(0 0 3px var(--brass)) drop-shadow(0 0 3px var(--brass));}
+  .token.sel-b .tdisc.tri,.token.sel-b .tdisc.pent{box-shadow:none;filter:drop-shadow(0 0 3px var(--blue)) drop-shadow(0 0 3px var(--blue));}
+  .token.dead .tdisc{filter:grayscale(1);opacity:.55;}
+  .tlabel{margin-top:2px;font-size:11px;color:#E6E0CC;text-shadow:0 1px 3px #000,0 0 4px #000;
+    white-space:nowrap;font-weight:600;}
+  .tcount{font-size:10px;text-shadow:0 1px 3px #000,0 0 4px #000;font-family:'Courier New',monospace;}
+  .token .ttip{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);
+    display:none;background:#0E1112;border:1px solid var(--brass);border-radius:5px;padding:7px 10px;
+    white-space:nowrap;z-index:80;box-shadow:0 4px 14px rgba(0,0,0,.7);text-align:left;pointer-events:none;}
+  .token:hover .ttip{display:block;}
+  .token.dragging .ttip{display:none;}
+  .ttip .tt-name{font-family:'Arial Narrow',sans-serif;font-size:15px;font-weight:700;color:var(--text);
+    margin-bottom:3px;}
+  .ttip .tt-line{font-family:'Courier New',monospace;font-size:11px;color:#B8B29E;line-height:1.5;}
+  .ttip .tt-line b{color:var(--brass);font-weight:400;}
+  .token.fled .tdisc{background:#0B0D0E !important;border-color:var(--red);color:#E08A76;opacity:1;}
+  .token.fled .tdisc.tri,.token.fled .tdisc.pent{filter:drop-shadow(0 0 2px var(--red)) drop-shadow(0 0 2px var(--red));}
+  .token.fled .tlabel{color:#E08A76;}
+  .token.dead .tdisc{filter:grayscale(1);opacity:.5;}
+  .mapwrap.targeting .token{opacity:.35;}
+  .mapwrap.targeting .token.valid-target{opacity:1;cursor:crosshair;}
+  .mapwrap.targeting .token.valid-target .tdisc{box-shadow:0 0 0 3px var(--red),0 0 12px rgba(176,64,46,.8);}
+  .mapwrap.targeting .token.valid-target .tdisc.tri,
+  .mapwrap.targeting .token.valid-target .tdisc.pent{box-shadow:none;
+    filter:drop-shadow(0 0 4px var(--red)) drop-shadow(0 0 4px var(--red));}
+  .mapwrap.targeting .token.attacker{opacity:1;}
+  .tmenu{position:absolute;z-index:120;background:#1C2224;border:1px solid var(--brass);border-radius:6px;
+    padding:8px;min-width:210px;box-shadow:0 6px 20px rgba(0,0,0,.8);}
+  .tmenu .tm-head{font-family:'Arial Narrow',sans-serif;font-size:15px;font-weight:700;color:var(--brass);
+    border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:6px;}
+  .tmenu .tm-sub{font-family:'Courier New',monospace;font-size:11px;color:#B8B29E;margin-bottom:7px;line-height:1.5;}
+  .tmenu button{width:100%;text-align:left;margin-bottom:5px;padding:6px 9px;font-size:12px;}
+  .tmenu button:last-child{margin-bottom:0;}
+  .targethint{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:110;
+    background:rgba(28,34,36,.95);border:1px solid var(--red);border-radius:5px;padding:7px 14px;
+    font-family:'Arial Narrow',sans-serif;font-size:14px;color:#F0A090;text-transform:uppercase;}
+  .marquee{position:absolute;border:1px dashed var(--brass);background:rgba(201,162,39,.12);
+    z-index:90;pointer-events:none;}
+  .token.selected .tdisc{outline:3px dashed var(--text);outline-offset:3px;}
+  .token.selected .tlabel{color:#FFF3C4;}
+  .selbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0 0;
+    background:#20282A;border:1px solid var(--brass);border-radius:5px;padding:8px 10px;}
+  .selbar .selcount{font-family:'Arial Narrow',sans-serif;font-size:14px;color:var(--brass);
+    text-transform:uppercase;margin-right:6px;}
+  .chiprow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .chip{background:#26312E;border:1px solid #4A5A54;border-radius:12px;padding:3px 10px;font-size:11px;
+    cursor:pointer;font-family:'Arial Narrow',sans-serif;text-transform:uppercase;}
+  .chip:hover{border-color:var(--brass);background:#33403C;}
+  .necro{font-family:'Courier New',monospace;font-size:12px;line-height:1.5;color:#B8B29E;
+    white-space:pre-wrap;max-height:60vh;overflow-y:auto;background:#14181A;border:1px solid var(--line);
+    border-radius:4px;padding:10px;}
+  .clist{font-size:12px;font-family:'Courier New',monospace;color:#B8B29E;margin-bottom:8px;}
+  .clist div{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;
+    border-bottom:1px dotted var(--line);}
+  .clist .fleft{display:flex;align-items:center;gap:7px;flex:1;}
+  .clist .subline{padding-left:18px;color:var(--muted);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Журнал <span>боевых действий</span></h1>
+    <div class="sub">Тактический трекер v__VERSION__ · обновление «__UPDATE__» · патч «__PATCHNAME__»</div>
+  </div>
+  <div class="turnbox">
+    <span class="turnnum">Ход <span id="turnNum">1</span></span>
+    <select id="rulesetSel" onchange="onRulesetChange()" title="Набор правил" style="width:auto"></select>
+    <button class="gold" onclick="endTurn()">Конец хода</button>
+    <button id="undoBtn" onclick="undo()">↶ Откатить</button>
+    <button onclick="toggleNews()">Что нового</button>
+    <button onclick="toggleRef()">Справка</button>
+    <button class="red" onclick="resetAll()">Сбросить всё</button>
+  </div>
+</div>
+
+<div class="panel hidden" id="newsPanel" style="margin-bottom:16px">
+  <h2>Что нового</h2>
+  <div class="news" id="newsBody"></div>
+</div>
+
+<div class="panel hidden mb8" id="refPanel" style="margin-bottom:16px">
+  <h2>Справка мастера</h2>
+  <div class="refbox">
+    <b>Модификаторы БД (плюсы):</b> традиции +20 · речь командира +20 · мотивация +50 · союзники +5 · легитимность +10 · популярность полководца +30<br>
+    <b>Модификаторы БД (штрафы):</b> разделённость −20 · именитый враг −20 · врагов больше −40 · репутация врага −40 · голод −70 · нехватка припасов −30 · гибель полководца −30 · побег ближних отрядов −100 · сокрушительные потери −150<br>
+    <b>Как считается бой:</b> D(N) = бросок куба по числу солдат · при взаимном бое оба отряда бьют по численности до потерь · защита в ближнем бою: урон / (Снар.защ/20 + Дисц/10); в дальнем бою дисциплина не учитывается — урон / (Снар.защ/10); делитель не ниже 1 · потери = убитые + раненые, летальность: 10% гарантированных убитых + d60 / (Опыт/20) · БД за потери: −1 БД за каждые 15 потерь (макс. −50), сокрушительные потери (>50%) — сразу −150 · модификаторы урона от БД +20% / +50% автоматически · бросок не может быть ниже дисциплины атакующего × 5 — если выпало меньше, берётся порог · баффы полководца применяются автоматически.<br>
+    <b>Атаки за ход:</b> 1 атака на отряд за ход, при дисциплине 80+ — 2 · ответных ударов тоже 1 за ход (2 при дисциплине 80+) · сломленные (БД 0) и дрогнувшие (БД &lt; 20) ответных ударов не наносят · после боя дравшимся ставится «Походил» · бои внутри одной фракции запрещены.<br>
+    <b>Типы войск:</b> пехота · кавалерия · лучники · пикинёры (любую лобовую атаку конницы встречают контрударом +200%, натиск при этом останавливают).<br>
+    <b>Бой и позиция:</b> удар во фланг или в тыл (по фасингу фишек на карте) лишает цель ответного удара; удар в тыл дополнительно срезает снаряжение защиты цели вдвое на эту атаку. Кавалерия в лоб на пикинёров всегда получает тройной контрудар, а натиск при этом останавливается.<br>
+    <b>Прочие правила:</b> кавалерия в ближнем бою — «Натиск»: +50% урона и цель не отвечает; если цель тоже кавалерия и идёт во встречный натиск — отвечает ударом, и натиск считается обеим сторонам; без натиска — −30% урона · стрелки в любом ближнем бою (против пехоты и против кавалерии) — все параметры −50% · дальняя атака по отряду ближнего боя не получает ответного удара · ситуативный модификатор (только дальний бой) вычитается процентом из итогового урона последним шагом.<br>
+    <b>Организация:</b> фракция → подфракция → отряд. Подфракция — это группа отрядов внутри армии (крыло, легион, вассал).<br>
+    <b>Проверки:</b> проверка БД: d100 ≤ БД×2 · проверка на побег: d100 ≤ дисциплина.
+  </div>
+</div>
+
+<div class="summary" id="summaryStrip"></div>
+
+<details class="panel" id="mapPanel" style="margin-bottom:16px" open>
+  <summary>Карта боя</summary>
+  <div class="mapbar">
+    <button class="gold" onclick="document.getElementById('mapFile').click()">Загрузить карту</button>
+    <input type="file" id="mapFile" accept="image/*" class="hidden" onchange="loadMapImage(event)">
+    <button class="red" onclick="clearMapImage()">Убрать карту</button>
+    <div class="grp"><label class="chk"><input type="checkbox" id="mapGrid" onchange="renderMap()"> Сетка</label></div>
+    <div class="grp"><label class="chk"><input type="checkbox" id="mapSnap"> Привязка к сетке</label></div>
+    <div class="grp"><label>Клеток по ширине</label>
+      <input id="mapCells" type="number" value="20" min="4" max="80" style="width:70px" onchange="renderMap()"></div>
+    <div class="grp"><label>Размер фишек</label>
+      <input id="tokenSize" type="number" value="42" min="16" max="120" style="width:70px" onchange="renderMap()"></div>
+    <div class="grp"><label>Местность по умолчанию</label>
+      <select id="mapTerrain" style="width:190px">
+        <option value="form">В строю</option>
+        <option value="rough">Пересечённая местность</option>
+      </select></div>
+    <button onclick="clearTokens()">Убрать все фишки</button>
+  </div>
+  <div class="mapwrap" id="mapWrap">
+    <div class="mapempty" id="mapEmpty">Карта не загружена. Нажми «Загрузить карту» и выбери изображение поля боя — потом расставь фишки отрядов.</div>
+    <img id="mapImg" class="hidden" alt="">
+    <div class="gridover hidden" id="gridOver"></div>
+    <div class="tokenlayer" id="tokenLayer"></div>
+  </div>
+  <div class="hint">Наведи курсор на фишку — увидишь полное название и характеристики. Клик по фишке открывает меню отряда: атака, ход, проверки. Тип боя выбирается в меню фишки на каждую атаку отдельно: строй или пересечённая местность, с натиском или без. Переключатель «Местность по умолчанию» задаёт лишь начальный вариант. Фишки перетаскиваются мышью; выделенная группа двигается целиком. Зажми ЛКМ на пустом месте карты и протяни рамку, чтобы выделить сразу много отрядов (Shift — добавить к выделению).</div>
+  <div class="hint" style="margin-top:8px">Формы фишек по типу войск: ■ квадрат — пехота · ▬ прямоугольник — кавалерия · ▲ треугольник — лучники · ⌂ пятиугольник — пикинёры. Стрелка показывает, куда смотрит отряд: поворот — колесом мыши над фишкой (Shift — шаг 5°) или кнопками в меню. Размер отдельной фишки — Ctrl + колесо над ней или кнопки «Меньше / Больше» в меню; поле «Размер фишек» в панели задаёт общий базовый размер. Удар во фланг или в тыл лишает цель ответного удара. Бегущий отряд чернеет, но остаётся уязвимым.</div>
+  <div class="selbar hidden" id="selBar"></div>
+  <div class="chiprow" id="unplacedRow"></div>
+</details>
+
+<div class="grid">
+  <!-- ═══════ колонка 1: юниты ═══════ -->
+  <div>
+    <div class="panel">
+      <h2>Юниты (<span id="unitCount">0</span>)</h2>
+      <div class="unitscroll"><div id="unitsList"></div></div>
+      <div class="btnrow" style="margin-top:0">
+        <button class="gold" onclick="newUnit()">+ Новый юнит</button>
+        <button onclick="autoTypeAll()">Определить типы по названиям</button>
+      </div>
+      <div class="hint">Клик по названию отряда раскрывает его характеристики и кнопки. Отряд можно перетащить мышью на другую позицию, а также на заголовок фракции или подфракции — он перейдёт туда. Клик по заголовку сворачивает группу.</div>
+    </div>
+  </div>
+
+  <!-- ═══════ колонка 2: бой, фракции, полководцы, сохранение ═══════ -->
+  <div>
+    <div class="panel" id="battlePanel">
+      <h2>Расчёт боя</h2>
+      <div class="frow2">
+        <div><label>Сторона А — фракция</label><select id="attFac" onchange="onSideChange()"></select></div>
+        <div><label>Сторона А — подфракция</label><select id="attSub" onchange="onSideChange()"></select></div>
+      </div>
+      <div class="mb12 hidden" id="attUnitBox">
+        <label>Сторона А — атакующий отряд</label><select id="attSel" onchange="updateChargeBox()"></select>
+      </div>
+      <div class="frow2">
+        <div><label>Сторона Б — фракция</label><select id="defFac" onchange="onSideChange()"></select></div>
+        <div><label>Сторона Б — подфракция</label><select id="defSub" onchange="onSideChange()"></select></div>
+      </div>
+      <div class="mb12 hidden" id="defUnitBox">
+        <label>Сторона Б — обороняющийся отряд</label><select id="defSel" onchange="updateChargeBox()"></select>
+      </div>
+
+      <div id="battleOpts" class="hidden">
+        <div class="mb8"><label>Тип боя</label>
+          <select id="modeSel" onchange="onModeChange()">
+            <option value="melee_form">Ближний бой · в строю</option>
+            <option value="ranged_form">Дальний бой · в строю</option>
+            <option value="melee_rough">Ближний бой · пересечённая местность</option>
+            <option value="ranged_rough">Дальний бой · пересечённая местность</option>
+          </select>
+        </div>
+        <div class="mb8">
+          <label class="chk"><input type="checkbox" id="mutual" checked>
+            Взаимный бой — обе стороны бьют одновременно, по численности до потерь</label>
+        </div>
+        <div class="mb8 hidden" id="chargeBox">
+          <label class="chk"><input type="checkbox" id="charge" onchange="updateChargeBox()">
+            Натиск 🐎 — кавалерия А заходит на удар: +50% урона, цель не отвечает</label>
+        </div>
+        <div class="mb8 hidden" id="counterChargeBox">
+          <label class="chk"><input type="checkbox" id="counterCharge">
+            Встречный натиск 🐎⚔🐎 — кавалерия Б идёт навстречу: отвечает ударом, обе стороны считаются с натиском</label>
+        </div>
+        <div class="mb8 hidden" id="sitBox">
+          <label>Ситуативный модификатор, % (вычитается из итогового урона)</label>
+          <input id="sitPct" type="number" value="0">
+        </div>
+        <div class="mb8"><label>Учёт усталости</label>
+          <select id="fatigueMode">
+            <option value="percent">−10% урона за каждые 10 усталости</option>
+            <option value="flat">Вычитать усталость числом</option>
+          </select>
+        </div>
+        <button class="gold fight" onclick="resolveBattle()">⚔ Провести бой</button>
+      </div>
+      <div class="hint" id="battleHint">Выбери фракцию и подфракцию для обеих сторон — списки отрядов появятся ниже.</div>
+    </div>
+
+    <details class="panel" style="margin-top:12px" open>
+      <summary>Фракции и подфракции</summary>
+      <div class="clist" id="factionList"></div>
+      <div class="fxrow">
+        <input type="color" class="fx-color" id="fx_color" value="#C9A227" title="Цвет армии">
+        <input id="fx_name" placeholder="Название фракции">
+        <button class="gold" onclick="addFaction()">Фракция</button>
+      </div>
+      <div class="subrow">
+        <select id="sub_faction"></select>
+        <input id="sub_name" placeholder="Название подфракции">
+        <button class="gold" onclick="addSubfaction()">Подфракция</button>
+      </div>
+      <div class="hint">Подфракция — группа отрядов внутри армии (например, Миствелл и Лэйкмур внутри Моргрейна).</div>
+    </details>
+
+    <details class="panel" style="margin-top:12px">
+      <summary>Полководцы</summary>
+      <div class="clist" id="cmdrList"></div>
+      <div class="mb8"><label>Редактировать</label>
+        <select id="c_edit" onchange="loadCmdrForm()"><option value="">— новый полководец —</option></select>
+      </div>
+      <div class="frow2">
+        <div><label>Имя</label><input id="c_name" placeholder="Генерал Вейр"></div>
+        <div><label>Фракция</label><select id="c_faction"></select></div>
+      </div>
+      <div class="frow4">
+        <div><label>+БД</label><input id="c_bMorale" type="number" value="0"></div>
+        <div><label>+Дисц</label><input id="c_bDisc" type="number" value="0"></div>
+        <div><label>+Урон %</label><input id="c_bDmg" type="number" value="0"></div>
+        <div><label>+Защ %</label><input id="c_bDef" type="number" value="0"></div>
+      </div>
+      <div class="btnrow">
+        <button class="gold" onclick="saveCmdr()" id="cmdrSaveBtn">Добавить</button>
+        <button class="red hidden" id="cmdrDelBtn" onclick="deleteCmdr()">Удалить</button>
+      </div>
+      <div class="hint">Баффы полководца автоматически применяются ко всем его юнитам в бою и видны на карточках.</div>
+    </details>
+
+    <details class="panel" style="margin-top:12px">
+      <summary>Сохранение</summary>
+      <div class="btnrow">
+        <button class="gold" onclick="exportTxt()">Вся партия → TXT</button>
+        <button onclick="document.getElementById('importFile').click()">Загрузить партию</button>
+        <input type="file" id="importFile" accept=".txt,.json" class="hidden" onchange="importTxt(event)">
+      </div>
+      <div class="btnrow" style="margin-top:8px">
+        <button onclick="document.getElementById('importUnitFile').click()">Загрузить отряд (JSON)</button>
+        <input type="file" id="importUnitFile" accept=".json,.txt" class="hidden" onchange="importUnitJson(event)">
+      </div>
+      <div class="hint">«Вся партия» — фракции, подфракции, полководцы, юниты, журнал и ход одним файлом; загрузка заменяет текущее состояние. Отдельный отряд выгружается кнопкой «JSON» на его карточке.</div>
+    </details>
+  </div>
+
+  <!-- ═══════ колонка 3: некролог и журнал ═══════ -->
+  <div>
+    <details class="panel" id="queuePanel" open>
+      <summary>Очередь хода</summary>
+      <div class="queue" id="queueBox"></div>
+    </details>
+
+    <details class="panel" id="necroPanel" open style="margin-top:12px">
+      <summary>Некролог</summary>
+      <div class="btnrow" style="margin-bottom:8px">
+        <button class="gold" onclick="downloadNecro()">Скачать TXT</button>
+      </div>
+      <div class="necro" id="necroBox"></div>
+    </details>
+
+    <div class="panel" style="margin-top:12px">
+      <h2>Журнал</h2>
+      <div class="hint" style="margin-top:0;margin-bottom:8px">Формулы расчёта свёрнуты: наведи курсор на запись или кликни по ней, чтобы раскрыть.</div>
+      <div class="log" id="logList"></div>
+    </div>
+  </div>
+</div>
+
+<script type="text/plain" id="patchnotes">__PATCHNOTES__</script>
+<script>
+"use strict";
+/*__ENGINE__*/
+</script>
+<script>
+/*__APP__*/
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "battle-tracker",
+  "version": "30.0.0",
+  "description": "Журнал боевых действий — тактический трекер для настольных сражений",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "golden": "node tools/make-golden.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "discord": "node tools/discord.mjs",
+    "check": "npm test && npm run build && npm run smoke && npm run discord"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.0"
+  }
+}
