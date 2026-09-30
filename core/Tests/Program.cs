@@ -1,7 +1,7 @@
 // ═══════════ Тесты движка на C# ═══════════
 // Главный тест — эталон v29: 400 сценариев из shared/golden отыгрываются так же, как в трекере,
 // строка в строку. Запуск: dotnet run --project Tests (из core/). Код возврата 0 — всё зелёное.
-// dotnet run --project Tests -- calibrate — мишень для поштучной модели: shared/calibration/tabletop.*
+// dotnet run --project Tests -- calibrate — мишень стола и сверка поштучной модели: shared/calibration/*
 using System.Text.Json;
 using BattleCore;
 
@@ -131,20 +131,27 @@ Test("строй в метрах совпадает с трекером (battlem
     Eq((F("infantry", 500).Front, F("infantry", 500).Depth), (63.0, 8.0), "потери сужают фронт");
     Eq((F("infantry", 3).Front, F("infantry", 3).Depth), (1.0, 3.0), "горстка в одну колонну");
 });
-Test("раскладка на фигурки: 1000 пехоты по 10 — 8 шеренг по 13 фигурок", () =>
+Test("раскладка на фигурки (Г32): 1000 пехоты по 10 — квадратики 5 × 2, 4 ряда по 25", () =>
 {
     var u = new Unit { Id = 7, Type = "infantry", Soldiers = 1000 };
+    Eq(Formation.Shape(u, 10, Rules.Base), (5, 2), "форма пехоты");
     var figs = Formation.Layout(u, 10, Rules.Base);
-    Eq(figs.Count, 104, "фигурок");
+    Eq(figs.Count, 100, "фигурок");
     Eq(figs.Sum(f => f.Men), 1000.0, "бойцов всего");
-    Eq(figs.Max(f => f.Rank), 7, "последняя шеренга");
+    Eq(figs.Max(f => f.Rank), 3, "последний ряд квадратиков");
     var front = figs.Where(f => f.Rank == 0).ToList();
-    Eq(front.Count, 13, "фигурок в передней шеренге");
-    Eq(front.Sum(f => f.Width), 125.0, "ширина передней шеренги = фронт строя");
-    Eq(front[12].Men, 5.0, "последняя фигурка шеренги неполная");
+    Eq(front.Count, 25, "квадратиков в переднем ряду");
+    Eq(front.Sum(f => f.Width), 125.0, "ширина переднего ряда = фронт строя");
+    Eq((front[0].Width, front[0].Depth, front[0].Men), (5.0, 2.0, 10.0), "квадратик 5 × 2 м");
     Eq(front.Min(f => f.X - f.Width / 2), -62.5, "левый край строя");
-    Eq(front[0].Y, -3.5, "передняя шеренга — у переднего края");
+    Eq(front[0].Y, -3.0, "передний ряд — у переднего края (шеренги 1–2)");
+    var half = Formation.Layout(new Unit { Type = "infantry", Soldiers = 500 }, 10, Rules.Base);
+    Eq(half.Sum(f => f.Men), 500.0, "500 бойцов");
+    Eq(half.Where(f => f.Rank == 0).Sum(f => f.Width), 63.0, "потери сужают фронт — как фишка трекера");
     Eq(Formation.Layout(u, 1, Rules.Base).Count, 1000, "1:1 — по фигурке на бойца");
+    Eq(Formation.Shape(new Unit { Type = "pike", Soldiers = 1000 }, 10, Rules.Base), (5, 2), "пикинёры: 10 шеренг — тоже 5 × 2");
+    Eq(Formation.Shape(new Unit { Type = "archer", Soldiers = 1000 }, 10, Rules.Base), (2, 5), "стрелки: 5 шеренг — колонки 2 × 5");
+    Eq(Formation.Shape(new Unit { Type = "cavalry", Soldiers = 1000 }, 10, Rules.Base), (10, 1), "конница: 5 шеренг — 10 всадников в ряд");
     Eq(Formation.Layout(new Unit { Type = "cavalry", Soldiers = 1000 }, 10, Rules.Base).Count, 100, "конница 5 × 200 по 10");
 });
 Test("масштаб фигурок под битву (Г24)", () =>
@@ -165,9 +172,55 @@ Test("ход за столом: одно зерно — один исход; н�
     if (!(withCharge > without * 1.5)) throw new Exception($"натиск: {withCharge} против {without}");
 });
 
-if (args.Length > 0 && args[0] == "calibrate") { Calibrate(); return 0; }
+// ── И1: поштучная рукопашная (Г26–Г30) ──
+TurnOutcome Mel(string ta, string tb, uint seed, TurnSetup s = null, MeleeOptions o = null)
+{
+    s ??= new TurnSetup(); o ??= new MeleeOptions { FullContact = true };
+    var A = Templates.Get(ta); var B = Templates.Get(tb);
+    var (pa, pb) = MeleeSim.Setup(A.Make(1, A.Name, 1000, 1), B.Make(2, B.Name, 1000, 2), s, o, Rules.Base);
+    return MeleeSim.Turn(pa, pb, s.ChargeA, s.Ground, new EngineContext { Rng = new Mulberry32(seed).Next }, o);
+}
+Test("поштучная рукопашная: одно зерно — один исход, в конце хода целые солдаты", () =>
+{
+    var x = Mel("infantry", "infantry", 7); var y = Mel("infantry", "infantry", 7);
+    Eq((x.LossA, x.LossB), (y.LossA, y.LossB), "воспроизводимость");
+    Eq(x.LossA == Math.Floor(x.LossA) && x.LossB == Math.Floor(x.LossB), true, "целые солдаты");
+    Eq(x.Strikes, 4, "пехота на пехоту: у каждой стороны атака и ответ — 4 окна");
+    Eq(Mel("guard", "infantry", 7).Strikes, 5, "гвардия (дисц. 80+): 2 атаки + ответ; пехота: атака + 1 ответ");
+});
+Test("натиск — всплеск (Г29): первые 2 с цель не отвечает, потом бьются", () =>
+{
+    var o = Mel("knights", "infantry", 3, new TurnSetup { ChargeA = true });
+    var at2 = o.Timeline.First(p => p[0] == 2);
+    Eq(at2[1], 1000.0, "рыцари никого не потеряли за первые 2 с");
+    Eq(at2[2] < 1000, true, "пехота уже теряет людей");
+    Eq(o.LossA > 0, true, "потом пехота бьёт своей атакой");
+    var p = Mel("knights", "pikemen", 3, new TurnSetup { ChargeA = true });
+    Eq(p.Timeline.First(q => q[0] == 2)[1] < 1000, true, "пики во фронт гасят натиск — рыцари теряют людей с первых секунд");
+});
+Test("полный контакт (Г27): пехота на пехоту — средние потери стола ±10%", () =>
+{
+    double tA = 0, tB = 0, mA = 0, mB = 0;
+    var inf = Templates.Get("infantry");
+    for (uint i = 1; i <= 200; i++)
+    {
+        var t = Tabletop.Turn(inf.Make(1, "A", 1000, 1), inf.Make(2, "B", 1000, 2), new TurnSetup(), new EngineContext { Rng = new Mulberry32(i).Next });
+        var m = Mel("infantry", "infantry", i + 5000);
+        tA += t.LossA; tB += t.LossB; mA += m.LossA; mB += m.LossB;
+    }
+    if (Math.Abs(mA / tA - 1) > 0.1 || Math.Abs(mB / tB - 1) > 0.1)
+        throw new Exception($"стол {tA / 200:0}/{tB / 200:0}, модель {mA / 200:0}/{mB / 200:0}");
+});
+Test("лоб в лоб без заворота (Г27): рыцари 300 м против пехоты 125 м — в бою половина рыцарей", () =>
+{
+    var o = Mel("knights", "infantry", 1, null, new MeleeOptions());
+    if (!(o.EngagedA >= 0.45 && o.EngagedA <= 0.55)) throw new Exception($"рыцари в бою: {o.EngagedA:0.00}");
+    Eq(o.EngagedB, 1.0, "пехота в бою вся");
+});
 
-void Calibrate()
+if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }
+
+void Calibrate(int RUNS)
 {
     // Матрица Г21: пехота, конница, пики, стрелки × поле, лес, холм; конница — с натиском и без; плюс фланг и тыл
     string[] types = { "infantry", "knights", "pikemen", "archers" };
@@ -183,41 +236,108 @@ void Calibrate()
         setups.Add(("infantry", "infantry", Ground.Field, false, sec));
         setups.Add(("knights", "infantry", Ground.Field, true, sec));
     }
-    const int RUNS = 200;
-    var rows = new List<object>();
-    var md = new System.Text.StringBuilder();
-    md.AppendLine("# Мишень поштучной модели: ход рукопашной за столом (Г21)");
-    md.AppendLine();
-    md.AppendLine($"По {RUNS} ходов на пару, отряды по 1000 из шаблонов v30.2, A бьёт первым. Считает настоящий ResolveBattle трекера.");
-    md.AppendLine("Потери — убитые + раненые за ход. Холм: A выше B (черновик 6а). Сгенерировано `dotnet run --project Tests -- calibrate`.");
-    md.AppendLine();
-    md.AppendLine("| A | B | местность | натиск | сектор | потери A: среднее ± откл. | потери B: среднее ± откл. | B в 10–90% | B сломлен |");
-    md.AppendLine("|---|---|---|---|---|---|---|---|---|");
+    // Г21: не меньше 200 ходов на пару; по умолчанию 1000 — при 200 шум средних (~4% в лесу) сам съедает допуск ±10%
     string Ru(Ground g) => g == Ground.Field ? "поле" : g == Ground.Forest ? "лес" : "холм";
-    int idx = 0;
+    string SecRu(string s) => s == "front" ? "фронт" : s == "flank" ? "фланг" : "тыл";
+    string Pct(double model, double table) => table == 0 ? "—" : $"{(model / table - 1) * 100:+0;−0;0}%";
+    bool Close(double model, double table) => Math.Abs(model - table) <= Math.Max(5, 0.10 * table);
+    EngineContext Ctx(int seed) => new EngineContext { Rng = new Mulberry32((uint)seed).Next };
+
+    var target = new System.Text.StringBuilder();
+    target.AppendLine("# Мишень поштучной модели: ход рукопашной за столом (Г21)");
+    target.AppendLine();
+    target.AppendLine($"По {RUNS} ходов на пару, отряды по 1000 из шаблонов v30.2, A бьёт первым. Считает настоящий ResolveBattle трекера.");
+    target.AppendLine("Потери — убитые + раненые за ход. Холм: A выше B (черновик 6а). Стрелки в контакте рубятся (Г28). Сгенерировано `dotnet run --project Tests -- calibrate`.");
+    target.AppendLine();
+    target.AppendLine("| A | B | местность | натиск | сектор | потери A: среднее ± откл. | потери B: среднее ± откл. | B в 10–90% | B сломлен |");
+    target.AppendLine("|---|---|---|---|---|---|---|---|---|");
+
+    var cmp = new System.Text.StringBuilder();
+    var geo = new System.Text.StringBuilder();
+    var rows = new List<object>();
+    int idx = 0, okMean = 0, okSpread = 0, okSpreadTurn = 0;
+    var sdRatio = new List<double>(); var sdRatioTurn = new List<double>();
     foreach (var s in setups)
     {
         idx++;
         var ta = Templates.Get(s.A); var tb = Templates.Get(s.B);
-        var la = new List<double>(); var lb = new List<double>(); int broken = 0;
-        for (int i = 0; i < RUNS; i++)
+        var setup = new TurnSetup { Ground = s.G, ChargeA = s.Charge, SectorA = s.Sector };
+        TurnOutcome Model(int i, MeleeOptions o)
         {
-            var ctx = new EngineContext { Rng = new Mulberry32((uint)(idx * 100000 + i + 1)).Next };
-            var o = Tabletop.Turn(ta.Make(1, ta.Name, 1000, 1), tb.Make(2, tb.Name, 1000, 2),
-                new TurnSetup { Ground = s.G, ChargeA = s.Charge, SectorA = s.Sector }, ctx);
-            la.Add(o.LossA); lb.Add(o.LossB);
-            if (o.MoraleB == 0) broken++;
+            var (pa, pb) = MeleeSim.Setup(ta.Make(1, ta.Name, 1000, 1), tb.Make(2, tb.Name, 1000, 2), setup, o, Rules.Base);
+            return MeleeSim.Turn(pa, pb, s.Charge, s.G, Ctx(idx * 100000 + 50000 + i + 1), o);
         }
-        var sa = Stat.Of(la); var sb = Stat.Of(lb);
-        rows.Add(new { a = s.A, b = s.B, ground = s.G.ToString().ToLowerInvariant(), charge = s.Charge, sector = s.Sector, runs = RUNS,
-                       lossA = sa, lossB = sb, brokenB = broken / (double)RUNS });
-        md.AppendLine($"| {ta.Name} | {tb.Name} | {Ru(s.G)} | {(s.Charge ? "да" : "—")} | {s.Sector} | {sa.Mean:0} ± {sa.Sd:0} | {sb.Mean:0} ± {sb.Sd:0} | {sb.P10:0}–{sb.P90:0} | {broken * 100 / RUNS}% |");
+        var table = Enumerable.Range(0, RUNS).Select(i => Tabletop.Turn(ta.Make(1, ta.Name, 1000, 1), tb.Make(2, tb.Name, 1000, 2), setup, Ctx(idx * 100000 + i + 1))).ToList();
+        var full = Enumerable.Range(0, RUNS).Select(i => Model(i, new MeleeOptions { FullContact = true })).ToList();
+        var turn = Enumerable.Range(0, RUNS).Select(i => Model(i, new MeleeOptions { FullContact = true, Fortune = FortuneMode.PerTurn })).ToList();
+
+        Stat A(List<TurnOutcome> xs) => Stat.Of(xs.Select(o => o.LossA));
+        Stat B(List<TurnOutcome> xs) => Stat.Of(xs.Select(o => o.LossB));
+        double Broken(List<TurnOutcome> xs) => xs.Count(o => o.MoraleB == 0) / (double)xs.Count;
+        var tA = A(table); var tB = B(table); var mA = A(full); var mB = B(full); var uB = B(turn);
+        double rs = tB.Sd > 0 ? mB.Sd / tB.Sd : 1, ru = tB.Sd > 0 ? uB.Sd / tB.Sd : 1;
+        bool mean = Close(mA.Mean, tA.Mean) && Close(mB.Mean, tB.Mean);
+        bool spread = rs >= 0.8 && rs <= 1.25, spreadTurn = ru >= 0.8 && ru <= 1.25;
+        if (mean) okMean++; if (spread) okSpread++; if (spreadTurn) okSpreadTurn++;
+        sdRatio.Add(rs); sdRatioTurn.Add(ru);
+
+        target.AppendLine($"| {ta.Name} | {tb.Name} | {Ru(s.G)} | {(s.Charge ? "да" : "—")} | {SecRu(s.Sector)} | {tA.Mean:0} ± {tA.Sd:0} | {tB.Mean:0} ± {tB.Sd:0} | {tB.P10:0}–{tB.P90:0} | {Broken(table) * 100:0}% |");
+        cmp.AppendLine($"| {ta.Name} | {tb.Name} | {Ru(s.G)} | {(s.Charge ? "да" : "—")} | {SecRu(s.Sector)} | {tA.Mean:0} → {mA.Mean:0} ({Pct(mA.Mean, tA.Mean)}) | {tB.Mean:0} → {mB.Mean:0} ({Pct(mB.Mean, tB.Mean)}) | {tB.Sd:0} → {mB.Sd:0} (×{rs:0.00}) | ×{ru:0.00} | {Broken(table) * 100:0}% → {Broken(full) * 100:0}% | {(mean ? "✔" : "✘")}{(spread ? "" : " разброс")} |");
+
+        object geoRow = null;
+        if (s.Sector == "front")
+        {
+            var g = Enumerable.Range(0, RUNS).Select(i => Model(i, new MeleeOptions())).ToList();
+            var gA = A(g); var gB = B(g);
+            geo.AppendLine($"| {ta.Name} | {tb.Name} | {Ru(s.G)} | {(s.Charge ? "да" : "—")} | {g[0].EngagedA * 100:0}% | {g[0].EngagedB * 100:0}% | {gA.Mean:0} ({Pct(gA.Mean, mA.Mean)}) | {gB.Mean:0} ({Pct(gB.Mean, mB.Mean)}) |");
+            geoRow = new { engagedA = g[0].EngagedA, engagedB = g[0].EngagedB, lossA = gA, lossB = gB };
+        }
+        rows.Add(new
+        {
+            a = s.A, b = s.B, ground = s.G.ToString().ToLowerInvariant(), charge = s.Charge, sector = s.Sector, runs = RUNS,
+            table = new { lossA = tA, lossB = tB, brokenB = Broken(table) },
+            model = new { lossA = mA, lossB = mB, brokenB = Broken(full), fortunePerTurnSdB = uB.Sd },
+            geometry = geoRow, withinTolerance = mean, spreadSimilar = spread,
+        });
     }
+
+    double Median(List<double> xs) { var v = xs.OrderBy(x => x).ToList(); return v[v.Count / 2]; }
+    var md = new System.Text.StringBuilder();
+    md.AppendLine("# Поштучная рукопашная против стола (И1, Г21, Г26–Г30)");
+    md.AppendLine();
+    md.AppendLine($"По {RUNS} ходов на пару, отряды по 1000 из шаблонов, фигурки 1:10. Модель — `MeleeSim` (ход 15 с, шаг 0,1 с), стол — `Tabletop.Turn` (настоящий ResolveBattle).");
+    md.AppendLine("Сгенерировано `dotnet run --project Tests -- calibrate`. Допуск Г21: среднее ±10% (для малых потерь — ±5 человек), разброс «похож» — отклонение ×0,8–1,25 от стола.");
+    md.AppendLine();
+    md.AppendLine("## Итог");
+    md.AppendLine();
+    md.AppendLine($"- Средние потери обеих сторон в допуске: **{okMean} из {setups.Count}** стычек.");
+    md.AppendLine($"- Разброс похож (бросок удачи на каждый удар): **{okSpread} из {setups.Count}**, медиана отношения ×{Median(sdRatio):0.00}.");
+    md.AppendLine($"- Для сравнения — один бросок удачи на весь ход: похож в {okSpreadTurn} из {setups.Count}, медиана ×{Median(sdRatioTurn):0.00}.");
+    md.AppendLine();
+    md.AppendLine("## Полный контакт: все колонны в бою (здесь проверяется ±10%)");
+    md.AppendLine();
+    md.AppendLine("Формат: стол → модель (отклонение). «Разброс B» — стандартное отклонение потерь B; «на ход» — отношение разброса, если бросать удачу раз за ход.");
+    md.AppendLine();
+    md.AppendLine("| A | B | местность | натиск | сектор | потери A | потери B | разброс B | на ход | B сломлен | итог |");
+    md.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
+    md.Append(cmp);
+    md.AppendLine();
+    md.AppendLine("## Лоб в лоб по геометрии (без заворота): намеренное расхождение Г27");
+    md.AppendLine();
+    md.AppendLine("Строи стоят лицом к лицу, центр к центру; бьют только колонны, что касаются врага. Свисающие ряды заворачивают на фланг вместе с движением (Г31) — здесь их ещё нет. В скобках — отличие от полного контакта.");
+    md.AppendLine();
+    md.AppendLine("| A | B | местность | натиск | A в бою | B в бою | потери A | потери B |");
+    md.AppendLine("|---|---|---|---|---|---|---|---|");
+    md.Append(geo);
+
     var dir = Path.Combine(root, "shared", "calibration");
     Directory.CreateDirectory(dir);
-    File.WriteAllText(Path.Combine(dir, "tabletop.json"), JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
-    File.WriteAllText(Path.Combine(dir, "tabletop.md"), md.ToString());
-    Console.WriteLine($"мишень: {setups.Count} стычек × {RUNS} ходов → {dir}");
+    var jo = new JsonSerializerOptions { WriteIndented = true, IncludeFields = true };
+    File.WriteAllText(Path.Combine(dir, "tabletop.md"), target.ToString());
+    File.WriteAllText(Path.Combine(dir, "melee.md"), md.ToString());
+    File.WriteAllText(Path.Combine(dir, "melee.json"), JsonSerializer.Serialize(rows, jo));
+    File.Delete(Path.Combine(dir, "tabletop.json"));
+    Console.WriteLine($"рукопашная: {setups.Count} стычек × {RUNS} ходов; в допуске {okMean}, разброс похож {okSpread} → {dir}");
 }
 
 // ── прогон ──

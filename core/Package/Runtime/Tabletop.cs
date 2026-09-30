@@ -24,15 +24,17 @@ namespace BattleCore
         public string StatusA, StatusB;
         public int Strikes;                   // сколько ударов было нанесено за ход
         public List<string> Log = new List<string>();
+        public List<double[]> Timeline = new List<double[]>();   // поштучная модель: [секунда, бойцов A, бойцов B]
+        public double EngagedA, EngagedB;                         // поштучная модель: доля бойцов в бою в начале хода
     }
 
     public static class Tabletop
     {
-        static string ModeFor(Unit u, Ground g) =>
-            (u.Weapon == "ranged" ? "ranged_" : "melee_") + (g == Ground.Forest ? "rough" : "form");
+        // Г28: в контакте стрелки только рубятся (−50% ко всем параметрам) — мишень рукопашная для всех
+        public static string ModeFor(Unit u, Ground g) => g == Ground.Forest ? Modes.MeleeRough : Modes.MeleeForm;
 
         // Высота (черновик 6а): A на холме — его удары сверху вниз, ответы B — снизу вверх
-        static MapMods Hill(bool attackerIsHigh, Rules r)
+        public static MapMods Hill(bool attackerIsHigh, Rules r)
         {
             var H = r.Map.Height;
             var m = new MapMods();

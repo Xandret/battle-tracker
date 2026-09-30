@@ -1,7 +1,7 @@
 // ═══════════ Formation.cs — строй в метрах и раскладка на фигурки (И1) ═══════════
-// Размер строя — копия battlemap.footprint. Фигурка — N бойцов подряд в одной шеренге (Г24: масштаб
-// под битву, по умолчанию 1:10). Шеренга 0 — передняя; координаты — в метрах, в системе отряда:
-// x вдоль фронта (0 — середина), y вглубь (передний край строя — y = −глубина/2, как фасинг 0° «вверх»).
+// Размер строя — копия battlemap.footprint. Фигурка — квадратик из N бойцов (Г24: масштаб под битву,
+// по умолчанию 1:10; Г32: 5 по фронту × 2 в глубину, если шеренги так делятся). Координаты — в метрах,
+// в системе отряда: x вдоль фронта (0 — середина), y вглубь (передний край — y = −глубина/2, как фасинг 0° «вверх»).
 using System;
 using System.Collections.Generic;
 
@@ -14,9 +14,11 @@ namespace BattleCore
 
     public sealed class Figure
     {
-        public int UnitId, Rank, File;
-        public double Men;          // сколько бойцов сейчас в фигурке (0 — фигурка пала)
-        public double X, Y, Width;  // центр и ширина по фронту, м
+        public int UnitId;
+        public int Rank, File;          // ряд квадратиков (0 — передний) и колонна (0 — левая)
+        public double Men;              // сколько бойцов сейчас в фигурке
+        public double X, Y, Width, Depth;   // центр и размеры, м
+        public bool Engaged;            // касается врага (Г27)
     }
 
     public static class Formation
@@ -36,33 +38,63 @@ namespace BattleCore
         // Масштаб фигурок под битву (Г24): мелкая стычка — 1:1, сражение — 1:10, огромное — 1:20.
         public static double ScaleFor(double totalMen) => totalMen <= 3000 ? 1 : totalMen <= 60000 ? 10 : 20;
 
-        // Раскладка отряда на фигурки по N бойцов: шеренги заполняются спереди назад,
-        // в шеренге — слева направо; последняя фигурка шеренги может быть неполной.
+        // Форма фигурки (Г32): fw бойцов по фронту × fd шеренг, fw·fd = бойцов в фигурке.
+        // Сначала — чтобы fd делило число шеренг, потом — ближе к квадрату в метрах, потом — шире.
+        public static (int fw, int fd) Shape(Unit u, double menPerFigure, Rules r)
+        {
+            var f = For(u, r);
+            int m = Math.Max(1, (int)Math.Round(menPerFigure));
+            int ranks = (int)Math.Min(f.Ranks, Math.Max(1, Js.Round(u.Soldiers)));
+            (int fw, int fd) best = (m, 1);
+            (int div, double asp, int w) bestKey = (int.MaxValue, double.MaxValue, 0);
+            for (int fd = 1; fd <= m; fd++)
+            {
+                if (m % fd != 0 || fd > ranks) continue;
+                int fw = m / fd;
+                var key = (ranks % fd == 0 ? 0 : 1, Math.Abs(Math.Log(fw * f.PerMan / (fd * f.RankDepth))), -fw);
+                if (key.Item1 < bestKey.div
+                    || key.Item1 == bestKey.div && key.Item2 < bestKey.asp - 1e-9
+                    || key.Item1 == bestKey.div && Math.Abs(key.Item2 - bestKey.asp) <= 1e-9 && key.Item3 < -bestKey.w)
+                {
+                    best = (fw, fd);
+                    bestKey = (key.Item1, key.Item2, fw);
+                }
+            }
+            return best;
+        }
+
+        // Раскладка отряда на фигурки. Шеренги полные, кроме последней — она неполная и стоит по центру
+        // (так потери сужают фронт с краёв, как фишка трекера, Г30). Квадратики режут сетку бойцов
+        // на колонны по fw и ряды по fd; пустые не создаются.
         public static List<Figure> Layout(Unit u, double menPerFigure, Rules r)
         {
             var f = For(u, r);
-            var fp = Of(u, r);
             var list = new List<Figure>();
-            double n = Math.Max(0, Js.Round(u.Soldiers));
+            int n = (int)Math.Max(0, Js.Round(u.Soldiers));
             if (n <= 0) return list;
-            double ranks = Math.Min(f.Ranks, n);
-            double perRank = Math.Ceiling(n / ranks);
-            double left = n;
-            for (int rank = 0; rank < ranks && left > 0; rank++)
+            var fp = Of(u, r);
+            var (fw, fd) = Shape(u, menPerFigure, r);
+            int R = (int)Math.Min(f.Ranks, n);
+            int P = (int)Math.Ceiling(n / (double)R);             // бойцов в полной шеренге
+            int last = n - P * (R - 1);                           // в последней шеренге
+            int off = (P - last) / 2;                             // последняя — по центру
+            int cols = (P + fw - 1) / fw, rows = (R + fd - 1) / fd;
+            for (int b = 0; b < rows; b++)
             {
-                double inRank = Math.Min(perRank, left);
-                left -= inRank;
-                int file = 0;
-                for (double placed = 0; placed < inRank; placed += menPerFigure, file++)
+                int r0 = b * fd, rIn = Math.Min(fd, R - r0);
+                for (int c = 0; c < cols; c++)
                 {
-                    double men = Math.Min(menPerFigure, inRank - placed);
-                    double x0 = placed * f.PerMan - fp.Front / 2;
+                    int f0 = c * fw, fIn = Math.Min(fw, P - f0);
+                    int men = 0;
+                    for (int rr = r0; rr < r0 + rIn; rr++)
+                        men += rr < R - 1 ? fIn : Math.Max(0, Math.Min(f0 + fIn, off + last) - Math.Max(f0, off));
+                    if (men == 0) continue;
                     list.Add(new Figure
                     {
-                        UnitId = u.Id, Rank = rank, File = file, Men = men,
-                        Width = men * f.PerMan,
-                        X = x0 + men * f.PerMan / 2,
-                        Y = -fp.Depth / 2 + (rank + 0.5) * f.RankDepth,
+                        UnitId = u.Id, Rank = b, File = c, Men = men,
+                        Width = fIn * f.PerMan, Depth = rIn * f.RankDepth,
+                        X = -fp.Front / 2 + (f0 + fIn / 2.0) * f.PerMan,
+                        Y = -fp.Depth / 2 + (r0 + rIn / 2.0) * f.RankDepth,
                     });
                 }
             }
