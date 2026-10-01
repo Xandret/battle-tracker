@@ -239,19 +239,52 @@ function prepMap(){
     }
     return out;
   };
-  // башня — круг по короткой стороне куска; слипшиеся башни (кусок вытянут) делятся на несколько
-  const towers = comps(14, true).flatMap(q => {
-    const w = q.x1 - q.x0, h = q.y1 - q.y0, s = Math.min(w, h), parts = Math.max(1, Math.round(Math.max(w, h) / s));
-    return Array.from({length: parts}, (_, k) => ({...q, i: q.i + k, m: mat[q.i], r: s * 0.52 + 0.3,
-      x: w >= h ? q.x0 + (k + 0.5) * w / parts : (q.x0 + q.x1) / 2, y: w >= h ? (q.y0 + q.y1) / 2 : q.y0 + (k + 0.5) * h / parts}));
+  // башня — круг с площадь обычной башни карты; слипшиеся башни (кусок вдвое больше обычного) делятся по скоплениям клеток
+  const tc = comps(14, true), sizes = tc.map(q => q.cells.length).sort((a, b) => a - b), usual = sizes[sizes.length >> 1] || 1;
+  const towers = tc.flatMap(q => {
+    const P = q.cells.map(([x, y]) => [(x + 0.5) * c, (y + 0.5) * c]), k = Math.max(1, Math.round(P.length / usual));
+    let C = [P[0]];
+    while(C.length < k){   // центры — самые далёкие клетки, потом несколько шагов к серединам скоплений
+      let best = P[0], bd = -1;
+      for(const p of P){ const d = Math.min(...C.map(q2 => Math.hypot(p[0] - q2[0], p[1] - q2[1]))); if(d > bd){ bd = d; best = p; } }
+      C.push(best);
+    }
+    for(let it = 0; it < 6; it++){
+      const acc = C.map(() => [0, 0, 0]);
+      for(const p of P){ let j = 0; C.forEach((q2, jj) => { if(Math.hypot(p[0] - q2[0], p[1] - q2[1]) < Math.hypot(p[0] - C[j][0], p[1] - C[j][1])) j = jj; }); acc[j][0] += p[0]; acc[j][1] += p[1]; acc[j][2]++; }
+      C = acc.map((a, j) => a[2] ? [a[0] / a[2], a[1] / a[2]] : C[j]);
+    }
+    const r = Math.sqrt(P.length / k) * c * 0.52 + 0.3;
+    return C.map(([x, y], j) => ({...q, i: q.i + j, m: mat[q.i], r, x, y}));
   });
+  // дом — прямоугольник; неровный кусок режется на прямоугольники: от верхней левой клетки вправо, потом вниз полными рядами
   const houses = comps(18, false).flatMap(q => {
-    const full = q.cells.length >= 0.8 * ((q.x1 - q.x0) / c) * ((q.y1 - q.y0) / c);
-    return full ? [{...q, n: q.cells.length}] : q.cells.map(([x, y]) => ({x0: x * c, y0: y * c, x1: (x + 1) * c, y1: (y + 1) * c, i: y * cols + x, n: 1}));
+    const left = new Set(q.cells.map(([x, y]) => y * cols + x)), out = [];
+    while(left.size){
+      const s = Math.min(...left), x0 = s % cols, y0 = (s - x0) / cols;
+      let x1 = x0; while(left.has(y0 * cols + x1 + 1)) x1++;
+      let y1 = y0;
+      while(true){ let ok = true; for(let x = x0; x <= x1; x++) if(!left.has((y1 + 1) * cols + x)){ ok = false; break; } if(!ok) break; y1++; }
+      for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++) left.delete(y * cols + x);
+      out.push({x0: x0 * c, y0: y0 * c, x1: (x1 + 1) * c, y1: (y1 + 1) * c, i: s, n: (x1 - x0 + 1) * (y1 - y0 + 1)});
+    }
+    return out;
   });
+  // мост — один настил вдоль главной оси его клеток (лесенка клеток по диагонали становится ровным мостом)
   const bridges = comps(9, false).map(q => {
-    const span = new Set(q.cells.map(p => p[1])).size >= new Set(q.cells.map(p => p[0])).size;   // через реку с севера на юг
-    return {...q, vert: span, set: new Set(q.cells.map(([x, y]) => y * cols + x))};
+    const P = q.cells.map(([x, y]) => [(x + 0.5) * c, (y + 0.5) * c]), n1 = P.length;
+    const mx = P.reduce((s, p) => s + p[0], 0) / n1, my = P.reduce((s, p) => s + p[1], 0) / n1;
+    let sxx = 0, syy = 0, sxy = 0;
+    for(const [x, y] of P){ sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my); }
+    let a = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    if(n1 === 1){   // одна клетка — поперёк воды
+      const [x, y] = q.cells[0];
+      a = WETA[UNDER[at(x - 1, y)] ?? at(x - 1, y)] && WETA[UNDER[at(x + 1, y)] ?? at(x + 1, y)] ? Math.PI / 2 : 0;
+    }
+    const ux = Math.cos(a), uy = Math.sin(a), along = P.map(([x, y]) => (x - mx) * ux + (y - my) * uy), across = P.map(([x, y]) => -(x - mx) * uy + (y - my) * ux);
+    const t0 = Math.min(...along), t1 = Math.max(...along), s0 = Math.min(...across), s1 = Math.max(...across);
+    return {...q, cx: mx + ux * (t0 + t1) / 2 - uy * (s0 + s1) / 2, cy: my + uy * (t0 + t1) / 2 + ux * (s0 + s1) / 2, a,
+      len: t1 - t0 + c, w: Math.max(4, s1 - s0 + c * 0.6)};
   });
   MAP = {t, z, zb, gt, cols, rows, c, lines, gates, rubble, towers, houses, bridges,
     rustic: t.some(k => k === 15),                            // в остроге — соломенные и тесовые крыши
@@ -362,7 +395,7 @@ function vectorPass(g, L, wx0, wy0){
     if(grass && (k === 1 || k === 0 || k === 5)){   // трава — короткие кудрявые штрихи
       const nG = 2 + Math.floor(hash(i, 5) * 3);
       for(let q = 0; q < nG; q++){
-        const s = i * 8 + q, x = x0 + hash(s, 6) * c, y = y0 + hash(s, 7) * c, sz = 0.28 + 0.22 * hash(s, 8);
+        const s = i * 8 + q, x = x0 + hash(s, 6) * c, y = y0 + hash(s, 7) * c, sz = 0.2 + 0.16 * hash(s, 8);
         const q2 = classAt(x, y); if(q2 !== 1 && q2 !== 5) continue;   // край луга неровный — у воды и дороги травы нет
         const p = hash(s, 9) < 0.72 ? pDark : pLight;
         for(const bl of [-1, 0, 1]){ p.moveTo(x + bl * sz * 0.22, y); p.quadraticCurveTo(x + bl * sz * 0.3, y - sz * 0.7, x + bl * sz * 0.7 + sz * 0.18, y - sz * (bl ? 0.78 : 1)); }
@@ -411,9 +444,9 @@ function vectorPass(g, L, wx0, wy0){
   const pSh = new Path2D();
   for(const [kind, x, y, r] of objs) sweep(kind === 1 ? 3 : kind === 2 ? 0.9 : 0.6, (dx, dy) => { pSh.moveTo(x + dx + r * 0.92, y + dy); pSh.arc(x + dx, y + dy, r * 0.92, 0, 6.283); });
   for(const T of MAP.towers){ const h = T.m === 2 ? 4 : 7; sweep(h, (dx, dy) => { pSh.moveTo(T.x + dx + T.r, T.y + dy); pSh.arc(T.x + dx, T.y + dy, T.r, 0, 6.283); }); }
-  for(const H of MAP.houses) if(box(H)) sweep(H.n >= 6 ? 7 : 3, (dx, dy) => pSh.rect(H.x0 + 0.4 + dx, H.y0 + 0.4 + dy, H.x1 - H.x0 - 0.8, H.y1 - H.y0 - 0.8));
-  for(const B of MAP.bridges) if(box(B)) for(const [x, y] of B.cells) pSh.rect(x * c - 0.3, y * c + 0.6, c, c);
+  for(const H of MAP.houses) if(box(H)) sweep(H.n >= 6 && !MAP.rustic ? 7 : 3, (dx, dy) => pSh.rect(H.x0 + 0.4 + dx, H.y0 + 0.4 + dy, H.x1 - H.x0 - 0.8, H.y1 - H.y0 - 0.8));
   sg.fill(pSh);
+  for(const B of MAP.bridges) if(box(B)){ sg.save(); sg.translate(B.cx - 0.4, B.cy + 0.7); sg.rotate(B.a); sg.fillRect(-B.len / 2, -B.w / 2, B.len, B.w); sg.restore(); }
   for(const [m, h, w] of [[1, 4, W], [2, 1.8, 0.7]]) sweep(h, (dx, dy) => { sg.save(); sg.translate(dx, dy); sg.lineWidth = w; sg.stroke(MAP.lines[m]); sg.restore(); });
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 0.3;
   g.filter = `blur(${Math.max(0.6, Math.min(7, 0.45 * L)).toFixed(1)}px)`;
@@ -422,23 +455,19 @@ function vectorPass(g, L, wx0, wy0){
   // мосты: настил из досок поперёк пути, перила по бокам
   for(const B of MAP.bridges){
     if(!box(B)) continue;
-    const deck = new Path2D(), planks = new Path2D(), rails = new Path2D();
-    for(const [x, y] of B.cells){
-      deck.rect(x * c, y * c, c, c);
-      for(let s = 0.55; s < c; s += 0.55){ if(B.vert){ planks.moveTo(x * c, y * c + s); planks.lineTo(x * c + c, y * c + s); } else { planks.moveTo(x * c + s, y * c); planks.lineTo(x * c + s, y * c + c); } }
-      const side = (dx, dy) => !B.set.has((y + dy) * cols + x + dx);
-      if(B.vert){
-        if(side(-1, 0)){ rails.moveTo(x * c + 0.3, y * c); rails.lineTo(x * c + 0.3, y * c + c); }
-        if(side(1, 0)){ rails.moveTo(x * c + c - 0.3, y * c); rails.lineTo(x * c + c - 0.3, y * c + c); }
-      } else {
-        if(side(0, -1)){ rails.moveTo(x * c, y * c + 0.3); rails.lineTo(x * c + c, y * c + 0.3); }
-        if(side(0, 1)){ rails.moveTo(x * c, y * c + c - 0.3); rails.lineTo(x * c + c, y * c + c - 0.3); }
-      }
+    const hl = B.len / 2, hw = B.w / 2;
+    g.save(); g.translate(B.cx, B.cy); g.rotate(B.a);
+    g.fillStyle = "#9a7448"; g.fillRect(-hl, -hw, B.len, B.w);
+    g.beginPath(); for(let s = -hl + 0.55; s < hl; s += 0.55){ g.moveTo(s, -hw); g.lineTo(s, hw); }
+    g.lineWidth = thin; g.strokeStyle = "rgba(58,38,20,.5)"; g.stroke();
+    g.beginPath(); g.moveTo(-hl, -hw + 0.3); g.lineTo(hl, -hw + 0.3); g.moveTo(-hl, hw - 0.3); g.lineTo(hl, hw - 0.3);
+    g.lineCap = "butt"; g.lineWidth = 0.55 + 2 * o; g.strokeStyle = INK; g.stroke();
+    g.lineWidth = 0.55; g.strokeStyle = "#71502f"; g.stroke(); g.lineCap = "round";
+    if(L >= 3){   // столбики перил
+      g.beginPath(); for(let s = -hl + 0.6; s < hl; s += 2.5) for(const e of [-hw + 0.3, hw - 0.3]){ g.moveTo(s + 0.2, e); g.arc(s, e, 0.2, 0, 6.283); }
+      g.fillStyle = "#5a3f25"; g.fill();
     }
-    g.fillStyle = "#9a7448"; g.fill(deck);
-    g.lineWidth = thin; g.strokeStyle = "rgba(58,38,20,.5)"; g.stroke(planks);
-    g.lineCap = "butt"; g.lineWidth = 0.55 + 2 * o; g.strokeStyle = INK; g.stroke(rails);
-    g.lineWidth = 0.55; g.strokeStyle = "#71502f"; g.stroke(rails); g.lineCap = "round";
+    g.restore();
   }
   // окоп и вал: тёмная канава с земляной бровкой
   g.lineWidth = 2.6; g.strokeStyle = "#86704f"; g.stroke(MAP.lines[3]);
@@ -539,7 +568,7 @@ function boulder(g, x, y, r, s, o){
 const facet = (base, nx, ny) => { const k = (nx * 0.7 - ny * 0.7) * 0.2; return k >= 0 ? mix(base, "#ffffff", k) : mix(base, "#000000", -k); };
 function house(g, H, L, o){
   const x0 = H.x0 + 0.4, y0 = H.y0 + 0.4, x1 = H.x1 - 0.4, y1 = H.y1 - 0.4, w = x1 - x0, h = y1 - y0;
-  const keep = H.n >= 6;
+  const keep = H.n >= 6 && !MAP.rustic;
   if(keep){   // донжон: каменный квадрат с зубцами, внутри — шатровая крыша
     g.fillStyle = "#c6bfae"; g.fillRect(x0, y0, w, h); g.lineWidth = o; g.strokeStyle = INK; g.strokeRect(x0, y0, w, h);
     if(L >= 1.5){ g.lineCap = "butt"; g.setLineDash([0.75, 1.0]); g.lineWidth = 0.9; g.strokeStyle = "#8a8374"; g.strokeRect(x0 + 0.45, y0 + 0.45, w - 0.9, h - 0.9); g.setLineDash([]); g.lineCap = "round"; }
@@ -800,7 +829,7 @@ const shieldCol = col => GREY ? col : shade(col, 0.32);
 const padCol = col => GREY ? col : STEEL;
 function shoulders(g, fill){
   if(GREY || !TINT){ ell(g, 0, 0.02, 0.27, 0.14, TINT ? mix(fill, TINT, 0.3) : fill); return; }
-  const col = shade(mix(TINT, fill, 0.18), [0, -0.1, 0.07][VAR]);   // ополчение чуть бурее, стрелки чуть зеленее
+  const col = shade(mix(TINT, fill, 0.1), [0, -0.08, 0.06][VAR]);   // ополчение чуть бурее, стрелки чуть зеленее
   g.beginPath(); g.moveTo(-0.14, -0.11); g.lineTo(0.14, -0.11); g.arc(0.14, 0.02, 0.13, -Math.PI / 2, Math.PI / 2);
   g.lineTo(-0.14, 0.15); g.arc(-0.14, 0.02, 0.13, Math.PI / 2, Math.PI * 1.5); g.closePath();
   g.fillStyle = col; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.045; g.stroke();
