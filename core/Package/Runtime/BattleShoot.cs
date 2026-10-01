@@ -33,6 +33,14 @@ namespace BattleCore
         public VWin W; public int Index; public double LaunchT;
         public double X, Y, Z, VX, VY, VZ, CanopyLeft, LX, LY;
         public Body Shooter; public bool Flying, Done;
+        public int Log = -1;   // номер записи в ArrowLog
+    }
+    // Полёт стрелы — для рисунка (полигон, игра), на правила не влияет: вылет (часы боя, точка, скорость) и конец полёта.
+    // End: 0 — в землю, 1 — в тело, человек выбыл, 2 — в тело, броня и щит удержали, 3 — в ветвях, 4 — за край карты
+    public struct ArrowTrace
+    {
+        public double T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1;
+        public int UnitId; public byte End;
     }
     // Павший (Г67): где упал, когда (часы боя), чей, куда смотрел, откуда пришёл удар, во что попало
     public struct Death { public double X, Y, T, Facing, Dir; public int UnitId; public string Part; public bool Killed; }
@@ -42,6 +50,7 @@ namespace BattleCore
         public List<Volley> Volleys = new List<Volley>();
         public ShotStats Shots = new ShotStats();            // стрелы за этот ход
         public List<Death> Deaths = new List<Death>();       // павшие с начала боя — для рисунка (Г67)
+        public List<ArrowTrace> ArrowLog;                    // полёты стрел — для рисунка; null — не пишем
         public double LeadErrK = 0.35, MovingShotSigmaK = 1.5, FaceTolDeg = 30, ShootStopShare = 0.85;
 
         readonly List<Shot> queue = new List<Shot>(), flying = new List<Shot>();
@@ -354,6 +363,7 @@ namespace BattleCore
             ar.VX = v * Math.Cos(th) * Math.Cos(az); ar.VY = v * Math.Cos(th) * Math.Sin(az); ar.VZ = v * Math.Sin(th);
             ar.CanopyLeft = -Math.Log(1 - Ctx.Rng()) / RR.TreeBlockPerM;
             ar.Flying = true; ar.Done = false;
+            if (ArrowLog != null) { ar.Log = ArrowLog.Count; ArrowLog.Add(new ArrowTrace { T0 = curT, X0 = sx, Y0 = sy, Z0 = sz, VX = ar.VX, VY = ar.VY, VZ = ar.VZ, UnitId = w.Att.P.U.Id }); }
             Shots.Arrows++; w.V.Arrows++;
         }
         double Flight(Rules.BowR bow, double d, (double theta, double speed, bool high) aim)
@@ -379,13 +389,13 @@ namespace BattleCore
                 tEnd = z0 - g0 > 1e-9 ? Math.Min(1, Math.Max(0, (z0 - g0) / ((z0 - g0) - (z1 - g1)))) : 0;
                 ground = true;
             }
-            if (Geo != null && (x1 < 0 || y1 < 0 || x1 > Geo.W || y1 > Geo.H)) { Shots.Ground++; EndShot(ar); return; }   // улетела с карты
+            if (Geo != null && (x1 < 0 || y1 < 0 || x1 > Geo.W || y1 > Geo.H)) { Shots.Ground++; EndShot(ar, x0, y0, z0, x1, y1, z1, 1, subDt, 4); return; }   // улетела с карты
             // ветви под кронами (Г38)
             if (z1 < g1 + RR.CanopyHeight && Forest(x1, y1))
             {
                 double seg = Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0)) * tEnd;
                 ar.CanopyLeft -= seg;
-                if (ar.CanopyLeft <= 0) { Shots.Blocked++; EndShot(ar); return; }
+                if (ar.CanopyLeft <= 0) { Shots.Blocked++; EndShot(ar, x0, y0, z0, x1, y1, z1, tEnd, subDt, 3); return; }
             }
             if (Math.Min(z0, z1) <= Math.Max(GroundZ(x0, y0), g1) + RR.RiderTop + 0.1)
             {
@@ -400,14 +410,21 @@ namespace BattleCore
                     if (Ballistics.Hit(body, RR, x0, y0, z0, x1, y1, z1, out var tt, out var part) && tt < bestT)
                     { bestT = tt; best = body; bestPart = part; }
                 }
-                if (best != null) { Struck(ar, best, bestPart); EndShot(ar); return; }
+                if (best != null) { bool fell = Struck(ar, best, bestPart); EndShot(ar, x0, y0, z0, x1, y1, z1, bestT, subDt, (byte)(fell ? 1 : 2)); return; }
             }
-            if (ground) { Shots.Ground++; EndShot(ar); }
+            if (ground) { Shots.Ground++; EndShot(ar, x0, y0, z0, x1, y1, z1, tEnd, subDt, 0); }
         }
-        void EndShot(Shot ar) { ar.Flying = false; ar.Done = true; ar.W.Landed++; }
+        void EndShot(Shot ar, double x0, double y0, double z0, double x1, double y1, double z1, double f, double subDt, byte end)
+        {
+            ar.Flying = false; ar.Done = true; ar.W.Landed++;
+            if (ArrowLog == null || ar.Log < 0) return;
+            var a = ArrowLog[ar.Log];   // где кончился полёт: доля шага f — точка встречи с землёй, ветвями или телом
+            a.T1 = curT + f * subDt; a.X1 = x0 + (x1 - x0) * f; a.Y1 = y0 + (y1 - y0) * f; a.Z1 = z0 + (z1 - z0) * f; a.End = end;
+            ArrowLog[ar.Log] = a;
+        }
 
-        // Стрела задела тело: выбыл ли человек (броня стола), убит ли (часть тела, Г39); павший — в Deaths (Г67)
-        void Struck(Shot ar, Body body, string part)
+        // Стрела задела тело: выбыл ли человек (броня стола), убит ли (часть тела, Г39); павший — в Deaths (Г67). true — выбыл
+        bool Struck(Shot ar, Body body, string part)
         {
             var w = ar.W; var RR = R.Ranged;
             var victim = Movers.First(m => m.P == body.Owner);
@@ -420,7 +437,7 @@ namespace BattleCore
             if (hv > 1e-9 && (-ar.VX * fx - ar.VY * fy) / hv <= Math.Cos(R.Sectors.RearMin * Math.PI / 180)) eq *= R.Defense.RearEqMult;
             double pOut = 1 / Math.Max(R.Defense.MinDivisor, eq / R.Defense.RangedEqDiv);
             if (D.Cmdr != null && D.Cmdr.BuffDef != 0) pOut *= Math.Max(0, 1 - D.Cmdr.BuffDef / 100);
-            if (Ctx.Rng() >= pOut) return;
+            if (Ctx.Rng() >= pOut) return false;
             body.Alive = false;
             victim.P.U.Soldiers -= 1;
             victim.ShotDown++;
@@ -439,6 +456,7 @@ namespace BattleCore
                 X = body.X, Y = body.Y, T = curT, Facing = body.Facing + (look() - 0.5) * 40, Dir = Math.Atan2(ar.VY, ar.VX) * 180 / Math.PI,
                 UnitId = victim.P.U.Id, Part = part, Killed = killed,
             });
+            return true;
         }
         double curT;
 

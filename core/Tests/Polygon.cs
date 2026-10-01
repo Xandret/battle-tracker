@@ -258,6 +258,9 @@ static class Polygon
             var dead = new List<double[]>();
             var idx = ms.Select((m, i) => (m.P.U.Id, i)).ToDictionary(p => p.Id, p => p.i);
             int seenDead = 0;
+            // для анимации (В6, В8): полёты стрел и пары отрядов, что сейчас в рукопашной, — по кадрам [a, b, a, b, …]
+            if (sc.Battle != null) sc.Battle.ArrowLog = new List<ArrowTrace>();
+            var fights = new List<int[]> { new int[0] };
             var logs = new List<List<string>>();
             var stats = new List<object>();
             for (int turn = 0; turn < sc.Turns; turn++)
@@ -269,6 +272,8 @@ static class Polygon
                     frames.Add(Snap(ms));
                     heads.Add(Heads(ms));
                     soldiers.Add(ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray());
+                    if (sc.Battle != null)
+                        fights.Add(sc.Battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());
                     if (sc.Battle != null)
                         for (; seenDead < sc.Battle.Deaths.Count; seenDead++)
                         {
@@ -307,6 +312,13 @@ static class Polygon
                 frames, logs, stats,
                 soldiers = sc.Battle != null ? soldiers : null, fallen = sc.Battle != null ? fallen : null, dead = sc.Battle != null ? dead : null,
                 heads = sc.Battle != null ? heads : null,
+                fights = sc.Battle != null ? fights : null,
+                // стрела: [вылет t, x, y, z, vx, vy, vz, конец t, x, y, z, отряд стрелка, чем кончилась (ArrowTrace.End)]
+                arrows = sc.Battle?.ArrowLog.Where(a => a.T1 > a.T0).OrderBy(a => a.T0).Select(a => new[]
+                {
+                    Math.Round(a.T0, 2), Math.Round(a.X0, 1), Math.Round(a.Y0, 1), Math.Round(a.Z0, 1), Math.Round(a.VX, 1), Math.Round(a.VY, 1), Math.Round(a.VZ, 1),
+                    Math.Round(a.T1, 2), Math.Round(a.X1, 1), Math.Round(a.Y1, 1), Math.Round(a.Z1, 1), idx[a.UnitId], a.End,
+                }).ToList(),
             });
         }
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },
