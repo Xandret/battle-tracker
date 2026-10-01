@@ -20,7 +20,15 @@ using System.Linq;
 
 namespace BattleCore
 {
-    public sealed class MoveOrder { public double X, Y, Facing; }   // куда встать центру строя (м) и куда смотреть
+    // Приказ (Г15): двигаться в точку (X, Y, Facing — центр строя, м, и куда смотреть), атаковать отряд TargetId
+    // (идти на него, преследуя; Charge — с натиском, Г29) или держать позицию (стоять, отвечать — Г44)
+    public enum OrderKind { Move, Attack, Hold }
+    public sealed class MoveOrder
+    {
+        public double X, Y, Facing;
+        public OrderKind Kind = OrderKind.Move;
+        public int TargetId; public bool Charge;
+    }
 
     // Фигурка в мире: где и как быстро, м и м/с. Dvx, Dvy, Vmax — куда хочет на этом шаге (после взгляда вперёд);
     // BlockedBy — номер чужого отряда, которому пришлось уступить на этом шаге (0 — никому)
@@ -62,6 +70,9 @@ namespace BattleCore
         public List<string> Detoured = new List<string>();
         public int HeldSameId; public double HeldSameSec, DetourCooldown;
         public int IgnoreHoldBy;                 // кого обходим — упор в него не держит центр строя
+        // Бой в движении (БД1): сколько бойцов разложено на фигурки сейчас; где упали выбывшие фигурки (Г30)
+        public int LaidMen = -1;
+        public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
         {
@@ -71,6 +82,7 @@ namespace BattleCore
             m.Nominal = m.P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
             m.NominalFp = new Footprint { Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
             m.NominalCols = m.Cols = m.MinCols = m.P.Figs.Count == 0 ? 0 : m.P.Figs.Max(f => f.File) + 1;
+            m.LaidMen = (int)Math.Max(0, Js.Round(u.Soldiers));
             return m;
         }
     }
@@ -120,7 +132,8 @@ namespace BattleCore
             m.Track = Track.Build(m.Field, route);
             if (m.Track == null) { m.Note = "пути нет"; return; }
             if (m.Track.Pieces.Count == 0) m.OnSpot = true;   // уже на месте — остаётся довернуться
-            m.Side = m.Track.Cost <= r.Move.CloseShare * BattleMap.UnitSpeed(m.P.U, r);
+            // атакующий идёт на врага лицом, а не боком (Г54 — только для приказа «двигаться»)
+            m.Side = o.Kind == OrderKind.Move && m.Track.Cost <= r.Move.CloseShare * BattleMap.UnitSpeed(m.P.U, r);
             // разгон переходит в новый приказ, только если он ведёт туда же, куда отряд уже идёт
             if (m.Side || m.Track.Pieces.Count == 0 || Math.Abs(AngleDiff(m.P.Facing, LegHeading(m.Track, 0))) > r.Move.MarchAlignDeg) m.Vs = 0;
         }
@@ -138,32 +151,47 @@ namespace BattleCore
         // Возвращает строки журнала: сколько прошёл, сколько нормы, сколько ушло на повороты.
         public static List<string> Turn(IList<Mover> ms, Geo geo, Rules r, Action<double> frame = null)
         {
-            var M = r.Move;
-            int steps = (int)Math.Round(M.TurnSec / M.Dt), every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt));
-            int narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
+            BeginTurn(ms);
+            for (int k = 0; k < StepsPerTurn(r); k++)
+            {
+                Step(ms, geo, r, k);
+                frame?.Invoke((k + 1) * r.Move.Dt);
+            }
+            return EndTurn(ms, r);
+        }
+
+        // Ход по частям — чтобы бой (Battle) вклинивался между шагами: начать, шаг за шагом, журнал
+        public static int StepsPerTurn(Rules r) => (int)Math.Round(r.Move.TurnSec / r.Move.Dt);
+        public static void BeginTurn(IList<Mover> ms)
+        {
             foreach (var m in ms)
             {
                 m.Spent = m.Moved = m.WheelSec = m.AboutSec = m.HeldSec = m.RegroupSec = 0; m.Blockers.Clear();
                 m.MinCols = m.Cols; m.Detoured.Clear();
             }
-            for (int k = 0; k < steps; k++)
+        }
+        // Шаг k хода: 1) центры строёв; 2) куда хочет каждая фигурка; 3) тела: взгляд вперёд, шаг, расталкивание
+        public static void Step(IList<Mover> ms, Geo geo, Rules r, int k)
+        {
+            var M = r.Move;
+            double t = k * M.Dt;
+            int every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt)), narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
+            var prev = new List<(double x, double y)[]>();
+            if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, r);   // узости впереди (Г59)
+            foreach (var m in ms)
             {
-                double t = k * M.Dt;
-                // 1) центры строёв; 2) куда хочет каждая фигурка; 3) тела: взгляд вперёд, шаг, расталкивание
-                var prev = new List<(double x, double y)[]>();
-                if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, r);   // узости впереди (Г59)
-                foreach (var m in ms)
-                {
-                    prev.Add(Slots(m.P));
-                    if (m.Order != null && m.Track != null && !m.Done) Lead(m, t, M.Dt, r);
-                    m.Steps++;
-                }
-                for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
-                Bodies.Step(ms, M.Dt, r);
-                foreach (var m in ms) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
-                if ((k + 1) % every == 0) foreach (var m in ms) Reassign(m, r);
-                frame?.Invoke((k + 1) * M.Dt);
+                prev.Add(Slots(m.P));
+                if (m.Order != null && m.Track != null && !m.Done) Lead(m, t, M.Dt, r);
+                m.Steps++;
             }
+            for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
+            Bodies.Step(ms, M.Dt, r);
+            foreach (var m in ms) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
+            if ((k + 1) % every == 0) foreach (var m in ms) Reassign(m, r);
+        }
+        // Журнал хода: сколько прошёл, сколько нормы, повороты, узости, обходы, пробки
+        public static List<string> EndTurn(IList<Mover> ms, Rules r)
+        {
             var L = new List<string>();
             foreach (var m in ms)
             {

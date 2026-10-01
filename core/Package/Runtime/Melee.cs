@@ -127,7 +127,7 @@ namespace BattleCore
         static double Overlap(double a0, double a1, double b0, double b1) => Math.Max(0, Math.Min(a1, b1) - Math.Max(a0, b0));
 
         // Доля удачи (Г26): как бросок d(численность) за столом, с минимумом по дисциплине
-        static double Fortune(Unit att, string mode, EngineContext ctx)
+        internal static double Fortune(Unit att, string mode, EngineContext ctx)
         {
             double n = Math.Max(1, Js.Round(att.Soldiers));
             var A = Combat.Eff(att, mode, null, ctx);

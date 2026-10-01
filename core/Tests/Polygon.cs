@@ -21,6 +21,20 @@ static class Polygon
             Units.Add((m, new MoveOrder { X = tx, Y = ty, Facing = tf }));
             Tpl[m] = tpl;
         }
+        // бой (БД1): отряды живут в Battle, приказы — через Battle.Order; ходы считает Battle.Turn
+        public Battle Battle;
+        public Mover Fighter(string tpl, int id, string name, double x, double y, double facing, int faction = 1)
+        {
+            var t = Templates.Get(tpl);
+            var m = Battle.Add(t.Make(id, name, 1000, faction), x, y, facing);
+            Units.Add((m, null)); Tpl[m] = tpl;
+            return m;
+        }
+        public void Order(Mover m, MoveOrder o)
+        {
+            Battle.Order(m, o);
+            int i = Units.FindIndex(u => u.M == m); Units[i] = (m, o);
+        }
         // стоит без приказа (Order = null)
         public void Stand(string tpl, int id, string name, double x, double y, double facing, int faction = 1)
         {
@@ -139,8 +153,37 @@ static class Polygon
             parade.Add(kinds[k][0], k + 1, kinds[k][1], x, 500, 0, x, 300, 0, men: 200);
         }
         list.Add(parade);
+        // ── бой в движении (БД1) ──
+        var hit = new Scene { Name = "Бой: натиск и стычки", Turns = 3, Geo = MoveTests.Open(1100, 800),
+            Note = "БД1 (Г62, Г29, К29): касание — обмен ударами по формуле стола, бой идёт через границу хода без перерыва. " +
+                   "Рыцари с разбега 150 м — натиск: всплеск урона в первые 2 с, пехота в это время не отвечает. По пикам во фронт натиска нет, " +
+                   "а ответ пик по коннице ×3. Пехота сходится с пехотой посреди хода. Павшие фигурки — серые крестики, строй смыкается с краёв (Г30)." };
+        hit.Battle = new Battle(hit.Geo, R0, new EngineContext { Rng = new Mulberry32(5).Next });
+        hit.Fighter("infantry", 2, "Враг: пехота", 200, 520, 0, faction: 2);
+        var k1 = hit.Fighter("knights", 1, "Рыцари", 200, 520 - (4 + 150 + 7.5), 180);
+        hit.Fighter("pikemen", 4, "Враг: пикинёры", 650, 520, 0, faction: 2);
+        var k2 = hit.Fighter("knights", 3, "Рыцари на пики", 650, 520 - (5 + 150 + 7.5), 180);
+        hit.Fighter("infantry", 6, "Враг: пехота Б", 980, 520, 0, faction: 2);
+        var i1 = hit.Fighter("infantry", 5, "Пехота", 980, 520 - (4 + 60 + 4), 180);
+        hit.Order(k1, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+        hit.Order(k2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4, Charge = true });
+        hit.Order(i1, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
+        list.Add(hit);
+
+        var flank = new Scene { Name = "Бой: фланг и потери", Turns = 3, Geo = MoveTests.Open(1000, 700),
+            Note = "Г63: атакованный во фланг сам не поворачивается — ждёт приказа, удар во фланг глушит его ответ. " +
+                   "Г44: начинает атакующий. Гвардия (дисциплина 80+: 2 удара за круг) рубит ополчение — фигурки падают, фронт сужается как у фишки трекера (Г30)." };
+        flank.Battle = new Battle(flank.Geo, R0, new EngineContext { Rng = new Mulberry32(7).Next });
+        flank.Fighter("infantry", 2, "Враг: стоят", 300, 400, 0, faction: 2);
+        var fl = flank.Fighter("infantry", 1, "Во фланг", 300 - 62.5 - 4 - 40, 400, 90);
+        flank.Fighter("militia", 4, "Враг: ополчение", 750, 400, 0, faction: 2);
+        var gd = flank.Fighter("guard", 3, "Гвардия", 750, 400 - (4 + 30 + 4), 180);
+        flank.Order(fl, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        flank.Order(gd, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
+        list.Add(flank);
         return list;
     }
+    static readonly Rules R0 = Rules.Base;
 
     public static void Write(string root)
     {
@@ -149,14 +192,35 @@ static class Polygon
         foreach (var sc in Scenes())
         {
             var ms = sc.Units.Select(u => u.M).ToList();
-            foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
+            if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
             var frames = new List<double[][]> { Snap(ms) };
+            // каким отряд был до первого хода — численность, строй, фигурки (в бою они меняются, Г30)
+            var start = ms.Select(m => new
+            {
+                men = m.P.U.Soldiers, front = m.P.Fp.Front, depth = m.P.Fp.Depth,
+                figs = m.P.Figs.Select(f => new[] { f.Width, f.Depth, f.Men, f.Rank }).ToList(),
+            }).ToList();
+            // бой (БД1): численность по кадрам и где упали фигурки — [x, y, номер кадра]
+            var soldiers = new List<double[]> { ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray() };
+            var fallen = ms.Select(_ => new List<double[]>()).ToList();
             var logs = new List<List<string>>();
             var stats = new List<object>();
             for (int turn = 0; turn < sc.Turns; turn++)
             {
                 int k = 0;
-                logs.Add(MoveSim.Turn(ms, sc.Geo, R, t => { if (++k % 4 == 0) frames.Add(Snap(ms)); }));
+                Action<double> rec = t =>
+                {
+                    if (++k % 4 != 0) return;
+                    frames.Add(Snap(ms));
+                    soldiers.Add(ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray());
+                    for (int i = 0; i < ms.Count; i++)
+                        while (fallen[i].Count < ms[i].Fallen.Count)
+                        {
+                            var p = ms[i].Fallen[fallen[i].Count];
+                            fallen[i].Add(new[] { Math.Round(p.x, 1), Math.Round(p.y, 1), frames.Count - 1 });
+                        }
+                };
+                logs.Add(sc.Battle != null ? sc.Battle.Turn(rec) : MoveSim.Turn(ms, sc.Geo, R, rec));
                 stats.Add(ms.Select(m => new { spent = Math.Round(m.Spent, 1), moved = Math.Round(m.Moved, 1), wheel = Math.Round(m.WheelSec, 2), about = Math.Round(m.AboutSec, 2), done = m.Done }).ToList());
             }
             var gm = sc.Geo.Map;
@@ -165,18 +229,19 @@ static class Polygon
                 name = sc.Name, note = sc.Note, w = sc.Geo.W, h = sc.Geo.H, cols = gm.W, rows = gm.H,
                 t = Terrain.EncodeLayer(gm.T), z = Terrain.EncodeLayer(gm.Z),
                 dt = 0.2, turnSec = R.Move.TurnSec, turns = sc.Turns,
-                units = sc.Units.Select(u => new
+                units = sc.Units.Select((u, ui) => new
                 {
-                    id = u.M.P.U.Id, name = u.M.P.U.Name, type = u.M.P.U.Type, men = u.M.P.U.Soldiers, tpl = sc.Tpl[u.M],
-                    norm = BattleMap.UnitSpeed(u.M.P.U, R), front = u.M.P.Fp.Front, depth = u.M.P.Fp.Depth,
+                    id = u.M.P.U.Id, name = u.M.P.U.Name, type = u.M.P.U.Type, men = start[ui].men, tpl = sc.Tpl[u.M],
+                    norm = BattleMap.UnitSpeed(u.M.P.U, R), front = start[ui].front, depth = start[ui].depth,
                     // фигурка: ширина, глубина, бойцов, ряд квадратиков (0 — передний); шаг бойца в строю — pm × rd
-                    figs = u.M.P.Figs.Select(f => new[] { f.Width, f.Depth, f.Men, f.Rank }).ToList(),
+                    figs = start[ui].figs,
                     pm = FormationOf(u.M.P.U, R).PerMan, rd = FormationOf(u.M.P.U, R).RankDepth,
                     order = u.O == null ? null : new[] { u.O.X, u.O.Y, u.O.Facing },
                     route = u.M.Track?.Points.Select(p => new[] { Math.Round(p.x, 1), Math.Round(p.y, 1) }).ToList(),
                     flow = Flow(u.M.Field), note = u.M.Note,
                 }).ToList(),
                 frames, logs, stats,
+                soldiers = sc.Battle != null ? soldiers : null, fallen = sc.Battle != null ? fallen : null,
             });
         }
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },

@@ -282,6 +282,9 @@ foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Te
 // ── И1: движение строя фигурками (Г31 шаг 1; Г52–Г54), см. MoveTests.cs ──
 foreach (var (name, run) in MoveTests.All()) Test(name, run);
 
+// ── И1: бой в движении (БД1; Г62–Г64), см. BattleTests.cs ──
+foreach (var (name, run) in BattleTests.All()) Test(name, run);
+
 if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
 if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); CalibrateRanged(args.Length > 2 ? int.Parse(args[2]) : 400); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-melee") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }

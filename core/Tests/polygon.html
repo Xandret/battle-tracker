@@ -118,8 +118,10 @@ const X = x => view.ox + x * view.s, Y = y => view.oy + y * view.s;
 function lerpFrame(f){
   const i = Math.floor(f), a = S.frames[i], b = S.frames[Math.min(i + 1, S.frames.length - 1)], k = f - i;
   return a.map((ua, u) => ua.map((v, j) => {
-    if(j === 2){ let d = ((b[u][2] - v + 540) % 360) - 180; return v + d * k; }
-    return v + (b[u][j] - v) * k;
+    const bj = b[u][j];
+    if(bj === undefined) return v;   // бой: фигурка упала между кадрами
+    if(j === 2){ let d = ((bj - v + 540) % 360) - 180; return v + d * k; }
+    return v + (bj - v) * k;
   }));
 }
 
@@ -134,6 +136,15 @@ function draw(){
   const fr = lerpFrame(frame);
 
   if($("showFlow").checked) drawFlow(S.units[sel]);
+  // бой (БД1): павшие фигурки — серые крестики там, где упали
+  if(S.fallen) S.fallen.forEach(list => {
+    ctx.strokeStyle = "rgba(60,50,40,.55)"; ctx.lineWidth = 1;
+    list.forEach(([x, y, fi]) => {
+      if(fi > frame) return;
+      const px = X(x), py = Y(y), s = Math.max(1.5, 1.2 * view.s);
+      ctx.beginPath(); ctx.moveTo(px - s, py - s); ctx.lineTo(px + s, py + s); ctx.moveTo(px + s, py - s); ctx.lineTo(px - s, py + s); ctx.stroke();
+    });
+  });
   S.units.forEach((u, i) => {
     const col = COLORS[i % COLORS.length];
     if($("showRoute").checked && u.route){
@@ -148,11 +159,12 @@ function draw(){
     if($("showMen").checked && view.s >= MEN_FROM){
       // вблизи — человечки (Г32); идущий отряд шагает
       const moving = f[3] > 0.02, t = frame * S.dt;
-      u.figs.forEach((fig, k) => drawMen(u, fig, f[4 + 2 * k], f[5 + 2 * k], h, col, moving, t, k));
+      u.figs.forEach((fig, k) => { if(f[4 + 2 * k] !== undefined) drawMen(u, fig, f[4 + 2 * k], f[5 + 2 * k], h, col, moving, t, k); });
     } else {
       // издали — плашка: фигурка одним прямоугольником
       ctx.fillStyle = col; ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.6;
       u.figs.forEach(([w, d], k) => {
+        if(f[4 + 2 * k] === undefined) return;   // бой: фигурок стало меньше (Г30)
         const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
         ctx.save(); ctx.translate(x, y); ctx.rotate(h);
         const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
@@ -401,8 +413,9 @@ function showLog(time){
 function showUnits(fr){
   $("units").innerHTML = S.units.map((u, i) => {
     const v = fr[i][3], kind = {infantry:"пехота", pike:"пикинёры", archer:"стрелки", cavalry:"конница"}[u.type] || u.type;
+    const now = S.soldiers ? S.soldiers[Math.min(S.soldiers.length - 1, Math.round(frame))][i] : null;
     return `<div class="unit${i === sel ? " sel" : ""}" data-i="${i}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>
-      <span>${esc(u.name)}</span><small>${kind}, ${u.men} чел., фронт ${u.front} × ${u.depth} м · норма ${u.norm} м · сейчас ${(v).toFixed(1).replace(".", ",")} м нормы/с${u.note ? " · " + esc(u.note) : ""}</small></div>`;
+      <span>${esc(u.name)}</span><small>${kind}, ${now !== null ? `в строю ${now} из ${u.men}` : `${u.men} чел.`}, фронт ${u.front} × ${u.depth} м · норма ${u.norm} м · сейчас ${(v).toFixed(1).replace(".", ",")} м нормы/с${u.note ? " · " + esc(u.note) : ""}</small></div>`;
   }).join("");
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));

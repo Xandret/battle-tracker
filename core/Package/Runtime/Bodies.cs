@@ -68,7 +68,8 @@ namespace BattleCore
                     if (Dist(a, a.S.X, a.S.Y, b, b.S.X, b.S.Y, out _, out _) < 0) a.S.Slowed = b.S.Slowed = true;
                     continue;
                 }
-                double ax = a.S.X + a.S.Dvx * tau, ay = a.S.Y + a.S.Dvy * tau, bx = b.S.X + b.S.Dvx * tau, by = b.S.Y + b.S.Dvy * tau;
+                double la = rel == Rel.Enemy ? M.EnemyLookAheadSec : tau;
+                double ax = a.S.X + a.S.Dvx * la, ay = a.S.Y + a.S.Dvy * la, bx = b.S.X + b.S.Dvx * la, by = b.S.Y + b.S.Dvy * la;
                 double d = Dist(a, ax, ay, b, bx, by, out double nx, out double ny);   // n — от b к a
                 if (d >= M.YieldMargin) continue;
                 bool enemy = rel == Rel.Enemy;
@@ -148,6 +149,25 @@ namespace BattleCore
                 if (m.Held && m.LastBlocker != 0)
                     m.Blockers[m.LastBlocker] = ((m.Blockers.TryGetValue(m.LastBlocker, out var was) ? was.sec : 0) + dt, m.LastBlockerEnemy, m.LastBlockerName);
             }
+        }
+
+        // Касание для рукопашной (БД1): для каждой фигурки x — ближайшая фигурка y не дальше gap (−1 — никого)
+        // и зазор до неё, м. Перебор всех пар — схваток немного, считается раз в полсекунды.
+        public static (int ky, double d)[] Touch(Mover x, Mover y, double gap)
+        {
+            var X = Of(x); var Y = Of(y);
+            var res = new (int, double)[X.Count];
+            for (int i = 0; i < X.Count; i++)
+            {
+                int best = -1; double bd = double.PositiveInfinity;
+                for (int j = 0; j < Y.Count; j++)
+                {
+                    double d = Dist(X[i], X[i].S.X, X[i].S.Y, Y[j], Y[j].S.X, Y[j].S.Y, out _, out _);
+                    if (d < bd) { bd = d; best = j; }
+                }
+                res[i] = bd <= gap ? (best, bd) : (-1, bd);
+            }
+            return res;
         }
 
         // Наименьший зазор между телами двух отрядов, м (минус — перекрытие): для журнала и проверок
