@@ -13,11 +13,18 @@ static class Polygon
         public Geo Geo;
         public int Turns;
         public List<(Mover M, MoveOrder O)> Units = new List<(Mover M, MoveOrder O)>();
-        public void Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf)
+        public void Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf, int faction = 1)
         {
-            var m = MoveTests.Unit(tpl, id, x, y, facing);
+            var m = MoveTests.Unit(tpl, id, x, y, facing, faction: faction);
             m.P.U.Name = name;
             Units.Add((m, new MoveOrder { X = tx, Y = ty, Facing = tf }));
+        }
+        // стоит без приказа (Order = null)
+        public void Stand(string tpl, int id, string name, double x, double y, double facing, int faction = 1)
+        {
+            var m = MoveTests.Unit(tpl, id, x, y, facing, faction: faction);
+            m.P.U.Name = name;
+            Units.Add((m, null));
         }
     }
 
@@ -63,6 +70,28 @@ static class Polygon
         river.Add("infantry", 1, "Пехота", 350, 820, 0, 350, 80, 0);
         river.Add("knights", 2, "Конница", 850, 830, 0, 850, 60, 0);
         list.Add(river);
+
+        var jam = new Scene { Name = "Пробки и проход сквозь своих", Turns = 3, Geo = MoveTests.Open(1100, 850),
+            Note = "Шаг 2: фигурки — твёрдые тела. Перекрёсток: «Первые» подошли раньше и идут, «Вторые» ждут и пропускают (Г57). " +
+                   "Сквозь своих стоящих не проходят — «Идут» встают за «Стоят». Лучники отходят сквозь свою пехоту на половине скорости (Г56). Пробка — в журнале." };
+        jam.Add("infantry", 1, "Первые", 300, 300, 90, 750, 300, 90);
+        jam.Add("infantry", 2, "Вторые", 420, 470, 0, 420, 100, 0);
+        jam.Stand("infantry", 3, "Стоят", 850, 560, 0);
+        jam.Add("infantry", 4, "Идут", 850, 780, 0, 850, 400, 0);
+        jam.Stand("infantry", 5, "Пехота", 150, 680, 0);
+        jam.Add("archers", 6, "Лучники", 150, 620, 0, 150, 770, 0);
+        list.Add(jam);
+
+        var clash = new Scene { Name = "Встреча с врагом", Turns = 3, Geo = MoveTests.Open(1100, 750),
+            Note = "Г58: тела упираются в контакте, никто никого не теснит — как за столом; стоящего врага не сдвигают. " +
+                   "Рукопашной здесь ещё нет: бой и движение сойдутся в одном ходу отдельным шагом. Враги — с пометкой в имени." };
+        clash.Add("infantry", 1, "Пехота", 150, 600, 0, 150, 120, 0);
+        clash.Stand("infantry", 2, "Враг: пехота", 150, 300, 180, faction: 2);
+        clash.Add("infantry", 3, "Идут навстречу", 480, 640, 0, 480, 100, 0);
+        clash.Add("infantry", 4, "Враг: навстречу", 480, 110, 180, 480, 660, 180, faction: 2);
+        clash.Add("knights", 5, "Рыцари", 820, 690, 0, 820, 60, 0);
+        clash.Stand("pikemen", 6, "Враг: пикинёры", 820, 330, 180, faction: 2);
+        list.Add(clash);
         return list;
     }
 
@@ -73,7 +102,7 @@ static class Polygon
         foreach (var sc in Scenes())
         {
             var ms = sc.Units.Select(u => u.M).ToList();
-            foreach (var (m, o) in sc.Units) MoveSim.Give(m, o, sc.Geo, R);
+            foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
             var frames = new List<double[][]> { Snap(ms) };
             var logs = new List<List<string>>();
             var stats = new List<object>();
@@ -94,7 +123,7 @@ static class Polygon
                     id = u.M.P.U.Id, name = u.M.P.U.Name, type = u.M.P.U.Type, men = u.M.P.U.Soldiers,
                     norm = BattleMap.UnitSpeed(u.M.P.U, R), front = u.M.P.Fp.Front, depth = u.M.P.Fp.Depth,
                     figs = u.M.P.Figs.Select(f => new[] { f.Width, f.Depth }).ToList(),
-                    order = new[] { u.O.X, u.O.Y, u.O.Facing },
+                    order = u.O == null ? null : new[] { u.O.X, u.O.Y, u.O.Facing },
                     route = u.M.Track?.Points.Select(p => new[] { Math.Round(p.x, 1), Math.Round(p.y, 1) }).ToList(),
                     flow = Flow(u.M.Field), note = u.M.Note,
                 }).ToList(),
