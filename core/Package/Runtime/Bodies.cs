@@ -22,6 +22,7 @@ namespace BattleCore
             public Mover M; public int Mi; public FigState S;
             public double Ux, Uy, Half, Rad;   // ось капсулы (единичная), полудлина отрезка, радиус
             public double X0, Y0;              // где была до шага
+            public double Cap;                 // дальше этого от (X0, Y0) за шаг не уходит, даже если толкают (PushSpeedK)
             public bool Archer, Pushed;
         }
         enum Rel { Same, Ghost, Friend, Enemy }
@@ -77,6 +78,7 @@ namespace BattleCore
                     {
                         M = m, Mi = mi, S = s, Ux = wide ? wrx : wfx, Uy = wide ? wry : wfy,
                         Half = Math.Abs(f.Width - f.Depth) / 2, Rad = Math.Min(f.Width, f.Depth) / 2, X0 = s.X, Y0 = s.Y, Archer = archer,
+                        Cap = Math.Max(s.Vmax, 1) * dt * M.PushSpeedK,
                     });
                 }
             }
@@ -230,6 +232,8 @@ namespace BattleCore
         {
             if (dx == 0 && dy == 0) return;
             double nx = b.S.X + dx, ny = b.S.Y + dy;
+            double ox = nx - b.X0, oy = ny - b.Y0, ol = JsMath.Hypot(ox, oy);
+            if (ol > b.Cap) { nx = b.X0 + ox * b.Cap / ol; ny = b.Y0 + oy * b.Cap / ol; }   // давка: перекрытие рассосётся за несколько шагов
             var F = b.M.Field;
             if (F != null && !MoveSim.Free(F, nx, ny)) return;   // в воду и в стену не выталкиваем
             b.S.X = nx; b.S.Y = ny; b.Pushed = true;

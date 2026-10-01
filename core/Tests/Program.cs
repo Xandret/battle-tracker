@@ -277,6 +277,7 @@ Test("баллистика сверх стола: вблизи смертоно�
 });
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
+if (args.Length > 0 && args[0] == "jumps") { var all = Polygon.Jumps(); Console.WriteLine($"прыжков {all.Count}"); foreach (var l in all.Take(20)) Console.WriteLine("  " + l); return 0; }
 foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Test(name, run);
 
 // ── И1: движение строя фигурками (Г31 шаг 1; Г52–Г54), см. MoveTests.cs ──
@@ -284,6 +285,11 @@ foreach (var (name, run) in MoveTests.All()) Test(name, run);
 
 // ── И1: бой в движении (БД1; Г62–Г64), см. BattleTests.cs ──
 foreach (var (name, run) in BattleTests.All()) Test(name, run);
+Test("тела не прыгают: ни тело, ни фигурка в кадре полигона не сдвигается за шаг дальше 45 м/с (мост, давка, бой с потерями)", () =>
+{
+    var j = Polygon.Jumps("Река: брод и мост", "Бой: фланг и потери");
+    if (j.Count > 0) throw new Exception($"прыжков {j.Count}: " + string.Join(" | ", j.Take(3)));
+});
 
 if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
 if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); CalibrateRanged(args.Length > 2 ? int.Parse(args[2]) : 400); return 0; }

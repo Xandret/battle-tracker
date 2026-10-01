@@ -133,10 +133,10 @@ static class MoveTests
         {
             var geo = Open(600, 600);
             var k = Unit("knights", 1, 300, 560, 0);
-            var p = Unit("infantry", 2, 100, 560, 0);
+            var p = Unit("infantry", 2, 70, 560, 0);   // в 20 м от края рыцарей (фронт 296 м): не внахлёст
             double kAt1 = -1, pAt1 = -1;
             MoveSim.Give(k, new MoveOrder { X = 300, Y = 310, Facing = 0 }, geo, R);
-            MoveSim.Give(p, new MoveOrder { X = 100, Y = 460, Facing = 0 }, geo, R);
+            MoveSim.Give(p, new MoveOrder { X = 70, Y = 460, Facing = 0 }, geo, R);
             MoveSim.Turn(new[] { k, p }, geo, R, t => { if (Math.Abs(t - 1) < 1e-9) { kAt1 = k.Vs / MoveSim.TopSpeed(k.P.U, R); pAt1 = p.Vs / MoveSim.TopSpeed(p.P.U, R); } });
             True(k.Done && p.Done, "оба дошли");
             Near(k.Spent, 250, 1e-6, "нормы у конницы");

@@ -195,6 +195,7 @@ namespace BattleCore
             public double NarrowCheckSec = 0.5;
             public double RegroupLagM = 3, RegroupShare = 0.2, RegroupSpeed = 0.5;   // Г60: перестраиваются — вдвое медленнее
             public double DetourWaitSec = 3, DetourCooldownSec = 10;                 // Г61: ждёт 3 с, потом обходит своего
+            public double PushSpeedK = 1.5;         // расталкивание двигает фигурку за шаг не дальше её предела скорости × это: в давке у моста не протаскивает рывком
             public double FigTurnDegPerSec = 45;    // Г68: фигурка в охвате разворачивается к врагу не быстрее — капсула не сметает соседей
         }
         public MoveR Move = new MoveR();
