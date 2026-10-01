@@ -46,7 +46,8 @@ tests/
 tools/
   build.mjs        сборка в один HTML
   discord.mjs      нарезка патчноута на сообщения Discord
-  discord-send.mjs отправка записи патчноута в канал через вебхук; адрес — tracker/discord-webhook.txt (вне git) или DISCORD_WEBHOOK_URL
+  discord-post.mjs публикация патчноута в канал вебхуком (адрес — DISCORD_WEBHOOK_URL в tracker/.env, вне git)
+  discord-webhook.mjs  нарезка записи на сообщения до 2000 символов без разрыва кода, отправка с повтором на 429
   smoke.mjs        сквозная проверка собранного файла (нужен jsdom)
   make-golden.mjs  пересоздание эталона из v29 (нужен jsdom)
   export-scenarios.mjs  заморозка сценариев эталона для движка на C#
@@ -66,8 +67,8 @@ npm run build            собрать dist/tracker.html
 node tools/discord.mjs   dist/discord/part-N.md для публикации
 node tools/smoke.mjs     проверить собранный файл целиком
 npm run siege            пересобрать каталог осадных орудий для ГМа (shared/siege/catalog.md)
-npm run discord:send -- --dry   показать, как патчноут текущей версии ляжет в Discord (сообщения до 2000 символов)
-npm run discord:send     отправить патчноут текущей версии в канал через вебхук (--version 30.8 — другую)
+npm run discord:post     пробный прогон: как патчноут текущей версии ляжет в Discord (сообщения до 2000 символов)
+npm run discord:post -- --send   отправить его в канал вебхуком (--version 30.8 — другую запись, --all — всю историю)
 ```
 
 Node.js 22+ (нужен для `node --test` с шаблонами путей, в том числе на Windows). После клонирования — `npm install`: он поставит `jsdom` для инструментов `smoke` и `make-golden`; самому трекеру зависимости не нужны.

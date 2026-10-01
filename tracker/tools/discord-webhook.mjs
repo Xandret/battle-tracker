@@ -1,18 +1,11 @@
-// ═══════════ discord-send.mjs — патчноут в канал Discord через вебхук ═══════════
-// Берёт из PATCHNOTES.md запись одной версии (по умолчанию — текущей из package.json), режет её на сообщения
-// не длиннее 2000 символов (у вебхука свой предел, Nitro на него не действует), не разрывая блоки кода,
-// и отправляет по порядку. Discord ответил «слишком часто» (429) — ждёт, сколько он сказал, и повторяет.
-//
-// Адрес вебхука — секрет: кто его знает, тот пишет в канал. Он лежит вне git:
-//   переменная окружения DISCORD_WEBHOOK_URL или первая строка файла tracker/discord-webhook.txt (в .gitignore).
-// Принимается только адрес вида https://discord.com/api/webhooks/<номер>/<ключ>.
-//
-// Запуск (из папки tracker):
-//   node tools/discord-send.mjs --dry          показать части, ничего не отправляя
-//   node tools/discord-send.mjs                отправить запись текущей версии
-//   node tools/discord-send.mjs --version 30.8 отправить запись другой версии
+// ═══════════ discord-webhook.mjs — патчноут в Discord через вебхук: нарезка и отправка ═══════════
+// Библиотека для tools/discord-post.mjs (команда — npm run discord:post). Запись одной версии из PATCHNOTES.md
+// режется на сообщения не длиннее 2000 символов (у вебхука свой предел, Nitro на него не действует): по разделам
+// «## …», слишком длинный раздел — по строкам, блок кода не рвётся (закрывается и открывается заново).
+// Отправка — по порядку, на 429 ждёт retry_after и повторяет, упоминания выключены, ссылки без превью.
+// Адрес вебхука — секрет: DISCORD_WEBHOOK_URL в tracker/.env (или в окружении); запасной вариант — первая строка
+// tracker/discord-webhook.txt. Оба файла — в .gitignore. Принимается только https://discord.com/api/webhooks/….
 import fs from "node:fs";
-import { pathToFileURL } from "node:url";
 
 export const LIMIT = 2000;
 const RESERVE = 60;   // запас под подпись «-# v30.9 · часть 1/3»
@@ -30,6 +23,18 @@ export function entryOf(md, version){
     if(head.test(lines[i])) start = i;
   }
   return start >= 0 ? lines.slice(start).join("\n").replace(/\n+---\s*$/, "").trim() : null;
+}
+
+// Все записи по порядку файла (свежая — первая): [{version, text}]
+export function allEntries(md){
+  const out = [];
+  let inCode = false;
+  for(const line of md.replace(/\r\n/g, "\n").split("\n")){
+    if(line.startsWith("```")) inCode = !inCode;
+    const m = !inCode && /^# .*\bv(\d+\.\d+)(?![\d.])/.exec(line);
+    if(m && !out.some(e => e.version === m[1])) out.push({version: m[1], text: entryOf(md, m[1])});
+  }
+  return out;
 }
 
 // Режем запись на сообщения: разделы «## …» целиком, слишком длинный раздел — по строкам; если кусок
@@ -101,38 +106,10 @@ export async function sendParts(url, messages, {fetchImpl = fetch, sleep = ms =>
   }
 }
 
-function webhookUrl(root){
+// Адрес вебхука: переменная окружения (её заполняет .env), иначе первая строка discord-webhook.txt
+export function webhookUrl(root){
   if(process.env.DISCORD_WEBHOOK_URL) return process.env.DISCORD_WEBHOOK_URL.trim();
   const f = new URL("discord-webhook.txt", root);
   if(fs.existsSync(f)) return (fs.readFileSync(f, "utf8").split(/\r?\n/).find(l => l.trim()) || "").trim();
   return "";
-}
-
-async function main(){
-  const ROOT = new URL("../", import.meta.url);
-  const args = process.argv.slice(2);
-  const dry = args.includes("--dry");
-  const vi = args.indexOf("--version");
-  const pkg = JSON.parse(fs.readFileSync(new URL("package.json", ROOT), "utf8"));
-  const version = vi >= 0 && args[vi + 1] ? args[vi + 1] : pkg.version.replace(/\.0$/, "");
-  const entry = entryOf(fs.readFileSync(new URL("PATCHNOTES.md", ROOT), "utf8"), version);
-  if(!entry){ console.error(`В PATCHNOTES.md нет записи v${version}`); process.exit(1); }
-  const messages = withFooter(splitForWebhook(entry), version);
-  console.log(`Патчноут v${version}: ${messages.length} сообщ.`);
-  if(dry){
-    messages.forEach((m, i) => console.log(`\n────── часть ${i + 1}/${messages.length} · ${m.length} символов ──────\n${m}`));
-    return;
-  }
-  const url = webhookUrl(ROOT);
-  if(!url){
-    console.error("Нет адреса вебхука. Положи его первой строкой в tracker/discord-webhook.txt (файл не попадает в git)\n" +
-                  "или задай переменную окружения DISCORD_WEBHOOK_URL.");
-    process.exit(1);
-  }
-  await sendParts(url, messages);
-  console.log("Готово.");
-}
-
-if(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href){
-  main().catch(e => { console.error("✘ " + e.message); process.exit(1); });
 }

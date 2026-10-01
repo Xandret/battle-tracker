@@ -1,8 +1,8 @@
-// ═══════════ discord.test.mjs — патчноут в Discord через вебхук (tools/discord-send.mjs) ═══════════
+// ═══════════ discord.test.mjs — патчноут в Discord через вебхук (tools/discord-webhook.mjs, npm run discord:post) ═══════════
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { entryOf, splitForWebhook, withFooter, sendParts, LIMIT, WEBHOOK_RE } from "../tools/discord-send.mjs";
+import { entryOf, allEntries, splitForWebhook, withFooter, sendParts, LIMIT, WEBHOOK_RE } from "../tools/discord-webhook.mjs";
 
 const md = fs.readFileSync(new URL("../PATCHNOTES.md", import.meta.url), "utf8");
 const fences = s => (s.match(/^```/gm) || []).length;
@@ -15,6 +15,13 @@ test("запись одной версии: от её заголовка до с
   assert.equal(entryOf(md, "30.0"), entryOf(md, "30.0"), "старые записи тоже находятся");
   assert.ok(entryOf(md, "30.0").includes("Фундамент"));
   assert.equal(entryOf(md, "99.1"), null);
+});
+
+test("все записи файла по порядку, у каждой — своя версия", () => {
+  const all = allEntries(md);
+  assert.ok(all.length >= 11);
+  assert.equal(all[all.length - 1].version, "30.0", "последняя — самая старая");
+  for(const e of all) assert.equal(e.text, entryOf(md, e.version));
 });
 
 test("каждая запись режется на сообщения до 2000 символов, код не рвётся, строки не теряются", () => {
