@@ -1,7 +1,8 @@
 // ═══════════ Тесты движка на C# ═══════════
 // Главный тест — эталон v29: 400 сценариев из shared/golden отыгрываются так же, как в трекере,
 // строка в строку. Запуск: dotnet run --project Tests (из core/). Код возврата 0 — всё зелёное.
-// dotnet run --project Tests -- calibrate — мишень стола и сверка поштучной модели: shared/calibration/*
+// dotnet run --project Tests -- calibrate [ходов рукопашной] [ходов стрельбы] — сверка модели со столом: shared/calibration/*
+// (или calibrate-melee / calibrate-ranged по отдельности)
 using System.Text.Json;
 using BattleCore;
 
@@ -218,7 +219,65 @@ Test("лоб в лоб без заворота (Г27): рыцари 300 м пр�
     Eq(o.EngagedB, 1.0, "пехота в бою вся");
 });
 
-if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }
+// ── И1: стрельба по баллистике (Г33, Г37–Г41) ──
+TurnOutcome Shoot(string ta, string tb, uint seed, TurnSetup s = null, RangedOptions o = null, Rules r = null, Action<Placed, Placed> tweak = null)
+{
+    s ??= new TurnSetup(); o ??= new RangedOptions(); r ??= Rules.Base;
+    var A = Templates.Get(ta); var B = Templates.Get(tb);
+    var (pa, pb) = RangedSim.Setup(A.Make(1, A.Name, 1000, 1), B.Make(2, B.Name, 1000, 2), s, r);
+    tweak?.Invoke(pa, pb);
+    return RangedSim.Turn(pa, pb, new EngineContext { Rules = r, Rng = new Mulberry32(seed).Next }, o);
+}
+Test("баллистика: скорость лука, полёт без воздуха по школьной формуле, прицел в точку", () =>
+{
+    var bow = Rules.Base.Ranged.Bows["longbow"];
+    if (Math.Abs(Ballistics.V0(bow) - 56.92) > 0.05) throw new Exception($"v0 = {Ballistics.V0(bow)}");
+    double v = 50, th = 20 * Math.PI / 180, d = 120;
+    double exact = d * Math.Tan(th) - 9.81 * d * d / (2 * v * v * Math.Cos(th) * Math.Cos(th));
+    double got = Ballistics.HeightAt(v, th, 0, 9.81, d, 0.02);
+    if (Math.Abs(got - exact) > 0.01) throw new Exception($"z({d}) = {got:0.000}, должно {exact:0.000}");
+    double k = Ballistics.DragK(bow, Rules.Base.Ranged), v0 = Ballistics.V0(bow);
+    double low = Ballistics.Aim(v0, k, 9.81, 100, -0.4, 0.02).Value;
+    if (Math.Abs(Ballistics.HeightAt(v0, low, k, 9.81, 100, 0.02) + 0.4) > 0.01) throw new Exception("настильный прицел мимо");
+    double high = Ballistics.Aim(v0, k, 9.81, 100, -0.4, 0.02, high: true).Value;
+    if (Math.Abs(Ballistics.HeightAt(v0, high, k, 9.81, 100, 0.02) + 0.4) > 0.01) throw new Exception("навесной прицел мимо");
+    Eq(high > low + 0.5, true, "навес круче настильного");
+    Eq(Ballistics.Aim(v0, k, 9.81, 400, 0, 0.02) == null, true, "400 м боевому луку не достать");
+});
+Test("стрельба: одно зерно — один исход; по своим не бьют; пехота на 100 м не отвечает", () =>
+{
+    var x = Shoot("archers", "infantry", 11); var y = Shoot("archers", "infantry", 11);
+    Eq((x.LossA, x.LossB, x.Shots.Arrows), (y.LossA, y.LossB, y.Shots.Arrows), "воспроизводимость");
+    Eq(x.Shots.HitsFriendly, 0L, "стрелы по своим на 100 м");
+    Eq(x.LossA, 0.0, "потери стрелков");
+    Eq(x.Shots.Arrows > 1000 && x.Shots.Arrows < 8000, true, $"стрел за ход: {x.Shots.Arrows}");
+    Eq(Shoot("archers", "archers", 11).LossA > 0, true, "лучники-цель отвечают стрелами");
+});
+Test("опорная стычка (Г37): лучники → пехота, 100 м — средние стола ±10%", () =>
+{
+    double t = 0, m = 0; var A = Templates.Get("archers"); var B = Templates.Get("infantry");
+    for (uint i = 1; i <= 200; i++)
+    {
+        t += TabletopVolley.Turn(A.Make(1, "A", 1000, 1), B.Make(2, "B", 1000, 2), new TurnSetup(), new EngineContext { Rng = new Mulberry32(i).Next }).LossB;
+        m += Shoot("archers", "infantry", i + 3000).LossB;
+    }
+    if (Math.Abs(m / t - 1) > 0.1) throw new Exception($"стол {t / 200:0}, модель {m / 200:0}");
+});
+Test("баллистика сверх стола: вблизи смертоноснее, в спину вдвое, лес укрывает (Г38)", () =>
+{
+    double Mean(Func<uint, TurnOutcome> f) { double s = 0; for (uint i = 1; i <= 40; i++) s += f(i).LossB; return s / 40; }
+    double at100 = Mean(i => Shoot("archers", "infantry", i));
+    double at30 = Mean(i => Shoot("archers", "infantry", i, new TurnSetup { Distance = 30 }));
+    double back = Mean(i => Shoot("archers", "infantry", i, null, null, null, (pa, pb) => pb.Facing = 180));
+    double forest = Mean(i => Shoot("archers", "infantry", i, null, new RangedOptions { Forest = (x, y) => y > -14 }));
+    if (!(at30 > at100 * 1.2)) throw new Exception($"30 м: {at30:0}, 100 м: {at100:0}");
+    if (!(back > at100 * 1.6)) throw new Exception($"в спину: {back:0}, в лицо: {at100:0}");
+    if (!(forest < at100 * 0.9)) throw new Exception($"в лесу: {forest:0}, в поле: {at100:0}");
+});
+
+if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); CalibrateRanged(args.Length > 2 ? int.Parse(args[2]) : 400); return 0; }
+if (args.Length > 0 && args[0] == "calibrate-melee") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }
+if (args.Length > 0 && args[0] == "calibrate-ranged") { CalibrateRanged(args.Length > 1 ? int.Parse(args[1]) : 400); return 0; }
 
 void Calibrate(int RUNS)
 {
@@ -338,6 +397,136 @@ void Calibrate(int RUNS)
     File.WriteAllText(Path.Combine(dir, "melee.json"), JsonSerializer.Serialize(rows, jo));
     File.Delete(Path.Combine(dir, "tabletop.json"));
     Console.WriteLine($"рукопашная: {setups.Count} стычек × {RUNS} ходов; в допуске {okMean}, разброс похож {okSpread} → {dir}");
+}
+
+void CalibrateRanged(int RUNS)
+{
+    // Г37: опорные стычки — ±10%; остальное — что баллистика даёт сверх стола (новые правила, отчёт ГМу)
+    EngineContext Ctx(int seed, Rules r) => new EngineContext { Rules = r, Rng = new Mulberry32((uint)seed).Next };
+    string Pct(double model, double table) => table == 0 ? "—" : $"{(model / table - 1) * 100:+0;−0;0}%";
+    bool Close(double model, double table) => Math.Abs(model - table) <= Math.Max(5, 0.10 * table);
+    int idx = 0; long friendly = 0;
+    var rows = new List<object>();
+    (Stat tA, Stat tB, Stat mA, Stat mB, ShotStats st, double bT, double bM) Run(string label, string sa, string sb, TurnSetup s,
+        Func<Placed, Placed, RangedOptions> opt = null, Rules r = null, Action<Placed, Placed> tweak = null)
+    {
+        idx++; r ??= Rules.Base;
+        var A = Templates.Get(sa); var B = Templates.Get(sb);
+        var table = Enumerable.Range(0, RUNS).Select(i => TabletopVolley.Turn(A.Make(1, A.Name, 1000, 1), B.Make(2, B.Name, 1000, 2), s, Ctx(idx * 100000 + i + 1, r))).ToList();
+        var st = new ShotStats();
+        var model = Enumerable.Range(0, RUNS).Select(i =>
+        {
+            var (pa, pb) = RangedSim.Setup(A.Make(1, A.Name, 1000, 1), B.Make(2, B.Name, 1000, 2), s, r);
+            tweak?.Invoke(pa, pb);
+            return RangedSim.Turn(pa, pb, Ctx(idx * 100000 + 50000 + i + 1, r), opt?.Invoke(pa, pb) ?? new RangedOptions(), st);
+        }).ToList();
+        friendly += st.HitsFriendly;
+        var res = (Stat.Of(table.Select(x => x.LossA)), Stat.Of(table.Select(x => x.LossB)), Stat.Of(model.Select(x => x.LossA)), Stat.Of(model.Select(x => x.LossB)),
+                   st, table.Count(x => x.MoraleB == 0) / (double)RUNS, model.Count(x => x.MoraleB == 0) / (double)RUNS);
+        rows.Add(new
+        {
+            label, a = sa, b = sb, distance = s.Distance, ground = s.Ground.ToString().ToLowerInvariant(), runs = RUNS,
+            table = new { lossA = res.Item1, lossB = res.Item2 }, model = new { lossA = res.Item3, lossB = res.Item4 },
+            arrowsPerTurn = st.Arrows / (double)RUNS, hitRate = st.Arrows > 0 ? st.Hits / (double)st.Arrows : 0,
+            friendlyHits = st.HitsFriendly, blocked = st.Blocked, killedShare = st.Out > 0 ? st.Killed / (double)st.Out : 0,
+        });
+        return res;
+    }
+    string Shots(ShotStats st) => $"{st.Arrows / (double)RUNS:0} | {(st.Arrows > 0 ? st.Hits * 100.0 / st.Arrows : 0):0}%";
+
+    var md = new System.Text.StringBuilder();
+    md.AppendLine("# Стрельба по баллистике против стола (И1, Г33, Г37–Г41)");
+    md.AppendLine();
+    md.AppendLine($"По {RUNS} ходов на строку, отряды по 1000 из шаблонов. Модель — `RangedSim`: каждая стрела летит сама (сопротивление воздуха, ошибка прицела), попадание — в момент встречи с телом. Стол — `TabletopVolley` (настоящий ResolveBattle, дальний бой).");
+    md.AppendLine("Число стрел — по формуле стола × коэффициент лука (`Rules.Ranged.Bows[…].VolleyK`), подобранный на опорной стычке. Всё, что не опорная стычка, — то, что баллистика даёт сверх стола: это новые правила, их одобряет ГМ. Сгенерировано `dotnet run --project Tests -- calibrate-ranged`.");
+    md.AppendLine();
+
+    md.AppendLine("## Опорные стычки (Г37): поле, 100 м, пехота в строю — здесь проверяется ±10%");
+    md.AppendLine();
+    md.AppendLine("| стрелки | лук | стол: потери B | модель: потери B | разброс B | стрел за ход | попаданий | итог |");
+    md.AppendLine("|---|---|---|---|---|---|---|---|");
+    int ok = 0, total = 0;
+    foreach (var sa in new[] { "archers", "militia_archers", "crossbowmen" })
+    {
+        var t = Templates.Get(sa);
+        var r = Run("опорная", sa, "infantry", new TurnSetup());
+        bool pass = Close(r.mB.Mean, r.tB.Mean); total++; if (pass) ok++;
+        double rs = r.tB.Sd > 0 ? r.mB.Sd / r.tB.Sd : 1;
+        md.AppendLine($"| {t.Name} | {Rules.Base.Ranged.Bows[Ballistics.BowKeyFor(t.Make(1, t.Name, 1, 1))].Name} | {r.tB.Mean:0} ± {r.tB.Sd:0} | {r.mB.Mean:0} ± {r.mB.Sd:0} ({Pct(r.mB.Mean, r.tB.Mean)}) | ×{rs:0.00} | {Shots(r.st)} | {(pass ? "✔" : "✘")} |");
+    }
+    md.AppendLine();
+    md.AppendLine($"В допуске: **{ok} из {total}**.");
+    md.AppendLine();
+
+    md.AppendLine("## Дистанция: лучники → пехота, поле");
+    md.AppendLine();
+    md.AppendLine("За столом дистанция не важна; в баллистике вблизи стрелы точнее, у предела дальности — реже попадают.");
+    md.AppendLine();
+    md.AppendLine("| дистанция | стол: потери B | модель: потери B | к столу | стрел за ход | попаданий |");
+    md.AppendLine("|---|---|---|---|---|---|");
+    foreach (var d in new[] { 30.0, 60, 100, 150, 200 })
+    {
+        var r = Run($"дистанция {d}", "archers", "infantry", new TurnSetup { Distance = d });
+        md.AppendLine($"| {d:0} м | {r.tB.Mean:0} | {r.mB.Mean:0} | {Pct(r.mB.Mean, r.tB.Mean)} | {Shots(r.st)} |");
+    }
+    md.AppendLine();
+
+    md.AppendLine("## Цели: лучники → разные отряды, 100 м, поле");
+    md.AppendLine();
+    md.AppendLine("Броня — та же, что за столом (шанс вывести = 1 / (защита ÷ 10)); отличаются тело и глубина строя: конь — большая мишень, мелкий строй пропускает больше стрел за спину.");
+    md.AppendLine();
+    md.AppendLine("| цель | стол: потери B | модель: потери B | к столу | стрел за ход | попаданий |");
+    md.AppendLine("|---|---|---|---|---|---|");
+    foreach (var tb in new[] { "militia", "infantry", "guard", "pikemen", "knights" })
+    {
+        var r = Run($"цель {tb}", "archers", tb, new TurnSetup());
+        md.AppendLine($"| {Templates.Get(tb).Name} | {r.tB.Mean:0} | {r.mB.Mean:0} | {Pct(r.mB.Mean, r.tB.Mean)} | {Shots(r.st)} |");
+    }
+    md.AppendLine();
+
+    md.AppendLine("## Местность и строй: лучники → пехота, 100 м");
+    md.AppendLine();
+    md.AppendLine("| условия | стол: потери B | модель: потери B | к столу | к модели в поле | стрел за ход | попаданий |");
+    md.AppendLine("|---|---|---|---|---|---|---|");
+    var field = Run("поле", "archers", "infantry", new TurnSetup());
+    void Row(string name, (Stat tA, Stat tB, Stat mA, Stat mB, ShotStats st, double bT, double bM) r) =>
+        md.AppendLine($"| {name} | {r.tB.Mean:0} | {r.mB.Mean:0} | {Pct(r.mB.Mean, r.tB.Mean)} | {Pct(r.mB.Mean, field.mB.Mean)} | {Shots(r.st)} |");
+    Row("поле (опорная)", field);
+    var forest = Run("лес", "archers", "infantry", new TurnSetup { Ground = Ground.Forest },
+        (pa, pb) => new RangedOptions { Forest = (x, y) => y > -(pb.Fp.Depth / 2 + 10) });
+    Row("цель в лесу, 10 м от опушки (Г38: за столом ×1,4)", forest);
+    md.AppendLine($"|  | стрел застряло в ветвях: {forest.st.Blocked * 100.0 / Math.Max(1, forest.st.Arrows):0}% |  |  |  |  |  |");
+    var hill = Run("холм", "archers", "infantry", new TurnSetup { Ground = Ground.Hill },
+        (pa, pb) => new RangedOptions { GroundZ = (x, y) => y < -(pb.Fp.Depth / 2 + 50) ? Rules.Base.Ranged.MetersPerLevel : 0 });
+    Row($"стрелки на холме +{Rules.Base.Ranged.MetersPerLevel:0} м (Г41)", hill);
+    var open = new Rules(); open.Map.Formation["infantry"] = new Rules.FormationR(2, 8, 2);
+    Row("цель разомкнула ряды: 2 × 2 м на бойца (Г34)", Run("разомкнутый строй", "archers", "infantry", new TurnSetup(), null, open));
+    Row("стрелы в спину (цель стоит к стрелкам тылом)", Run("в спину", "archers", "infantry", new TurnSetup(), null, null, (pa, pb) => pb.Facing = 180));
+    md.AppendLine();
+
+    md.AppendLine("## Перестрелка: лучники ⇄ лучники, 100 м, поле");
+    md.AppendLine();
+    var duel = Run("перестрелка", "archers", "archers", new TurnSetup());
+    md.AppendLine("| | стол | модель | к столу |");
+    md.AppendLine("|---|---|---|---|");
+    md.AppendLine($"| потери A | {duel.tA.Mean:0} ± {duel.tA.Sd:0} | {duel.mA.Mean:0} ± {duel.mA.Sd:0} | {Pct(duel.mA.Mean, duel.tA.Mean)} |");
+    md.AppendLine($"| потери B | {duel.tB.Mean:0} ± {duel.tB.Sd:0} | {duel.mB.Mean:0} ± {duel.mB.Sd:0} | {Pct(duel.mB.Mean, duel.tB.Mean)} |");
+    md.AppendLine();
+
+    md.AppendLine("## Куда попадают стрелы (опорная стычка лучников) и доля убитых (Г39)");
+    md.AppendLine();
+    var p = field.st.Parts; double hits = Math.Max(1, field.st.Hits);
+    md.AppendLine($"Голова и плечи {p["head"] * 100 / hits:0}%, торс {p["torso"] * 100 / hits:0}%, ноги {p["legs"] * 100 / hits:0}%. " +
+                  $"Выбыл каждый {field.st.Hits / (double)Math.Max(1, field.st.Out):0.0}-й задетый (броня пехоты 60 → 1 из 6). " +
+                  $"Убитых среди выбывших: {field.st.Killed * 100.0 / Math.Max(1, field.st.Out):0}% — как у броска летальности стола в среднем (нормировка частей тела {Rules.Base.Ranged.PartNorm}).");
+    md.AppendLine();
+    md.AppendLine($"Стрел по своим за все прогоны: {friendly}.");
+
+    var dir = Path.Combine(root, "shared", "calibration");
+    Directory.CreateDirectory(dir);
+    File.WriteAllText(Path.Combine(dir, "ranged.md"), md.ToString());
+    File.WriteAllText(Path.Combine(dir, "ranged.json"), JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
+    Console.WriteLine($"стрельба: опорных в допуске {ok} из {total} → {dir}");
 }
 
 // ── прогон ──

@@ -15,6 +15,7 @@ namespace BattleCore
         public Ground Ground = Ground.Field;
         public bool ChargeA;          // A — конница, первая атака с натиском (разбег есть)
         public string SectorA = "front";   // куда A бьёт B: front / flank / rear
+        public double Distance = 100;      // стрельба: между передними краями, м (столу не важна, баллистике — да)
     }
 
     public sealed class TurnOutcome
@@ -25,7 +26,8 @@ namespace BattleCore
         public int Strikes;                   // сколько ударов было нанесено за ход
         public List<string> Log = new List<string>();
         public List<double[]> Timeline = new List<double[]>();   // поштучная модель: [секунда, бойцов A, бойцов B]
-        public double EngagedA, EngagedB;                         // поштучная модель: доля бойцов в бою в начале хода
+        public double EngagedA, EngagedB;
+        public ShotStats Shots;                                  // баллистика: что стало со стрелами                         // поштучная модель: доля бойцов в бою в начале хода
     }
 
     public static class Tabletop
@@ -86,6 +88,43 @@ namespace BattleCore
             double limB = Units.AttackLimit(b, R);
             for (int k = 0; k < limB; k++) Attack(b, a, false, false);
 
+            outc.LossA = startA - a.Soldiers; outc.LossB = startB - b.Soldiers;
+            outc.MoraleA = a.Morale; outc.MoraleB = b.Morale;
+            outc.StatusA = a.Status; outc.StatusB = b.Status;
+            return outc;
+        }
+    }
+
+    public static class TabletopVolley
+    {
+        // Мишень стрельбы (Г37): ход стрельбы за столом. A выпускает свои атаки по B (B отвечает, если сам стрелок),
+        // потом свои атаки B, если он стрелок (A отвечает). Дистанция столу не важна. Лес под B — «пересечённая
+        // местность» и укрытие леса, как в черновике 6а (за столом это ×2 × 0,7 = ×1,4 — вопрос ГМу, Г38).
+        public static TurnOutcome Turn(Unit a0, Unit b0, TurnSetup s, EngineContext ctx)
+        {
+            var R = ctx.Rules;
+            var a = a0.Clone(); var b = b0.Clone();
+            a.OnMap = b.OnMap = false;
+            var outc = new TurnOutcome();
+            double startA = a.Soldiers, startB = b.Soldiers;
+            void Shoot(Unit att, Unit def, bool defInForest)
+            {
+                var req = new BattleRequest { Mode = defInForest ? Modes.RangedRough : Modes.RangedForm, Mutual = true, FatigueMode = "percent" };
+                if (defInForest)
+                {
+                    req.MapMods = new MapMods();
+                    req.MapMods.Ab.CoverPct = R.Map.ForestCoverPct;
+                    req.MapMods.Ab.CoverNote = "🌲 Цель в лесу";
+                }
+                var res = Combat.ResolveBattle(att, def, req, ctx);
+                if (!res.Ok) return;
+                outc.Strikes++;
+                foreach (var p in res.Patches) p.Patch.ApplyTo(p.Id == a.Id ? a : b);
+                outc.Log.Add(res.Title);
+            }
+            bool forest = s.Ground == Ground.Forest;
+            if (a.Weapon == "ranged") for (int k = 0; k < Units.AttackLimit(a, R); k++) Shoot(a, b, forest);
+            if (b.Weapon == "ranged") for (int k = 0; k < Units.AttackLimit(b, R); k++) Shoot(b, a, false);
             outc.LossA = startA - a.Soldiers; outc.LossB = startB - b.Soldiers;
             outc.MoraleA = a.Morale; outc.MoraleB = b.Morale;
             outc.StatusA = a.Status; outc.StatusB = b.Status;

@@ -2,6 +2,8 @@
 // Каждое число формулы — здесь, а не в самой формуле (правило 6 в CLAUDE.md).
 // Набор 1 («base») заморожен: он обязан отыграть эталон v29 строка в строку, как и трекер.
 // Меняешь число в rules.js — меняешь его здесь, в том же коммите (правило 7).
+using System.Collections.Generic;
+
 namespace BattleCore
 {
     public sealed class Rules
@@ -67,8 +69,54 @@ namespace BattleCore
             };
             public HeightR Height = new HeightR();
             public double MeleeGap = 5;
+            public double ForestCoverPct = 30;   // копия terrain.forest.cover из rules.js — укрытие леса от стрел за столом
         }
         public MapR Map = new MapR();
+
+        // ── Баллистика игры (Г33, Г37–Г41) — ЧЕРНОВИК, только для игры; трекер стрелы не считает ──
+        // Лук: сила натяжения (Н) × длина натяжения (м) / 2 × КПД = энергия стрелы → скорость.
+        // Ошибки — стандартные отклонения угла возвышения, направления (градусы) и силы выстрела (доля).
+        // VolleyK — сколько стрел выпускает отряд на единицу урона формулы стола; подобран калибровкой
+        // на опорной стычке (Г37: поле, 100 м, пехота в строю) — см. shared/calibration/ranged.md.
+        public sealed class BowR
+        {
+            public string Name;
+            public double DrawN, DrawM, ArrowKg, ArrowDiamM, Efficiency, Cd, SigmaElevDeg, SigmaAzDeg, SigmaSpeed, VolleyK;
+            public BowR(string name, double drawN, double drawM, double arrowKg, double diamM, double eff, double cd,
+                        double sElev, double sAz, double sSpeed, double volleyK)
+            {
+                Name = name; DrawN = drawN; DrawM = drawM; ArrowKg = arrowKg; ArrowDiamM = diamM; Efficiency = eff; Cd = cd;
+                SigmaElevDeg = sElev; SigmaAzDeg = sAz; SigmaSpeed = sSpeed; VolleyK = volleyK;
+            }
+        }
+        public sealed class RangedR
+        {
+            public double Gravity = 9.81, AirDensity = 1.225, Dt = 0.02;
+            public double PartNorm = 0.763;   // нормировка PartLethality: на опорной стычке (лучники → пехота, 100 м) в среднем ×1 (Г39)
+            public double LaunchHeight = 1.5, AimHeight = 1.1;         // стреляют с плеча, целятся в грудь (1,1 м)
+            public double TargetSideM = 20;                            // стрелок бьёт по врагам перед собой: до 20 м вбок
+            // сила выстрела, если на полной дуга не проходит над своими: ослабленный — круче (как у Iron Kings), потом навес
+            public double[] SpeedSteps = { 1, 0.9, 0.8, 0.72, 0.66, 0.52, 0.40, 0.30 };
+            // тело: пеший — цилиндр 0,5 м × 1,75 м; конный — конь (коробка) и всадник над ним
+            public double BodyRadius = 0.25, BodyHeight = 1.75, HeadFrom = 1.45, TorsoFrom = 0.95;
+            public double HorseLength = 2.2, HorseWidth = 0.7, HorseHeight = 1.6, RiderTop = 2.5, RiderHeadFrom = 2.2;
+            // Г39: часть тела сдвигает долю убитых; нормируется так, чтобы на опорной стычке в среднем было ×1
+            public Dictionary<string, double> PartLethality = new Dictionary<string, double>
+            {
+                ["head"] = 2, ["torso"] = 1, ["legs"] = 0.5, ["horse"] = 0.5,
+            };
+            public double MetersPerLevel = 5;                          // Г41: по умолчанию; у карты — своё
+            public double CanopyHeight = 12, TreeBlockPerM = 0.02;     // лес: кроны 12 м, шанс удара о ветку на метр пути под кроной
+            public Dictionary<string, BowR> Bows = new Dictionary<string, BowR>
+            {
+                // VolleyK подобран на опорной стычке шаблона: лучники / лучники ополчения / арбалетчики → пехота, 100 м, поле
+                ["longbow"] = new BowR("Боевой лук", 450, 0.72, 0.070, 0.009, 0.70, 2.0, 1.0, 0.8, 0.03, 2.86),
+                ["shortbow"] = new BowR("Простой лук", 280, 0.65, 0.050, 0.008, 0.65, 2.0, 1.6, 1.3, 0.05, 3.91),
+                ["crossbow"] = new BowR("Арбалет", 2500, 0.15, 0.080, 0.012, 0.50, 1.2, 0.6, 0.6, 0.02, 2.00),
+                ["horsebow"] = new BowR("Конный лук", 350, 0.70, 0.060, 0.008, 0.75, 2.0, 1.4, 1.2, 0.04, 2.86),   // как боевой — своего опорного шаблона пока нет
+            };
+        }
+        public RangedR Ranged = new RangedR();
 
         public double ModeDivFor(string mode)
         {

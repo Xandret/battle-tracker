@@ -100,5 +100,24 @@ namespace BattleCore
             }
             return list;
         }
+
+        // Бойцы поимённо — места в строю (м, в системе отряда), та же сетка, что у Layout:
+        // шеренги полные, последняя — по центру. Нужны баллистике (Г33): стрела бьёт конкретного человека.
+        public static List<(double x, double y, int file, int rank)> MenPositions(Unit u, Rules r)
+        {
+            var f = For(u, r);
+            var list = new List<(double x, double y, int file, int rank)>();
+            int n = (int)Math.Max(0, Js.Round(u.Soldiers));
+            if (n <= 0) return list;
+            var fp = Of(u, r);
+            int R = (int)Math.Min(f.Ranks, n);
+            int P = (int)Math.Ceiling(n / (double)R);
+            int last = n - P * (R - 1), off = (P - last) / 2;
+            for (int rr = 0; rr < R; rr++)
+                for (int i = 0; i < P; i++)
+                    if (rr < R - 1 || (i >= off && i < off + last))
+                        list.Add((-fp.Front / 2 + (i + 0.5) * f.PerMan, -fp.Depth / 2 + (rr + 0.5) * f.RankDepth, i, rr));
+            return list;
+        }
     }
 }
