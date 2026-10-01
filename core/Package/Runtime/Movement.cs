@@ -34,6 +34,7 @@ namespace BattleCore
     // BlockedBy — номер чужого отряда, которому пришлось уступить на этом шаге (0 — никому)
     public sealed class FigState
     {
+        public int Id;   // постоянный номер тела в отряде: место в строю (индекс) меняется — обмены, потери, — а тело то же
         public double X, Y, Vx, Vy;
         public double Dvx, Dvy, Vmax;
         public int BlockedBy; public bool BlockedByEnemy, Slowed;
@@ -80,6 +81,7 @@ namespace BattleCore
         public int IgnoreHoldBy;                 // кого обходим — упор в него не держит центр строя
         // Бой в движении (БД1): сколько бойцов разложено на фигурки сейчас; где упали выбывшие фигурки (Г30)
         public int LaidMen = -1;
+        public int NextFigId;                    // номер для следующего нового тела (FigState.Id)
         public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
         public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 
@@ -87,7 +89,7 @@ namespace BattleCore
         {
             var m = new Mover { P = new Placed { U = u, X = x, Y = y, Facing = MoveSim.Norm(facing) } };
             m.P.Relayout(r, menPerFigure);
-            foreach (var f in m.P.Figs) { m.P.ToWorld(f.X, f.Y, out var wx, out var wy); m.Figs.Add(new FigState { X = wx, Y = wy }); }
+            foreach (var f in m.P.Figs) { m.P.ToWorld(f.X, f.Y, out var wx, out var wy); m.Figs.Add(new FigState { Id = m.NextFigId++, X = wx, Y = wy }); }
             m.Nominal = m.P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
             m.NominalFp = new Footprint { Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
             m.NominalCols = m.Cols = m.MinCols = m.P.Figs.Count == 0 ? 0 : m.P.Figs.Max(f => f.File) + 1;

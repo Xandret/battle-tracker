@@ -235,6 +235,44 @@ static class Polygon
     }
     static readonly Rules R0 = Rules.Base;
 
+    // Прыжки (жалоба Алекса 02.10.2026: «фигурки телепортируются, упёршись»): тело (по ссылке) или фигурка в кадре
+    // полигона (по номеру тела) сдвинулись за шаг дальше, чем за шаг можно пройти (45 м/с). Возвращает строки прыжков
+    public static List<string> Jumps(params string[] only)
+    {
+        var R = Rules.Base; var found = new List<string>();
+        double lim = 30 * R.Move.Dt * 1.5;
+        foreach (var sc in Scenes())
+        {
+            if (only.Length > 0 && !only.Contains(sc.Name)) continue;
+            var ms = sc.Units.Select(u => u.M).ToList();
+            if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
+            var prev = new Dictionary<FigState, (double x, double y)>();
+            double?[][] was = Snap(ms); double clock = 0;
+            for (int turn = 0; turn < sc.Turns; turn++)
+            {
+                Action<double> rec = t =>
+                {
+                    foreach (var m in ms)
+                        foreach (var s in m.Figs)
+                        {
+                            if (prev.TryGetValue(s, out var p) && JsMath.Hypot(s.X - p.x, s.Y - p.y) > lim)
+                                found.Add($"{sc.Name}, {clock + t:0.00} с: тело «{m.P.U.Name}» №{s.Id} — {JsMath.Hypot(s.X - p.x, s.Y - p.y):0.0} м за шаг");
+                            prev[s] = (s.X, s.Y);
+                        }
+                    var now = Snap(ms);
+                    for (int u = 0; u < now.Length; u++)
+                        for (int k = 4; k + 1 < Math.Min(now[u].Length, was[u].Length); k += 2)
+                            if (now[u][k].HasValue && was[u][k].HasValue && JsMath.Hypot(now[u][k].Value - was[u][k].Value, now[u][k + 1].Value - was[u][k + 1].Value) > lim + 0.2)
+                                found.Add($"{sc.Name}, {clock + t:0.00} с: в кадре «{ms[u].P.U.Name}» №{(k - 4) / 2} прыгнула");
+                    was = now;
+                };
+                if (sc.Battle != null) sc.Battle.Turn(rec); else MoveSim.Turn(ms, sc.Geo, R, rec);
+                clock += R.Move.TurnSec;
+            }
+        }
+        return found;
+    }
+
     public static void Write(string root)
     {
         var R = Rules.Base;
@@ -243,7 +281,7 @@ static class Polygon
         {
             var ms = sc.Units.Select(u => u.M).ToList();
             if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
-            var frames = new List<double[][]> { Snap(ms) };
+            var frames = new List<double?[][]> { Snap(ms) };
             var heads = new List<List<double[]>> { Heads(ms) };   // фигурки, развёрнутые не по строю (охват, Г68)
             // каким отряд был до первого хода — численность, строй, фигурки (в бою они меняются, Г30)
             var start = ms.Select(m => new
@@ -322,16 +360,18 @@ static class Polygon
     static Rules.FormationR FormationOf(Unit u, Rules r) =>
         r.Map.Formation.TryGetValue(u.Type, out var f) ? f : r.Map.Formation["infantry"];
 
-    // Кадр: по отряду [x, y, курс, скорость нормы, фигурка₀ x, y, фигурка₁ x, y, …], до 0,1 м
-    static double[][] Snap(List<Mover> ms) => ms.Select(m =>
+    // Кадр: по отряду [x, y, курс, скорость нормы, тело₀ x, y, тело₁ x, y, …], до 0,1 м. Тела — по постоянному номеру
+    // (FigState.Id), а не по месту в строю: места меняются (обмены, потери), а рисовать надо то же тело — иначе фигурка
+    // «прыгает» через строй. Выбывшее тело — null
+    static double?[][] Snap(List<Mover> ms) => ms.Select(m =>
     {
-        var a = new double[4 + 2 * m.Figs.Count];
+        var a = new double?[4 + 2 * m.NextFigId];
         a[0] = Math.Round(m.P.X, 1); a[1] = Math.Round(m.P.Y, 1); a[2] = Math.Round(m.P.Facing, 1); a[3] = Math.Round(m.Vs, 2);
-        for (int k = 0; k < m.Figs.Count; k++) { a[4 + 2 * k] = Math.Round(m.Figs[k].X, 1); a[5 + 2 * k] = Math.Round(m.Figs[k].Y, 1); }
+        foreach (var s in m.Figs) { a[4 + 2 * s.Id] = Math.Round(s.X, 1); a[5 + 2 * s.Id] = Math.Round(s.Y, 1); }
         return a;
     }).ToArray();
 
-    // Курсы фигурок, развёрнутых не по строю (охват, Г68): [отряд, фигурка, курс°] — ось тела, повёрнутая
+    // Курсы фигурок, развёрнутых не по строю (охват, Г68): [отряд, номер тела, курс°] — ось тела, повёрнутая
     // в ту сторону, куда фигурка смотрит (к врагу в охвате, по строю — когда возвращается)
     static List<double[]> Heads(List<Mover> ms)
     {
@@ -343,7 +383,7 @@ static class Polygon
                 if (!s.Turned) continue;
                 double want = s.Wrap ? s.WH : ms[i].P.Facing, a = s.Axis;
                 if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
-                list.Add(new[] { i, k, Math.Round(MoveSim.Norm(a), 1) });
+                list.Add(new[] { i, s.Id, Math.Round(MoveSim.Norm(a), 1) });
             }
         return list;
     }

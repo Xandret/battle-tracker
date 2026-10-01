@@ -696,7 +696,7 @@ function lerpFrame(f){
   const i = Math.floor(f), a = S.frames[i], b = S.frames[Math.min(i + 1, S.frames.length - 1)], k = f - i;
   return a.map((ua, u) => ua.map((v, j) => {
     const bj = b[u][j];
-    if(bj === undefined) return v;   // бой: фигурка упала между кадрами
+    if(bj == null || v == null) return v;   // тело выбыло (null) или ещё не было; тела — по постоянному номеру
     if(j === 2){ let d = ((bj - v + 540) % 360) - 180; return v + d * k; }
     return v + (bj - v) * k;
   }));
@@ -742,7 +742,7 @@ function draw(){
       const moving = f[3] > 0.02, t = frame * S.dt;
       u.figs.forEach((fig, k) => {
         const fx = f[4 + 2 * k], fy = f[5 + 2 * k];
-        if(fx === undefined) return;
+        if(fx == null) return;
         const pad = (Math.max(fig[0], fig[1]) / 2 + 5) * view.s, sx = X(fx), sy = Y(fy);   // за краем экрана не рисуем
         if(sx < -pad || sy < -pad || sx > r.width + pad || sy > r.height + pad) return;
         drawMen(u, fig, fx, fy, HD.get(i * 100000 + k) ?? h, col, moving, t, k);
@@ -751,7 +751,7 @@ function draw(){
       // издали — плашка: фигурка одним прямоугольником
       ctx.fillStyle = col; ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.6;
       u.figs.forEach(([w, d], k) => {
-        if(f[4 + 2 * k] === undefined) return;   // бой: фигурок стало меньше (Г30)
+        if(f[4 + 2 * k] == null) return;   // тело выбыло (Г30)
         const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
         ctx.save(); ctx.translate(x, y); ctx.rotate(HD.get(i * 100000 + k) ?? h);
         const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
