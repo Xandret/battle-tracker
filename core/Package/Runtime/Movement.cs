@@ -10,7 +10,8 @@
 //   На изломе пути строй тормозит заранее, встаёт, доворачивает колесом и идёт дальше.
 //   Марш (Г54): цель ближе трети нормы — без поворота, боком и назад на половине скорости.
 // Фигурки догоняют свои места в строю: скорость места + поправка на отставание, с пределом скорости
-// и ускорения; в непроходимое не входят — скользят вдоль. Толкотня тел — шаг 2, узости — шаг 3.
+// и ускорения; в непроходимое не входят — скользят вдоль. Места перераспределяются (Reassign).
+// Шаг 2: фигурки — твёрдые тела (Bodies.cs); упёрся строй — центр стоит, время пробки — в журнал. Узости — шаг 3.
 using System;
 using System.Collections.Generic;
 
@@ -18,7 +19,14 @@ namespace BattleCore
 {
     public sealed class MoveOrder { public double X, Y, Facing; }   // куда встать центру строя (м) и куда смотреть
 
-    public sealed class FigState { public double X, Y, Vx, Vy; }    // фигурка в мире: где и как быстро, м и м/с
+    // Фигурка в мире: где и как быстро, м и м/с. Dvx, Dvy, Vmax — куда хочет на этом шаге (после взгляда вперёд);
+    // BlockedBy — номер чужого отряда, которому пришлось уступить на этом шаге (0 — никому)
+    public sealed class FigState
+    {
+        public double X, Y, Vx, Vy;
+        public double Dvx, Dvy, Vmax;
+        public int BlockedBy; public bool BlockedByEnemy, Slowed;
+    }
 
     public sealed class Mover
     {
@@ -34,6 +42,13 @@ namespace BattleCore
         public double AboutLeft;         // сколько ещё длится разворот кругом, с
         public string Note;              // «пути нет», «цель непроходима» — в журнал
         public double Spent, Moved, WheelSec, AboutSec;   // за этот ход: нормы, метров по земле, секунд на повороты
+        // Шаг 2: строй упёрся — центр стоит, пока фигурки не пройдут (Held, не меньше HoldSec подряд).
+        // Blockers — кому за этот ход уступал и сколько секунд; Rights — очередь с чужими отрядами (Г57).
+        public bool Held; public double HoldLeft, HeldSec;
+        public Dictionary<int, (double sec, bool enemy, string name)> Blockers = new Dictionary<int, (double, bool, string)>();
+        public Dictionary<int, (bool mine, int seen)> Rights = new Dictionary<int, (bool, int)>();
+        public int LastBlocker; public bool LastBlockerEnemy; public string LastBlockerName;   // в кого упёрся последним
+        public int Steps;                // шагов этого отряда с начала — часы для Rights
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
         {
@@ -105,11 +120,22 @@ namespace BattleCore
         public static List<string> Turn(IList<Mover> ms, Geo geo, Rules r, Action<double> frame = null)
         {
             var M = r.Move;
-            int steps = (int)Math.Round(M.TurnSec / M.Dt);
-            foreach (var m in ms) m.Spent = m.Moved = m.WheelSec = m.AboutSec = 0;
+            int steps = (int)Math.Round(M.TurnSec / M.Dt), every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt));
+            foreach (var m in ms) { m.Spent = m.Moved = m.WheelSec = m.AboutSec = m.HeldSec = 0; m.Blockers.Clear(); }
             for (int k = 0; k < steps; k++)
             {
-                foreach (var m in ms) Step(m, k * M.Dt, M.Dt, r);
+                double t = k * M.Dt;
+                // 1) центры строёв; 2) куда хочет каждая фигурка; 3) тела: взгляд вперёд, шаг, расталкивание
+                var prev = new List<(double x, double y)[]>();
+                foreach (var m in ms)
+                {
+                    prev.Add(Slots(m.P));
+                    if (m.Order != null && m.Track != null && !m.Done) Lead(m, t, M.Dt, r);
+                    m.Steps++;
+                }
+                for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
+                Bodies.Step(ms, M.Dt, r);
+                if ((k + 1) % every == 0) foreach (var m in ms) Reassign(m, r);
                 frame?.Invoke((k + 1) * M.Dt);
             }
             var L = new List<string>();
@@ -122,6 +148,10 @@ namespace BattleCore
                 var parts = new List<string> { $"прошёл {Js.Num(Js.R1(m.Moved))} м по земле, нормы {Js.Num(Js.R1(m.Spent))} из {Js.Num(norm)}" };
                 if (m.WheelSec > 0) parts.Add($"поворот колесом {Js.Num(Js.R1(m.WheelSec))} с");
                 if (m.AboutSec > 0) parts.Add($"кругом {Js.Num(Js.R1(m.AboutSec))} с");
+                // пробка (Г31): кому уступал и сколько стоял; упёрся во врага — так и пишем
+                foreach (var b in m.Blockers)
+                    parts.Add(b.Value.enemy ? $"упёрся во врага «{b.Value.name}» ({Js.Num(Js.R1(b.Value.sec))} с)"
+                                            : $"пропускал «{b.Value.name}» {Js.Num(Js.R1(b.Value.sec))} с");
                 if (m.Done) parts.Add("на месте");
                 else if (m.OnSpot) parts.Add("на месте, доворачивается");
                 else
@@ -135,20 +165,20 @@ namespace BattleCore
             return L;
         }
 
-        static void Step(Mover m, double t, double dt, Rules r)
+        // места в строю в мире — до шага центра; из них скорость мест для фигурок
+        static (double x, double y)[] Slots(Placed P)
         {
-            var P = m.P;
-            // места в строю до шага — из них скорость мест для фигурок
-            var prev = new (double x, double y)[P.Figs.Count];
-            for (int k = 0; k < prev.Length; k++) { P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var wx, out var wy); prev[k] = (wx, wy); }
-            if (m.Order != null && m.Track != null && !m.Done) Lead(m, t, dt, r);
-            Follow(m, prev, dt, r);
+            var s = new (double x, double y)[P.Figs.Count];
+            for (int k = 0; k < s.Length; k++) { P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var wx, out var wy); s[k] = (wx, wy); }
+            return s;
         }
 
         // Центр строя: курс, скорость по пути, шаг по пути
         static void Lead(Mover m, double t, double dt, Rules r)
         {
             var M = r.Move; var P = m.P; var u = P.U;
+            // строй упёрся (шаг 2): центр стоит и не поворачивается, пока фигурки не пройдут; время — в журнал
+            if (m.Held) { m.Vs = 0; m.HeldSec += dt; return; }
             double norm = BattleMap.UnitSpeed(u, r), ta = AccelSec(u, r);
             double top = norm / (M.TurnSec - ta), acc = top / ta;
             double budget = norm - m.Spent, tau = M.TurnSec - t;   // осталось нормы и времени в этом ходу
@@ -242,10 +272,11 @@ namespace BattleCore
         // не быстрее FigureCatchUp × марш (местность под фигуркой замедляет), ускорение — FigureAccelK × отряда.
         // Место в воде или в стене — фигурка встаёт у ближайшего проходимого. Путь к месту закрыт (строй обходит
         // озеро, а фигурка на другом берегу) — идёт по карте направлений отряда, пока не увидит своё место.
-        static void Follow(Mover m, (double x, double y)[] prev, double dt, Rules r)
+        // Здесь — только «куда хочет» (Dvx, Dvy, Vmax); шаг и тела — Bodies.Step.
+        static void Desire(Mover m, (double x, double y)[] prev, double dt, Rules r)
         {
             var M = r.Move; var P = m.P; var u = P.U;
-            double top = TopSpeed(u, r), vmax0 = M.FigureCatchUp * top, amax = M.FigureAccelK * top / AccelSec(u, r) * dt;
+            double vmax0 = M.FigureCatchUp * TopSpeed(u, r);
             var F = m.Field;
             for (int k = 0; k < P.Figs.Count; k++)
             {
@@ -277,16 +308,35 @@ namespace BattleCore
                 }
                 double dv = JsMath.Hypot(dvx, dvy);
                 if (dv > vmax) { dvx *= vmax / dv; dvy *= vmax / dv; }
-                double ax = dvx - s.Vx, ay = dvy - s.Vy, a = JsMath.Hypot(ax, ay);
-                if (a > amax) { ax *= amax / a; ay *= amax / a; }
-                s.Vx += ax; s.Vy += ay;
-                double nx = s.X + s.Vx * dt, ny = s.Y + s.Vy * dt;
-                if (F == null || Free(F, nx, ny)) { s.X = nx; s.Y = ny; }
-                else if (Free(F, nx, s.Y)) { s.X = nx; s.Vy = 0; }
-                else if (Free(F, s.X, ny)) { s.Y = ny; s.Vx = 0; }
-                else { s.Vx = 0; s.Vy = 0; }
+                s.Dvx = dvx; s.Dvy = dvy; s.Vmax = vmax;
             }
         }
-        static bool Free(FlowField f, double x, double y) => f.Inside(x, y) && f.Passable(f.CellOf(x, y));
+        public static bool Free(FlowField f, double x, double y) => f.Inside(x, y) && f.Passable(f.CellOf(x, y));
+        public static double FigAccel(Mover m, Rules r) => r.Move.FigureAccelK * TopSpeed(m.P.U, r) / AccelSec(m.P.U, r);
+
+        // Места перераспределяются (Iron Kings): две одинаковые фигурки меняются местами, если так обеим ближе
+        // в сумме больше чем на ReassignGain — строй после брода или толчеи собирается быстрее, никто не ломится
+        // к «своему» месту через весь строй. Меняются только фигурки одного размера и численности.
+        static void Reassign(Mover m, Rules r)
+        {
+            var P = m.P; int n = P.Figs.Count;
+            if (n < 2) return;
+            var slot = Slots(P);
+            double D(int fig, int sl) => JsMath.Hypot(m.Figs[fig].X - slot[sl].x, m.Figs[fig].Y - slot[sl].y);
+            // несколько проходов, пока находятся выгодные обмены: сумма расстояний только убывает — раскачки нет
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool any = false;
+                for (int i = 0; i < n; i++)
+                    for (int j = i + 1; j < n; j++)
+                    {
+                        var a = P.Figs[i]; var b = P.Figs[j];
+                        if (a.Width != b.Width || a.Depth != b.Depth || a.Men != b.Men) continue;
+                        if (D(i, i) + D(j, j) - (D(j, i) + D(i, j)) > r.Move.ReassignGain)
+                        { (m.Figs[i], m.Figs[j]) = (m.Figs[j], m.Figs[i]); any = true; }
+                    }
+                if (!any) break;
+            }
+        }
     }
 }

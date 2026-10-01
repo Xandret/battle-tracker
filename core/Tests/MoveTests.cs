@@ -22,10 +22,17 @@ static class MoveTests
         var m = Terrain.Create(w, h, Terrain.Id(fill));
         return new Geo { Map = m, W = Terrain.WidthM(m), H = Terrain.HeightM(m) };
     }
-    public static Mover Unit(string tpl, int id, double x, double y, double facing, double men = 1000)
+    public static Mover Unit(string tpl, int id, double x, double y, double facing, double men = 1000, int faction = 1)
     {
         var t = Templates.Get(tpl);
-        return Mover.Place(t.Make(id, t.Name, men, 1), x, y, facing, R);
+        return Mover.Place(t.Make(id, t.Name, men, faction), x, y, facing, R);
+    }
+    static void Order(Mover m, Geo geo, double x, double y, double facing) => MoveSim.Give(m, new MoveOrder { X = x, Y = y, Facing = facing }, geo, R);
+    // сколько сдвинулась самая беспокойная фигурка с начальных мест
+    static Func<double> Watch(Mover m)
+    {
+        var start = m.Figs.Select(f => (f.X, f.Y)).ToList();
+        return () => m.Figs.Select((f, k) => Math.Sqrt((f.X - start[k].X) * (f.X - start[k].X) + (f.Y - start[k].Y) * (f.Y - start[k].Y))).Max();
     }
     public static List<string> Go(Mover m, Geo geo, double x, double y, double facing, Action<double> frame = null)
     {
@@ -201,7 +208,8 @@ static class MoveTests
             var m = Unit("infantry", 1, 300, 560, 0);
             int wet = 0;
             MoveSim.Give(m, new MoveOrder { X = 300, Y = 40, Facing = 0 }, geo, R);
-            for (int turn = 0; turn < 6; turn++)
+            // 6 ходов — дойти в обход озера, седьмой — собраться: фигурки твёрдые и протискиваются (шаг 2)
+            for (int turn = 0; turn < 7; turn++)
                 MoveSim.Turn(new[] { m }, geo, R, t =>
                 {
                     foreach (var f in m.Figs) if (!m.Field.Passable(m.Field.CellOf(f.X, f.Y))) wet++;
@@ -221,6 +229,124 @@ static class MoveTests
                 MoveSim.Give(m, new MoveOrder { X = 1500, Y = 300, Facing = 45 }, geo, R);
                 for (int i = 0; i < 3; i++) MoveSim.Turn(new[] { m }, geo, R);
                 return m.Figs.SelectMany(f => new[] { f.X, f.Y }).Append(m.P.X).Append(m.P.Y).ToArray();
+            }
+            Eq(Run().SequenceEqual(Run()), true, "повтор совпал");
+        });
+
+        // ── шаг 2: тела, толкотня, уступание (Г56–Г58) ──
+        yield return ("тела (Г57): на перекрёстке первым идёт тот, кто раньше подошёл; второй пропускает, сквозь не проходит", () =>
+        {
+            var geo = Open(900, 700);
+            var a = Unit("infantry", 1, 300, 300, 90);    // уже у перекрёстка, идёт на восток
+            var b = Unit("infantry", 2, 400, 470, 0);     // подходит снизу позже
+            a.P.U.Name = "Первые"; b.P.U.Name = "Вторые";
+            Order(a, geo, 700, 300, 90); Order(b, geo, 400, 100, 0);
+            double worst = double.PositiveInfinity;
+            var logs = new List<string>();
+            for (int turn = 0; turn < 3; turn++)
+            {
+                logs.AddRange(MoveSim.Turn(new[] { a, b }, geo, R, t => worst = Math.Min(worst, Bodies.MinGap(a, b))));
+                Near(a.Spent, turn < 2 ? 100 : a.Spent, 1e-6, $"ход {turn + 1}: первые идут без задержки");
+                Eq(a.Blockers.Count, 0, $"ход {turn + 1}: первые никому не уступали");
+            }
+            True(worst > -0.3, $"тела перекрылись на {-worst:0.00} м");
+            True(logs.Any(l => l.StartsWith("«Вторые»") && l.Contains("пропускал «Первые»")), "журнал: вторые пропускали первых — " + string.Join(" | ", logs));
+        });
+
+        yield return ("тела (Г57): подошли одновременно — первым идёт тот, у кого дисциплина выше", () =>
+        {
+            foreach (var (da, db) in new[] { (70.0, 50.0), (50.0, 70.0) })
+            {
+                var geo = Open(900, 900);
+                var a = Unit("infantry", 1, 200, 400, 90); var b = Unit("infantry", 2, 400, 600, 0);
+                a.P.U.Discipline = da; b.P.U.Discipline = db;
+                Order(a, geo, 800, 400, 90); Order(b, geo, 400, 0, 0);
+                for (int turn = 0; turn < 4; turn++) MoveSim.Turn(new[] { a, b }, geo, R);
+                var (lead, wait) = da > db ? (a, b) : (b, a);
+                True(wait.Rights.TryGetValue(lead.P.U.Id, out var w) && !w.mine, $"дисциплина {da}/{db}: уступает отряд с меньшей");
+                True(lead.Rights.TryGetValue(wait.P.U.Id, out var l) && l.mine, $"дисциплина {da}/{db}: идёт отряд с большей");
+            }
+        });
+
+        yield return ("тела (Г57): свой стоящий отряд — уже на месте: сквозь него не идут и не толкают", () =>
+        {
+            var geo = Open(600, 700);
+            var stand = Unit("infantry", 1, 300, 250, 0); stand.P.U.Name = "Стоят";
+            var go = Unit("infantry", 2, 300, 450, 0); go.P.U.Name = "Идут";
+            var moved = Watch(stand);
+            Order(go, geo, 300, 100, 0);
+            var logs = new List<string>();
+            double worst = double.PositiveInfinity;
+            for (int turn = 0; turn < 3; turn++) logs.AddRange(MoveSim.Turn(new[] { stand, go }, geo, R, t => worst = Math.Min(worst, Bodies.MinGap(stand, go))));
+            True(moved() < 0.2, $"стоящих сдвинули на {moved():0.00} м");
+            True(worst > -0.3, $"перекрылись на {-worst:0.00} м");
+            True(Bodies.MinGap(stand, go) < 3, $"идущие встали вплотную: зазор {Bodies.MinGap(stand, go):0.0} м");
+            True(logs.Any(l => l.Contains("пропускал «Стоят»")), "журнал: пробка — " + string.Join(" | ", logs));
+        });
+
+        yield return ("тела (Г56): лучники отходят сквозь свою пехоту на половине скорости, пехоту не толкают", () =>
+        {
+            var geo = Open(600, 600);
+            var inf = Unit("infantry", 1, 300, 300, 0);
+            var arc = Unit("archers", 2, 300, 250, 0);
+            var moved = Watch(inf);
+            Order(arc, geo, 300, 360, 0);
+            bool slowed = false;
+            for (int turn = 0; turn < 3; turn++) MoveSim.Turn(new[] { inf, arc }, geo, R, t => slowed |= arc.Figs.Any(f => f.Slowed));
+            True(arc.Done, "лучники дошли за пехоту");
+            True(slowed, "в толще пехоты шли медленнее");
+            Eq(arc.Blockers.Count, 0, "никому не уступали");
+            True(moved() < 0.2, $"пехоту сдвинули на {moved():0.00} м");
+        });
+
+        yield return ("тела (Г58): упираются во врага и стоят, стоящего врага не теснят", () =>
+        {
+            var geo = Open(600, 700);
+            var foe = Unit("infantry", 1, 300, 200, 180, faction: 2); foe.P.U.Name = "Враг";
+            var go = Unit("infantry", 2, 300, 420, 0);
+            var moved = Watch(foe);
+            Order(go, geo, 300, 100, 0);
+            var logs = new List<string>();
+            double worst = double.PositiveInfinity;
+            for (int turn = 0; turn < 3; turn++) logs.AddRange(MoveSim.Turn(new[] { foe, go }, geo, R, t => worst = Math.Min(worst, Bodies.MinGap(foe, go))));
+            True(moved() < 0.2, $"врага сдвинули на {moved():0.00} м");
+            True(worst > -0.3, $"перекрылись на {-worst:0.00} м");
+            double gap = Bodies.MinGap(foe, go);
+            True(gap >= -0.3 && gap <= R.Map.MeleeGap, $"в контакте — зазор {gap:0.0} м, «вплотную» до {R.Map.MeleeGap} м");
+            True(logs.Any(l => l.Contains("упёрся во врага «Враг»")), "журнал: упёрся — " + string.Join(" | ", logs));
+        });
+
+        yield return ("тела: перепутанный строй собирается за секунды — места перераспределяются", () =>
+        {
+            var geo = Open(600, 600);
+            var m = Unit("infantry", 1, 300, 300, 0);
+            // колонны строя поменялись местами: левый край стоит справа, правый — слева
+            int maxFile = m.P.Figs.Max(f => f.File);
+            var pos = m.Figs.Select(f => (f.X, f.Y)).ToList();
+            for (int k = 0; k < m.Figs.Count; k++)
+            {
+                var f = m.P.Figs[k];
+                int mirror = m.P.Figs.FindIndex(g => g.Rank == f.Rank && g.File == maxFile - f.File && g.Width == f.Width && g.Men == f.Men);
+                if (mirror >= 0) { m.Figs[k].X = pos[mirror].X; m.Figs[k].Y = pos[mirror].Y; }
+            }
+            double walked = 0;
+            var last = m.Figs.ToDictionary(f => f, f => (f.X, f.Y));
+            MoveSim.Turn(new[] { m }, geo, R, t =>
+            {
+                foreach (var f in m.Figs) { var p = last[f]; walked = Math.Max(walked, Math.Sqrt((f.X - p.X) * (f.X - p.X) + (f.Y - p.Y) * (f.Y - p.Y))); }
+            });
+            True(SlotGap(m) < 0.1, $"фигурка дальше всех от места — {SlotGap(m):0.00} м");
+        });
+
+        yield return ("тела: несколько отрядов — одно и то же, один исход", () =>
+        {
+            double[] Run()
+            {
+                var geo = Open(900, 900);
+                var ms = new[] { Unit("infantry", 1, 200, 400, 90), Unit("knights", 2, 450, 750, 0), Unit("archers", 3, 600, 300, 270), Unit("infantry", 4, 450, 150, 180, faction: 2) };
+                Order(ms[0], geo, 800, 400, 90); Order(ms[1], geo, 450, 100, 0); Order(ms[2], geo, 150, 300, 270);
+                for (int i = 0; i < 3; i++) MoveSim.Turn(ms, geo, R);
+                return ms.SelectMany(m => m.Figs.SelectMany(f => new[] { f.X, f.Y })).ToArray();
             }
             Eq(Run().SequenceEqual(Run()), true, "повтор совпал");
         });

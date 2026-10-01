@@ -176,6 +176,15 @@ namespace BattleCore
             public double CloseShare = 1.0 / 3, SideSpeed = 0.5, ForwardConeDeg = 45;
             // Фигурка догоняет своё место в строю: быстрее марша, резвее отряда, отставание выбирает за SlotTau с
             public double FigureCatchUp = 1.3, FigureAccelK = 2, SlotTau = 0.5;
+            // Шаг 2 — тела (Г56–Г58): фигурка — капсула размером с квадратик; перекрытие меньше BodyTol не считается
+            public double BodyTol = 0.05, LookAheadSec = 0.6, YieldMargin = 0.5;
+            public double PassThroughSpeed = 0.5;      // Г56: стрелки и свои сквозь друг друга
+            public double TieSec = 0.5;                // Г57: «одновременно» — разница прихода меньше этого
+            public double RightsForgetSec = 2;         // очередь забывается, если отряды разошлись
+            // упёрлась доля HeldShare фигурок — центр строя встаёт; трогается, когда упираются меньше HeldKeepShare
+            // (не меньше 2 фигурок) HoldSec подряд — иначе строй дёргается: тронулся, упёрся, тронулся
+            public double HeldShare = 0.05, HeldKeepShare = 0.02, HoldSec = 0.5;
+            public double ReassignEverySec = 1, ReassignGain = 0.1;   // м: обмен местами, только если в сумме ближе
         }
         public MoveR Move = new MoveR();
 

@@ -539,16 +539,22 @@ void CalibrateRanged(int RUNS)
 
 // ── прогон ──
 int failed = 0;
+var slow = new List<(string name, double sec)>();
+var clock = System.Diagnostics.Stopwatch.StartNew();
 foreach (var (name, run) in tests)
 {
+    var sw = System.Diagnostics.Stopwatch.StartNew();
     try { run(); }
     catch (Exception e)
     {
         failed++;
         if (failed <= 20) Console.WriteLine($"✘ {name}\n    {e.Message}");
     }
+    if (sw.Elapsed.TotalSeconds > 3) slow.Add((name, sw.Elapsed.TotalSeconds));
 }
-Console.WriteLine($"\nтестов {tests.Count} · прошло {tests.Count - failed} · упало {failed}");
+// долгие тесты — чтобы прогон не разрастался незаметно
+foreach (var (name, sec) in slow.OrderByDescending(s => s.sec)) Console.WriteLine($"⏱ {sec:0.0} с — {name}");
+Console.WriteLine($"\nтестов {tests.Count} · прошло {tests.Count - failed} · упало {failed} · {clock.Elapsed.TotalSeconds:0} с");
 return failed == 0 ? 0 : 1;
 
 // ── помощники ──
