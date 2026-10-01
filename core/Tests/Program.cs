@@ -285,6 +285,8 @@ foreach (var (name, run) in MoveTests.All()) Test(name, run);
 
 // ── И1: бой в движении (БД1; Г62–Г64), см. BattleTests.cs ──
 foreach (var (name, run) in BattleTests.All()) Test(name, run);
+// ── данные для рисунка (В6), см. LookTests.cs ──
+foreach (var (name, run) in LookTests.All()) Test(name, run);
 Test("тела не прыгают: ни тело, ни фигурка в кадре полигона не сдвигается за шаг дальше 45 м/с (мост, давка, бой с потерями)", () =>
 {
     var j = Polygon.Jumps("Река: брод и мост", "Бой: фланг и потери");

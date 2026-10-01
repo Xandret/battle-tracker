@@ -448,6 +448,7 @@ function prepFrameMen(){
   S.units.forEach((u, ui) => {
     const f = F[ui]; if(!f) return;
     for(let k = 0; 5 + 2 * k < f.length; k++){
+      if(f[4 + 2 * k] == null) continue;   // тело выбыло
       const key = Math.floor(f[4 + 2 * k] / 10) * 4096 + Math.floor(f[5 + 2 * k] / 10);
       let l = grid.get(key); if(!l) grid.set(key, l = []); l.push(ui, k, f[4 + 2 * k], f[5 + 2 * k]);
     }
@@ -468,8 +469,9 @@ function engage(F, a, b){
   const db = (ub.figs[0] ? ub.figs[0][1] : 5) / 2;
   for(let k = 0; 5 + 2 * k < fa.length; k++){
     const x = fa[4 + 2 * k], y = fa[5 + 2 * k];
+    if(x == null) continue;
     let best = 1e18, bx = 0, by = 0;
-    for(let j = 0; 5 + 2 * j < fb.length; j++){ const dx = fb[4 + 2 * j] - x, dy = fb[5 + 2 * j] - y, d = dx * dx + dy * dy; if(d < best){ best = d; bx = dx; by = dy; } }
+    for(let j = 0; 5 + 2 * j < fb.length; j++){ if(fb[4 + 2 * j] == null) continue; const dx = fb[4 + 2 * j] - x, dy = fb[5 + 2 * j] - y, d = dx * dx + dy * dy; if(d < best){ best = d; bx = dx; by = dy; } }
     const reach = (ua.figs[k] ? ua.figs[k][1] : 5) / 2 + db + 3;
     if(best < reach * reach) m.set(k, Math.atan2(by, bx));
   }

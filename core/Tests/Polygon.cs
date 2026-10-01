@@ -362,6 +362,9 @@ static class Polygon
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },
             new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         var tpl = File.ReadAllText(Path.Combine(root, "core", "Tests", "polygon.html"));
+        // бойцы, стрелы и павшие (В5–В9) — отдельный файл рядом с шаблоном; в собранную страницу вставляется целиком
+        var men = File.ReadAllText(Path.Combine(root, "core", "Tests", "polygon-men.js"));
+        tpl = tpl.Replace("<script src=\"polygon-men.js\"></script>", "<script>\n" + men + "\n</script>");
         var dir = Path.Combine(root, "core", "polygon");
         Directory.CreateDirectory(dir);
         var outp = Path.Combine(dir, "polygon.html");
