@@ -335,4 +335,34 @@ ok(ev(`units.find(u => u.id === ${line[1]}).status`) !== "fled" || ev("log[0].ti
    "проваленная проверка на побег тоже запускает волну");
 ev("setMapRule('on', false);");
 
+console.log("Штурм: участки стен (v30.8)");
+ev(`terrainMap = Engine.generateMap('castle', {}, 3); terrainVersion++; setMapRule('on', true);`);
+ok(ev("siegeActive()") === true && ev("mapRules.siege") === true, "штурм включён вместе с правилами карты");
+ev("renderMap()");
+ok(ev("terrainMap.forts.length") === 21, "участки замка построены при первом взгляде: " + ev("terrainMap.forts.length"));
+// верхняя стена замка: участок №3 — клетки x 50…54, y 41; щёлкаем по левому краю
+const pctX = x => x / ev("terrainMap.w") * 100, pctY = y => y / ev("terrainMap.h") * 100;
+ev(`openFortMenu(3, ${pctX(50.4)}, ${pctY(41.5)})`);
+ok(ev("document.querySelector('.fmenu .tm-head').textContent").includes("Участок №3 · каменная стена"), "меню участка открыто");
+ok(ev("document.querySelector('.fmenu .tm-sub').textContent").includes("100 из 100"), "полная прочность — 100 из 100");
+ev(`document.getElementById('fortDmg').value = '120'; fortHit();`);
+ok(ev("log[0].title") === "🏰 Удар по участку №3 (каменная стена)", "удар — запись журнала: " + ev("log[0].title"));
+ok(ev("log[0].lines.some(l => l.includes('Пролом: 10 м'))"), "прочность на нуле — пролом 10 м");
+ok(cells(T("breach")) === 2 && ev(`terrainMap.t[41 * terrainMap.w + 50]`) === T("breach"), "две клетки у точки щелчка стали проломом");
+ok(ev("document.querySelector('.fmenu .tm-sub').textContent").includes("80 из 100"), "остаток удара: 80 из 100");
+const savedMap = JSON.parse(ev("localStorage.getItem('battle_tracker_v13')")).battleMap;
+ok(savedMap.s && savedMap.forts.find(f => f.id === 3).dmg === 20 && savedMap.forts.find(f => f.id === 3).breaches === 1, "урон и пролом — в сохранении партии");
+ev("undo()");
+ok(cells(T("breach")) === 0 && ev("Engine.getSection(terrainMap, 3).dmg") === 0, "откат вернул стену целой");
+ev(`openFortMenu(19, ${pctX(60)}, ${pctY(58.5)}); document.getElementById('fortDmg').value = '80'; fortHit();`);
+ok(ev("log[0].lines.some(l => l.includes('Ворота выбиты'))") && ev("Engine.getSection(terrainMap, 19).up") === 0, "окованные ворота выбиты за 80");
+ev(`undo(); openFortMenu(3, ${pctX(52)}, ${pctY(41.5)}); document.getElementById('fortDmg').value = '30'; fortHit(); fortRepair();`);
+ok(ev("log[0].title").startsWith("🔧 Починка участка №3") && ev("Engine.getSection(terrainMap, 3).dmg") === 0, "починка — прочность снова 100");
+ev(`setMapRule('siege', false); openFortMenu(3, ${pctX(52)}, ${pctY(41.5)});`);
+ok(ev("document.querySelector('.fmenu')") === null && ev("fortMenu") === null, "штурм выключен — меню участка не открывается");
+const old = JSON.parse(ev("JSON.stringify(stateObj())")); delete old.battleMap.s; delete old.battleMap.forts; delete old.mapRules.siege;
+ev(`applyLoadedState(${JSON.stringify(old)}); renderAll();`);
+ok(ev("mapRules.siege") === true && ev("terrainMap.forts.length") === 21, "сохранение v30.7: штурм включён по умолчанию, участки построены заново");
+ev("setMapRule('on', false);");
+
 console.log(process.exitCode ? "\nЕСТЬ ОШИБКИ" : "\nВсё в порядке");

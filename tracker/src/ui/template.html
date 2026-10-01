@@ -243,6 +243,13 @@
   .tmenu .tm-sub{font-family:'Courier New',monospace;font-size:11px;color:#B8B29E;margin-bottom:7px;line-height:1.5;}
   .tmenu button{width:100%;text-align:left;margin-bottom:5px;padding:6px 9px;font-size:12px;}
   .tmenu button:last-child{margin-bottom:0;}
+  .fmenu{min-width:250px;max-width:290px;}
+  .fmenu .hpbar{height:6px;background:#3A2A26;border-radius:3px;overflow:hidden;margin:0 0 8px;}
+  .fmenu .hpbar i{display:block;height:100%;background:linear-gradient(90deg,#B04A32,#D8B060);}
+  .fmenu .fm-row{display:flex;gap:6px;margin-bottom:5px;}
+  .fmenu .fm-row input{width:70px;margin:0;}
+  .fmenu .fm-row button{margin:0;flex:1;}
+  .fmenu .fm-note{font-size:10.5px;color:#8F8A7C;line-height:1.4;margin-top:6px;}
   .targethint{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:110;
     background:rgba(28,34,36,.95);border:1px solid var(--red);border-radius:5px;padding:7px 14px;
     font-family:'Arial Narrow',sans-serif;font-size:14px;color:#F0A090;text-transform:uppercase;}
@@ -379,6 +386,8 @@
       <label class="chk mb8"><input type="checkbox" id="mr_panicMorale" onchange="setMapRule('panicMorale', this.checked)">
         −100 БД вместе с проверкой («побег ближних отрядов»)</label>
     </div>
+    <label class="chk mb8"><input type="checkbox" id="mr_siege" onchange="setMapRule('siege', this.checked)">
+      Штурм: участки стен — стена режется на участки до 25 м, у каждого прочность (частокол 30, стена 100, ворота 40 / окованные 80, башня 150); щелчок по стене — меню участка, удар мастера; прочность на нуле — пролом 10 м, ворота выбиты, башня рухнула</label>
   </div>
   <div class="hint">Все числа — черновик для ГМа (таблица в SPEC, раздел 6а). Выключено — трекер считает ровно как v30.1: фишки-значки, местность только рисунок. Положение переключателей хранится в партии. Волна паники — одна запись журнала и откатывается вместе с побегом, который её вызвал.</div>
 </div>

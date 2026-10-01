@@ -15,7 +15,7 @@ const ENGINE_FILES = ["util.js", "rules.js", "units.js", "morale.js", "combat.js
 const RELEASE = {
   version: pkg.version.replace(/\.0$/, ""),     // 30.0.0 → 30.0
   update: "Пушки и крепости",
-  patch: "Паника",
+  patch: "Пролом",
 };
 
 function bundleEngine(){

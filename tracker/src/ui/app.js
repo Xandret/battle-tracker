@@ -28,9 +28,12 @@ let turn = 1, nextId = 1, editingId = null;
 let collapsedGroups = {}, expandedUnits = {}, undoStack = [];
 let mapImage = null, mapOpts = {grid:false, snap:false, cells:20, tokenSize:42, widthM:2000};
 // Правила карты (К10, К26): общий переключатель и по одному на правило; всё — черновик до ГМа
-const MAP_RULES_DEFAULT = {on: false, terrain: true, move: true, range: true, panic: true, panicMorale: false};
+const MAP_RULES_DEFAULT = {on: false, terrain: true, move: true, range: true, panic: true, panicMorale: false, siege: true};
 let mapRules = Object.assign({}, MAP_RULES_DEFAULT);
 let mapAttackerId = null, mapCharge = false, openMenuId = null, mapModeOverride = null;
+let fortMenu = null;          // открытый участок стены: {id, x, y — % сцены, cx, cy — клетки попадания}
+let fortVersion = 0;          // растёт при уроне и починке — по нему перерисовывается слой участков
+let lastFortDmg = 25;
 let selectedTokens = {};
 let templateOverrides = Engine.normalizeOverrides(null);   // правки шаблонов отрядов: {base, factions}
 let importDraft = null;                                    // предпросмотр импорта армий (не сохраняется)
@@ -1614,7 +1617,7 @@ function tokenMenuHtml(u){
     ${items}</div>`;
 }
 function openTokenMenu(id){
-  openMenuId = id;
+  openMenuId = id; fortMenu = null;
   renderMap();
 }
 function closeTokenMenu(){
@@ -1930,8 +1933,69 @@ function drawTerrain(v){
     ctx.globalAlpha = mapImage ? 0.75 : 1;
     drawPatterns(ctx, v, cellPx);
     ctx.globalAlpha = 1;
+    if(v === battleView && fortsReady()) drawForts(ctx, v, cellPx);
   }
   if(v === editorView) drawUnitDots(ctx, v);
+}
+// Участки стен (6б): урон — краснотой по целым клеткам (растр клетка в точку), вблизи — границы участков,
+// прочность числом (вблизи у всех, издали — у повреждённых), открытый участок подсвечен
+let fortCache = {key: "", cv: null};
+function fortRaster(){
+  const m = terrainMap, R = currentRules();
+  const key = terrainVersion + "|" + fortVersion;
+  if(fortCache.key === key && fortCache.map === m) return fortCache.cv;
+  const cv = document.createElement("canvas");
+  cv.width = m.w; cv.height = m.h;
+  const ctx = canvasCtx(cv); if(!ctx) return null;
+  const img = ctx.createImageData(m.w, m.h), d = img.data;
+  const byId = new Map(m.forts.map(f => [f.id, f]));
+  for(let i = 0; i < m.s.length; i++){
+    const f = m.s[i] && byId.get(m.s[i]);
+    if(!f || !f.dmg || m.t[i] !== Engine.fortCode(f.kind)) continue;
+    const k = Math.min(1, f.dmg / Engine.sectionMax(f, R)), o = i * 4;
+    d[o] = 214; d[o + 1] = 52; d[o + 2] = 36; d[o + 3] = Math.round(70 + 150 * k);
+  }
+  ctx.putImageData(img, 0, 0);
+  fortCache = {key, map: m, cv};
+  return cv;
+}
+function drawForts(ctx, v, cellPx){
+  const m = terrainMap, R = currentRules();
+  const r = fortRaster();
+  if(r){ ctx.imageSmoothingEnabled = false; ctx.drawImage(r, v.ox, v.oy, v.sw, v.sh); }
+  const x0 = Math.max(0, Math.floor(-v.ox / cellPx)), x1 = Math.min(m.w - 1, Math.ceil((v.vw - v.ox) / cellPx));
+  const y0 = Math.max(0, Math.floor(-v.oy / cellPx)), y1 = Math.min(m.h - 1, Math.ceil((v.vh - v.oy) / cellPx));
+  if(fortMenu){
+    ctx.fillStyle = "rgba(255,214,120,.45)";
+    for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++)
+      if(m.s[y * m.w + x] === fortMenu.id) ctx.fillRect(v.ox + x * cellPx, v.oy + y * cellPx, cellPx, cellPx);
+  }
+  if(cellPx >= 3){
+    ctx.strokeStyle = "rgba(255,240,205,.9)"; ctx.lineWidth = Math.max(1, cellPx * 0.12);
+    ctx.beginPath();
+    for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++){
+      const i = y * m.w + x, s = m.s[i]; if(!s) continue;
+      if(x + 1 < m.w && m.s[i + 1] && m.s[i + 1] !== s){
+        const px = v.ox + (x + 1) * cellPx; ctx.moveTo(px, v.oy + y * cellPx); ctx.lineTo(px, v.oy + (y + 1) * cellPx);
+      }
+      if(y + 1 < m.h && m.s[i + m.w] && m.s[i + m.w] !== s){
+        const py = v.oy + (y + 1) * cellPx; ctx.moveTo(v.ox + x * cellPx, py); ctx.lineTo(v.ox + (x + 1) * cellPx, py);
+      }
+    }
+    ctx.stroke();
+  }
+  const all = cellPx >= 4;
+  ctx.font = `700 ${Math.round(clamp(cellPx * 1.5, 10, 13))}px "Arial Narrow", sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  for(const f of m.forts){
+    const hurt = f.dmg > 0 || f.breaches > 0 || !f.up;
+    if(!all && !hurt) continue;
+    const x = v.ox + f.cx * cellPx, y = v.oy + f.cy * cellPx;
+    if(x < -20 || y < -20 || x > v.vw + 20 || y > v.vh + 20) continue;
+    const txt = f.up ? String(Math.round(Engine.sectionHp(f, R))) : "✕";
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(20,24,26,.9)"; ctx.strokeText(txt, x, y);
+    ctx.fillStyle = !f.up ? "#E08A76" : hurt ? "#F0C060" : "#E8E2CC"; ctx.fillText(txt, x, y);
+  }
 }
 // Узор с постоянной плотностью на экране (~ каждые 13 px), привязан к клеткам — при сдвиге не «плывёт»
 function drawPatterns(ctx, v, cellPx){
@@ -2019,6 +2083,7 @@ function terrainUnder(u){
 
 function renderMap(){
   const wrap = $("mapWrap"); if(!wrap) return;
+  fortsReady();   // штурм включён — участки стен построены до отрисовки (Ш1)
   const o = readMapOpts();
   const img = $("mapImg"), empty = $("mapEmpty"), gover = $("gridOver");
   if(mapImage){
@@ -2103,6 +2168,8 @@ function renderMap(){
     if(mu && mu.onMap) layer.insertAdjacentHTML("beforeend", tokenMenuHtml(mu));
     else openMenuId = null;
   }
+  if(fortMenu && fortsReady()) layer.insertAdjacentHTML("beforeend", fortMenuHtml());
+  else fortMenu = null;
 
   renderSelBar();
   const unplaced = units.filter(u => !u.onMap && u.status === "active");
@@ -2206,6 +2273,9 @@ function renderMap(){
       const tiny = (box.rt - box.l) < 0.7 && (box.b - box.t) < 0.7;
       if(tiny){
         if(!mqShift) selectedTokens = {};
+        // щелчок по стене при включённом штурме — меню участка
+        const f = !mqShift && fortsReady() ? Engine.sectionAt(terrainMap, box.l / 100, box.t / 100) : null;
+        fortMenu = f ? {id: f.id, x: box.l, y: box.t, cx: box.l / 100 * terrainMap.w, cy: box.t / 100 * terrainMap.h} : null;
       } else {
         if(!mqShift) selectedTokens = {};
         units.filter(u => u.onMap).forEach(u => {
@@ -2278,6 +2348,7 @@ function renderMap(){
     // пробел над картой — сдвиг, а не прокрутка страницы
     if(e.code === "Space" && !typing(e)){ spaceDown = true; if(ed.open || overMap) e.preventDefault(); }
     if(e.key === "Escape"){
+      if(fortMenu && !typing(e)){ closeFortMenu(); return; }
       if(calib){ calib = null; document.querySelectorAll(".calibdot").forEach(el => el.remove()); renderMap(); }
       else if(mapAttackerId) cancelTargeting();
       else if(openMenuId) closeTokenMenu();
@@ -2318,6 +2389,8 @@ function closeEditor(){
   $("mapEditor").classList.add("hidden");
   document.body.classList.remove("noscroll");
   if(terrainVersion !== ed.startVersion){
+    if(terrainMap && terrainMap.s) Engine.buildSections(terrainMap, currentRules(), {s: terrainMap.s, forts: terrainMap.forts});
+    fortMenu = null;
     addLog(terrainMap ? "Карта местности обновлена" : "Карта местности убрана",
            terrainMap ? [mapDescription(terrainMap), ...ed.notes] : []);
     saveState();
@@ -2745,7 +2818,7 @@ const mapGeo = () => ({map: terrainMap, W: mapWidthMeters(), H: mapHeightMeters(
 const mapActive = () => mapRules.on && hasMapSurface();
 const terrainActive = () => mapActive() && mapRules.terrain && !!terrainMap;
 const MAP_RULE_NAMES = {on: "правила карты", terrain: "местность и высота в бою", move: "движение", range: "дальности",
-                        panic: "каскадная паника", panicMorale: "−100 БД вместе с проверкой"};
+                        panic: "каскадная паника", panicMorale: "−100 БД вместе с проверкой", siege: "штурм: участки стен"};
 const panicActive = () => mapActive() && mapRules.panic;
 // Каскадная паника (К25): после каждого побега — волна; в том же шаге отката, одной записью на источник
 function runPanic(ids){
@@ -2760,6 +2833,60 @@ function runPanic(ids){
       r.lines.concat(["Черновик до ГМа: радиус 150 м, первое кольцо — по видимости (SPEC, 6а)."]), r.fled.length ? "danger" : undefined);
   });
 }
+// ── Штурм (6б, Г46, Ш1–Ш2): участки стен с прочностью — черновик до ГМа ──
+// Участки строит движок (Engine.ensureSections) при первом взгляде на карту со штурмом; интерфейс только
+// открывает меню участка, передаёт удар мастера в движок и рисует.
+const siegeActive = () => mapActive() && mapRules.siege && !!terrainMap;
+function fortsReady(){
+  if(!siegeActive()) return false;
+  Engine.ensureSections(terrainMap, currentRules());
+  return !!terrainMap.forts;
+}
+function openFortMenu(id, x, y){
+  openMenuId = null;
+  fortMenu = {id, x, y, cx: x / 100 * terrainMap.w, cy: y / 100 * terrainMap.h};
+  renderMap();
+}
+function closeFortMenu(){ fortMenu = null; renderMap(); }
+function fortMenuHtml(){
+  const m = terrainMap, R = currentRules(), f = fortMenu && m && Engine.getSection(m, fortMenu.id);
+  if(!f){ fortMenu = null; return ""; }
+  const max = Engine.sectionMax(f, R), hp = Engine.sectionHp(f, R), pct = Math.round(hp / max * 100);
+  const thick = Math.max(1, Math.round(f.n / f.len));
+  const left = clamp(fortMenu.x, 6, 82), top = clamp(fortMenu.y + 3, 0, 88);
+  return `<div class="tmenu fmenu" style="left:${left}%;top:${top}%" onclick="event.stopPropagation()">
+    <div class="tm-head">🏰 Участок №${f.id} · ${esc(Engine.FORT_KINDS[f.kind])}</div>
+    <div class="tm-sub">${f.up ? `Прочность <b>${fmtHp(hp)}</b> из ${max}` : "Разрушен целиком"}${f.breaches ? ` · проломов ${f.breaches}` : ""}<br>
+      ~${Math.round(f.len * m.cell)} м вдоль стены${thick > 1 ? `, толщина ${thick * m.cell} м` : ""}</div>
+    <div class="hpbar"><i style="width:${pct}%"></i></div>
+    ${f.up ? `<div class="fm-row"><input type="number" id="fortDmg" min="1" step="1" value="${lastFortDmg}" title="Сколько прочности снять">
+      <button class="gold" onclick="fortHit()">💥 Ударить</button></div>
+      <button onclick="fortRepair()" ${f.dmg > 0 ? "" : "disabled"}>🔧 Починить — прочность снова ${max}</button>` : ""}
+    <button onclick="closeFortMenu()">Закрыть</button>
+    <div class="fm-note">Черновик до ГМа. Пока бьёт мастер; осадные машины — следующим шагом. Обнулилась прочность — пролом 10 м у точки щелчка.</div>
+  </div>`;
+}
+const fmtHp = v => String(Math.round(v * 10) / 10).replace(".", ",");
+function fortHit(){
+  const f = fortMenu && Engine.getSection(terrainMap, fortMenu.id); if(!f) return;
+  const amount = Math.round(+$("fortDmg").value * 10) / 10;
+  if(!(amount > 0)) return;
+  lastFortDmg = amount;
+  pushUndo(`удар по участку №${f.id}`);
+  const r = Engine.damageSection(terrainMap, f.id, amount, {x: fortMenu.cx, y: fortMenu.cy}, currentRules());
+  if(r.opened) terrainVersion++;
+  fortVersion++;
+  addLog(`🏰 Удар по участку №${f.id} (${Engine.FORT_KINDS[f.kind]})`, r.lines, r.opened ? "danger" : undefined);
+  renderMap();
+}
+function fortRepair(){
+  const f = fortMenu && Engine.getSection(terrainMap, fortMenu.id); if(!f) return;
+  pushUndo(`починка участка №${f.id}`);
+  const r = Engine.repairSection(terrainMap, f.id, currentRules()); if(!r) return;
+  fortVersion++;
+  addLog(`🔧 Починка участка №${f.id} (${Engine.FORT_KINDS[f.kind]})`, r.lines);
+  renderMap();
+}
 const moveActive = () => mapActive() && mapRules.move;
 const rangeActive = () => mapActive() && mapRules.range;
 function toggleMapRules(){ $("mapRulesPanel").classList.toggle("hidden"); renderMapRules(); }
@@ -2773,6 +2900,7 @@ function renderMapRules(){
   $("mr_range").checked = !!mapRules.range;
   $("mr_panic").checked = !!mapRules.panic;
   $("mr_panicMorale").checked = !!mapRules.panicMorale;
+  $("mr_siege").checked = !!mapRules.siege;
   $("mrSub").classList.toggle("off", !mapRules.on);
 }
 function setMapRule(key, val){
