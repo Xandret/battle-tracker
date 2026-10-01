@@ -74,6 +74,22 @@ namespace BattleCore
             return double.NegativeInfinity;
         }
 
+        // Сколько секунд стрела летит до горизонтального расстояния d — для упреждения по идущей цели (Г66)
+        public static double FlightTime(double v0, double theta, double k, double g, double d, double dt)
+        {
+            double x = 0, y = 0, z = 0, vx = v0 * Math.Cos(theta), vy = 0, vz = v0 * Math.Sin(theta), t = 0;
+            if (d <= 0) return 0;
+            for (int i = 0; i < 100000; i++)
+            {
+                double px = x;
+                Step(ref x, ref y, ref z, ref vx, ref vy, ref vz, k, g, dt);
+                if (x >= d) return t + dt * (d - px) / (x - px);
+                t += dt;
+                if (z < -300 || vx <= 1e-6) break;
+            }
+            return t;
+        }
+
         // Угол, при котором стрела выше всего проходит над точкой d (верх настильной ветви)
         static double PeakAngle(double v0, double k, double g, double d, double dt)
         {

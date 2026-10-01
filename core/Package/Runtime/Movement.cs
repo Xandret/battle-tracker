@@ -72,6 +72,7 @@ namespace BattleCore
         public int IgnoreHoldBy;                 // кого обходим — упор в него не держит центр строя
         // Бой в движении (БД1): сколько бойцов разложено на фигурки сейчас; где упали выбывшие фигурки (Г30)
         public int LaidMen = -1;
+        public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
         public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
@@ -136,6 +137,15 @@ namespace BattleCore
             m.Side = o.Kind == OrderKind.Move && m.Track.Cost <= r.Move.CloseShare * BattleMap.UnitSpeed(m.P.U, r);
             // разгон переходит в новый приказ, только если он ведёт туда же, куда отряд уже идёт
             if (m.Side || m.Track.Pieces.Count == 0 || Math.Abs(AngleDiff(m.P.Facing, LegHeading(m.Track, 0))) > r.Move.MarchAlignDeg) m.Vs = 0;
+        }
+
+        // Встать на месте и развернуться к o.Facing (колесом или кругом, Г52) — без поиска пути: стрелку,
+        // который уже достаёт до цели, путь не нужен, а карта направлений — дорогая
+        public static void TurnInPlace(Mover m, MoveOrder o)
+        {
+            m.Order = o; m.Note = null; m.Vs = 0; m.Along = 0;
+            m.Track = Track.Build(null, new List<(double x, double y)> { (m.P.X, m.P.Y) });
+            m.OnSpot = true; m.Done = false;
         }
 
         static double LegHeading(Track t, int leg) =>

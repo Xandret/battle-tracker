@@ -136,8 +136,9 @@ function draw(){
   const fr = lerpFrame(frame);
 
   if($("showFlow").checked) drawFlow(S.units[sel]);
-  // бой (БД1): павшие фигурки — серые крестики там, где упали
-  if(S.fallen) S.fallen.forEach(list => {
+  drawDead();   // павшие и кровь (Г67)
+  // бой (БД1): павшие фигурки — серые крестики там, где упали (если поимённых павших нет)
+  if(S.fallen && !S.dead) S.fallen.forEach(list => {
     ctx.strokeStyle = "rgba(60,50,40,.55)"; ctx.lineWidth = 1;
     list.forEach(([x, y, fi]) => {
       if(fi > frame) return;
@@ -363,6 +364,47 @@ function drawMen(u, [w, d, men, rank], fx, fy, h, col, moving, t, k){
     }
   }
   ctx.restore();
+}
+
+// ── павшие и кровь (Г67; по мотивам «hit visuals» автора Iron Kings — рисунок свой) ──
+// Под павшим — лужа (три неровных пятна, растекается за ~1 с), брызги — по направлению удара, за спину.
+// Сам павший — тот же боец, обесцвеченный в цвет своей стороны, лежит, как упал. Удар в голову — кровь на голове.
+const BLOOD = "#7b1212";
+function mix(a, b, k){
+  const p = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)), A = p(a), B = p(b);
+  return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * k).toString(16).padStart(2, "0")).join("");
+}
+function drawDead(){
+  if(!S.dead) return;
+  const now = frame, near = view.s >= MEN_FROM;
+  ctx.fillStyle = BLOOD;
+  for(const [x, y, fi, ui, fc, dir, part] of S.dead){
+    if(fi > now) continue;
+    const px = X(x), py = Y(y);
+    if(!near){ ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6); continue; }
+    const seed = (fi * 131 + ui * 7919 + Math.round(x * 13) + Math.round(y * 7)) | 0;
+    const g = Math.min(1, 0.25 + (now - fi) * S.dt / 1.2), a = dir * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const big = part === 3 ? 1.7 : part === 0 ? 0.65 : part === 2 ? 0.85 : 1;
+    for(let k = 0; k < 3; k++){
+      const r = (0.15 + 0.13 * hash(seed, k)) * big * g * view.s, off = (0.1 + 0.25 * hash(seed, k + 7)) * g;   // лужа — с тело бойца, не больше
+      const ox = (ca * off + (hash(seed, k + 3) - 0.5) * 0.3) * view.s, oy = (sa * off + (hash(seed, k + 5) - 0.5) * 0.3) * view.s;
+      ctx.beginPath(); ctx.ellipse(px + ox, py + oy, r, r * (0.65 + 0.35 * hash(seed, k + 9)), a, 0, 6.283); ctx.fill();
+    }
+    const n = 2 + Math.floor(hash(seed, 11) * 4);
+    for(let k = 0; k < n; k++){
+      const d = (0.55 + 1.3 * hash(seed, 20 + k)) * g, sp = (hash(seed, 30 + k) - 0.5) * 0.8;
+      ctx.beginPath(); ctx.arc(px + Math.cos(a + sp) * d * view.s, py + Math.sin(a + sp) * d * view.s, Math.max(0.6, (0.05 + 0.08 * hash(seed, 40 + k)) * view.s), 0, 6.283); ctx.fill();
+    }
+  }
+  if(!near) return;
+  for(const [x, y, fi, ui, fc, dir, part] of S.dead){
+    if(fi > now) continue;
+    const u = S.units[ui], col = mix(COLORS[ui % COLORS.length], "#8b8781", 0.7), sp = sprite(poseOf(lookOf(u), 0), col, 0);
+    ctx.save(); ctx.translate(X(x), Y(y)); ctx.rotate(fc * Math.PI / 180); ctx.scale(view.s, view.s); ctx.globalAlpha = 0.85;
+    ctx.drawImage(sp.c, sp.x, sp.y, sp.w, sp.h);
+    if(part === 0){ ctx.globalAlpha = 1; ctx.fillStyle = BLOOD; ctx.beginPath(); ctx.arc(0, 0, 0.13, 0, 6.283); ctx.fill(); }
+    ctx.restore();
+  }
 }
 
 // Знамя отряда (Г7): в центре строя, ближе к первой шеренге; рисуется в пикселях — видно с любого приближения

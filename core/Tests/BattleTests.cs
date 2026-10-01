@@ -20,6 +20,11 @@ static class BattleTests
         return (bt, a, b);
     }
     static MoveOrder Attack(int target, bool charge = false) => new MoveOrder { Kind = OrderKind.Attack, TargetId = target, Charge = charge };
+    static double[][] Corner(Mover m)
+    {
+        double f = m.P.Fp.Front / 2, d = m.P.Fp.Depth / 2;
+        return new[] { (-f, -d), (f, -d), (f, d), (-f, d) }.Select(p => { m.P.ToWorld(p.Item1, p.Item2, out var x, out var y); return new[] { x, y }; }).ToArray();
+    }
 
     public static IEnumerable<(string Name, Action Run)> All()
     {
@@ -132,6 +137,114 @@ static class BattleTests
                 True(Math.Abs(m.P.Fp.Front - Formation.Of(u, R).Front) < 1e-9, $"«{u.Name}»: фронт {m.P.Fp.Front} м, у фишки {Formation.Of(u, R).Front} м");
             }
             True(b.Fallen.Count > 0 && b.P.U.Soldiers < 1000, $"ополчение потеряло {1000 - b.P.U.Soldiers:0}, упало фигурок {b.Fallen.Count}");
+        });
+
+        // ── БД2: стрельба (Г65, Г66, Г40, Г67) ──
+        // лучники в dist м перед целью (цель — в центре, лицом вверх)
+        (Battle bt, Mover a, Mover b) Range(string tb, double dist, uint seed, string ta = "archers", int factionB = 2)
+        {
+            var bt = new Battle(Open(2000, 1400), R, new EngineContext { Rng = new Mulberry32(seed).Next });
+            var TB = Templates.Get(tb); var TA = Templates.Get(ta);
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, factionB), 1000, 800, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), R);
+            var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 1000, 800 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+            return (bt, a, b);
+        }
+
+        yield return ("стрельба (Г65): лучники по стоящей пехоте со 100 м — около стола (полная сверка — 100 боёв, +7%)", () =>
+        {
+            const int N = 12;   // разброс одного боя ~25% — среднее 12 боёв держится в ±20%
+            double table = 0, game = 0;
+            var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+            for (uint i = 1; i <= 1000; i++)
+                table += TabletopVolley.Turn(TA.Make(1, "A", 1000, 1), TB.Make(2, "B", 1000, 2), new TurnSetup(), new EngineContext { Rng = new Mulberry32(i).Next }).LossB / 1000;
+            for (uint s = 1; s <= N; s++)
+            {
+                var (bt, a, b) = Range("infantry", 100, s + 9000);
+                bt.Order(a, Attack(2));
+                bt.Turn();
+                bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });   // второй ход — долетают стрелы первого
+                bt.Turn();
+                game += (1000 - b.P.U.Soldiers) / N;
+            }
+            True(Math.Abs(game / table - 1) <= 0.2, $"стол {table:0}, бой со стрельбой {game:0}");
+        });
+
+        yield return ("стрельба (Г65): без приказа не стреляют; по стреляющим в них — отвечают", () =>
+        {
+            var (bt, a, b) = Range("archers", 100, 31);          // друг против друга, лицом
+            bt.Order(a, Attack(2));
+            var log = bt.Turn();
+            True(log.Any(l => l.Contains("ответом «Лучники»")), "ответная стрельба: " + string.Join(" | ", log));
+            var (bt2, a2, b2) = Range("infantry", 120, 32);       // лучники без приказа, на них идёт пехота
+            bt2.Order(b2, Attack(1));
+            bt2.Turn();
+            True(bt2.Shots.Arrows == 0, $"без приказа выпущено {bt2.Shots.Arrows} стрел");
+        });
+
+        yield return ("стрельба (Г65): цель вне дальности — подходят на дальность, встают лицом к ней и стреляют", () =>
+        {
+            var (bt, a, b) = Range("infantry", 380, 33);
+            bt.Order(a, Attack(2));
+            long arrows = 0;
+            for (int turn = 0; turn < 4 && arrows == 0; turn++) { bt.Turn(); arrows += bt.Shots.Arrows; }
+            True(arrows > 0, "так и не выстрелили");
+            double gap = BattleMap.PolyGap(Corner(a), Corner(b));
+            True(gap <= BattleMap.RangeOf(a.P.U, R) + 1e-6, $"стоят в {gap:0} м — дальше дальности");
+        });
+
+        yield return ("упреждение (Г66): по идущей поперёк пехоте попадают реже, чем по стоящей", () =>
+        {
+            double Rate(bool moving)
+            {
+                double hits = 0, arrows = 0;
+                for (uint s = 1; s <= 2; s++)
+                {
+                    var bt = new Battle(Open(3000, 1200), R, new EngineContext { Rng = new Mulberry32(s + 700).Next });
+                    var inf = Templates.Get("infantry");
+                    var b = bt.Add(inf.Make(2, "Пехота", 500, 2), moving ? 1450 : 1500, 700, moving ? 90 : 0);
+                    var a = bt.Add(Templates.Get("archers").Make(1, "Лучники", 500, 1), 1500, 700 - (b.P.Fp.Depth / 2 + 102.5), 180);
+                    bt.Order(a, Attack(2));
+                    if (moving) bt.Order(b, new MoveOrder { X = 2800, Y = 700, Facing = 90 });
+                    bt.Turn();
+                    hits += bt.Shots.Hits; arrows += bt.Shots.Arrows;
+                }
+                return hits / Math.Max(1, arrows);
+            }
+            double stand = Rate(false), move = Rate(true);
+            True(move < stand * 0.85, $"попаданий: по стоящей {stand * 100:0.0}%, по идущей {move * 100:0.0}%");
+        });
+
+        yield return ("стрельба (Г40): по врагу, сцепившемуся с нашими, не стреляют", () =>
+        {
+            var bt = new Battle(Open(1200, 1200), R, new EngineContext { Rng = new Mulberry32(41).Next });
+            var inf = Templates.Get("infantry");
+            var foe = bt.Add(inf.Make(2, "Враг", 1000, 2), 600, 600, 0);
+            var ours = bt.Add(inf.Make(3, "Наши", 1000, 1), 600, 600 - 8.5, 180);   // уже в схватке
+            var arc = bt.Add(Templates.Get("archers").Make(1, "Лучники", 1000, 1), 600, 450, 180);
+            bt.Order(ours, Attack(2));
+            bt.Order(arc, Attack(2));
+            bt.Turn();
+            True(bt.Fights.Any(f => f.Touching), "наши сцепились");
+            True(bt.Shots.Arrows == 0, $"выпущено {bt.Shots.Arrows} стрел по свалке");
+        });
+
+        yield return ("павшие (Г67): каждый выбывший записан — от стрел с частью тела, в рукопашной у переднего края", () =>
+        {
+            var (bt, a, b) = Range("infantry", 100, 51);
+            bt.Order(a, Attack(2));
+            bt.Turn(); bt.Order(a, new MoveOrder { Kind = OrderKind.Hold }); bt.Turn();
+            int shot = bt.Deaths.Count(d => d.UnitId == 2);
+            True(shot == 1000 - (int)b.P.U.Soldiers, $"от стрел выбыло {1000 - b.P.U.Soldiers}, записано {shot}");
+            True(bt.Deaths.All(d => d.Part == "head" || d.Part == "torso" || d.Part == "legs" || d.Part == "horse"), "часть тела у каждого");
+            var (bm, ma, mb) = Duel("infantry", "infantry", 0.5, 52);
+            bm.Order(ma, Attack(2));
+            bm.Turn();
+            int lost = 2000 - (int)Math.Round(ma.P.U.Soldiers) - (int)Math.Round(mb.P.U.Soldiers), rec = bm.Deaths.Count;
+            True(Math.Abs(rec - lost) <= 2, $"в рукопашной выбыло {lost}, записано {rec}");
+            // у переднего края: павшие B — не дальше полуглубины строя от линии касания
+            double edge = mb.P.Y - mb.P.Fp.Depth / 2;
+            True(bm.Deaths.Where(d => d.UnitId == 2).All(d => d.Y < edge + 6), "павшие B — у переднего края");
         });
 
         yield return ("бой: одно зерно — один исход", () =>

@@ -38,7 +38,7 @@ namespace BattleCore
         public Mover Other(Mover m) => m == A ? B : A;
     }
 
-    public sealed class Battle
+    public sealed partial class Battle
     {
         public Geo Geo; public Rules R; public EngineContext Ctx;
         public List<Mover> Movers = new List<Mover>();
@@ -73,7 +73,7 @@ namespace BattleCore
             if (o.Kind == OrderKind.Attack)
             {
                 var t = ById(o.TargetId);
-                if (t != null) Aim(m, o, t);
+                if (t != null) { if (Shooter(m)) AimShoot(m, o, t); else Aim(m, o, t); }
                 return;
             }
             MoveSim.Give(m, o, Geo, R);
@@ -91,6 +91,7 @@ namespace BattleCore
             if (m.Order == null || m.Order.Kind != OrderKind.Attack || !Alive(m)) return;
             var t = ById(m.Order.TargetId);
             if (t == null || !Alive(t)) { m.Done = true; m.Vs = 0; return; }
+            if (Shooter(m)) { ReplanShoot(m, t); return; }
             var f = FightOf(m, t);
             if (f != null && f.Of(m).Engaged > 0) return;
             if (aimed.TryGetValue(m, out var a) && JsMath.Hypot(a.x - t.P.X, a.y - t.P.Y) < ReplanMoveM) return;
@@ -107,6 +108,9 @@ namespace BattleCore
             MoveSim.BeginTurn(Movers);
             Details.Clear();
             foreach (var f in Fights) { f.LossA = f.LossB = 0; f.Notes.Clear(); }
+            foreach (var v in Volleys) { v.LossA = v.LossB = v.Friendly = 0; v.Arrows = 0; }
+            Shots = new ShotStats();
+            var shotThisTurn = new List<Volley>();
             foreach (var m in Movers) chargesLeft[m] = (int)Units.AttackLimit(m.P.U, R);   // Г29: 1 натиск за ход, 2 при дисциплине 80+
             for (int k = 0; k < steps; k++)
             {
@@ -117,6 +121,8 @@ namespace BattleCore
                 for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
                 if (k % contactEvery == 0) Contacts(t);
                 Strike(t, dt);
+                Shoot(t, dt);
+                foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
                 if ((k + 1) % contactEvery == 0) foreach (var m in Movers) Relayout(m);
                 frame?.Invoke((k + 1) * dt);
             }
@@ -129,6 +135,14 @@ namespace BattleCore
                 var parts = new List<string> { $"«{f.A.P.U.Name}» −{Js.Num(Js.Round(f.LossA))}", $"«{f.B.P.U.Name}» −{Js.Num(Js.Round(f.LossB))}" };
                 parts.AddRange(f.Notes);
                 L.Add($"Схватка «{f.A.P.U.Name}» и «{f.B.P.U.Name}»{since}: {string.Join("; ", parts)}");
+            }
+            foreach (var v in shotThisTurn)
+            {
+                if (v.Arrows == 0 && v.LossA == 0 && v.LossB == 0) continue;
+                var parts = new List<string> { $"стрел {v.Arrows}", $"«{v.B.P.U.Name}» −{Js.Num(v.LossB)}" };
+                if (v.LossA > 0) parts.Add($"ответом «{v.A.P.U.Name}» −{Js.Num(v.LossA)}");
+                if (v.Friendly > 0) parts.Add($"по своим −{Js.Num(v.Friendly)}");
+                L.Add($"Стрельба «{v.A.P.U.Name}» по «{v.B.P.U.Name}»: {string.Join("; ", parts)}");
             }
             Fights.RemoveAll(f => f.Over);
             return L;
@@ -157,9 +171,13 @@ namespace BattleCore
         string ModeAt(Mover def) => GroundOf(def.P.X, def.P.Y)?.Mode == "rough" ? Modes.MeleeRough : Modes.MeleeForm;
 
         // ── касание (Г27): колонна бьёт, если хоть одна её фигурка не дальше MeleeGap от фигурки врага ──
+        readonly Dictionary<Mover, (List<int> figs, Mover foe)> frontFigs = new Dictionary<Mover, (List<int> figs, Mover foe)>();
         Fight.Side SideOf(Mover x, Mover y)
         {
             var touch = Bodies.Touch(x, y, R.Map.MeleeGap);
+            var touching = new List<int>();
+            for (int k = 0; k < touch.Length; k++) if (touch[k].ky >= 0) touching.Add(k);
+            if (touching.Count > 0) frontFigs[x] = (touching, y);
             double total = 0;
             var colMen = new Dictionary<int, double>();
             var colSector = new Dictionary<int, (double d, string s)>();
@@ -188,6 +206,7 @@ namespace BattleCore
 
         void Contacts(double t)
         {
+            frontFigs.Clear();
             for (int i = 0; i < Movers.Count; i++)
                 for (int j = i + 1; j < Movers.Count; j++)
                 {
@@ -356,6 +375,32 @@ namespace BattleCore
             Details.Add($"{Js.Num(Js.R1(t - (Clock)))} с · {w.Att.P.U.Name} → {def.Name}{(w.Charge ? " (натиск)" : w.Counter ? " (ответ)" : "")}: −{Js.Num(cas)}");
         }
 
+        // Павшие в рукопашной (Г67): точного места нет — падают у переднего края схватки, в случайной точке
+        // касающихся фигурок, лицом к врагу, кровь брызжет назад (от удара). Случайность — своя, только для рисунка.
+        void MeleeDeaths(Mover m, int n)
+        {
+            if (m.Figs.Count == 0) return;
+            List<int> figs; Mover foe = null;
+            if (frontFigs.TryGetValue(m, out var fr) && fr.figs.Count > 0) { figs = fr.figs.Where(k => k < m.Figs.Count).ToList(); foe = fr.foe; }
+            else figs = Enumerable.Range(0, m.Figs.Count).Where(k => m.P.Figs[k].Rank == 0).ToList();
+            if (figs.Count == 0) figs = Enumerable.Range(0, m.Figs.Count).ToList();
+            double h = m.P.Facing * Math.PI / 180, rx = Math.Cos(h), ry = Math.Sin(h), fx = Math.Sin(h), fy = -Math.Cos(h);
+            for (int i = 0; i < n; i++)
+            {
+                int k = figs[(int)(look() * figs.Count) % figs.Count];
+                var s = m.Figs[k]; var fg = m.P.Figs[k];
+                double ox = (look() - 0.5) * fg.Width, oy = (look() - 0.5) * fg.Depth;
+                double x = s.X + ox * rx - oy * fx, y = s.Y + ox * ry - oy * fy;
+                double dir = foe != null ? Math.Atan2(y - foe.P.Y, x - foe.P.X) * 180 / Math.PI : (m.P.Facing + 90);   // от врага — за спину
+                double u = look();
+                Deaths.Add(new Death
+                {
+                    X = x, Y = y, T = curT, Facing = m.P.Facing + (look() - 0.5) * 60, Dir = dir + (look() - 0.5) * 50,
+                    UnitId = m.P.U.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs", Killed = true,
+                });
+            }
+        }
+
         // ── потери — фигурками (Г30): раскладка по нынешней численности, фронт сужается с краёв, как фишка
         // трекера; новые места — ближайшим фигуркам спереди назад, лишние фигурки падают на месте ──
         public void Relayout(Mover m)
@@ -363,6 +408,9 @@ namespace BattleCore
             var P = m.P;
             int n = (int)Math.Max(0, Js.Round(P.U.Soldiers));
             if (n == m.LaidMen) return;
+            int melee = Math.Max(0, m.LaidMen - n - m.ShotDown);
+            m.ShotDown = 0;
+            if (melee > 0) MeleeDeaths(m, melee);
             m.LaidMen = n;
             int oldCols = m.Cols, oldNominal = m.NominalCols;
             var figs = Formation.Layout(P.U, MenPerFigure, R);
