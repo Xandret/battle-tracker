@@ -59,6 +59,7 @@ footer{ display:flex; gap:10px; align-items:center; padding:8px 16px; border-top
     <p class="note" id="note"></p>
     <h2>Отряды</h2><div id="units"></div>
     <h2>Показать</h2>
+    <label><input type="checkbox" id="showMen" checked> человечки вблизи (иначе плашки)</label>
     <label><input type="checkbox" id="showRoute" checked> путь и цель</label>
     <label><input type="checkbox" id="showFlow"> карта направлений выбранного отряда</label>
     <label><input type="checkbox" id="showSlots"> места в строю</label>
@@ -144,17 +145,25 @@ function draw(){
     }
     const f = fr[i], h = f[2] * Math.PI / 180;
     if($("showSlots").checked) drawSlots(u, f, col);
-    ctx.fillStyle = col; ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.6;
-    u.figs.forEach(([w, d], k) => {
-      const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
-      ctx.save(); ctx.translate(x, y); ctx.rotate(h);
-      const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
-      ctx.fillRect(-W / 2, -D / 2, W, D); if(view.s > 2) ctx.strokeRect(-W / 2, -D / 2, W, D);
-      ctx.restore();
-    });
+    if($("showMen").checked && view.s >= MEN_FROM){
+      // вблизи — человечки (Г32); идущий отряд шагает
+      const moving = f[3] > 0.02, t = frame * S.dt;
+      u.figs.forEach((fig, k) => drawMen(u, fig, f[4 + 2 * k], f[5 + 2 * k], h, col, moving, t, k));
+    } else {
+      // издали — плашка: фигурка одним прямоугольником
+      ctx.fillStyle = col; ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.6;
+      u.figs.forEach(([w, d], k) => {
+        const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(h);
+        const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
+        ctx.fillRect(-W / 2, -D / 2, W, D); if(view.s > 2) ctx.strokeRect(-W / 2, -D / 2, W, D);
+        ctx.restore();
+      });
+    }
     // центр строя и курс
     ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5; ctx.beginPath();
     ctx.moveTo(X(f[0]), Y(f[1])); ctx.lineTo(X(f[0] + Math.sin(h) * (u.depth / 2 + 14)), Y(f[1] - Math.cos(h) * (u.depth / 2 + 14))); ctx.stroke();
+    if($("showMen").checked && view.s >= 1.5) drawBanner(f, h, u.depth, col);   // поверх линии курса
     // карта всегда «бумажная» — подпись тёмная со светлой обводкой в любой теме
     const lx = X(f[0]) + 8, ly = Y(f[1]) + u.depth / 2 * view.s + 16;
     ctx.font = "600 12px system-ui"; ctx.lineJoin = "round";
@@ -166,6 +175,196 @@ function draw(){
   $("slider").value = Math.round(frame);
   showLog(time);
   showUnits(fr);
+}
+
+// ── Человечки (Г32): фигурка 5 × 2 — десять бойцов, вид сверху. Рисунки свои (Г10) ──
+// Боец рисуется в метрах, вперёд — вверх (−y). Каждый вид бойца один раз рисуется в маленький холст
+// (спрайт) под текущее приближение, дальше фигурка только расставляет копии — так тысячи бойцов
+// не тормозят. Разброс в осанке и место в строю «гуляют» по зерну бойца — строй выглядит живым.
+const MEN_FROM = 3;   // px на метр: ближе — человечки, дальше — плашки
+const INK = "#2b2621", CLOTH = ["#cfcbc2", "#c5c1b7", "#d8d4cb"], STEEL = "#a4a8ab", SHINE = "#e2e4e5", WOOD = "#7a5a36";
+const HAIR = ["#6b4a2f", "#8a6a45", "#4b3a2a"], HORSE = ["#7a5233", "#4a3426", "#8b5a2b", "#9a9590", "#2f2b28", "#b08a5a"];
+const LOOK_BY_TPL = {militia: "militia", infantry: "spear", guard: "sword", foot_knights: "sword", pikemen: "pike",
+  militia_archers: "bow", archers: "bow", crossbowmen: "crossbow", knights: "lance", elite_cavalry: "barded"};
+const LOOK_BY_TYPE = {infantry: "spear", pike: "pike", archer: "bow", cavalry: "lance"};
+const lookOf = u => LOOK_BY_TPL[u.tpl] || LOOK_BY_TYPE[u.type] || "spear";
+// рамка рисунка каждой позы, м: [x0, y0, x1, y1]
+const BOX = {militia: [-.4, -1.5, .4, .4], militiaUp: [-.4, -.45, .4, .4], spear: [-.4, -1.5, .4, .4], spearUp: [-.4, -.45, .4, .4],
+  sword: [-.4, -.9, .4, .4], bow: [-.4, -.65, .4, .4], crossbow: [-.4, -.75, .4, .4],
+  pikeDown: [-.4, -4.45, .4, .8], pikeDown2: [-.45, -4.45, .4, .8], pikeUp: [-.4, -.5, .4, .4],
+  lance: [-.45, -2.85, .45, 1.4], barded: [-.45, -2.85, .45, 1.4]};
+// поза бойца по шеренге: пики опущены в первых четырёх, копья — в первых двух
+function poseOf(look, rank){
+  if(look === "pike") return rank >= 4 ? "pikeUp" : rank % 2 ? "pikeDown2" : "pikeDown";
+  if(look === "spear" || look === "militia") return rank >= 2 ? look + "Up" : look;
+  return look;
+}
+function hash(a, b){ let x = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be5ab, 0xc2b2ae35); x ^= x >>> 15; x = Math.imul(x, 0x2c1b3c6d); x ^= x >>> 12; return (x >>> 0) / 4294967296; }
+
+function ell(g, x, y, rx, ry, fill, rot = 0, stroke = true){
+  g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
+  if(fill){ g.fillStyle = fill; g.fill(); }
+  if(stroke){ g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke(); }
+}
+function stick(g, x0, y0, x1, y1, width, color){
+  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.strokeStyle = INK; g.lineWidth = width + 0.04; g.stroke();
+  g.strokeStyle = color; g.lineWidth = width; g.stroke();
+}
+function tip(g, x, y, len){ g.beginPath(); g.moveTo(x - 0.045, y); g.lineTo(x, y - len); g.lineTo(x + 0.045, y); g.closePath(); g.fillStyle = SHINE; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.025; g.stroke(); }
+function helmet(g, v){ ell(g, 0, 0, 0.12, 0.12, STEEL); ell(g, -0.035, -0.035, 0.04, 0.04, SHINE, 0, false); }
+// одежда серая с оттенком цвета отряда — издали отряд узнаётся по цвету, вблизи фигурки всё равно «серые» (Г7)
+let TINT = null;
+function mix(a, b, k){
+  const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const x = p(a), y = p(b);
+  return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * k).toString(16).padStart(2, "0")).join("");
+}
+function shoulders(g, fill){ ell(g, 0, 0.02, 0.27, 0.14, TINT ? mix(fill, TINT, 0.3) : fill); }
+
+const PAINT = {
+  militia(g, col, v){ militiaman(g, col, v, true); },
+  militiaUp(g, col, v){ militiaman(g, col, v, false); },
+  spear(g, col, v){ spearman(g, col, v, true); },
+  spearUp(g, col, v){ spearman(g, col, v, false); },
+  sword(g, col, v){
+    stick(g, 0.24, -0.02, 0.31, -0.72, 0.03, SHINE); stick(g, 0.18, -0.05, 0.3, -0.07, 0.03, WOOD);   // клинок и гарда
+    shoulders(g, CLOTH[v]);
+    ell(g, 0.22, 0.02, 0.075, 0.075, col); ell(g, -0.22, 0.02, 0.075, 0.075, col);              // наплечники
+    ell(g, -0.06, -0.21, 0.26, 0.09, col, -0.12); ell(g, -0.06, -0.21, 0.035, 0.035, SHINE);    // большой щит
+    helmet(g, v);
+  },
+  pikeDown(g, col, v){ pikeman(g, col, v, 0.12); },
+  pikeDown2(g, col, v){ pikeman(g, col, v, -0.3); },     // чётные шеренги — пика слева: ёж из пик, а не одна линия
+  pikeUp(g, col, v){
+    shoulders(g, CLOTH[v]);
+    ell(g, 0.22, 0.02, 0.07, 0.07, col); ell(g, -0.22, 0.02, 0.07, 0.07, col);
+    helmet(g, v);
+    stick(g, 0.14, -0.02, 0.17, -0.34, 0.04, WOOD); ell(g, 0.17, -0.36, 0.035, 0.035, SHINE);   // пика стоймя — видна торцом
+  },
+  bow(g, col, v){
+    g.fillStyle = "#8a6a45"; g.strokeStyle = INK; g.lineWidth = 0.03;                           // колчан за спиной
+    g.beginPath(); g.rect(0.1, 0.08, 0.12, 0.26); g.fill(); g.stroke();
+    ell(g, 0.13, 0.08, 0.025, 0.025, "#f1ede4", 0, false); ell(g, 0.19, 0.09, 0.025, 0.025, "#f1ede4", 0, false);
+    shoulders(g, ["#c4c3b0", "#bdbca8", "#cccbb9"][v]);
+    g.beginPath(); g.moveTo(-0.3, -0.17); g.quadraticCurveTo(0, -0.55, 0.3, -0.17);               // лук
+    g.strokeStyle = INK; g.lineWidth = 0.075; g.stroke(); g.strokeStyle = WOOD; g.lineWidth = 0.045; g.stroke();
+    g.beginPath(); g.moveTo(-0.3, -0.17); g.lineTo(0.3, -0.17); g.strokeStyle = "#efe9dc"; g.lineWidth = 0.015; g.stroke();
+    stick(g, 0, -0.08, 0, -0.5, 0.015, "#efe9dc");                                               // стрела на тетиве
+    ell(g, 0, 0, 0.12, 0.12, col); ell(g, 0, 0.035, 0.07, 0.06, "#00000022", 0, false);          // капюшон цвета отряда
+  },
+  crossbow(g, col, v){
+    g.fillStyle = col; g.strokeStyle = INK; g.lineWidth = 0.035;                                  // павеза за спиной
+    g.beginPath(); g.rect(-0.28, 0.13, 0.56, 0.17); g.fill(); g.stroke();
+    shoulders(g, CLOTH[v]);
+    stick(g, 0.04, 0.02, 0.04, -0.55, 0.06, WOOD);                                               // ложе
+    g.beginPath(); g.moveTo(-0.24, -0.47); g.quadraticCurveTo(0.04, -0.62, 0.32, -0.47);          // дуга
+    g.strokeStyle = INK; g.lineWidth = 0.07; g.stroke(); g.strokeStyle = STEEL; g.lineWidth = 0.04; g.stroke();
+    helmet(g, v);
+  },
+  lance(g, col, v){ horseman(g, col, v, false); },
+  barded(g, col, v){ horseman(g, col, v, true); },
+};
+// Копьё: передние две шеренги держат его вперёд, задние — стоймя (видно торцом), иначе строй — частокол
+function spearOf(g, down){
+  if(down){ stick(g, 0.2, 0.3, 0.2, -1.25, 0.035, WOOD); tip(g, 0.2, -1.25, 0.18); }
+}
+function spearUpOf(g, down){
+  if(!down){ stick(g, 0.2, -0.02, 0.23, -0.3, 0.035, WOOD); ell(g, 0.23, -0.32, 0.03, 0.03, SHINE); }
+}
+function militiaman(g, col, v, down){
+  spearOf(g, down);
+  shoulders(g, ["#b9a98c", "#a99a7e", "#c4b597"][v]);
+  ell(g, -0.21, 0.02, 0.07, 0.07, col);                                      // повязка цвета отряда на плече
+  ell(g, 0, 0, 0.115, 0.115, HAIR[v]);                                       // без шлема
+  spearUpOf(g, down);
+}
+function spearman(g, col, v, down){
+  spearOf(g, down);
+  shoulders(g, CLOTH[v]);
+  ell(g, -0.12, -0.25, 0.22, 0.065, col, -0.18); ell(g, -0.12, -0.25, 0.03, 0.03, SHINE);   // щит перед грудью, с умбоном
+  helmet(g, v);
+  spearUpOf(g, down);
+}
+function pikeman(g, col, v, px){
+  stick(g, px, 0.7, px, -4.2, 0.04, WOOD); tip(g, px, -4.2, 0.22);
+  shoulders(g, CLOTH[v]);
+  ell(g, 0.22, 0.02, 0.07, 0.07, col); ell(g, -0.22, 0.02, 0.07, 0.07, col);
+  helmet(g, v);
+}
+
+// Всадник: конь сверху — вытянутое тело, шея с головой вперёд, хвост; попона или полная броня коня — цвет отряда
+function horseman(g, col, v, barded){
+  const hc = HORSE[v * 2 % HORSE.length];
+  g.beginPath(); g.moveTo(0, 0.88); g.quadraticCurveTo(0.08, 1.1, 0.03, 1.32);                    // хвост
+  g.strokeStyle = INK; g.lineWidth = 0.12; g.stroke(); g.strokeStyle = "#2a211b"; g.lineWidth = 0.08; g.stroke();
+  ell(g, 0, 0.1, 0.27, 0.85, hc);                                                                // туловище
+  ell(g, 0, -0.86, 0.11, 0.32, barded ? STEEL : hc);                                             // шея и голова
+  ell(g, -0.06, -1.15, 0.03, 0.05, barded ? STEEL : hc); ell(g, 0.06, -1.15, 0.03, 0.05, barded ? STEEL : hc);   // уши
+  if(!barded) stick(g, 0, -0.62, 0, -1.02, 0.05, "#2a211b");                                    // грива
+  if(barded){ ell(g, 0, 0.12, 0.31, 0.78, col); ell(g, 0, 0.12, 0.2, 0.62, "#ffffff22", 0, false); }
+  else ell(g, 0, 0.08, 0.31, 0.38, col);                                                         // попона под седлом
+  stick(g, 0.2, 0.55, 0.2, -2.6, 0.04, WOOD); tip(g, 0.2, -2.6, 0.2);                           // копьё
+  g.beginPath(); g.moveTo(0.22, -2.3); g.lineTo(0.42, -2.22); g.lineTo(0.22, -2.12); g.closePath(); // флажок
+  g.fillStyle = col; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.02; g.stroke();
+  ell(g, 0, 0, 0.25, 0.13, mix(CLOTH[v], col, 0.3));                                            // всадник
+  ell(g, -0.23, -0.03, 0.06, 0.15, col);                                                         // щит
+  helmet(g, v);
+}
+
+const SPR = new Map();
+function sprite(look, col, v){
+  const q = Math.pow(1.2, Math.round(Math.log(view.s) / Math.log(1.2)));   // приближение ступеньками — меньше перерисовок
+  const key = `${look}|${col}|${v}|${q.toFixed(3)}`;
+  let sp = SPR.get(key);
+  if(sp) return sp;
+  const [x0, y0, x1, y1] = BOX[look], k = Math.min(q, 90) * (window.devicePixelRatio || 1);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.ceil((x1 - x0) * k)); c.height = Math.max(1, Math.ceil((y1 - y0) * k));
+  const g = c.getContext("2d");
+  g.scale(k, k); g.translate(-x0, -y0); g.lineJoin = "round"; g.lineCap = "round";
+  TINT = col; PAINT[look](g, col, v); TINT = null;
+  if(SPR.size > 600) SPR.clear();
+  sp = {c, x: x0, y: y0, w: x1 - x0, h: y1 - y0};
+  SPR.set(key, sp);
+  return sp;
+}
+
+// Фигурка: бойцы по сетке pm × rd, спереди назад; в неполном ряду — по центру
+function drawMen(u, [w, d, men, rank], fx, fy, h, col, moving, t, k){
+  const pm = u.pm || 1, rd = u.rd || 1, look = lookOf(u);
+  const cols = Math.max(1, Math.round(w / pm)), rows = Math.max(1, Math.round(d / rd));
+  if(!u.fd) u.fd = Math.max(...u.figs.map(q => Math.round(q[1] / rd)));
+  ctx.save(); ctx.translate(X(fx), Y(fy)); ctx.rotate(h); ctx.scale(view.s, view.s);
+  let left = Math.round(men ?? cols * rows);
+  for(let j = 0; j < rows && left > 0; j++){
+    const n = Math.min(cols, left), off = (cols - n) / 2; left -= n;
+    const manRank = (rank ?? 0) * u.fd + j;
+    const pose = poseOf(look, manRank);
+    for(let i = 0; i < n; i++){
+      const seed = u.id * 7919 + k * 64 + j * 8 + i;
+      const r1 = hash(seed, 1), r2 = hash(seed, 2), r3 = hash(seed, 3);
+      let x = -w / 2 + (off + i + 0.5) * pm + (r1 - 0.5) * 0.12 * pm;
+      let y = -d / 2 + (j + 0.5) * rd + (r2 - 0.5) * 0.12 * rd;
+      if(moving){ const ph = r3 * 6.283; y += Math.sin(t * 11 + ph) * 0.05; x += Math.cos(t * 5.5 + ph) * 0.025; }
+      const sp = sprite(pose, col, Math.floor(r3 * 3));
+      ctx.drawImage(sp.c, x + sp.x, y + sp.y, sp.w, sp.h);
+    }
+  }
+  ctx.restore();
+}
+
+// Знамя отряда (Г7): в центре строя, ближе к первой шеренге; рисуется в пикселях — видно с любого приближения
+function drawBanner(f, h, depth, col){
+  const bx = X(f[0] + Math.sin(h) * depth * 0.2), by = Y(f[1] - Math.cos(h) * depth * 0.2);
+  const s = Math.min(1.6, Math.max(0.8, view.s / 12));
+  ctx.save(); ctx.translate(bx, by); ctx.scale(s, s);
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.strokeStyle = INK; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(0, -26); ctx.stroke();
+  ctx.strokeStyle = WOOD; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(17, -25); ctx.lineTo(13, -19.5); ctx.lineTo(17, -14); ctx.lineTo(0, -14); ctx.closePath();
+  ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.fillRect(1.5, -21, 9, 2.2);
+  ctx.restore();
 }
 
 function drawFlow(u){
@@ -239,7 +438,7 @@ if(!DATA){
     speed = +b.dataset.speed; document.querySelectorAll("[data-speed]").forEach(x => x.classList.toggle("on", x === b));
   });
   $("slider").oninput = e => { frame = +e.target.value; draw(); };
-  ["showRoute", "showFlow", "showSlots"].forEach(id => $(id).onchange = draw);
+  ["showMen", "showRoute", "showFlow", "showSlots"].forEach(id => $(id).onchange = draw);
   $("units").onclick = e => { const el = e.target.closest(".unit"); if(el){ sel = +el.dataset.i; draw(); } };
   addEventListener("keydown", e => {
     if(e.code === "Space"){ e.preventDefault(); $("play").click(); }

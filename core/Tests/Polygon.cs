@@ -13,11 +13,13 @@ static class Polygon
         public Geo Geo;
         public int Turns;
         public List<(Mover M, MoveOrder O)> Units = new List<(Mover M, MoveOrder O)>();
-        public void Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf)
+        public Dictionary<Mover, string> Tpl = new Dictionary<Mover, string>();   // шаблон — облик бойцов на рисунке
+        public void Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf, double men = 1000)
         {
-            var m = MoveTests.Unit(tpl, id, x, y, facing);
+            var m = MoveTests.Unit(tpl, id, x, y, facing, men);
             m.P.U.Name = name;
             Units.Add((m, new MoveOrder { X = tx, Y = ty, Facing = tf }));
+            Tpl[m] = tpl;
         }
     }
 
@@ -63,6 +65,21 @@ static class Polygon
         river.Add("infantry", 1, "Пехота", 350, 820, 0, 350, 80, 0);
         river.Add("knights", 2, "Конница", 850, 830, 0, 850, 60, 0);
         list.Add(river);
+
+        // Облик (Г32): по отряду каждого шаблона, по 200 человек — приблизь, чтобы разглядеть бойцов
+        var parade = new Scene { Name = "Рода войск", Turns = 3, Geo = MoveTests.Open(1100, 600),
+            Note = "Облик фигурок (Г32): фигурка 5 × 2 — десять человечков сверху; щит, капюшон или попона — цвет отряда. " +
+                   "Пикинёры опускают пики в первых четырёх шеренгах, задние держат стоймя. Издали фигурка снова плашка. Рисунки свои (Г10)." };
+        string[][] kinds = {
+            new[] { "militia", "Ополчение" }, new[] { "infantry", "Пехота" }, new[] { "guard", "Гвардия" }, new[] { "pikemen", "Пикинёры" },
+            new[] { "archers", "Лучники" }, new[] { "crossbowmen", "Арбалетчики" }, new[] { "knights", "Конные рыцари" }, new[] { "elite_cavalry", "Элитная конница" },
+        };
+        for (int k = 0; k < kinds.Length; k++)
+        {
+            double x = 80 + k * 130;
+            parade.Add(kinds[k][0], k + 1, kinds[k][1], x, 500, 0, x, 300, 0, 200);
+        }
+        list.Add(parade);
         return list;
     }
 
@@ -91,9 +108,11 @@ static class Polygon
                 dt = 0.2, turnSec = R.Move.TurnSec, turns = sc.Turns,
                 units = sc.Units.Select(u => new
                 {
-                    id = u.M.P.U.Id, name = u.M.P.U.Name, type = u.M.P.U.Type, men = u.M.P.U.Soldiers,
+                    id = u.M.P.U.Id, name = u.M.P.U.Name, type = u.M.P.U.Type, men = u.M.P.U.Soldiers, tpl = sc.Tpl[u.M],
                     norm = BattleMap.UnitSpeed(u.M.P.U, R), front = u.M.P.Fp.Front, depth = u.M.P.Fp.Depth,
-                    figs = u.M.P.Figs.Select(f => new[] { f.Width, f.Depth }).ToList(),
+                    // фигурка: ширина, глубина, бойцов, ряд квадратиков (0 — передний); шаг бойца в строю — pm × rd
+                    figs = u.M.P.Figs.Select(f => new[] { f.Width, f.Depth, f.Men, f.Rank }).ToList(),
+                    pm = FormationOf(u.M.P.U, R).PerMan, rd = FormationOf(u.M.P.U, R).RankDepth,
                     order = new[] { u.O.X, u.O.Y, u.O.Facing },
                     route = u.M.Track?.Points.Select(p => new[] { Math.Round(p.x, 1), Math.Round(p.y, 1) }).ToList(),
                     flow = Flow(u.M.Field), note = u.M.Note,
@@ -110,6 +129,9 @@ static class Polygon
         File.WriteAllText(outp, tpl.Replace("/*DATA*/null", json.Replace("</", "<\\/")));
         Console.WriteLine($"полигон: {scenes.Count} сцен → {outp} ({new FileInfo(outp).Length / 1024} КБ)");
     }
+
+    static Rules.FormationR FormationOf(Unit u, Rules r) =>
+        r.Map.Formation.TryGetValue(u.Type, out var f) ? f : r.Map.Formation["infantry"];
 
     // Кадр: по отряду [x, y, курс, скорость нормы, фигурка₀ x, y, фигурка₁ x, y, …], до 0,1 м
     static double[][] Snap(List<Mover> ms) => ms.Select(m =>
