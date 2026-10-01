@@ -275,6 +275,9 @@ Test("баллистика сверх стола: вблизи смертоно�
     if (!(forest < at100 * 0.9)) throw new Exception($"в лесу: {forest:0}, в поле: {at100:0}");
 });
 
+// ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
+foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Test(name, run);
+
 if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); CalibrateRanged(args.Length > 2 ? int.Parse(args[2]) : 400); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-melee") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-ranged") { CalibrateRanged(args.Length > 1 ? int.Parse(args[1]) : 400); return 0; }

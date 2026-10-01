@@ -56,6 +56,22 @@ namespace BattleCore
             public FormationR(double perMan, double ranks, double rankDepth) { PerMan = perMan; Ranks = ranks; RankDepth = rankDepth; }
         }
         public sealed class HeightR { public double DownhillMelee = 1.2, UphillMelee = 0.9, RangePerLevel = 0.1, ClimbCost = 1.5; }
+        // Местность (К24): режим боя под целью ("form" / "rough"); движение ×[пехота, конница], null — непроходимо;
+        // укрытие от стрел, % от итогового урона; усталость ×; натиск невозможен; Sight — сколько метров этой
+        // местности пропускает взгляд (null — не мешает вовсе)
+        public sealed class TerrainR
+        {
+            public string Mode;
+            public double[] Move;
+            public double Cover, Fatigue;
+            public bool NoCharge;
+            public double? Sight;
+            public TerrainR(string mode, double[] move, double cover = 0, double fatigue = 0, bool noCharge = false, double? sight = null)
+            { Mode = mode; Move = move; Cover = cover; Fatigue = fatigue; NoCharge = noCharge; Sight = sight; }
+        }
+        public sealed class SpeedR { public double Infantry = 100, Archer = 100, Pike = 80, Cavalry = 250, HorseArcher = 300; }
+        public sealed class RangeR { public double Archer = 200, HorseArcher = 150, Other = 150; }
+        public sealed class PanicR { public double Radius = 150, MoraleLoss = 100; }
         public sealed class MapR
         {
             public bool Draft = true;
@@ -67,9 +83,36 @@ namespace BattleCore
                 ["archer"] = new FormationR(1, 5, 1),       // 1000 → 200 × 5 м
                 ["cavalry"] = new FormationR(1.5, 5, 3),    // 1000 → 300 × 15 м
             };
+            static double[] M(double inf, double cav) => new[] { inf, cav };
+            public Dictionary<string, TerrainR> Terrain = new Dictionary<string, TerrainR>
+            {
+                ["field"] = new TerrainR("form", M(1, 1)),
+                ["road"] = new TerrainR("form", M(0.7, 0.7)),
+                ["sand"] = new TerrainR("form", M(1.5, 2), fatigue: 2),
+                ["snow"] = new TerrainR("form", M(1.5, 1.5), fatigue: 1.5),
+                ["shrub"] = new TerrainR("rough", M(1.5, 2), cover: 15),
+                ["forest"] = new TerrainR("rough", M(2, 3), cover: 30, noCharge: true, sight: 100),
+                ["water"] = new TerrainR("rough", null),
+                ["ford"] = new TerrainR("rough", M(2, 2), noCharge: true),
+                ["bridge"] = new TerrainR("form", M(1, 1)),
+                ["swamp"] = new TerrainR("rough", M(3, 4), noCharge: true),
+                ["rocks"] = new TerrainR("rough", null, sight: 0),
+                ["wall"] = new TerrainR("rough", null, cover: 50, sight: 0),
+                ["gate"] = new TerrainR("rough", null, cover: 50, sight: 0),
+                ["tower"] = new TerrainR("rough", null, cover: 50, sight: 0),
+                ["palisade"] = new TerrainR("rough", M(3, 4), cover: 30),
+                ["moat"] = new TerrainR("rough", M(3, 4)),
+                ["trench"] = new TerrainR("rough", M(3, 4), cover: 30),
+                ["building"] = new TerrainR("rough", null, cover: 50, sight: 0),
+                ["pavement"] = new TerrainR("form", M(1, 1)),
+                ["breach"] = new TerrainR("rough", M(3, 4)),
+            };
             public HeightR Height = new HeightR();
-            public double MeleeGap = 5;
-            public double ForestCoverPct = 30;   // копия terrain.forest.cover из rules.js — укрытие леса от стрел за столом
+            public SpeedR Speed = new SpeedR();     // движение за ход, м (К22)
+            public RangeR Range = new RangeR();     // дальность стрельбы, м (К23)
+            public double MeleeGap = 5;             // «вплотную» — края строя ближе одной клетки (К23)
+            public double ChargeRunUp = 50;         // натиску нужен разбег по чистой местности (К29)
+            public PanicR Panic = new PanicR();     // каскадная паника (К11, К25)
         }
         public MapR Map = new MapR();
 

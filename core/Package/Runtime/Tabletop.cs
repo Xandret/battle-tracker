@@ -113,7 +113,7 @@ namespace BattleCore
                 if (defInForest)
                 {
                     req.MapMods = new MapMods();
-                    req.MapMods.Ab.CoverPct = R.Map.ForestCoverPct;
+                    req.MapMods.Ab.CoverPct = R.Map.Terrain["forest"].Cover;
                     req.MapMods.Ab.CoverNote = "🌲 Цель в лесу";
                 }
                 var res = Combat.ResolveBattle(att, def, req, ctx);
