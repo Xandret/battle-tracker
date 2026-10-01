@@ -1,6 +1,8 @@
 # трекер
 node_modules/
 dist/
+# адрес вебхука Discord — секрет (tools/discord-send.mjs)
+discord-webhook.txt
 
 # движок на C#
 bin/

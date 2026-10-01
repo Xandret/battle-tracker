@@ -10,6 +10,7 @@
     "golden": "node tools/make-golden.mjs",
     "smoke": "node tools/smoke.mjs",
     "discord": "node tools/discord.mjs",
+    "discord:send": "node tools/discord-send.mjs",
     "siege": "node tools/siege-report.mjs",
     "check": "npm test && npm run build && npm run smoke && npm run discord"
   },
