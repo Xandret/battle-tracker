@@ -25,19 +25,46 @@ namespace BattleCore
         public int W, H;
         public byte[] T, Z;
         public Dictionary<string, object> Meta = new Dictionary<string, object>();
-        public TerrainMap Clone() => new TerrainMap
+        // участки укреплений (6б, Г46): номер участка в клетке (0 — нет) и их список; null — ещё не построены
+        public ushort[] S;
+        public List<FortSection> Forts;
+        public TerrainMap Clone()
         {
-            V = V, Cell = Cell, W = W, H = H, T = (byte[])T.Clone(), Z = (byte[])Z.Clone(),
-            Meta = new Dictionary<string, object>(Meta),
-        };
+            var c = new TerrainMap
+            {
+                V = V, Cell = Cell, W = W, H = H, T = (byte[])T.Clone(), Z = (byte[])Z.Clone(),
+                Meta = new Dictionary<string, object>(Meta),
+            };
+            if (S != null && Forts != null)
+            {
+                c.S = (ushort[])S.Clone();
+                c.Forts = Forts.ConvertAll(f => f.Copy());
+            }
+            return c;
+        }
     }
 
-    // Как карта лежит в сохранении трекера (battleMap)
+    // Участок укреплений: в сохранении — номер, вид, урон и проломы; остальное размечается по слою S
+    public sealed class FortSection
+    {
+        public int Id;
+        public string Kind;
+        public double Dmg;
+        public int Breaches;
+        public int N, Up, Len;          // клеток, из них целых, длина вдоль стены (клеток)
+        public double Cx, Cy;           // центр, в клетках
+        public FortSection Copy() => (FortSection)MemberwiseClone();
+    }
+
+    // Как карта лежит в сохранении трекера (battleMap). Forts — как пришло из JSON: список словарей
+    // (числа — double) или что угодно другое у битого сохранения.
     public sealed class TerrainSave
     {
         public double V = 1, Cell, W, H;
         public string T, Z;
         public Dictionary<string, object> Meta;
+        public string S;
+        public object Forts;
     }
 
     public struct CellInfo { public int X, Y, T, Z; }
@@ -134,6 +161,40 @@ namespace BattleCore
             return string.Join(",", parts);
         }
 
+        public static string EncodeLayer(ushort[] arr)
+        {
+            var parts = new List<string>();
+            if (arr.Length == 0) return "";
+            int v = arr[0], n = 0;
+            for (int i = 0; i < arr.Length; i++)
+            {
+                if (arr[i] == v) { n++; continue; }
+                parts.Add(B36(v) + "." + B36(n));
+                v = arr[i]; n = 1;
+            }
+            parts.Add(B36(v) + "." + B36(n));
+            return string.Join(",", parts);
+        }
+
+        // Слой номеров участков: те же повторы, значения до 65535
+        public static ushort[] DecodeLayer16(string str, int len, int max)
+        {
+            var arr = new ushort[len];
+            if (string.IsNullOrEmpty(str)) return arr;
+            int p = 0;
+            foreach (var run in str.Split(','))
+            {
+                var dot = run.Split('.');
+                if (dot.Length < 2 || !ParseB36(dot[0], out long v) || !ParseB36(dot[1], out long n) || n < 0 || p + n > len)
+                    throw new FormatException("повреждён слой карты");
+                ushort b = (ushort)Math.Min(Math.Max(v, 0), max);
+                for (int i = 0; i < n; i++) arr[p + i] = b;
+                p += (int)n;
+            }
+            if (p != len) throw new FormatException("повреждён слой карты: не хватает клеток");
+            return arr;
+        }
+
         public static byte[] DecodeLayer(string str, int len, int max)
         {
             var arr = new byte[len];
@@ -152,10 +213,24 @@ namespace BattleCore
             return arr;
         }
 
-        public static TerrainSave Serialize(TerrainMap m) => m == null ? null : new TerrainSave
+        public static TerrainSave Serialize(TerrainMap m)
         {
-            V = 1, Cell = m.Cell, W = m.W, H = m.H, T = EncodeLayer(m.T), Z = EncodeLayer(m.Z), Meta = new Dictionary<string, object>(m.Meta),
-        };
+            if (m == null) return null;
+            var o = new TerrainSave
+            {
+                V = 1, Cell = m.Cell, W = m.W, H = m.H, T = EncodeLayer(m.T), Z = EncodeLayer(m.Z), Meta = new Dictionary<string, object>(m.Meta),
+            };
+            // участки укреплений (6б): слой номеров и состояние; до v30.8 их нет — построятся при надобности
+            if (m.S != null && m.Forts != null)
+            {
+                o.S = EncodeLayer(m.S);
+                o.Forts = m.Forts.ConvertAll(f => (object)new Dictionary<string, object>
+                {
+                    ["id"] = (double)f.Id, ["kind"] = f.Kind, ["dmg"] = f.Dmg, ["breaches"] = (double)f.Breaches,
+                });
+            }
+            return o;
+        }
 
         // Неизвестное или битое — null: партия всё равно откроется, просто без местности
         public static TerrainMap Deserialize(TerrainSave o)
@@ -166,14 +241,137 @@ namespace BattleCore
                 int w = (int)Js.Round(o.W), h = (int)Js.Round(o.H);
                 if (!(w >= 4 && h >= 4 && (long)w * h <= MaxCells)) return null;
                 int maxId = Types[Types.Length - 1].Id;
-                return new TerrainMap
+                var m = new TerrainMap
                 {
                     Cell = o.Cell > 0 ? o.Cell : CellM, W = w, H = h,
                     T = DecodeLayer(o.T, w * h, maxId), Z = DecodeLayer(o.Z, w * h, MaxHeight),
                     Meta = o.Meta != null ? new Dictionary<string, object>(o.Meta) : new Dictionary<string, object>(),
                 };
+                ReadSections(m, o);
+                return m;
             }
             catch (FormatException) { return null; }
+        }
+
+        // Битые участки не роняют карту: местность откроется, участки построятся заново
+        static void ReadSections(TerrainMap m, TerrainSave o)
+        {
+            if (o.S == null || !(o.Forts is List<object> list)) return;
+            try
+            {
+                var s = DecodeLayer16(o.S, m.W * m.H, MaxSections);
+                var forts = new List<FortSection>();
+                var seen = new HashSet<int>();
+                foreach (var item in list)
+                {
+                    var f = item as Dictionary<string, object>;
+                    double idv = Js.Round(JsNumber(f, "id"));
+                    if (!(idv >= 1 && idv <= MaxSections)) continue;
+                    int id = (int)idv;
+                    if (seen.Contains(id) || !(f.TryGetValue("kind", out var k) && k is string kind && FortKinds.ContainsKey(kind))) continue;
+                    seen.Add(id);
+                    double dmg = JsNumber(f, "dmg"), br = Js.Round(JsNumber(f, "breaches"));
+                    forts.Add(new FortSection { Id = id, Kind = kind, Dmg = double.IsFinite(dmg) && dmg > 0 ? dmg : 0, Breaches = br > 0 ? (int)br : 0 });
+                }
+                forts.Sort((a, b) => a.Id.CompareTo(b.Id));
+                m.S = s; m.Forts = forts;
+                IndexSections(m);
+            }
+            catch (FormatException) { m.S = null; m.Forts = null; }
+        }
+        // +x из JS для поля сохранения: нет поля — NaN, null — 0, строка — как Number("…")
+        static double JsNumber(Dictionary<string, object> f, string key)
+        {
+            if (f == null || !f.TryGetValue(key, out var v)) return double.NaN;
+            switch (v)
+            {
+                case null: return 0;
+                case double d: return d;
+                case bool b: return b ? 1 : 0;
+                case string str:
+                    str = str.Trim();
+                    if (str.Length == 0) return 0;
+                    return double.TryParse(str, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? x : double.NaN;
+                default: return double.NaN;
+            }
+        }
+
+        // ── участки укреплений (6б, Г46): слой S — номер участка в клетке (0 — нет), Forts — список ──
+        // Здесь только данные: что лежит в карте и как это читать. Нарезка и урон — Fortify.cs (по правилам).
+        public const int MaxSections = 65535;
+        public static readonly Dictionary<string, string> FortKinds = new Dictionary<string, string>
+        {
+            ["palisade"] = "частокол", ["wall"] = "каменная стена", ["gateWood"] = "деревянные ворота",
+            ["gateIron"] = "окованные ворота", ["tower"] = "башня",
+        };
+        // Код местности, которым стоит целая клетка участка (пролом — код breach)
+        public static byte FortCode(string kind) => Id(kind == "gateWood" || kind == "gateIron" ? "gate" : kind);
+        // восемь соседей клетки: сначала верхний ряд, потом свой, потом нижний
+        public static readonly int[] N8X = { -1, 0, 1, -1, 1, -1, 0, 1 };
+        public static readonly int[] N8Y = { -1, -1, -1, 0, 0, 1, 1, 1 };
+
+        // Обход в ширину по восьми соседям внутри множества inSet(j); dist — расстояния в шагах (−1 — не дошли).
+        // Возвращает самую дальнюю клетку (при равенстве — с меньшим номером) и её расстояние.
+        public static (int far, int farD, int count) Bfs8(TerrainMap m, int from, Func<int, bool> inSet, int[] dist, int[] queue)
+        {
+            int head = 0, tail = 0, far = from, farD = 0;
+            dist[from] = 0; queue[tail++] = from;
+            while (head < tail)
+            {
+                int i = queue[head++], d = dist[i], x = i % m.W, y = i / m.W;
+                if (d > farD || (d == farD && i < far)) { far = i; farD = d; }
+                for (int k = 0; k < 8; k++)
+                {
+                    int nx = x + N8X[k], ny = y + N8Y[k];
+                    if (nx < 0 || ny < 0 || nx >= m.W || ny >= m.H) continue;
+                    int j = ny * m.W + nx;
+                    if (dist[j] != -1 || !inSet(j)) continue;
+                    dist[j] = d + 1; queue[tail++] = j;
+                }
+            }
+            return (far, farD, tail);
+        }
+
+        // Разметка участков: клеток N, целых Up, длина вдоль стены Len (клеток), центр Cx, Cy (в клетках)
+        public static void IndexSections(TerrainMap m)
+        {
+            var byId = new Dictionary<int, FortSection>();
+            var cells = new Dictionary<int, List<int>>();
+            var sumX = new Dictionary<int, long>();
+            var sumY = new Dictionary<int, long>();
+            foreach (var f in m.Forts)
+            {
+                byId[f.Id] = f;
+                f.N = 0; f.Up = 0; f.Len = 1; f.Cx = 0; f.Cy = 0;
+                cells[f.Id] = new List<int>(); sumX[f.Id] = 0; sumY[f.Id] = 0;
+            }
+            for (int i = 0; i < m.S.Length; i++)
+            {
+                int id = m.S[i];
+                if (id == 0) continue;
+                if (!byId.TryGetValue(id, out var f)) { m.S[i] = 0; continue; }
+                f.N++; sumX[id] += i % m.W; sumY[id] += i / m.W;
+                if (m.T[i] == FortCode(f.Kind)) f.Up++;
+                cells[id].Add(i);
+            }
+            var dist = new int[m.S.Length];
+            for (int i = 0; i < dist.Length; i++) dist[i] = -1;
+            var queue = new int[m.S.Length];
+            foreach (var f in m.Forts)
+            {
+                var list = cells[f.Id];
+                if (f.N == 0) continue;
+                f.Cx = (double)sumX[f.Id] / f.N + 0.5; f.Cy = (double)sumY[f.Id] / f.N + 0.5;
+                // длина — поперечник участка: от самой дальней клетки до самой дальней от неё, +1
+                int fid = f.Id;
+                Func<int, bool> inSec = j => m.S[j] == fid;
+                var a = Bfs8(m, list[0], inSec, dist, queue);
+                foreach (int i in list) dist[i] = -1;
+                var b = Bfs8(m, a.far, inSec, dist, queue);
+                foreach (int i in list) dist[i] = -1;
+                f.Len = b.farD + 1;
+            }
+            m.Forts = m.Forts.FindAll(f => f.N > 0);
         }
 
         // ── чтение: fx, fy — доли карты 0…1 (так фишки и хранят положение: mapX/100) ──

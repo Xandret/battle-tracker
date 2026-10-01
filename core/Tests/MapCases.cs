@@ -38,6 +38,27 @@ static class MapCases
             string loss = c.GetProperty("moraleLoss").GetBoolean() ? ", −100 БД" : "";
             yield return ($"карта 6а: {Title(c)} — паника, генератор {c.GetProperty("rngSeed").GetDouble()}{loss}", () => PanicCase(c, R, $"panic[{n}]"));
         }
+        // ── участки укреплений (6б, Ш1–Ш2) ──
+        var forts = g.GetProperty("forts");
+        k = 0;
+        foreach (var c in forts.GetProperty("sections").EnumerateArray())
+        {
+            int n = k++;
+            yield return ($"участки стен: {Title(c)} — нарезка", () => FortSectionsCase(c, R, $"forts.sections[{n}]"));
+        }
+        yield return ("участки стен: нарисованные рукой — кольцо, толстая, косая, частокол, ворота", () => FortDrawnCase(forts.GetProperty("drawn"), R));
+        k = 0;
+        foreach (var c in forts.GetProperty("damage").EnumerateArray())
+        {
+            int n = k++;
+            yield return ($"участки стен: {c.GetProperty("template").GetString()} — удары, проломы, сохранение, пересборка", () => FortDamageCase(c, R, $"forts.damage[{n}]"));
+        }
+        k = 0;
+        foreach (var c in forts.GetProperty("corrupt").EnumerateArray())
+        {
+            int n = k++;
+            yield return ($"участки стен: старое и битое сохранение №{n + 1}", () => FortCorruptCase(c, $"forts.corrupt[{n}]"));
+        }
     }
 
     static string Title(JsonElement c)
@@ -170,6 +191,122 @@ static class MapCases
             ["lines"] = new JsonArray(res.Lines.Select(l => (JsonNode)l).ToArray()),
             ["patches"] = new JsonArray(res.Patches.Select(p => (JsonNode)new JsonObject { ["id"] = p.Id, ["patch"] = PatchOf(p.Patch) }).ToArray()),
             ["fled"] = new JsonArray(res.Fled.Select(id => (JsonNode)id).ToArray()),
+        }, where);
+    }
+
+    // ── участки укреплений: те же карты, удары и сохранения, что в mapcases.mjs (fortCases) ──
+    static byte[] U16Bytes(ushort[] a)
+    {
+        var b = new byte[a.Length * 2];
+        for (int i = 0; i < a.Length; i++) { b[2 * i] = (byte)(a[i] & 255); b[2 * i + 1] = (byte)(a[i] >> 8); }
+        return b;
+    }
+    static JsonArray FortsOut(TerrainMap m) => new JsonArray(m.Forts.Select(f => (JsonNode)new JsonArray(
+        f.Id, f.Kind, f.N, f.Up, f.Len, f.Cx, f.Cy, f.Dmg, f.Breaches)).ToArray());
+    // Нарисованное рукой: кольцо без башен, толстая стена, косая стена, круглый частокол с воротами, одинокие ворота
+    static TerrainMap DrawnFort()
+    {
+        var m = Terrain.Create(300, 200, 1);
+        Terrain.PaintRect(m, "t", 2, 2, 20, 14, 12, 1);
+        Terrain.PaintRect(m, "t", 24, 2, 40, 12, 12, 2);
+        Terrain.PaintRect(m, "t", 30, 6, 33, 8, 1);
+        Terrain.PaintSegment(m, "t", 3, 36, 28, 19, 0.8, 12);
+        Terrain.PaintDisc(m, "t", 46, 26, 9, 15); Terrain.PaintDisc(m, "t", 46, 26, 7.6, 1);
+        Terrain.PaintRect(m, "t", 45, 34, 47, 35, 13);
+        Terrain.PaintRect(m, "t", 37, 17, 38, 18, 14); Terrain.PaintRect(m, "t", 54, 18, 55, 19, 14);
+        Terrain.PaintRect(m, "t", 10, 30, 11, 30, 13);
+        Terrain.PaintRect(m, "t", 56, 2, 57, 3, 14);
+        return m;
+    }
+    static void FortSectionsCase(JsonElement c, Rules R, string where)
+    {
+        var m = Generate(c);
+        Fortify.BuildSections(m, R);
+        Check(c, new JsonObject { ["s"] = Fnv(U16Bytes(m.S)), ["forts"] = FortsOut(m) }, where);
+    }
+    static void FortDrawnCase(JsonElement c, Rules R)
+    {
+        var m = DrawnFort();
+        Fortify.BuildSections(m, R);
+        Check(c, new JsonObject { ["t"] = Terrain.EncodeLayer(m.T), ["s"] = Terrain.EncodeLayer(m.S), ["forts"] = FortsOut(m) }, "forts.drawn");
+    }
+    static JsonNode Strings(IEnumerable<string> lines) => new JsonArray(lines.Select(l => (JsonNode)l).ToArray());
+    static void FortDamageCase(JsonElement c, Rules R, string where)
+    {
+        var m = c.GetProperty("template").GetString() == "drawn" ? DrawnFort() : Generate(c);
+        Fortify.BuildSections(m, R);
+        int k = 0;
+        foreach (var st in c.GetProperty("steps").EnumerateArray())
+        {
+            var idEl = st.GetProperty("id");
+            bool repair = idEl.ValueKind == JsonValueKind.String;
+            double amount = st.GetProperty("amount").GetDouble();
+            int id = repair ? (int)amount : idEl.GetInt32();
+            var f = Fortify.GetSection(m, id);
+            JsonNode r;
+            if (repair)
+            {
+                var lines = Fortify.RepairSection(m, id, R);
+                r = lines == null ? null : new JsonObject { ["lines"] = Strings(lines), ["cells"] = null, ["opened"] = null, ["destroyed"] = null };
+            }
+            else
+            {
+                var at = st.GetProperty("at");
+                double ax = at.ValueKind == JsonValueKind.Array ? at[0].GetDouble() : double.NaN, ay = at.ValueKind == JsonValueKind.Array ? at[1].GetDouble() : double.NaN;
+                var hit = Fortify.DamageSection(m, id, amount, ax, ay, R);
+                r = hit == null ? null : new JsonObject
+                {
+                    ["lines"] = Strings(hit.Lines), ["cells"] = new JsonArray(hit.Cells.Select(i => (JsonNode)i).ToArray()),
+                    ["opened"] = hit.Opened, ["destroyed"] = hit.Destroyed,
+                };
+            }
+            Check(st, new JsonObject
+            {
+                ["r"] = r, ["f"] = f == null ? null : new JsonArray(f.Dmg, f.Breaches, f.Up, Fortify.SectionHp(f, R)), ["t"] = Fnv(m.T),
+            }, $"{where}.steps[{k++}]");
+        }
+        var saved = Terrain.Serialize(m);
+        var back = Terrain.Deserialize(saved);
+        var savedForts = new JsonArray(((List<object>)saved.Forts).Select(o =>
+        {
+            var d = (Dictionary<string, object>)o;
+            return (JsonNode)new JsonObject { ["id"] = (double)d["id"], ["kind"] = (string)d["kind"], ["dmg"] = (double)d["dmg"], ["breaches"] = (double)d["breaches"] };
+        }).ToArray());
+        // правка в редакторе: стену частично стёрли, рядом дорисовали — пересборка с прежними участками
+        Terrain.PaintRect(m, "t", 0, 0, m.W * 0.3, 1, 1);
+        Terrain.PaintSegment(m, "t", m.W * 0.2, m.H * 0.85, m.W * 0.6, m.H * 0.85, 0.6, 12);
+        Fortify.BuildSections(m, R, m.S, m.Forts);
+        Check(c, new JsonObject
+        {
+            ["saved"] = new JsonObject { ["s"] = saved.S, ["forts"] = savedForts },
+            ["back"] = back == null ? null : new JsonObject { ["s"] = Terrain.EncodeLayer(back.S), ["forts"] = FortsOut(back) },
+            ["rebuilt"] = new JsonObject { ["s"] = Fnv(U16Bytes(m.S)), ["forts"] = FortsOut(m) },
+        }, where);
+    }
+    // JSON как пришёл — словари, списки, double, строки (TerrainSave.Forts у битого сохранения бывает чем угодно)
+    static object Plain(JsonElement e) => e.ValueKind switch
+    {
+        JsonValueKind.Object => e.EnumerateObject().ToDictionary(p => p.Name, p => Plain(p.Value)),
+        JsonValueKind.Array => e.EnumerateArray().Select(Plain).ToList(),
+        JsonValueKind.Number => e.GetDouble(),
+        JsonValueKind.String => e.GetString(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        _ => null,
+    };
+    static void FortCorruptCase(JsonElement c, string where)
+    {
+        var o = Terrain.Serialize(DrawnFort());
+        var extra = c.GetProperty("extra");
+        if (extra.ValueKind == JsonValueKind.Object)
+        {
+            if (extra.TryGetProperty("s", out var sv)) o.S = sv.ValueKind == JsonValueKind.String ? sv.GetString() : null;
+            if (extra.TryGetProperty("forts", out var fv)) o.Forts = Plain(fv);
+        }
+        var m = Terrain.Deserialize(o);
+        Check(c, new JsonObject
+        {
+            ["result"] = m == null || m.S == null ? null : new JsonObject { ["s"] = Terrain.EncodeLayer(m.S), ["forts"] = FortsOut(m) },
         }, where);
     }
 

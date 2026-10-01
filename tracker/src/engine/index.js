@@ -14,8 +14,11 @@ export { MUSTER, SPECIAL_RE, parseCount, toNominative, splitCommanders, instrume
          splitSoldiers, lineSize, numberedNames, expandMuster } from "./muster.js";
 export { CELL_M, MAX_HEIGHT, MAX_CELLS, TERRAIN, TERRAIN_BY_ID, TERRAIN_BY_KEY, terrainName, createTerrain,
          mapWidthM, mapHeightM, encodeLayer, decodeLayer, serializeTerrain, deserializeTerrain, cloneTerrain,
-         cellAt, hasTerrain, paintDisc, paintSegment, paintRect, floodFill } from "./terrain.js";
+         cellAt, hasTerrain, paintDisc, paintSegment, paintRect, floodFill,
+         MAX_SECTIONS, FORT_KINDS, fortCode, indexSections } from "./terrain.js";
 export { MAP_TEMPLATES, getMapTemplate, mapParams, generateMap } from "./mapgen.js";
 export { footprint, unitCenter, unitCorners, polyGap, unitGap, groundUnder, mapModsFor, fatigueMultFor,
          unitSpeed, reachMap, pathCost, runOver, runUpBlock, rangeOf, attackReach } from "./battlemap.js";
 export { lineOfSight, panicWave } from "./panic.js";
+export { buildSections, ensureSections, sectionMax, sectionHp, sectionName, getSection, sectionAt,
+         damageSection, repairSection } from "./fortify.js";

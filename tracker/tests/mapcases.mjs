@@ -12,6 +12,7 @@ import { generateMap } from "../src/engine/mapgen.js";
 import { footprint, unitCorners, unitGap, groundUnder, mapModsFor, fatigueMultFor, unitSpeed, reachMap, pathCost,
          runOver, runUpBlock, rangeOf, attackReach } from "../src/engine/battlemap.js";
 import { lineOfSight, panicWave } from "../src/engine/panic.js";
+import { buildSections, damageSection, repairSection, sectionHp } from "../src/engine/fortify.js";
 
 // FNV-1a (32 бита) по байтам — короткий отпечаток слоя карты или массива цен пути
 export function fnv(bytes){
@@ -176,7 +177,89 @@ function panicCases(R){
   return out;
 }
 
+// ── участки укреплений (6б, Ш1–Ш2): нарезка, удары, проломы, сохранение, пересборка ──
+const u16bytes = arr => { const b = new Uint8Array(arr.length * 2); arr.forEach((v, i) => { b[2 * i] = v & 255; b[2 * i + 1] = v >> 8; }); return b; };
+const fortsOut = m => m.forts.map(f => [f.id, f.kind, f.n, f.up, f.len, f.cx, f.cy, f.dmg, f.breaches]);
+export const FORT_MAPS = [
+  ["palisade", {}, 1], ["palisade", {hill: true, moat: false, gates: 4, gateSide: "east"}, 777],
+  ["castle", {}, 1], ["castle", {gates: 2, gateSide: "west"}, 123456789],
+  ["concentric", {}, 777], ["concentric", {hill: true, gates: 3, gateSide: "north"}, 1],
+];
+// Нарисованное рукой: кольцо без башен, толстая стена, косая стена, круглый частокол с воротами, одинокие ворота
+function drawnFort(){
+  const m = createTerrain(300, 200, 1);   // 60 × 40 клеток
+  paintRect(m, "t", 2, 2, 20, 14, 12, 1);                   // кольцо стены без башен
+  paintRect(m, "t", 24, 2, 40, 12, 12, 2);                  // толстое кольцо (2 клетки)
+  paintRect(m, "t", 30, 6, 33, 8, 1);                       // двор толстого кольца
+  paintSegment(m, "t", 3, 36, 28, 19, 0.8, 12);             // косая стена
+  paintDisc(m, "t", 46, 26, 9, 15); paintDisc(m, "t", 46, 26, 7.6, 1);   // круглый частокол
+  paintRect(m, "t", 45, 34, 47, 35, 13);                    // ворота в частоколе
+  paintRect(m, "t", 37, 17, 38, 18, 14); paintRect(m, "t", 54, 18, 55, 19, 14);   // башни у частокола
+  paintRect(m, "t", 10, 30, 11, 30, 13);                    // ворота посреди поля
+  paintRect(m, "t", 56, 2, 57, 3, 14);                      // башня 2 × 2
+  return m;
+}
+function fortCases(R){
+  const sections = FORT_MAPS.map(([template, input, seed]) => {
+    const m = generateMap(template, input, seed);
+    buildSections(m, R);
+    return {template, input, seed, s: fnv(u16bytes(m.s)), forts: fortsOut(m)};
+  });
+  const dm = drawnFort();
+  buildSections(dm, R);
+  const drawn = {t: encodeLayer(dm.t), s: encodeLayer(dm.s), forts: fortsOut(dm)};
+  // серии ударов: [номер участка, урон, точка попадания в клетках или null]; «repair» — починка
+  const runs = [
+    ["castle", {}, 1, [[3, 60, null], [3, 60, [50.2, 41.5]], [3, 250, null], [3, 5, null], [19, 79, null], [19, 1, null], [1, 151, null],
+                      [8, 99.5, [48.5, 50.1]], [8, 0.5, [48.5, 50.1]], ["repair", 8], [8, 30, null], [99, 10, null]]],
+    ["palisade", {}, 1, [[2, 29, null], [2, 31, [30.5, 30.5]], [18, 40, null], [5, 300, null], [7, 12.5, null], ["repair", 7]]],
+    ["concentric", {hill: true}, 777, [[4, 100, null], [10, 210, [40.5, 30.5]], [40, 80, null], [20, 1000, null]]],
+    ["drawn", null, 0, [[1, 100, [5.5, 2.5]], [1, 100, [3.5, 2.5]], [2, 450, null], [5, 101, [31.5, 3.5]], [9, 40, null], [10, 300, [10.2, 33.1]]]],
+  ];
+  const damage = runs.map(([template, input, seed, steps]) => {
+    const m = template === "drawn" ? drawnFort() : generateMap(template, input, seed);
+    buildSections(m, R);
+    const out = steps.map(([id, amount, at]) => {
+      const f = m.forts.find(q => q.id === (id === "repair" ? amount : id));
+      const r = id === "repair" ? repairSection(m, amount, R) : damageSection(m, id, amount, at && {x: at[0], y: at[1]}, R);
+      return {id, amount, at, r: r && {lines: r.lines, cells: r.cells ?? null, opened: r.opened ?? null, destroyed: r.destroyed ?? null},
+              f: f ? [f.dmg, f.breaches, f.up, sectionHp(f, R)] : null, t: fnv(m.t)};
+    });
+    const saved = serializeTerrain(m);
+    const back = deserializeTerrain(JSON.parse(JSON.stringify(saved)));
+    // правка в редакторе: стену частично стёрли, рядом дорисовали — пересборка с прежними участками
+    paintRect(m, "t", 0, 0, m.w * 0.3, 1, 1);
+    paintSegment(m, "t", m.w * 0.2, m.h * 0.85, m.w * 0.6, m.h * 0.85, 0.6, 12);
+    buildSections(m, R, {s: m.s, forts: m.forts});
+    return {template, input, seed, steps: out, saved: {s: saved.s, forts: saved.forts}, back: back && {s: encodeLayer(back.s), forts: fortsOut(back)},
+            rebuilt: {s: fnv(u16bytes(m.s)), forts: fortsOut(m)}};
+  });
+  // битые и старые сохранения участков; слой — первые 36 клеток в участке 1 (или 1 и 2)
+  const base = serializeTerrain(drawnFort());
+  const N = base.w * base.h;
+  const layer = (...runs) => { const a = new Uint16Array(N); let p = 0; for(const [v, k] of runs){ a.fill(v, p, p + k); p += k; } return encodeLayer(a); };
+  const one = layer([1, 36]), two = layer([1, 36], [2, 5]);
+  const corrupt = [
+    null,                                                                // до v30.8 — участков нет
+    {s: layer([0, N]), forts: []},                                       // слой пустой
+    {s: one, forts: [{id: 1, kind: "wall", dmg: 12.5, breaches: 1}]},
+    {s: one, forts: [{id: 1, kind: "moat", dmg: 1, breaches: 0}]},       // неизвестный вид — выброшен, номера в слое обнулены
+    {s: one, forts: [{id: 1, kind: "tower", dmg: -5, breaches: -2}, {id: 1, kind: "wall", dmg: 3, breaches: 0}]},   // повтор номера
+    {s: two, forts: [{id: 2, kind: "gateWood", dmg: "7", breaches: 2.6}]},   // номер 1 без участка — обнулён
+    {s: "!." + N.toString(36), forts: []},                               // битый слой — участков нет
+    {s: "1.10", forts: []},                                              // не хватает клеток
+    {s: one, forts: "нет"},                                              // не список
+    {s: (70000).toString(36) + ".10,0." + (N - 36).toString(36), forts: [{id: 65535, kind: "wall", dmg: 0, breaches: 0}]},   // номер больше предела — срезан до 65535
+  ].map(extra => {
+    const o = Object.assign({}, base, extra || {});
+    if(!extra){ delete o.s; delete o.forts; }
+    const m = deserializeTerrain(o);
+    return {extra, result: m && (m.s ? {s: encodeLayer(m.s), forts: fortsOut(m)} : null)};
+  });
+  return {sections, drawn, damage, corrupt};
+}
+
 export function buildMapCases(){
   const R = getRules("base");
-  return {maps: maps(), codec: codec(), paint: paint(), geo: geoCases(R), panic: panicCases(R)};
+  return {maps: maps(), codec: codec(), paint: paint(), geo: geoCases(R), panic: panicCases(R), forts: fortCases(R)};
 }

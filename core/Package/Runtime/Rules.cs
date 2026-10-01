@@ -188,6 +188,20 @@ namespace BattleCore
         }
         public MoveR Move = new MoveR();
 
+        // ── Штурм (этап 6б, Г46–Г51) — ЧЕРНОВИК ДО ГМа; как siege в rules.js ──
+        public sealed class SiegeR
+        {
+            public bool Draft = true;
+            public double SectionM = 25;   // стена режется на участки не длиннее (Г46, Ш1)
+            public double BreachM = 10;    // пролом за каждое обнуление прочности участка (Г46, Ш2)
+            // прочность участка (Г46): частокол, каменная стена, ворота деревянные / окованные, башня
+            public Dictionary<string, double> Hp = new Dictionary<string, double>
+            {
+                ["palisade"] = 30, ["wall"] = 100, ["gateWood"] = 40, ["gateIron"] = 80, ["tower"] = 150,
+            };
+        }
+        public SiegeR Siege = new SiegeR();
+
         public double ModeDivFor(string mode)
         {
             switch (mode)
