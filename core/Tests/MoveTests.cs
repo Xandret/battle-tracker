@@ -338,6 +338,112 @@ static class MoveTests
             True(SlotGap(m) < 0.1, $"фигурка дальше всех от места — {SlotGap(m):0.00} м");
         });
 
+        // ── шаг 3: узости, взгляд вперёд, обход (Г59–Г61) ──
+        // ходить, пока все с приказом не встанут (не больше turns ходов); bad — проверка на каждом шаге
+        List<string> Until(IList<Mover> ms, Geo geo, int turns, Action<double> each = null)
+        {
+            var logs = new List<string>();
+            for (int i = 0; i < turns && ms.Any(x => x.Order != null && !x.Done); i++) logs.AddRange(MoveSim.Turn(ms, geo, R, each));
+            return logs;
+        }
+        int Wet(Mover m) => m.Figs.Count(f => !m.Field.Passable(m.Field.CellOf(f.X, f.Y)));
+
+        yield return ("узости (Г59): озеро строй обходит с запасом и не сужается — места вокруг хватает", () =>
+        {
+            var geo = Open(600, 600);
+            Terrain.PaintDisc(geo.Map, "t", 60, 60, 20, Terrain.Id("water"));   // озеро 200 м, центр (302,5; 302,5)
+            var m = Unit("infantry", 1, 300, 560, 0);
+            Order(m, geo, 300, 40, 0);
+            double near = double.PositiveInfinity;
+            for (double s = 0; s <= m.Track.Length; s += 2.5)
+            {
+                var (x, y, _, _) = m.Track.AtMeters(s);
+                near = Math.Min(near, Math.Sqrt((x - 302.5) * (x - 302.5) + (y - 302.5) * (y - 302.5)) - 100);
+            }
+            True(near > 45, $"центр строя у воды ближе {near:0.0} м — строй задевает берег (полфронта 62,5)");
+            // у озера — пока центр строя на его высоте (у цели строй косо подходит к краю карты и может сузиться — это верно)
+            int narrowest = m.NominalCols;
+            Until(new[] { m }, geo, 9, t => { if (m.P.Y > 180 && m.P.Y < 420) narrowest = Math.Min(narrowest, m.Cols); });
+            True(m.Done, "дошёл");
+            Eq(narrowest, m.NominalCols, "колонн у озера");
+        });
+
+        yield return ("узости (Г59, Г60): мост 15 м — в колонну по 2, перестроение медленнее, за мостом — снова линия", () =>
+        {
+            var geo = Open(800, 700);
+            Terrain.PaintRect(geo.Map, "t", 0, 56, 159, 63, Terrain.Id("water"));     // река 40 м поперёк
+            Terrain.PaintRect(geo.Map, "t", 79, 56, 81, 63, Terrain.Id("bridge"));   // мост 15 м
+            var m = Unit("infantry", 1, 400, 600, 0); m.P.U.Name = "Пехота";
+            Order(m, geo, 400, 100, 0);
+            int narrowest = m.NominalCols, wet = 0;
+            var logs = Until(new[] { m }, geo, 12, t => { narrowest = Math.Min(narrowest, m.Cols); wet += Wet(m); });
+            True(m.Done, "перешёл реку и встал: " + string.Join(" | ", logs));
+            Eq(narrowest, 2, "колонна на мосту — по 2 фигурки");
+            Eq(m.Cols, m.NominalCols, "за мостом — снова линия");
+            Eq(wet, 0, "кадров с фигуркой в воде");
+            True(logs.Any(l => l.Contains("колонна по 2")) && logs.Any(l => l.Contains("перестроение")), "журнал: колонна и перестроение — " + string.Join(" | ", logs));
+        });
+
+        yield return ("взгляд вперёд (Г59): между двумя близкими воротами колонна не разворачивается", () =>
+        {
+            var geo = Open(800, 800);
+            foreach (int row in new[] { 60, 68 })   // две стены поперёк, ворота 10 м, между стенами 35 м
+            {
+                Terrain.PaintRect(geo.Map, "t", 0, row, 159, row, Terrain.Id("wall"));
+                Terrain.PaintRect(geo.Map, "t", 79, row, 80, row, Terrain.Id("field"));
+            }
+            var m = Unit("infantry", 1, 400, 650, 0);
+            Order(m, geo, 400, 100, 0);
+            var seq = new List<int> { m.Cols };
+            Until(new[] { m }, geo, 14, t => { if (m.Cols != seq[seq.Count - 1]) seq.Add(m.Cols); });
+            True(m.Done, "прошёл обе стены");
+            True(seq.Count == 3 && seq[1] <= 2 && seq[2] == m.NominalCols, "сузился один раз и развернулся один раз: " + string.Join(" → ", seq));
+        });
+
+        yield return ("мелкое препятствие (Г59): дом на пути — строй не делает крюк, фигурки огибают его с двух сторон", () =>
+        {
+            var geo = Open(800, 700);
+            Terrain.PaintRect(geo.Map, "t", 79, 59, 80, 60, Terrain.Id("building"));   // дом 10 × 10 м прямо на пути
+            var m = Unit("infantry", 1, 400, 560, 0);
+            Order(m, geo, 400, 80, 0);
+            double side = m.Track.Points.Max(p => Math.Abs(p.x - 400));
+            True(side < 12, $"центр строя ушёл вбок на {side:0.0} м");
+            int narrowest = m.NominalCols, inside = 0;
+            Until(new[] { m }, geo, 8, t => { narrowest = Math.Min(narrowest, m.Cols); inside += Wet(m); });
+            True(m.Done, "дошёл");
+            Eq(narrowest, m.NominalCols, "перед домом не перестраивался");
+            Eq(inside, 0, "кадров с фигуркой в доме");
+            True(SlotGap(m) < 0.1, $"за домом сомкнулись: {SlotGap(m):0.00} м");
+        });
+
+        yield return ("обход своих (Г61): свой стоит на пути — ждёт 3 с и обходит; стоящего не толкают", () =>
+        {
+            var geo = Open(900, 800);
+            var stand = Unit("infantry", 1, 450, 400, 0); stand.P.U.Name = "Стоят";
+            var go = Unit("infantry", 2, 450, 600, 0); go.P.U.Name = "Идут";
+            var moved = Watch(stand);
+            Order(go, geo, 450, 150, 0);
+            double worst = double.PositiveInfinity;
+            var logs = Until(new[] { stand, go }, geo, 10, t => worst = Math.Min(worst, Bodies.MinGap(stand, go)));
+            True(go.Done, "дошли в обход: " + string.Join(" | ", logs));
+            True(logs.Any(l => l.Contains("обошёл «Стоят»")), "журнал: обход — " + string.Join(" | ", logs));
+            True(moved() < 0.3, $"стоящих сдвинули на {moved():0.00} м");
+            True(worst > -0.3, $"перекрылись на {-worst:0.00} м");
+        });
+
+        yield return ("обход своих (Г61): встречные лоб в лоб — уступающий обходит, оба доходят", () =>
+        {
+            var geo = Open(900, 900);
+            var a = Unit("infantry", 1, 450, 700, 0); a.P.U.Name = "Север";
+            var b = Unit("infantry", 2, 450, 200, 180); b.P.U.Name = "Юг";
+            Order(a, geo, 450, 150, 0); Order(b, geo, 450, 750, 180);
+            double worst = double.PositiveInfinity;
+            var logs = Until(new[] { a, b }, geo, 14, t => worst = Math.Min(worst, Bodies.MinGap(a, b)));
+            True(a.Done && b.Done, "оба на месте: " + string.Join(" | ", logs));
+            True(logs.Any(l => l.Contains("обошёл")), "журнал: кто-то обходил — " + string.Join(" | ", logs));
+            True(worst > -0.5, $"перекрылись на {-worst:0.00} м");
+        });
+
         yield return ("тела: несколько отрядов — одно и то же, один исход", () =>
         {
             double[] Run()

@@ -96,6 +96,35 @@ static class Polygon
         clash.Stand("pikemen", 6, "Враг: пикинёры", 820, 330, 180, faction: 2);
         list.Add(clash);
 
+        var narrows = new Scene { Name = "Узости: мост и ворота", Turns = 10, Geo = MoveTests.Open(1200, 900),
+            Note = "Шаг 3 (Г59, Г60): где проход уже строя, строй заранее складывается в колонну и за узостью разворачивается обратно; " +
+                   "пока перестраивается — идёт вдвое медленнее. Между двумя близкими воротами колонна не разворачивается — взгляд вперёд. " +
+                   "Слева — река с мостом 15 м, справа — две стены с воротами 10 м в 35 м друг от друга." };
+        var nm = narrows.Geo.Map;
+        Terrain.PaintRect(nm, "t", 0, 70, 119, 77, Terrain.Id("water"));
+        Terrain.PaintRect(nm, "t", 59, 70, 61, 77, Terrain.Id("bridge"));
+        foreach (int row in new[] { 70, 78 })
+        {
+            Terrain.PaintRect(nm, "t", 120, row, 239, row, Terrain.Id("wall"));
+            Terrain.PaintRect(nm, "t", 179, row, 180, row, Terrain.Id("field"));
+        }
+        Terrain.PaintRect(nm, "t", 120, 71, 239, 77, Terrain.Id("water"));   // за стенами — ров: обойти нельзя
+        Terrain.PaintRect(nm, "t", 179, 71, 180, 77, Terrain.Id("field"));
+        narrows.Add("infantry", 1, "Через мост", 300, 780, 0, 300, 120, 0);
+        narrows.Add("infantry", 2, "Через ворота", 900, 800, 0, 900, 110, 0);
+        list.Add(narrows);
+
+        var around = new Scene { Name = "Обход: дом и свои", Turns = 8, Geo = MoveTests.Open(1100, 800),
+            Note = "Шаг 3 (Г59, Г61): дом на пути строй не обходит — фигурки огибают его с двух сторон и смыкаются за ним. " +
+                   "Свой стоит на пути — ждут 3 с, вдруг пройдёт, и обходят. Встречные свои лоб в лоб — обходит тот, кто уступает по очереди (Г57)." };
+        Terrain.PaintRect(around.Geo.Map, "t", 39, 79, 40, 80, Terrain.Id("building"));
+        around.Add("infantry", 1, "Мимо дома", 200, 650, 0, 200, 100, 0);
+        around.Stand("infantry", 2, "Стоят", 550, 400, 0);
+        around.Add("infantry", 3, "Идут", 550, 650, 0, 550, 100, 0);
+        around.Add("infantry", 4, "Север", 900, 650, 0, 900, 120, 0);
+        around.Add("infantry", 5, "Юг", 900, 150, 180, 900, 680, 180);
+        list.Add(around);
+
         // Облик (Г32): по отряду каждого шаблона, по 200 человек — приблизь, чтобы разглядеть бойцов
         var parade = new Scene { Name = "Рода войск", Turns = 3, Geo = MoveTests.Open(1100, 600),
             Note = "Облик фигурок (Г32): фигурка 5 × 2 — десять человечков сверху; щит, капюшон или попона — цвет отряда. " +

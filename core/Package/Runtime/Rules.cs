@@ -185,6 +185,15 @@ namespace BattleCore
             // (не меньше 2 фигурок) HoldSec подряд — иначе строй дёргается: тронулся, упёрся, тронулся
             public double HeldShare = 0.05, HeldKeepShare = 0.02, HoldSec = 0.5;
             public double ReassignEverySec = 1, ReassignGain = 0.1;   // м: обмен местами, только если в сумме ближе
+            // Шаг 3 — узости и обход (Г59–Г61)
+            public double SmallObstacleM = 20;      // непроходимое пятно не больше этого — мелкое: фигурки огибают, строй не обходит
+            public double ClearancePenalty = 2;     // путь ближе полфронта к крупному препятствию — до ×(1 + это) дороже (только выбор пути)
+            public double NarrowMarginM = 1;        // зазор строя до края прохода с каждой стороны
+            public double NarrowSlack = 0.1;        // проход уже строя меньше чем на эту долю — не сужается: крайние прижмутся
+            public double NarrowAheadM = 30;        // колонна должна сложиться за столько до узости
+            public double NarrowCheckSec = 0.5;
+            public double RegroupLagM = 3, RegroupShare = 0.2, RegroupSpeed = 0.5;   // Г60: перестраиваются — вдвое медленнее
+            public double DetourWaitSec = 3, DetourCooldownSec = 10;                 // Г61: ждёт 3 с, потом обходит своего
         }
         public MoveR Move = new MoveR();
 

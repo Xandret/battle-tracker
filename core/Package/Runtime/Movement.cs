@@ -11,9 +11,12 @@
 //   Марш (Г54): цель ближе трети нормы — без поворота, боком и назад на половине скорости.
 // Фигурки догоняют свои места в строю: скорость места + поправка на отставание, с пределом скорости
 // и ускорения; в непроходимое не входят — скользят вдоль. Места перераспределяются (Reassign).
-// Шаг 2: фигурки — твёрдые тела (Bodies.cs); упёрся строй — центр стоит, время пробки — в журнал. Узости — шаг 3.
+// Шаг 2: фигурки — твёрдые тела (Bodies.cs); упёрся строй — центр стоит, время пробки — в журнал.
+// Шаг 3: путь держится от крупных препятствий на полфронта; в узости строй складывается в колонну (SetCols, Narrow),
+// пока перестраивается — вдвое медленнее; свой стоит на пути — через 3 с обход (DetourCheck).
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace BattleCore
 {
@@ -49,12 +52,25 @@ namespace BattleCore
         public Dictionary<int, (bool mine, int seen)> Rights = new Dictionary<int, (bool, int)>();
         public int LastBlocker; public bool LastBlockerEnemy; public string LastBlockerName;   // в кого упёрся последним
         public int Steps;                // шагов этого отряда с начала — часы для Rights
+        // Шаг 3: узости (Г59, Г60) и обход своих (Г61)
+        public List<(double X, double Y, int Rank, int File)> Nominal;   // места в линии — куда вернуться после узости
+        public Footprint NominalFp;
+        public int NominalCols, Cols, MinCols;   // колонн фигурок: в линии, сейчас, самое узкое за ход
+        public bool Reforming; public double RegroupSec;
+        public double TargetX, TargetY;          // куда идёт центр строя (внутри карты)
+        public FlowField RouteField;             // карта для пути в обход своего (Г61); null — путь по Field
+        public List<string> Detoured = new List<string>();
+        public int HeldSameId; public double HeldSameSec, DetourCooldown;
+        public int IgnoreHoldBy;                 // кого обходим — упор в него не держит центр строя
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
         {
             var m = new Mover { P = new Placed { U = u, X = x, Y = y, Facing = MoveSim.Norm(facing) } };
             m.P.Relayout(r, menPerFigure);
             foreach (var f in m.P.Figs) { m.P.ToWorld(f.X, f.Y, out var wx, out var wy); m.Figs.Add(new FigState { X = wx, Y = wy }); }
+            m.Nominal = m.P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
+            m.NominalFp = new Footprint { Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
+            m.NominalCols = m.Cols = m.MinCols = m.P.Figs.Count == 0 ? 0 : m.P.Figs.Max(f => f.File) + 1;
             return m;
         }
     }
@@ -85,10 +101,13 @@ namespace BattleCore
         // Приказ: путь по карте направлений, режим марша (Г54). Цель — внутри карты; непроходимая — встаём рядом.
         public static void Give(Mover m, MoveOrder o, Geo geo, Rules r)
         {
-            m.Order = o; m.OnSpot = m.Done = false; m.Along = 0; m.Note = null; m.Track = null; m.Field = null;
+            m.Order = o; m.OnSpot = m.Done = false; m.Along = 0; m.Note = null; m.Track = null; m.Field = null; m.RouteField = null;
             double tx = o.X, ty = o.Y;
             if (geo != null) { tx = Math.Max(0, Math.Min(geo.W - 1e-6, tx)); ty = Math.Max(0, Math.Min(geo.H - 1e-6, ty)); }
-            m.Field = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), tx, ty);
+            m.TargetX = tx; m.TargetY = ty;
+            m.IgnoreHoldBy = 0;
+            // путь — для строя во всю ширину линии (Г59): от крупных препятствий — на полфронта, если есть место
+            m.Field = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), tx, ty, m.NominalFp.Front / 2);
             List<(double x, double y)> route;
             if (m.Field == null) route = new List<(double x, double y)> { (m.P.X, m.P.Y), (tx, ty) };
             else
@@ -121,12 +140,18 @@ namespace BattleCore
         {
             var M = r.Move;
             int steps = (int)Math.Round(M.TurnSec / M.Dt), every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt));
-            foreach (var m in ms) { m.Spent = m.Moved = m.WheelSec = m.AboutSec = m.HeldSec = 0; m.Blockers.Clear(); }
+            int narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
+            foreach (var m in ms)
+            {
+                m.Spent = m.Moved = m.WheelSec = m.AboutSec = m.HeldSec = m.RegroupSec = 0; m.Blockers.Clear();
+                m.MinCols = m.Cols; m.Detoured.Clear();
+            }
             for (int k = 0; k < steps; k++)
             {
                 double t = k * M.Dt;
                 // 1) центры строёв; 2) куда хочет каждая фигурка; 3) тела: взгляд вперёд, шаг, расталкивание
                 var prev = new List<(double x, double y)[]>();
+                if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, r);   // узости впереди (Г59)
                 foreach (var m in ms)
                 {
                     prev.Add(Slots(m.P));
@@ -135,6 +160,7 @@ namespace BattleCore
                 }
                 for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
                 Bodies.Step(ms, M.Dt, r);
+                foreach (var m in ms) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
                 if ((k + 1) % every == 0) foreach (var m in ms) Reassign(m, r);
                 frame?.Invoke((k + 1) * M.Dt);
             }
@@ -148,6 +174,9 @@ namespace BattleCore
                 var parts = new List<string> { $"прошёл {Js.Num(Js.R1(m.Moved))} м по земле, нормы {Js.Num(Js.R1(m.Spent))} из {Js.Num(norm)}" };
                 if (m.WheelSec > 0) parts.Add($"поворот колесом {Js.Num(Js.R1(m.WheelSec))} с");
                 if (m.AboutSec > 0) parts.Add($"кругом {Js.Num(Js.R1(m.AboutSec))} с");
+                if (m.MinCols < m.NominalCols) parts.Add($"в узости — колонна по {m.MinCols} фигурки");
+                if (m.RegroupSec > 0) parts.Add($"перестроение {Js.Num(Js.R1(m.RegroupSec))} с");
+                foreach (var d in m.Detoured) parts.Add($"обошёл «{d}»");
                 // пробка (Г31): кому уступал и сколько стоял; упёрся во врага — так и пишем
                 foreach (var b in m.Blockers)
                     parts.Add(b.Value.enemy ? $"упёрся во врага «{b.Value.name}» ({Js.Num(Js.R1(b.Value.sec))} с)"
@@ -198,7 +227,7 @@ namespace BattleCore
             // разворот кругом (Г52): стоя, каждый на месте — места в строю отражаются, фигурки не идут
             if (m.AboutLeft <= 1e-9 && Math.Abs(diff) > M.AboutFaceDeg && m.Vs <= 1e-9)
             {
-                AboutFace(P);
+                AboutFace(m);
                 m.AboutLeft = M.AboutFaceSec;
             }
             if (m.AboutLeft > 1e-9) { m.AboutLeft -= dt; m.AboutSec += dt; return; }
@@ -220,6 +249,18 @@ namespace BattleCore
                 if (!m.Side && leg + 1 < m.Track.Points.Count - 1
                     && Math.Abs(AngleDiff(LegHeading(m.Track, leg), LegHeading(m.Track, leg + 1))) > M.MarchAlignDeg)
                     target = Math.Min(target, Math.Sqrt(2 * acc * Math.Max(0, LegEndCost(m.Track, leg) - m.Along)));
+            }
+            // перестроение в колонну и обратно (Г60): пока многие фигурки далеко от новых мест — вдвое медленнее
+            if (m.Reforming)
+            {
+                int lag = 0;
+                for (int k = 0; k < P.Figs.Count; k++)
+                {
+                    P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
+                    if (JsMath.Hypot(sx - m.Figs[k].X, sy - m.Figs[k].Y) > M.RegroupLagM) lag++;
+                }
+                if (lag > M.RegroupShare * P.Figs.Count) { target *= M.RegroupSpeed; m.RegroupSec += dt; }
+                else m.Reforming = false;
             }
             m.Vs = Math.Max(0, m.Vs + Math.Max(-acc * dt, Math.Min(acc * dt, target - m.Vs)));
             if (m.OnSpot || m.Vs <= 0) { DoneCheck(m); return; }
@@ -260,12 +301,16 @@ namespace BattleCore
 
         // Кругом: курс +180°, места в строю отражаются — каждая фигурка остаётся там же, где стояла,
         // но задняя шеренга теперь передняя (и неполная шеренга — впереди, пока строй не перестроится)
-        static void AboutFace(Placed P)
+        static void AboutFace(Mover m)
         {
+            var P = m.P;
             int maxRank = 0, maxFile = 0;
             foreach (var f in P.Figs) { maxRank = Math.Max(maxRank, f.Rank); maxFile = Math.Max(maxFile, f.File); }
             foreach (var f in P.Figs) { f.X = -f.X; f.Y = -f.Y; f.Rank = maxRank - f.Rank; f.File = maxFile - f.File; }
             P.Facing = Norm(P.Facing + 180);
+            // и места в линии — тоже: после узости строй развернётся уже лицом в новую сторону
+            int nr = m.Nominal.Max(q => q.Rank), nf = m.Nominal.Max(q => q.File);
+            m.Nominal = m.Nominal.Select(q => (-q.X, -q.Y, nr - q.Rank, nf - q.File)).ToList();
         }
 
         // Фигурки догоняют свои места: желаемая скорость = скорость места + отставание / SlotTau,
@@ -312,6 +357,133 @@ namespace BattleCore
             }
         }
         public static bool Free(FlowField f, double x, double y) => f.Inside(x, y) && f.Passable(f.CellOf(x, y));
+
+        // ── узости (Г59, Г60) ──
+        // Перестроиться в cols колонн фигурок: обратно в линию (места из Nominal) или в колонну — сетка с шагом
+        // фигурки, неполный задний ряд — по центру. Места раздаются спереди назад ближайшим фигуркам: кто где
+        // стоит, тот туда и встаёт. Пока фигурки далеко от новых мест — перестроение, вдвое медленнее (Г60).
+        public static void SetCols(Mover m, int cols)
+        {
+            var P = m.P; int n = P.Figs.Count;
+            cols = Math.Max(1, Math.Min(cols, m.NominalCols));
+            if (n == 0 || cols == m.Cols) return;
+            List<(double X, double Y, int Rank, int File)> slots;
+            if (cols == m.NominalCols)
+            {
+                slots = m.Nominal;
+                P.Fp = new Footprint { Front = m.NominalFp.Front, Depth = m.NominalFp.Depth };
+            }
+            else
+            {
+                double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
+                int rows = (n + cols - 1) / cols, last = n - cols * (rows - 1);
+                slots = new List<(double X, double Y, int Rank, int File)>();
+                for (int rr = 0; rr < rows; rr++)
+                {
+                    int inRow = rr < rows - 1 ? cols : last; double shift = (cols - inRow) / 2.0;
+                    for (int c = 0; c < inRow; c++) slots.Add((-cols * fw / 2 + (c + shift + 0.5) * fw, -rows * fd / 2 + (rr + 0.5) * fd, rr, c));
+                }
+                P.Fp = new Footprint { Front = cols * fw, Depth = rows * fd };
+            }
+            var free = Enumerable.Range(0, n).ToList();
+            var assign = new (double X, double Y, int Rank, int File)[n];
+            foreach (int si in Enumerable.Range(0, slots.Count).OrderBy(i => slots[i].Y).ThenBy(i => slots[i].X))
+            {
+                var sl = slots[si];
+                P.ToWorld(sl.X, sl.Y, out var wx, out var wy);
+                int best = 0; double bd = double.MaxValue;
+                for (int q = 0; q < free.Count; q++)
+                {
+                    var s = m.Figs[free[q]];
+                    double d = (s.X - wx) * (s.X - wx) + (s.Y - wy) * (s.Y - wy);
+                    if (d < bd) { bd = d; best = q; }
+                }
+                assign[free[best]] = sl; free.RemoveAt(best);
+            }
+            for (int k = 0; k < n; k++) { var f = P.Figs[k]; (f.X, f.Y, f.Rank, f.File) = assign[k]; }
+            m.Cols = cols; m.MinCols = Math.Min(m.MinCols, cols); m.Reforming = true;
+        }
+
+        // Взгляд вперёд (Г59): где по пути проход уже строя. Колонна должна сложиться, пока её голова не дошла до
+        // узости: узость в q метрах впереди — в счёт, если q не больше полуглубины колонны + NarrowAheadM. Позади
+        // центра — пока хвост строя в узости, строй не разворачивается. Шире — только если по всему окну хватает
+        // места: между двумя близкими узостями колонна так и идёт, не разворачиваясь.
+        static void Narrow(Mover m, Rules r)
+        {
+            var F = m.Field; var T = m.Track; var M = r.Move; var P = m.P;
+            if (F == null || T == null || T.Pieces.Count == 0 || P.Figs.Count == 0) return;
+            int n = P.Figs.Count;
+            double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
+            int ColsFor(double width) => Math.Max(1, Math.Min(m.NominalCols, (int)Math.Floor((width * (1 + M.NarrowSlack) - 2 * M.NarrowMarginM) / fw)));
+            double LeadFor(int cols) => Math.Ceiling(n / (double)cols) * fd / 2 + M.NarrowAheadM;
+            double s = T.MetersAt(m.Along), half = m.NominalFp.Front / 2 + M.NarrowMarginM;
+            double from = Math.Max(0, s - P.Fp.Depth / 2), to = Math.Min(T.Length, s + LeadFor(1));
+            int want = m.NominalCols;
+            for (double q = from; q <= to + 1e-9; q += 2.5)
+            {
+                var (x, y, dx, dy) = T.AtMeters(Math.Min(q, T.Length));
+                var (l, rr) = F.Corridor(x, y, dx, dy, half);
+                int c = ColsFor(l + rr);
+                if (c < want && (q <= s || q - s <= LeadFor(c))) want = c;
+            }
+            if (want != m.Cols) SetCols(m, want);
+        }
+
+        // ── обход своих (Г61) ──
+        // Свой перегородил путь (стоит или идёт, а мы уступаем по очереди Г57): ждём DetourWaitSec — вдруг пройдёт;
+        // не прошёл — путь в обход: клетки под его строем — как непроходимые и крупные, от них — на полфронта,
+        // если есть место. Упор в того, кого обходим, больше не держит центр строя: фигурки протискиваются вбок.
+        static void DetourCheck(Mover m, IList<Mover> ms, Geo geo, double dt, Rules r)
+        {
+            var M = r.Move;
+            m.DetourCooldown = Math.Max(0, m.DetourCooldown - dt);
+            // стоящий в пробке строй то и дело «отпускает» на долю секунды — ожидание от этого не сбрасывается,
+            // а убывает так же, как копится; сбрасывается, только если упёрлись в другого
+            if (!(m.Held && m.LastBlocker != 0 && !m.LastBlockerEnemy)) { m.HeldSameSec = Math.Max(0, m.HeldSameSec - dt); return; }
+            if (m.HeldSameId != m.LastBlocker) { m.HeldSameId = m.LastBlocker; m.HeldSameSec = 0; }
+            m.HeldSameSec += dt;
+            if (m.HeldSameSec < M.DetourWaitSec || m.DetourCooldown > 0 || m.Field == null || m.Order == null) return;
+            var b = ms.FirstOrDefault(x => x.P.U.Id == m.LastBlocker);
+            if (b == null) return;
+            // проходит поперёк или уходит — пропускаем дальше, он сейчас освободит путь («вдруг пройдёт»);
+            // обходим стоящего (без приказа, на месте или сам в пробке) и идущего навстречу
+            if (b.Order != null && !b.Done && !b.Held && b.Vs > 0.1 && b.Track != null && b.Track.Pieces.Count > 0)
+            {
+                var (_, _, bdx, bdy) = b.Track.AtMeters(b.Track.MetersAt(b.Along));
+                double tx = m.P.X - b.P.X, ty = m.P.Y - b.P.Y, tl = Math.Max(1e-9, JsMath.Hypot(tx, ty));
+                if ((bdx * tx + bdy * ty) / tl < 0.5) return;   // не к нам — ждём
+            }
+            m.HeldSameSec = 0; m.DetourCooldown = M.DetourCooldownSec;
+            var F = m.Field;
+            var extra = new bool[F.W * F.H];
+            var B = b.P;
+            double hx = B.Fp.Front / 2 + F.CellW / 2, hy = B.Fp.Depth / 2 + F.CellH / 2, reach = JsMath.Hypot(hx, hy);
+            int x0 = (int)Math.Floor((B.X - reach) / F.CellW), x1 = (int)Math.Floor((B.X + reach) / F.CellW);
+            int y0 = (int)Math.Floor((B.Y - reach) / F.CellH), y1 = (int)Math.Floor((B.Y + reach) / F.CellH);
+            for (int y = Math.Max(0, y0); y <= Math.Min(F.H - 1, y1); y++)
+                for (int x = Math.Max(0, x0); x <= Math.Min(F.W - 1, x1); x++)
+                {
+                    var (cx, cy) = F.CenterOf(y * F.W + x);
+                    B.ToLocal(cx, cy, out var lx, out var ly);
+                    if (Math.Abs(lx) <= hx && Math.Abs(ly) <= hy) extra[y * F.W + x] = true;
+                }
+            // своя клетка и соседние — свободны, иначе путь не начнётся
+            int me = F.CellOf(m.P.X, m.P.Y);
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int x = me % F.W + dx, y = me / F.W + dy;
+                    if (x >= 0 && y >= 0 && x < F.W && y < F.H) extra[y * F.W + x] = false;
+                }
+            var DF = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), m.TargetX, m.TargetY, m.NominalFp.Front / 2, extra);
+            if (DF.Target < 0) return;
+            var route = DF.Route(m.P.X, m.P.Y, m.TargetX, m.TargetY);
+            var tr = route == null ? null : Track.Build(DF, route);
+            if (tr == null) return;   // в обход не пройти — ждём дальше
+            m.RouteField = DF; m.Track = tr; m.Along = 0; m.OnSpot = false; m.Vs = 0;
+            m.IgnoreHoldBy = b.P.U.Id; m.Held = false; m.HoldLeft = 0;
+            m.Detoured.Add(b.P.U.Name);
+        }
         public static double FigAccel(Mover m, Rules r) => r.Move.FigureAccelK * TopSpeed(m.P.U, r) / AccelSec(m.P.U, r);
 
         // Места перераспределяются (Iron Kings): две одинаковые фигурки меняются местами, если так обеим ближе
