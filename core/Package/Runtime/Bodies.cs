@@ -128,7 +128,7 @@ namespace BattleCore
                 var count = new Dictionary<int, (int n, bool enemy)>();
                 int blocked = 0;
                 foreach (var s in m.Figs)
-                    if (s.BlockedBy != 0)
+                    if (s.BlockedBy != 0 && s.BlockedBy != m.IgnoreHoldBy)   // кого обходим (Г61) — не держит
                     {
                         blocked++;
                         count[s.BlockedBy] = ((count.TryGetValue(s.BlockedBy, out var c) ? c.n : 0) + 1, s.BlockedByEnemy);

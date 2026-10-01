@@ -14,7 +14,17 @@ namespace BattleCore
         public TerrainMap Map; public Geo Geo; public Rules R; public bool Horse;
         public int W, H, Target;
         public double CellW, CellH;
-        public double[] Cost;   // цена пути до цели, м нормы; бесконечность — не дойти
+        public double[] Cost;   // цена пути до цели (для выбора пути); бесконечность — не дойти
+        // Шаг 3 (Г59): строй шириной 2 × HalfWidth держится от крупных препятствий на полфронта, если место есть.
+        // Крупное — непроходимое пятно больше SmallObstacleM или край карты; мелкое (дом) фигурки огибают сами.
+        // Clearance — от центра клетки до ближайшего крупного препятствия, м. Для выбора пути клетка ближе
+        // HalfWidth дороже (pen), а норма за ход по-прежнему — по местности (Track), как за столом.
+        public double HalfWidth;
+        public double[] Clearance;
+        bool[] large;
+        double[] pen;
+        double Pen(int i) => pen == null ? 1 : pen[i];
+        public bool Large(int i) => large[i];
 
         // Соседи — в том же порядке, что у BattleMap.Reach
         static readonly int[] DX = { -1, 0, 1, -1, 1, -1, 0, 1 }, DY = { -1, -1, -1, 0, 0, 1, 1, 1 };
@@ -72,13 +82,16 @@ namespace BattleCore
         }
 
         // Карта направлений к точке (tx, ty), м. Без местности — null: путь по прямой.
-        public static FlowField Build(Geo geo, Rules r, bool horse, double tx, double ty)
+        // halfWidth > 0 — путь для строя такой полуширины (Г59); extraBlocked — клетки, которые обходить
+        // как непроходимые (свой стоящий отряд, Г61). Без них цена — ровно зона досягаемости трекера.
+        public static FlowField Build(Geo geo, Rules r, bool horse, double tx, double ty, double halfWidth = 0, bool[] extraBlocked = null)
         {
             var m = geo?.Map;
             if (m == null) return null;
-            var f = new FlowField { Map = m, Geo = geo, R = r, Horse = horse, W = m.W, H = m.H, CellW = geo.W / m.W, CellH = geo.H / m.H };
+            var f = new FlowField { Map = m, Geo = geo, R = r, Horse = horse, W = m.W, H = m.H, CellW = geo.W / m.W, CellH = geo.H / m.H, HalfWidth = halfWidth };
             f.mult = new double[m.W * m.H];
-            for (int i = 0; i < f.mult.Length; i++) f.mult[i] = BattleMap.MoveMult(m, i, horse, r) ?? double.NaN;
+            for (int i = 0; i < f.mult.Length; i++) f.mult[i] = extraBlocked != null && extraBlocked[i] ? double.NaN : BattleMap.MoveMult(m, i, horse, r) ?? double.NaN;
+            f.BuildClearance(r, extraBlocked);
             f.Cost = new double[m.W * m.H];
             for (int i = 0; i < f.Cost.Length; i++) f.Cost[i] = double.PositiveInfinity;
             f.Target = f.NearestPassable(f.CellOf(tx, ty));
@@ -98,11 +111,97 @@ namespace BattleCore
                     if (!f.Passable(i)) continue;
                     var s = f.Step(i, j);   // шаг из i в j: путь идёт к цели
                     if (s == null) continue;
-                    double nc = c + s.Value;
+                    double nc = c + s.Value * f.Pen(j);
                     if (nc < f.Cost[i]) { f.Cost[i] = nc; heap.Push(nc, i); }
                 }
             }
             return f;
+        }
+
+        // Крупные препятствия и расстояние до них (Г59): связные пятна непроходимого (по 8 соседям); пятно, чья
+        // рамка не больше SmallObstacleM, — мелкое. Свой стоящий отряд при обходе (extra) — всегда крупный.
+        // Расстояние — фаской в два прохода (соседи по стороне и по диагонали), край карты — тоже препятствие.
+        void BuildClearance(Rules r, bool[] extra)
+        {
+            int n = W * H;
+            large = new bool[n];
+            var seen = new bool[n];
+            var comp = new List<int>(); var stack = new Stack<int>();
+            double small = r.Move.SmallObstacleM;
+            for (int s0 = 0; s0 < n; s0++)
+            {
+                if (seen[s0] || Passable(s0)) continue;
+                comp.Clear(); stack.Push(s0); seen[s0] = true;
+                int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue; bool anyExtra = false;
+                while (stack.Count > 0)
+                {
+                    int i = stack.Pop(); comp.Add(i);
+                    int x = i % W, y = i / W;
+                    x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y);
+                    if (extra != null && extra[i]) anyExtra = true;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        int nx = x + DX[k], ny = y + DY[k];
+                        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                        int j = ny * W + nx;
+                        if (!seen[j] && !Passable(j)) { seen[j] = true; stack.Push(j); }
+                    }
+                }
+                if (anyExtra || (x1 - x0 + 1) * CellW > small || (y1 - y0 + 1) * CellH > small)
+                    foreach (int i in comp) large[i] = true;
+            }
+            var d = new double[n];
+            double dg = JsMath.Hypot(CellW, CellH);
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                    d[y * W + x] = large[y * W + x] ? 0
+                        : Math.Min(Math.Min((x + 0.5) * CellW, (W - x - 0.5) * CellW), Math.Min((y + 0.5) * CellH, (H - y - 0.5) * CellH));
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    int i = y * W + x; double v = d[i];
+                    if (x > 0) v = Math.Min(v, d[i - 1] + CellW);
+                    if (y > 0) v = Math.Min(v, d[i - W] + CellH);
+                    if (x > 0 && y > 0) v = Math.Min(v, d[i - W - 1] + dg);
+                    if (x < W - 1 && y > 0) v = Math.Min(v, d[i - W + 1] + dg);
+                    d[i] = v;
+                }
+            for (int y = H - 1; y >= 0; y--)
+                for (int x = W - 1; x >= 0; x--)
+                {
+                    int i = y * W + x; double v = d[i];
+                    if (x < W - 1) v = Math.Min(v, d[i + 1] + CellW);
+                    if (y < H - 1) v = Math.Min(v, d[i + W] + CellH);
+                    if (x < W - 1 && y < H - 1) v = Math.Min(v, d[i + W + 1] + dg);
+                    if (x > 0 && y < H - 1) v = Math.Min(v, d[i + W - 1] + dg);
+                    d[i] = v;
+                }
+            Clearance = d;
+            if (HalfWidth > 0)
+            {
+                pen = new double[n];
+                double K = r.Move.ClearancePenalty, edge = Math.Min(CellW, CellH) / 2;   // от центра клетки до края препятствия
+                for (int i = 0; i < n; i++) pen[i] = 1 + K * Math.Max(0, HalfWidth - Math.Max(0, d[i] - edge)) / HalfWidth;
+            }
+        }
+
+        // Ширина прохода поперёк направления (dx, dy) — единичный вектор — в точке (x, y): сколько свободно влево
+        // и вправо до крупного препятствия или края карты, но не дальше maxHalf в каждую сторону (Г59)
+        public (double left, double right) Corridor(double x, double y, double dx, double dy, double maxHalf) =>
+            (Probe(x, y, -dy, dx, maxHalf), Probe(x, y, dy, -dx, maxHalf));
+        // Грубо — шагом в полклетки, потом делением пополам до 5 см: мост в 15 м должен мериться как 15, а не как 10
+        double Probe(double x, double y, double px, double py, double max)
+        {
+            bool Blocked(double s) { double qx = x + px * s, qy = y + py * s; return !Inside(qx, qy) || large[CellOf(qx, qy)]; }
+            double step = Math.Min(CellW, CellH) / 2;
+            for (double s = step; s <= max; s += step)
+            {
+                if (!Blocked(s)) continue;
+                double lo = s - step, hi = s;
+                while (hi - lo > 0.05) { double mid = (lo + hi) / 2; if (Blocked(mid)) hi = mid; else lo = mid; }
+                return lo;
+            }
+            return Blocked(max) ? max - step : max;
         }
 
         // Куда шагать из клетки i: сосед, через которого путь до цели дешевле всего; −1 — это цель или не дойти
@@ -119,7 +218,7 @@ namespace BattleCore
                 if (!(Cost[j] < Cost[i])) continue;
                 var s = Step(i, j);
                 if (s == null) continue;
-                double v = s.Value + Cost[j];
+                double v = s.Value * Pen(j) + Cost[j];
                 if (v < bv) { bv = v; best = j; }
             }
             return best;
@@ -155,8 +254,8 @@ namespace BattleCore
             // цепочка считается от центров клеток, а строй стоит и встаёт не в центре: на концах пути —
             // поправка на этот сдвиг (по неравенству треугольника прямая не длиннее «до центра + цепочка»)
             var (scx, scy) = CenterOf(s); var (tcx, tcy) = CenterOf(Target);
-            double startSlack = JsMath.Hypot(sx - scx, sy - scy) * (Mult(s) ?? 1);
-            double endSlack = JsMath.Hypot(end.Item1 - tcx, end.Item2 - tcy) * (Mult(Target) ?? 1);
+            double startSlack = JsMath.Hypot(sx - scx, sy - scy) * (Mult(s) ?? 1) * Pen(s);
+            double endSlack = JsMath.Hypot(end.Item1 - tcx, end.Item2 - tcy) * (Mult(Target) ?? 1) * Pen(Target);
             var route = new List<(double x, double y)> { (sx, sy) };
             double cx = sx, cy = sy, cc = Cost[s] + startSlack;
             for (int idx = -1; idx < nodes.Count - 1;)
@@ -165,7 +264,7 @@ namespace BattleCore
                 for (int k = idx + 2; k < nodes.Count; k++)
                 {
                     double slack = k == nodes.Count - 1 ? endSlack : 0;
-                    if (SegmentCost(cx, cy, nodes[k].x, nodes[k].y) <= cc - nodes[k].c + slack + 1e-6) best = k;
+                    if (SegmentCost(cx, cy, nodes[k].x, nodes[k].y, routing: true) <= cc - nodes[k].c + slack + 1e-6) best = k;
                     else break;
                 }
                 idx = best; cx = nodes[idx].x; cy = nodes[idx].y; cc = nodes[idx].c;
@@ -183,8 +282,9 @@ namespace BattleCore
         // Отрезок по клеткам: куски «одна клетка — один кусок». Цена куска = длина × множитель местности,
         // в клетку, куда поднялись (выше предыдущей), — ещё × ClimbCost на каждый уровень, как шаг дейкстры.
         // Диагональ точно через угол — как шаг дейкстры: нельзя, если обе соседние по сторонам непроходимы.
-        // false — отрезок упёрся в непроходимое или ушёл с карты. cost — сюда прибавляется цена отрезка.
-        public bool Walk(double ax, double ay, double bx, double by, ref int prevCell, int leg, List<Track.Piece> outp, ref double cost)
+        // false — отрезок упёрся в непроходимое или ушёл с карты. cost — сюда прибавляется цена отрезка:
+        // норма (routing = false) или цена для выбора пути — с ценой близости к крупным препятствиям (Г59).
+        public bool Walk(double ax, double ay, double bx, double by, ref int prevCell, int leg, List<Track.Piece> outp, ref double cost, bool routing = false)
         {
             double dx = bx - ax, dy = by - ay, len = JsMath.Hypot(dx, dy);
             if (len == 0) return true;
@@ -213,7 +313,7 @@ namespace BattleCore
                         X0 = ax + dx * t, Y0 = ay + dy * t, X1 = ax + dx * tNext, Y1 = ay + dy * tNext,
                         Len = (tNext - t) * len, Rho = rho, Cell = cell, Leg = leg,
                     });
-                    cost += (tNext - t) * len * rho;
+                    cost += (tNext - t) * len * rho * (routing ? Pen(cell) : 1);
                     prevCell = cell;
                 }
                 if (tNext >= 1) return true;
@@ -229,12 +329,12 @@ namespace BattleCore
                 if (cx < 0 || cy < 0 || cx >= W || cy >= H) return false;
             }
         }
-        // Цена прямого отрезка, м нормы; бесконечность — не пройти
-        public double SegmentCost(double ax, double ay, double bx, double by)
+        // Цена прямого отрезка: м нормы или (routing) цена для выбора пути; бесконечность — не пройти
+        public double SegmentCost(double ax, double ay, double bx, double by, bool routing = false)
         {
             double cost = 0;
             int prev = CellOf(ax, ay);
-            return Walk(ax, ay, bx, by, ref prev, 0, null, ref cost) ? cost : double.PositiveInfinity;
+            return Walk(ax, ay, bx, by, ref prev, 0, null, ref cost, routing) ? cost : double.PositiveInfinity;
         }
     }
 
@@ -283,6 +383,16 @@ namespace BattleCore
             var p = Pieces[lo];
             double k = Math.Max(0, Math.Min(1, (cost - p.C0) / (p.Len * p.Rho)));
             return (p.X0 + (p.X1 - p.X0) * k, p.Y0 + (p.Y1 - p.Y0) * k, lo);
+        }
+        // Точка пути в s метрах от начала, номер куска и направление (единичный вектор) — для взгляда вперёд (Г59)
+        public (double x, double y, double dx, double dy) AtMeters(double s)
+        {
+            if (Pieces.Count == 0) return (Points[0].x, Points[0].y, 0, -1);
+            int lo = 0, hi = Pieces.Count - 1;
+            while (lo < hi) { int mid = (lo + hi + 1) / 2; if (Pieces[mid].S0 <= s) lo = mid; else hi = mid - 1; }
+            var p = Pieces[lo];
+            double k = Math.Max(0, Math.Min(1, (s - p.S0) / p.Len));
+            return (p.X0 + (p.X1 - p.X0) * k, p.Y0 + (p.Y1 - p.Y0) * k, (p.X1 - p.X0) / p.Len, (p.Y1 - p.Y0) / p.Len);
         }
         public double MetersAt(double cost)
         {
