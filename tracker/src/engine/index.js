@@ -24,3 +24,4 @@ export { buildSections, ensureSections, sectionMax, sectionHp, sectionName, getS
          damageSection, repairSection } from "./fortify.js";
 export { engineOf, makeMachine, firingGuns, machineReload, hitChance, siegeVolley, siegeEndTurn, machineMoved,
          hitMachine, magicStrike, captureMachine, siegeAim } from "./siege.js";
+export { laddersFor, sectionGap, defendersOf, towersAt, assaultWall } from "./assault.js";

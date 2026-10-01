@@ -1,6 +1,6 @@
 {
   "name": "battle-tracker",
-  "version": "30.9.0",
+  "version": "30.10.0",
   "description": "Журнал боевых действий — тактический трекер для настольных сражений",
   "type": "module",
   "private": true,

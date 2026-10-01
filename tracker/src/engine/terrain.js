@@ -77,7 +77,11 @@ export function serializeTerrain(m){
   if(!m) return null;
   const o = {v: 1, cell: m.cell, w: m.w, h: m.h, t: encodeLayer(m.t), z: encodeLayer(m.z), meta: Object.assign({}, m.meta)};
   // участки укреплений (6б): слой номеров и состояние; до v30.8 их нет — построятся при надобности
-  if(m.s && m.forts){ o.s = encodeLayer(m.s); o.forts = m.forts.map(f => ({id: f.id, kind: f.kind, dmg: f.dmg, breaches: f.breaches})); }
+  if(m.s && m.forts){
+    o.s = encodeLayer(m.s);
+    // holder — фракция, занявшая участок приступом (6б, Ш13); у незанятых его нет
+    o.forts = m.forts.map(f => Object.assign({id: f.id, kind: f.kind, dmg: f.dmg, breaches: f.breaches}, f.holder !== undefined ? {holder: f.holder} : {}));
+  }
   return o;
 }
 // Неизвестное или битое — null: партия всё равно откроется, просто без местности
@@ -105,7 +109,10 @@ function readSections(m, o){
       if(!(id >= 1 && id <= MAX_SECTIONS) || seen.has(id) || !Object.prototype.hasOwnProperty.call(FORT_KINDS, f.kind)) continue;
       seen.add(id);
       const dmg = +f.dmg, br = Math.round(+f.breaches);
-      forts.push({id, kind: f.kind, dmg: Number.isFinite(dmg) && dmg > 0 ? dmg : 0, breaches: br > 0 ? br : 0});
+      const fo = {id, kind: f.kind, dmg: Number.isFinite(dmg) && dmg > 0 ? dmg : 0, breaches: br > 0 ? br : 0};
+      const hd = f.holder === null || f.holder === undefined ? NaN : Math.round(+f.holder);
+      if(hd >= 0) fo.holder = hd;
+      forts.push(fo);
     }
     m.s = s; m.forts = forts.sort((a, b) => a.id - b.id);
     indexSections(m);

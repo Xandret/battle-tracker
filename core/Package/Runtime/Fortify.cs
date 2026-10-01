@@ -146,6 +146,7 @@ namespace BattleCore
                     if (best != 0 && prevById.TryGetValue(best, out var old) && old.Kind == forts[k].Kind)
                     {
                         forts[k].Dmg = old.Dmg; forts[k].Breaches = old.Breaches;
+                        if (old.Holder.HasValue) forts[k].Holder = old.Holder;
                     }
                 }
             }

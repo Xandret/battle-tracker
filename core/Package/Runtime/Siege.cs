@@ -15,6 +15,7 @@ namespace BattleCore
         public string Engine, Name;
         public double Count, CountFull, Crew, Exp = 50, MageSkill, Ready, DeployLeft, Dmg;
         public double MapX = 50, MapY = 50;   // место на карте, % (как у отряда)
+        public bool OnMap;
         public double? FactionId;
         public Machine Clone() => (Machine)MemberwiseClone();
     }

@@ -29,6 +29,7 @@ namespace BattleCore
         public double SitPct;
         public string FatigueMode = "percent";
         public bool Mutual, Charge, CounterCharge;
+        public double? RollCap;   // приступ на стену (6б): минимум броска не больше бойцов в деле; null — как v29
         public MapMods MapMods;   // только при включённых «Правилах карты»
     }
 
@@ -82,15 +83,17 @@ namespace BattleCore
             bool melee = Modes.IsMelee(opts.Mode);
 
             double roll = Dice.Roll(ctx.Rng, att.Soldiers);
-            double rollFloor = Js.Round(A.Discipline * R.RollFloorPerDisc);
+            double floor0 = Js.Round(A.Discipline * R.RollFloorPerDisc);
+            double rollFloor = opts.RollCap is double cap && cap != 0 ? Math.Min(floor0, cap) : floor0;
+            string capped = rollFloor < floor0 ? $", не больше бойцов в деле — {Js.Num(opts.RollCap.Value)}" : "";
             if (roll < rollFloor)
             {
-                L?.Add($"Бросок d{Js.Num(att.Soldiers)}: {Js.Num(roll)} → поднят до минимума {Js.Num(rollFloor)} (дисциплина {Js.Num(A.Discipline)} × {Js.Num(R.RollFloorPerDisc)})");
+                L?.Add($"Бросок d{Js.Num(att.Soldiers)}: {Js.Num(roll)} → поднят до минимума {Js.Num(rollFloor)} (дисциплина {Js.Num(A.Discipline)} × {Js.Num(R.RollFloorPerDisc)}{capped})");
                 roll = rollFloor;
             }
             else
             {
-                L?.Add($"Бросок d{Js.Num(att.Soldiers)}: {Js.Num(roll)} (минимум по дисциплине: {Js.Num(rollFloor)})");
+                L?.Add($"Бросок d{Js.Num(att.Soldiers)}: {Js.Num(roll)} (минимум по дисциплине: {Js.Num(rollFloor)}{capped})");
             }
 
             double dmg = StrikeDamage(att, def, A, D, opts, L, ctx, isCharge, extraMult, extraNote, sector, mapMod, roll);

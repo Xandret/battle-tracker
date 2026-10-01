@@ -72,6 +72,15 @@ static class MapCases
         }
         yield return ("орудия: конец хода, марш, удар по машине, взрыв маг-пушки, захват", () => SiegeMiscCase(siege.GetProperty("misc"), sUnits, R));
         yield return ("орудия: прицел с карты — дистанция, видимость, укрытие (замок на холме)", () => SiegeAimCase(siege.GetProperty("aim"), R));
+        // ── приступ на стену (6б, Г48, Г50) ──
+        var assault = g.GetProperty("assault");
+        yield return ("приступ: кто у стены — дистанция до участков, защитники, свои башни", () => AssaultNearCase(assault, R));
+        k = 0;
+        foreach (var c in assault.GetProperty("runs").EnumerateArray())
+        {
+            int n = k++;
+            yield return ($"приступ №{n + 1}: {c.GetProperty("via").GetString()}, зерно {c.GetProperty("seed").GetDouble()}", () => AssaultRunCase(assault, c, R, $"assault.runs[{n}]"));
+        }
     }
 
     static string Title(JsonElement c)
@@ -466,6 +475,95 @@ static class MapCases
             });
         }
         Check(c, new JsonObject { ["aims"] = aims }, "siege.aim");
+    }
+
+    // ── приступ: те же отряды, башни и приступы, что в mapcases.mjs (assaultCases) ──
+    static (Unit U, double Ladders) AssaultUnitOf(JsonElement e)
+    {
+        var u = new Unit
+        {
+            Id = e.GetProperty("id").GetInt32(), Name = e.GetProperty("name").GetString(), Type = e.GetProperty("type").GetString(),
+            Weapon = e.GetProperty("weapon").GetString(), Soldiers = Num(e, "soldiers"),
+            FactionId = e.TryGetProperty("factionId", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetInt32() : (int?)null,
+            Status = e.GetProperty("status").GetString(), OnMap = e.GetProperty("onMap").GetBoolean(),
+            MapX = Num(e, "mapX"), MapY = Num(e, "mapY"), Facing = Num(e, "facing"),
+            Discipline = Num(e, "discipline"), Morale = Num(e, "morale"), EqAtk = Num(e, "eqAtk"), EqDef = Num(e, "eqDef"),
+            Exp = Num(e, "exp"), Mastery = Num(e, "mastery"), Fatigue = Num(e, "fatigue"),
+            AttacksMade = Num(e, "attacksMade"), CountersMade = Num(e, "countersMade"), TotKilled = Num(e, "totKilled"), TotWounded = Num(e, "totWounded"),
+            Broken = e.TryGetProperty("broken", out var br) && br.ValueKind == JsonValueKind.True, BreakGrace = Num(e, "breakGrace"), BreakPenalty = Num(e, "breakPenalty"),
+        };
+        return (u, Num(e, "ladders"));
+    }
+    static Machine MachineJson(JsonElement e) => new Machine
+    {
+        Engine = e.GetProperty("engine").GetString(), Name = e.GetProperty("name").GetString(), Count = Num(e, "count"), CountFull = Num(e, "countFull"),
+        Crew = Num(e, "crew"), Exp = Num(e, "exp"), MageSkill = Num(e, "mageSkill"), Ready = Num(e, "ready"), DeployLeft = Num(e, "deployLeft"), Dmg = Num(e, "dmg"),
+        OnMap = e.GetProperty("onMap").GetBoolean(), MapX = Num(e, "mapX"), MapY = Num(e, "mapY"),
+        FactionId = e.TryGetProperty("factionId", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetDouble() : (double?)null,
+    };
+    static (TerrainMap Map, Geo Geo) AssaultMap(Rules R)
+    {
+        var map = MapGen.Generate("castle", new Dictionary<string, object>(), 1);
+        Fortify.BuildSections(map, R);
+        return (map, new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) });
+    }
+    static void AssaultNearCase(JsonElement c, Rules R)
+    {
+        var (_, geo) = AssaultMap(R);
+        int wall = c.GetProperty("wall").GetInt32();
+        var secs = new List<int> { wall }; secs.AddRange(c.GetProperty("others").EnumerateArray().Select(x => x.GetInt32()));
+        var us = c.GetProperty("units").EnumerateArray().Select(AssaultUnitOf).ToList();
+        var units = us.Select(x => x.U).ToList();
+        var towers = c.GetProperty("towers").EnumerateArray().Select(MachineJson).ToList();
+        var near = new JsonArray(units.Select(u => (JsonNode)new JsonObject
+        {
+            ["id"] = u.Id, ["ladders"] = Assault.LaddersFor(u, R),
+            ["gaps"] = new JsonArray(secs.Select(id => (JsonNode)Assault.SectionGap(u, id, geo, R)).ToArray()),
+            ["defenders"] = new JsonArray(Assault.DefendersOf(wall, units, u, geo, R).Select(d => (JsonNode)new JsonArray(d.Unit.Id, d.Gap)).ToArray()),
+            ["towers"] = Assault.TowersAt(wall, towers, u, geo, R),
+        }).ToArray());
+        Check(c, new JsonObject { ["near"] = near }, "assault");
+    }
+    static void AssaultRunCase(JsonElement all, JsonElement c, Rules R, string where)
+    {
+        var (map, geo) = AssaultMap(R);
+        int wall = all.GetProperty("wall").GetInt32();
+        double pre = c.GetProperty("pre").GetDouble();
+        if (pre > 0) Fortify.DamageSection(map, wall, pre, double.NaN, double.NaN, R);
+        var us = all.GetProperty("units").EnumerateArray().Select(AssaultUnitOf).ToList();
+        var units = us.Select(x => x.U).ToList();
+        int k = c.GetProperty("k").GetInt32();
+        var A = units[k]; double ladders = us[k].Ladders;
+        foreach (var p in c.GetProperty("uPatch").EnumerateObject())
+        {
+            if (p.Name == "ladders") ladders = p.Value.GetDouble();
+            else if (p.Name == "attacksMade") A.AttacksMade = p.Value.GetDouble();
+            else throw new Exception("неизвестная правка отряда: " + p.Name);
+        }
+        var oPatch = c.GetProperty("oPatch");
+        bool noDef = oPatch.TryGetProperty("noDefenders", out var nd) && nd.GetBoolean();
+        var towers = all.GetProperty("towers").EnumerateArray().Select(MachineJson).ToList();
+        var opts = new AssaultOpts
+        {
+            Via = c.GetProperty("via").GetString(), Gap = Assault.SectionGap(A, wall, geo, R), Ladders = ladders,
+            Towers = Assault.TowersAt(wall, towers, A, geo, R), FatigueMode = "percent",
+            Engaged = oPatch.TryGetProperty("engaged", out var en) ? en.EnumerateArray().Select(x => x.GetInt32()).ToList() : new List<int>(),
+        };
+        var defs = noDef ? new List<(Unit Unit, double Gap)>() : Assault.DefendersOf(wall, units, A, geo, R);
+        var r = Assault.AssaultWall(A, map, wall, defs, opts, new EngineContext { Rules = R, Rng = new Mulberry32((uint)c.GetProperty("seed").GetDouble()).Next });
+        var f = Fortify.GetSection(map, wall);
+        var saved = ((List<object>)Terrain.Serialize(map).Forts).Cast<Dictionary<string, object>>().First(d => (double)d["id"] == wall);
+        var so = new JsonObject();
+        foreach (var kv in saved) so[kv.Key] = kv.Value is string str ? (JsonNode)str : (double)kv.Value;
+        Check(c, new JsonObject
+        {
+            ["r"] = new JsonObject
+            {
+                ["ok"] = r.Ok, ["title"] = r.Title, ["lines"] = Strings(r.Lines), ["tone"] = r.Tone, ["patches"] = UPatches(r.Patches),
+                ["ladders"] = r.Ladders, ["captured"] = r.Captured,
+            },
+            ["holder"] = f.Holder, ["saved"] = so,
+        }, where);
     }
 
     // ── как трекер выводит результаты (mapcases.mjs: groundOut, modsOut, reachOut) ──

@@ -37,6 +37,8 @@ let lastFortDmg = 25;
 let machines = [];            // осадные машины (6б, Ш4): батареи орудий — на карте и в запасе
 let machineAim = null;        // id машины, которая выбирает цель
 let openMachineId = null;     // открытое меню машины
+let assaults = {};            // приступы этого хода: {номер участка: [id отрядов]} — ограничение фронта (Г50)
+let assaultPick = null;       // {unitId, via} — отряд выбирает участок для приступа
 let selectedTokens = {};
 let templateOverrides = Engine.normalizeOverrides(null);   // правки шаблонов отрядов: {base, factions}
 let importDraft = null;                                    // предпросмотр импорта армий (не сохраняется)
@@ -85,7 +87,7 @@ function readMapOpts(){
 }
 function stateObj(){
   return {factions, subfactions, commanders, units, log: log.slice(0,300), turn, nextId, ruleset,
-          templateOverrides, battleMap: Engine.serializeTerrain(terrainMap), mapRules, mapImage, mapOpts: readMapOpts(), machines};
+          templateOverrides, battleMap: Engine.serializeTerrain(terrainMap), mapRules, mapImage, mapOpts: readMapOpts(), machines, assaults};
 }
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(stateObj())); }
@@ -104,7 +106,7 @@ function applyLoadedState(s){
   units = (s.units || []).map(u => Object.assign(
     {weapon:"melee", factionId:null, subfactionId:null, commanderId:null,
      acted:false, attacksMade:0, countersMade:0, totKilled:0, totWounded:0,
-     onMap:false, mapX:50, mapY:50, facing:0, breakPenalty:0, tokenScale:1, movedM:0, runUpM:0, range:0}, u));
+     onMap:false, mapX:50, mapY:50, facing:0, breakPenalty:0, tokenScale:1, movedM:0, runUpM:0, range:0, ladders:0}, u));
   log = s.log || []; turn = s.turn || 1; nextId = s.nextId || 1;
   ruleset = RULESETS[s.ruleset] ? s.ruleset : "base";
   if($("rulesetSel")) $("rulesetSel").value = ruleset;
@@ -113,7 +115,8 @@ function applyLoadedState(s){
   // до v30.9 машин нет
   machines = (Array.isArray(s.machines) ? s.machines : []).map(m => Object.assign(
     {onMap: false, mapX: 50, mapY: 50, factionId: null, exp: 50, mageSkill: 0, ready: 0, deployLeft: 0, dmg: 0}, m));
-  machineAim = null; openMachineId = null;
+  machineAim = null; openMachineId = null; assaultPick = null;
+  assaults = s.assaults && typeof s.assaults === "object" ? s.assaults : {};
   // до v30.3 местности нет; битая — не мешает открыть партию
   terrainMap = Engine.deserializeTerrain(s.battleMap); terrainVersion++;
   // до v30.5 правил карты нет — выключены
@@ -809,6 +812,9 @@ function formHtml(isNew){
       <div><label>Усталость</label><input id="f_fatigue" type="number" value="0"></div>
       <div><label>Дальность, м</label><input id="f_range" type="number" min="0" placeholder="по типу" title="Для стрелков при правилах карты; пусто — по типу войск"></div>
     </div>
+    <div class="frow">
+      <div><label>Лестницы</label><input id="f_ladders" type="number" min="0" value="0" title="Штурмовые лестницы (6б): по каждой за ход на стену лезут 10 бойцов; черновик — одна на 50 человек"></div>
+    </div>
     <div class="hint" id="typeHint" style="margin:0 0 8px"></div>
     <div class="btnrow" style="display:flex">
       <button class="gold" onclick="saveUnit()">${isNew ? "Добавить" : "Сохранить"}</button>
@@ -817,7 +823,7 @@ function formHtml(isNew){
   </div>`;
 }
 const FORM_IDS = ["f_name","f_type","f_weapon","f_faction","f_sub","f_cmdr","f_soldiers","f_disc",
-                  "f_morale","f_eqAtk","f_eqDef","f_exp","f_mastery","f_fatigue","f_range"];
+                  "f_morale","f_eqAtk","f_eqDef","f_exp","f_mastery","f_fatigue","f_range","f_ladders"];
 function snapshotForm(){
   if(!$("editBox")) return null;
   const o = {};
@@ -843,13 +849,14 @@ function fillForm(snap){
     $("f_soldiers").value=u.soldiers; $("f_disc").value=u.discipline; $("f_morale").value=u.morale;
     $("f_eqAtk").value=u.eqAtk; $("f_eqDef").value=u.eqDef; $("f_exp").value=u.exp;
     $("f_mastery").value=u.mastery; $("f_fatigue").value=u.fatigue; $("f_range").value=u.range || "";
+    $("f_ladders").value=u.ladders || 0;
   } else {
     $("f_name").value=""; $("f_type").value="infantry"; $("f_weapon").value="melee";
     $("f_faction").value=""; onUnitFactionChange();
     $("f_sub").value=""; $("f_cmdr").value="";
     $("f_soldiers").value=300; $("f_disc").value=50; $("f_morale").value=60;
     $("f_eqAtk").value=30; $("f_eqDef").value=30; $("f_exp").value=20;
-    $("f_mastery").value=0; $("f_fatigue").value=0; $("f_range").value="";
+    $("f_mastery").value=0; $("f_fatigue").value=0; $("f_range").value=""; $("f_ladders").value=0;
     if($("f_name").focus) $("f_name").focus();
   }
 }
@@ -922,6 +929,7 @@ function saveUnit(){
     mastery: Math.max(0, +$("f_mastery").value || 0),
     fatigue: clamp(+$("f_fatigue").value || 0, 0, 100),
     range: Math.max(0, Math.round(+$("f_range").value || 0)),
+    ladders: Math.max(0, Math.round(+$("f_ladders").value || 0)),
   };
   const editing = editingId && editingId !== "new";
   pushUndo(editing ? `правка отряда «${name}»` : `создание отряда «${name}»`);
@@ -948,7 +956,7 @@ function makeUnit(clean){
   return Object.assign({id: nextId++, initial: clean.soldiers, status:"active",
     turnsActive:0, fleeChecks:0, breakGrace:0, broken:false,
     acted:false, attacksMade:0, countersMade:0, totKilled:0, totWounded:0,
-    onMap:false, mapX:50, mapY:50, facing:0, movedM:0, runUpM:0}, clean);
+    onMap:false, mapX:50, mapY:50, facing:0, movedM:0, runUpM:0, ladders:0}, clean);
 }
 function updUnit(id, patch){
   units = units.map(u => u.id === id ? Object.assign({}, u, patch) : u);
@@ -1455,6 +1463,7 @@ function endTurn(){
   units = r.units.map(u => (u.movedM || u.runUpM) ? Object.assign({}, u, {movedM: 0, runUpM: 0}) : u);
   turn += 1;
   $("turnNum").textContent = turn;
+  assaults = {};   // ограничение фронта (Г50) — на ход
   // машины: перезарядка и развёртывание — на ход ближе
   const waiting = machines.filter(m => m.ready > 0 || m.deployLeft > 0);
   machines.forEach(m => Object.assign(m, Engine.siegeEndTurn(m)));
@@ -1606,6 +1615,7 @@ function tokenMenuHtml(u){
     } else {
       items += `<button disabled>⚔ Атаки исчерпаны (${u.attacksMade}/${attackLimit(u)})</button>`;
     }
+    items += assaultMenuItems(u, canAttack);
     items += `<button class="${u.acted ? "green" : ""}" onclick="menuAct(${u.id})">${u.acted ? "✓ Походил — отменить" : "✓ Отметить: походил"}</button>`;
     if(u.morale > 0 && u.morale <= 40)
       items += `<button class="red" onclick="menuCheck('morale',${u.id})">⚑ Проверка БД (${u.morale})</button>`;
@@ -1973,6 +1983,12 @@ function fortRaster(){
   const byId = new Map(m.forts.map(f => [f.id, f]));
   for(let i = 0; i < m.s.length; i++){
     const f = m.s[i] && byId.get(m.s[i]);
+    if(f && f.holder !== undefined){
+      // занятый приступом участок — цветом фракции занявших (Ш13)
+      const c = hexRgb(factionColor(f.holder || null)), o = i * 4;
+      d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 190;
+      continue;
+    }
     if(!f || !f.dmg || m.t[i] !== Engine.fortCode(f.kind)) continue;
     const k = Math.min(1, f.dmg / Engine.sectionMax(f, R)), o = i * 4;
     d[o] = 214; d[o + 1] = 52; d[o + 2] = 36; d[o + 3] = Math.round(70 + 150 * k);
@@ -2198,7 +2214,11 @@ function renderMap(){
     if(mm && mm.onMap) layer.insertAdjacentHTML("beforeend", machineMenuHtml(mm));
     else openMachineId = null;
   }
-  wrap.classList.toggle("aiming", !!machineAim);
+  wrap.classList.toggle("aiming", !!machineAim || !!assaultPick);
+  if(assaultPick && !moveZone){
+    const pu = units.find(u => u.id === assaultPick.unitId);
+    if(pu) $("mapHint").innerHTML = `<div class="targethint">Приступ «${esc(pu.name)}» ${ASSAULT_VIA[assaultPick.via]}: щёлкни по участку стены · Esc — отмена</div>`;
+  }
   if(machineAim && !moveZone){
     const am = machines.find(m => m.id === machineAim), ae = am && Engine.engineOf(am.engine, currentRules());
     if(am && ae) $("mapHint").innerHTML = `<div class="targethint">Цель для «${esc(am.name)}»: щёлкни по отряду${terrainMap ? " или по стене" : ""} · ${ae.ram ? "вплотную" : `${ae.range[0]}–${ae.range[1]} м`}${ae.indirect ? " · навесом" : ""} · Esc — отмена</div>`;
@@ -2334,6 +2354,10 @@ function renderMap(){
           if(f){ marquee.remove(); marquee = null; mqStart = null; fireMachine({sectionId: f.id, x: box.l, y: box.t}); return; }
           machineAim = null;
         }
+        if(assaultPick){
+          if(f){ marquee.remove(); marquee = null; mqStart = null; doAssault(f.id); return; }
+          assaultPick = null;
+        }
         fortMenu = f ? {id: f.id, x: box.l, y: box.t, cx: box.l / 100 * terrainMap.w, cy: box.t / 100 * terrainMap.h} : null;
         openMachineId = null;
       } else {
@@ -2409,6 +2433,7 @@ function renderMap(){
     if(e.code === "Space" && !typing(e)){ spaceDown = true; if(ed.open || overMap) e.preventDefault(); }
     if(e.key === "Escape"){
       if(machineAim){ machineAim = null; renderMap(); return; }
+      if(assaultPick){ assaultPick = null; renderMap(); return; }
       if(openMachineId && !typing(e)){ openMachineId = null; renderMap(); return; }
       if(fortMenu && !typing(e)){ closeFortMenu(); return; }
       if(calib){ calib = null; document.querySelectorAll(".calibdot").forEach(el => el.remove()); renderMap(); }
@@ -2921,6 +2946,8 @@ function fortMenuHtml(){
     <div class="tm-sub">${f.up ? `Прочность <b>${fmtHp(hp)}</b> из ${max}` : "Разрушен целиком"}${f.breaches ? ` · проломов ${f.breaches}` : ""}<br>
       ~${Math.round(f.len * m.cell)} м вдоль стены${thick > 1 ? `, толщина ${thick * m.cell} м` : ""}</div>
     <div class="hpbar"><i style="width:${pct}%"></i></div>
+    ${f.holder !== undefined ? `<div class="fm-cap">🚩 Занят: ${esc(f.holder ? factionName(f.holder) : "без фракции")}${(assaults[f.id] || []).length ? ` · приступов в этом ходу: ${assaults[f.id].length}` : ""}</div>
+      <button onclick="releaseSection(${f.id})">Вернуть защитникам</button>` : (assaults[f.id] || []).length ? `<div class="fm-cap">Приступов в этом ходу: ${assaults[f.id].length} из ${currentRules().siege.assault.maxUnits}</div>` : ""}
     ${f.up ? `<div class="fm-row"><input type="number" id="fortDmg" min="1" step="1" value="${lastFortDmg}" title="Сколько прочности снять">
       <button class="gold" onclick="fortHit()">💥 Ударить</button></div>
       <button onclick="fortRepair()" ${f.dmg > 0 ? "" : "disabled"}>🔧 Починить — прочность снова ${max}</button>` : ""}
@@ -3050,7 +3077,7 @@ function machineMenuHtml(m){
     <div class="tm-sub">${esc(e.name)} ×${m.count} из ${m.countFull}${m.factionId ? " · " + esc(factionName(m.factionId)) : ""}<br>
       расчёт ${m.crew} из ${m.count * e.crew} · ${e.magic ? `навык мага ${m.mageSkill || "— нет мага"}` : `опыт ${m.exp}`} · ${machineStatus(m)}<br>
       ${e.tower ? `ведёт на стену ${e.capacity} чел. за ход` : `${e.ram ? "вплотную" : `${e.range[0]}–${e.range[1]} м`}${e.indirect ? " · навесом" : ""} · перезарядка ${e.reload} х.`} · ход ${e.move ? e.move + " м" : "строится на месте"}${m.dmg ? ` · повреждение ${Math.round(m.dmg * 10) / 10} из ${e.hp}` : ""}</div>
-    ${e.tower ? "" : can ? `<button class="gold" onclick="startMachineAim(${m.id})">🎯 Выстрел — выбрать цель</button>`
+    ${e.tower ? towerNote(m) : can ? `<button class="gold" onclick="startMachineAim(${m.id})">🎯 Выстрел — выбрать цель</button>`
       : `<div class="fm-note">Стрелять — при включённых «Правилах карты» и «Штурме».</div>`}
     <div class="fm-cap">Орудий · расчёт · ${e.magic ? "навык мага (1–20)" : "опыт расчёта"}</div>
     <div class="fm-row"><input type="number" id="mmCount" min="0" value="${m.count}" title="Орудий"><input type="number" id="mmCrew" min="0" value="${m.crew}" title="Расчёт, человек">
@@ -3064,6 +3091,18 @@ function machineMenuHtml(m){
     <button onclick="openMachineId = null; renderMap()">Закрыть</button>
     <div class="fm-note">Черновик до ГМа: числа — shared/siege/catalog.md. Перетащи фишку — машина развернётся заново.</div>
   </div>`;
+}
+// Осадная башня у стены: ближайший целый участок не дальше towerReachM
+function towerNote(m){
+  if(!fortsReady()) return "";
+  const R = currentRules(), geo = mapGeo(), reach = R.siege.assault.towerReachM;
+  let best = null;
+  for(const f of terrainMap.forts){
+    if(!f.up) continue;
+    const a = Engine.siegeAim(m, {section: {id: f.id}}, geo, R);
+    if(a && a.dist <= reach && (!best || a.dist < best.d)) best = {id: f.id, d: a.dist};
+  }
+  return `<div class="fm-cap">${best ? `🗼 У стены: участок №${best.id} — отряд рядом с башней идёт на стену («Через осадную башню» в его меню)` : `🗼 До стены дальше ${reach} м — подведи башню вплотную`}</div>`;
 }
 function startMachineAim(id){
   const m = machineOf(id); if(!m) return;
@@ -3157,6 +3196,62 @@ function captureMachineUi(id){
   const e = Engine.engineOf(m.engine, currentRules());
   Object.assign(m, Engine.captureMachine(m, fid, currentRules()));
   addLog(`🏳 «${m.name}» захвачена: ${factionName(fid)}`, e.magic ? ["Захваченная маг-батарея молчит, пока ГМ не назначит ей своего мага (навык — в меню машины)."] : []);
+  renderAll(); saveState();
+}
+// ═══════════ приступ на стену (6б, Г48, Г50, Ш10–Ш14) — черновик до ГМа ═══════════
+// Интерфейс собирает, кто у стены (Engine.sectionGap, defendersOf, towersAt), зовёт Engine.assaultWall и применяет патчи.
+const ASSAULT_VIA = {ladders: "по лестницам", tower: "через осадную башню", breach: "в пролом"};
+function assaultMenuItems(u, canAttack){
+  if(!fortsReady() || u.status !== "active") return "";
+  const R = currentRules(), cav = u.type === "cavalry";
+  let html = "";
+  if(!cav && !(u.ladders > 0)) html += `<button onclick="giveLadders(${u.id})">🪜 Выдать лестницы: ${Engine.laddersFor(u, R)} (1 на ${R.siege.assault.laddersPer})</button>`;
+  if(!canAttack) return html;
+  if(!cav && u.ladders > 0) html += `<button class="gold" onclick="startAssault(${u.id}, 'ladders')">🪜 На стену по лестницам (${u.ladders})</button>`;
+  const tower = machines.some(m => m.onMap && m.count > 0 && m.engine === "tower" && (!u.factionId || m.factionId === u.factionId));
+  if(!cav && tower) html += `<button class="gold" onclick="startAssault(${u.id}, 'tower')">🗼 На стену через осадную башню</button>`;
+  if(terrainMap.forts.some(f => f.breaches > 0)) html += `<button class="gold" onclick="startAssault(${u.id}, 'breach')">⛏ В пролом</button>`;
+  return html;
+}
+function giveLadders(id){
+  const u = units.find(q => q.id === id); if(!u) return;
+  const n = Engine.laddersFor(u, currentRules());
+  pushUndo(`лестницы «${u.name}»`);
+  updUnit(id, {ladders: n});
+  addLog(`🪜 «${u.name}»: лестниц ${n}`, [`По черновику — одна на ${currentRules().siege.assault.laddersPer} человек; по каждой за ход на стену лезут ${currentRules().siege.assault.perLadder} бойцов.`]);
+  renderAll(); saveState();
+}
+function startAssault(id, via){
+  openMenuId = null; fortMenu = null; openMachineId = null; machineAim = null; mapAttackerId = null;
+  assaultPick = {unitId: id, via};
+  renderMap();
+}
+function doAssault(secId){
+  const pick = assaultPick; assaultPick = null;
+  const A = pick && units.find(q => q.id === pick.unitId);
+  if(!A){ renderMap(); return; }
+  const R = currentRules(), geo = mapGeo();
+  const defs = Engine.defendersOf(secId, units, A, geo, R);
+  const opts = {via: pick.via, gap: Engine.sectionGap(A, secId, geo, R), ladders: A.ladders || 0,
+                towers: Engine.towersAt(secId, machines, A, geo, R), engaged: assaults[secId] || [], fatigueMode: $("fatigueMode").value};
+  const snap = JSON.stringify(stateObj());   // занятие участка меняет карту на месте — снимок до приступа
+  const r = Engine.assaultWall(A, terrainMap, secId, defs, opts, engineCtx());
+  if(!r.ok){ addLog(r.title, r.lines, r.tone); renderMap(); return; }
+  undoStack.push({label: `приступ «${A.name}»`, turn, snap});
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  r.patches.forEach(p => updUnit(p.id, p.patch));
+  if(r.ladders !== null) updUnit(A.id, {ladders: r.ladders});
+  assaults[secId] = (assaults[secId] || []).filter(id => id !== A.id).concat(A.id);
+  if(r.captured) fortVersion++;
+  addLog(r.title, r.lines, r.tone);
+  renderAll(); saveState();
+}
+function releaseSection(id){
+  const f = Engine.getSection(terrainMap, id); if(!f || f.holder === undefined) return;
+  pushUndo(`участок №${id} возвращён`);
+  delete f.holder;
+  fortVersion++;
+  addLog(`🏰 Участок №${id} снова у защитников`, ["Правка мастера."]);
   renderAll(); saveState();
 }
 const moveActive = () => mapActive() && mapRules.move;

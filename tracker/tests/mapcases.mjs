@@ -14,6 +14,7 @@ import { footprint, unitCorners, unitGap, groundUnder, mapModsFor, fatigueMultFo
 import { lineOfSight, panicWave } from "../src/engine/panic.js";
 import { buildSections, damageSection, repairSection, sectionHp, getSection } from "../src/engine/fortify.js";
 import { makeMachine, siegeVolley, siegeEndTurn, machineMoved, hitMachine, magicStrike, captureMachine, siegeAim } from "../src/engine/siege.js";
+import { sectionGap, defendersOf, towersAt, assaultWall, laddersFor } from "../src/engine/assault.js";
 
 // FNV-1a (32 бита) по байтам — короткий отпечаток слоя карты или массива цен пути
 export function fnv(bytes){
@@ -346,7 +347,54 @@ function siegeCases(R){
           aim: {secs, units: aus, aims}};
 }
 
+// ── приступ на стену (6б, Г48, Г50, Ш10–Ш14): кто у стены, лестницы, башня, пролом, отказы, занятие участка ──
+function assaultCases(R){
+  const mk = () => { const map = generateMap("castle", {}, 1); buildSections(map, R); return {map, geo: {map, W: mapWidthM(map), H: mapHeightM(map)}}; };
+  const {map: m0, geo: g0} = mk();
+  const wall = m0.forts.find(f => f.kind === "wall" && f.cy > 55);
+  const others = [m0.forts.find(f => f.kind === "tower" && f.cy > 55).id, m0.forts.find(f => f.kind === "gateIron").id];
+  const at = (cx, cy) => ({mapX: cx * 5 / g0.W * 100, mapY: cy * 5 / g0.H * 100});
+  const base = {discipline: 50, morale: 70, eqAtk: 60, eqDef: 60, exp: 20, mastery: 10, fatigue: 0, status: "active", onMap: true,
+    attacksMade: 0, countersMade: 0, totKilled: 0, totWounded: 0, broken: false, breakGrace: 0, breakPenalty: 0, weapon: "melee", type: "infantry"};
+  const units = () => [
+    Object.assign({}, base, {id: 1, name: "Штурмовые", soldiers: 1000, factionId: 1, facing: 0, ladders: 20}, at(wall.cx, wall.cy + 3.2)),
+    Object.assign({}, base, {id: 2, name: "Гарнизон", soldiers: 300, factionId: 2, facing: 180}, at(wall.cx, wall.cy)),
+    Object.assign({}, base, {id: 3, name: "Рыцари", type: "cavalry", soldiers: 500, factionId: 1, facing: 0, eqDef: 80, discipline: 40}, at(wall.cx - 3, wall.cy + 6)),
+    Object.assign({}, base, {id: 4, name: "Стрелки на стене", type: "archer", weapon: "ranged", soldiers: 400, factionId: 2, facing: 180, eqDef: 30}, at(wall.cx + 5, wall.cy)),
+    Object.assign({}, base, {id: 5, name: "Ополчение во дворе", soldiers: 200, factionId: 2, facing: 180, morale: 15, eqDef: 40, discipline: 40}, at(wall.cx, wall.cy - 1.5)),
+    Object.assign({}, base, {id: 6, name: "Далёкие", soldiers: 600, factionId: 1, facing: 0, ladders: 10, discipline: 85}, at(wall.cx, wall.cy + 12)),
+  ];
+  const towers = [makeMachine("tower", 1, R, Object.assign({onMap: true, factionId: 1}, at(wall.cx + 2, wall.cy + 2))),
+                  makeMachine("tower", 2, R, Object.assign({onMap: true, factionId: 2}, at(wall.cx, wall.cy + 2))),
+                  makeMachine("tower", 1, R, Object.assign({onMap: false, factionId: 1}, at(wall.cx, wall.cy + 2)))];
+  const us = units();
+  const near = us.map(u => ({id: u.id, ladders: laddersFor(u, R), gaps: [wall.id, ...others].map(id => sectionGap(u, id, g0, R)),
+    defenders: defendersOf(wall.id, us, u, g0, R).map(d => [d.unit.id, d.gap]), towers: towersAt(wall.id, towers, u, g0, R)}));
+  // [кто идёт (номер), путь, правка отряда, правка opts, зерно, участок пробит заранее (урон)]
+  const RUNS = [
+    [0, "ladders", {}, {}, 1, 0], [0, "ladders", {}, {}, 2, 0], [0, "ladders", {ladders: 3}, {}, 3, 0],
+    [0, "tower", {}, {}, 4, 0], [5, "ladders", {}, {}, 5, 0], [0, "ladders", {}, {engaged: [7, 8]}, 6, 0],
+    [2, "ladders", {}, {}, 7, 0], [2, "breach", {}, {}, 8, 150], [0, "breach", {}, {}, 9, 250], [0, "breach", {}, {engaged: [9]}, 10, 120],
+    [0, "ladders", {attacksMade: 1}, {}, 11, 0], [0, "ladders", {ladders: 0}, {}, 12, 0], [0, "breach", {}, {}, 13, 0],
+    [0, "ladders", {}, {noDefenders: true}, 14, 0], [0, "tower", {}, {noDefenders: true}, 15, 0], [3, "ladders", {ladders: 8}, {}, 16, 0],
+  ];
+  const runs = RUNS.map(([k, via, uPatch, oPatch, seed, pre]) => {
+    const {map, geo} = mk();
+    if(pre) damageSection(map, wall.id, pre, null, R);
+    const all = units(), A = Object.assign(all[k], uPatch);
+    const defs = oPatch.noDefenders ? [] : defendersOf(wall.id, all, A, geo, R);
+    const opts = {via, gap: sectionGap(A, wall.id, geo, R), ladders: A.ladders || 0, towers: towersAt(wall.id, towers, A, geo, R),
+                  engaged: oPatch.engaged || [], fatigueMode: "percent"};
+    const r = assaultWall(A, map, wall.id, defs, opts, {rules: R, rng: mulberry32(seed), commanderOf: () => null, factionName: () => ""});
+    const f = getSection(map, wall.id);
+    return {k, via, uPatch, oPatch, seed, pre, r: {ok: r.ok, title: r.title, lines: r.lines, tone: r.tone, patches: r.patches, ladders: r.ladders, captured: r.captured},
+            holder: f.holder ?? null, saved: serializeTerrain(map).forts.find(x => x.id === wall.id)};
+  });
+  return {wall: wall.id, others, units: units(), towers, near, runs};
+}
+
 export function buildMapCases(){
   const R = getRules("base");
-  return {maps: maps(), codec: codec(), paint: paint(), geo: geoCases(R), panic: panicCases(R), forts: fortCases(R), siege: siegeCases(R)};
+  return {maps: maps(), codec: codec(), paint: paint(), geo: geoCases(R), panic: panicCases(R), forts: fortCases(R), siege: siegeCases(R),
+          assault: assaultCases(R)};
 }

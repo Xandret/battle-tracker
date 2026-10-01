@@ -102,7 +102,7 @@ export function buildSections(m, R, prev = null){
       let best = 0, bestN = 0;
       for(const [id, cnt] of votes[k]) if(cnt > bestN || (cnt === bestN && id < best)){ best = id; bestN = cnt; }
       const old = best && prevById.get(best);
-      if(old && old.kind === f.kind){ f.dmg = old.dmg; f.breaches = old.breaches; }
+      if(old && old.kind === f.kind){ f.dmg = old.dmg; f.breaches = old.breaches; if(old.holder !== undefined) f.holder = old.holder; }
     });
   }
   m.s = s; m.forts = forts;

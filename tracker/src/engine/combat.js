@@ -34,12 +34,16 @@ export function computeStrike(att, def, opts, L, ctx, isCharge, extraMult, extra
   const D = effStats(def, opts.mode, L, ctx);
 
   let roll = rollDie(ctx.rng, att.soldiers);
-  const rollFloor = Math.round(A.discipline * R.rollFloorPerDisc);
+  // opts.rollCap — только приступ на стену (6б): минимум не больше бойцов, что в деле, иначе 40 человек
+  // с осадной башни били бы как 250. Без него — ровно как v29.
+  const floor0 = Math.round(A.discipline * R.rollFloorPerDisc);
+  const rollFloor = opts.rollCap ? Math.min(floor0, opts.rollCap) : floor0;
+  const capped = rollFloor < floor0 ? `, не больше бойцов в деле — ${opts.rollCap}` : "";
   if(roll < rollFloor){
-    L.push(`Бросок d${att.soldiers}: ${roll} → поднят до минимума ${rollFloor} (дисциплина ${A.discipline} × ${R.rollFloorPerDisc})`);
+    L.push(`Бросок d${att.soldiers}: ${roll} → поднят до минимума ${rollFloor} (дисциплина ${A.discipline} × ${R.rollFloorPerDisc}${capped})`);
     roll = rollFloor;
   } else {
-    L.push(`Бросок d${att.soldiers}: ${roll} (минимум по дисциплине: ${rollFloor})`);
+    L.push(`Бросок d${att.soldiers}: ${roll} (минимум по дисциплине: ${rollFloor}${capped})`);
   }
 
   const div = R.modeDiv[opts.mode];

@@ -51,6 +51,7 @@ namespace BattleCore
         public string Kind;
         public double Dmg;
         public int Breaches;
+        public double? Holder;          // фракция, занявшая участок приступом (6б, Ш13); null — не занят
         public int N, Up, Len;          // клеток, из них целых, длина вдоль стены (клеток)
         public double Cx, Cy;           // центр, в клетках
         public FortSection Copy() => (FortSection)MemberwiseClone();
@@ -224,9 +225,11 @@ namespace BattleCore
             if (m.S != null && m.Forts != null)
             {
                 o.S = EncodeLayer(m.S);
-                o.Forts = m.Forts.ConvertAll(f => (object)new Dictionary<string, object>
+                o.Forts = m.Forts.ConvertAll(f =>
                 {
-                    ["id"] = (double)f.Id, ["kind"] = f.Kind, ["dmg"] = f.Dmg, ["breaches"] = (double)f.Breaches,
+                    var d = new Dictionary<string, object> { ["id"] = (double)f.Id, ["kind"] = f.Kind, ["dmg"] = f.Dmg, ["breaches"] = (double)f.Breaches };
+                    if (f.Holder.HasValue) d["holder"] = f.Holder.Value;   // занят приступом (Ш13)
+                    return (object)d;
                 });
             }
             return o;
@@ -271,7 +274,9 @@ namespace BattleCore
                     if (seen.Contains(id) || !(f.TryGetValue("kind", out var k) && k is string kind && FortKinds.ContainsKey(kind))) continue;
                     seen.Add(id);
                     double dmg = JsNumber(f, "dmg"), br = Js.Round(JsNumber(f, "breaches"));
-                    forts.Add(new FortSection { Id = id, Kind = kind, Dmg = double.IsFinite(dmg) && dmg > 0 ? dmg : 0, Breaches = br > 0 ? (int)br : 0 });
+                    var fo = new FortSection { Id = id, Kind = kind, Dmg = double.IsFinite(dmg) && dmg > 0 ? dmg : 0, Breaches = br > 0 ? (int)br : 0 };
+                    if (f.TryGetValue("holder", out var hv) && hv != null) { double hd = Js.Round(JsNumber(f, "holder")); if (hd >= 0) fo.Holder = hd; }
+                    forts.Add(fo);
                 }
                 forts.Sort((a, b) => a.Id.CompareTo(b.Id));
                 m.S = s; m.Forts = forts;

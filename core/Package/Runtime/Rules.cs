@@ -227,6 +227,13 @@ namespace BattleCore
             };
             public MagicR Magic = new MagicR();
             public double RamWallK = 0.25;   // таран по камню (стене, башне); ворота и частокол — полным уроном
+            public AssaultR Assault = new AssaultR();
+        }
+        // Приступ на стену (Г48, Г50, Ш10–Ш14) — как siege.assault в rules.js
+        public sealed class AssaultR
+        {
+            public double LaddersPer = 50, PerLadder = 10, ReachM = 10, PushPct = 15, FallMen = 5,
+                          TowerReachM = 10, MaxUnits = 2, BreachPerUnitM = 10, DefenderReachM = 5;
         }
         public sealed class EngineR
         {

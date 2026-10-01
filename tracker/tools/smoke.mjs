@@ -420,4 +420,46 @@ ev(`applyLoadedState(${JSON.stringify(oldS)}); renderAll();`);
 ok(ev("Array.isArray(machines) && machines.length === 0"), "сохранение v30.8 без машин открывается");
 ev("setMapRule('on', false);");
 
+console.log("Приступ на стену (v30.10)");
+ev(`terrainMap = Engine.generateMap('castle', {}, 1); terrainVersion++; setMapRule('on', true); setMapRule('siege', true); assaults = {};
+    (() => {
+      const geo = mapGeo(), wall = terrainMap.forts.find(f => f.kind === 'wall' && f.cy > 55);
+      const pos = (cx, cy) => ({mapX: cx * 5 / geo.W * 100, mapY: cy * 5 / geo.H * 100});
+      const base = {type: 'infantry', weapon: 'melee', discipline: 50, morale: 70, eqAtk: 60, eqDef: 60, exp: 20, mastery: 10, fatigue: 0, onMap: true};
+      units.forEach(u => { u.onMap = false; });
+      units.push(makeUnit(Object.assign({}, base, {name: 'Гарнизон стены', factionId: factions[1].id, soldiers: 300, facing: 180}, pos(wall.cx, wall.cy))));
+      units.push(makeUnit(Object.assign({}, base, {name: 'Штурмовые', factionId: factions[0].id, soldiers: 1000, facing: 0}, pos(wall.cx, wall.cy + 3.2))));
+      window._wall = wall.id; renderAll();
+    })();`);
+const stm = ev("units[units.length - 1].id"), gar = ev("units[units.length - 2].id"), wallId = ev("_wall");
+const menuText = () => ev("Array.from(document.querySelectorAll('.tmenu button')).map(b => b.textContent).join(' | ')");
+ev(`openTokenMenu(${stm})`);
+ok(menuText().includes("Выдать лестницы: 20 (1 на 50)"), "в меню — выдать лестницы по черновику");
+ev(`giveLadders(${stm})`);
+ok(ev(`units.find(u => u.id === ${stm}).ladders`) === 20 && ev("log[0].title") === "🪜 «Штурмовые»: лестниц 20", "лестницы выданы — в журнале");
+ev(`openTokenMenu(${stm})`);
+ok(menuText().includes("На стену по лестницам (20)"), "в меню — приступ по лестницам");
+ev(`startAssault(${stm}, 'ladders')`);
+ok(ev("document.getElementById('mapHint').textContent").includes("Приступ «Штурмовые» по лестницам"), "выбор участка: подсказка");
+ev(`doAssault(${wallId})`);
+ok(ev("log[0].title") === `🪜 Приступ: Штурмовые → участок №${wallId} (каменная стена)`, "приступ — запись журнала: " + ev("log[0].title"));
+ok(ev("log[0].lines[0]").includes("в бой вступают 200 из 1000") && ev("log[0].lines.some(l => l.startsWith('🏰 Со стены сверху вниз'))"),
+   "по лестницам — 200 бойцов, у защитника высота");
+ok(ev(`units.find(u => u.id === ${gar}).soldiers`) < 300 && ev(`assaults[${wallId}].includes(${stm})`), "гарнизон понёс потери, приступ записан на участок");
+ok(ev("undoStack[undoStack.length - 1].label") === "приступ «Штурмовые»", "приступ — шаг отката");
+ev(`startAssault(${stm}, 'ladders'); doAssault(${wallId})`);
+ok(ev("log[0].title") === "Приступ невозможен" && ev("log[0].lines[0]").includes("израсходовал атаки"), "вторая атака за ход — отказ");
+ev("endTurn()");
+ok(Object.keys(JSON.parse(ev("JSON.stringify(assaults)"))).length === 0, "конец хода — фронт свободен");
+ev(`updUnit(${gar}, {status: 'destroyed', soldiers: 0}); startAssault(${stm}, 'ladders'); doAssault(${wallId})`);
+ok(ev(`Engine.getSection(terrainMap, ${wallId}).holder`) === ev("factions[0].id") && ev("log[0].lines.some(l => l.includes('занят'))"),
+   "защитников нет — участок занят");
+ev(`openFortMenu(${wallId}, 50, 50)`);
+ok(ev("document.querySelector('.fmenu').textContent").includes("🚩 Занят"), "в меню участка — кто его занял");
+const sv = JSON.parse(ev("localStorage.getItem('battle_tracker_v13')"));
+ok(sv.battleMap.forts.find(f => f.id === wallId).holder === ev("factions[0].id") && sv.units.find(u => u.id === stm).ladders >= 0, "занятый участок и лестницы — в сохранении");
+ev("undo()");
+ok(ev(`Engine.getSection(terrainMap, ${wallId}).holder`) === undefined, "откат вернул участок защитникам");
+ev("setMapRule('on', false);");
+
 console.log(process.exitCode ? "\nЕСТЬ ОШИБКИ" : "\nВсё в порядке");
