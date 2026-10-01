@@ -124,6 +124,36 @@ export const BASE_RULES = {
     breachM: 10,      // пролом за каждое обнуление прочности участка (Г46, Ш2)
     // прочность участка (Г46): частокол, каменная стена, ворота деревянные / окованные, башня
     hp: { palisade: 30, wall: 100, gateWood: 40, gateIron: 80, tower: 150 },
+
+    // Орудия (Ш3, Г47, Г49). Фишка — батарея из count одинаковых орудий.
+    //   crew / minCrew — расчёт одного орудия: полный и без которого оно молчит;
+    //   reload — ходов между выстрелами при полном расчёте (меньше людей — дольше, Г49);
+    //   move — м за ход (0 — строится на месте); deploy — ходов развёртывания после марша (сверх хода марша);
+    //   range — [от, до] м; hitWall / hitTroops — шанс попасть, %: [на «от», на «до»], между — по прямой (Г47);
+    //   indirect — навесом через стены, видеть цель не нужно; wall — урон прочности участка за попадание;
+    //   die — урон по людям: d(die) за попадание, как d(численность) стрелков за столом, дальше ÷ (снар. защиты / 10);
+    //   hp — прочность одного орудия; burst — % разрыва ствола за выстрел; shock — −БД цели за залп с попаданием.
+    skillK: 0.2,              // выучка расчёта: шанс + (опыт − 50) × 0.2, то есть ±10%
+    hitMin: 5, hitMax: 95,    // шанс попасть не меньше и не больше
+    engines: {
+      ballista:     { name: "Баллиста",           crew: 3,  minCrew: 1, reload: 1, move: 60, deploy: 0, range: [0, 350],   hitWall: [80, 45], hitTroops: [60, 25], wall: 3,  die: 30,  hp: 20 },
+      catapult:     { name: "Катапульта (онагр)", crew: 6,  minCrew: 2, reload: 1, move: 40, deploy: 0, range: [50, 300],  hitWall: [65, 30], hitTroops: [45, 15], wall: 10, die: 40,  hp: 30, indirect: true },
+      trebuchet:    { name: "Требушет",           crew: 12, minCrew: 4, reload: 2, move: 0,  deploy: 0, range: [100, 350], hitWall: [60, 30], hitTroops: [35, 10], wall: 25, die: 80,  hp: 50, indirect: true },
+      bombard:      { name: "Бомбарда",           crew: 10, minCrew: 2, reload: 3, move: 15, deploy: 1, range: [30, 400],  hitWall: [75, 40], hitTroops: [35, 10], wall: 40, die: 60,  hp: 60, burst: 3, shock: 15 },
+      cannon:       { name: "Пушка",              crew: 6,  minCrew: 2, reload: 2, move: 50, deploy: 0, range: [0, 500],   hitWall: [70, 40], hitTroops: [55, 20], wall: 15, die: 80,  hp: 40, burst: 2, shock: 10 },
+      mortar:       { name: "Мортира",            crew: 6,  minCrew: 2, reload: 2, move: 20, deploy: 1, range: [50, 300],  hitWall: [55, 25], hitTroops: [40, 15], wall: 10, die: 60,  hp: 50, burst: 2, shock: 15, indirect: true },
+      ribauldequin: { name: "Рибодекин",          crew: 4,  minCrew: 1, reload: 3, move: 80, deploy: 0, range: [0, 150],   hitWall: [70, 40], hitTroops: [75, 35], wall: 1,  die: 150, hp: 25, burst: 3, shock: 10 },
+      magic:        { name: "Маг-пушка",          crew: 3,  minCrew: 1, reload: 2, move: 60, deploy: 1, range: [0, 600],   hitWall: [85, 45], hitTroops: [85, 45], wall: 50, die: 0,   hp: 40, magic: true },
+      ram:          { name: "Таран",              crew: 12, minCrew: 4, reload: 1, move: 40, deploy: 0, range: [0, 5],     wall: 25, die: 0, hp: 60, ram: true },
+      tower:        { name: "Осадная башня",      crew: 20, minCrew: 8, reload: 0, move: 25, deploy: 0, range: [0, 0],     wall: 0,  die: 0, hp: 80, tower: true, capacity: 40 },
+    },
+    // Маг-батарея (SPEC 6б): залп — один бросок на попадание; шанс + (навык мага − 10) × 3;
+    // попадание уносит 70–100% численности цели × (живых орудий / орудий в полной батарее), броня — не больше −15%;
+    // брызги — всем отрядам ближе splashM от края цели, своим тоже: 5–15% × доля батареи;
+    // удар по самой пушке, способный её уничтожить: d20 ≤ навык мага — гаснет, иначе взрыв: 20–50% всем ближе explodeM.
+    magic: { skillK: 3, killPct: [70, 100], armorCap: 0.15, armorDiv: 1000, splashM: 30, splashPct: [5, 15], explodeM: 40, explodePct: [20, 50] },
+    // Таран бьёт без броска на попадание, ворота — полным уроном, стену и башню — wallK
+    ram: { wallK: 0.25 },
   },
 };
 

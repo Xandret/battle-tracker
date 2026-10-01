@@ -22,3 +22,5 @@ export { footprint, unitCenter, unitCorners, polyGap, unitGap, groundUnder, mapM
 export { lineOfSight, panicWave } from "./panic.js";
 export { buildSections, ensureSections, sectionMax, sectionHp, sectionName, getSection, sectionAt,
          damageSection, repairSection } from "./fortify.js";
+export { engineOf, makeMachine, firingGuns, machineReload, hitChance, siegeVolley, siegeEndTurn, machineMoved,
+         hitMachine, magicStrike, captureMachine } from "./siege.js";

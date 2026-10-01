@@ -209,6 +209,44 @@ namespace BattleCore
             {
                 ["palisade"] = 30, ["wall"] = 100, ["gateWood"] = 40, ["gateIron"] = 80, ["tower"] = 150,
             };
+
+            // Орудия (Ш3, Г47, Г49) — как siege.engines в rules.js; смысл полей — там же.
+            public double SkillK = 0.2, HitMin = 5, HitMax = 95;
+            public Dictionary<string, EngineR> Engines = new Dictionary<string, EngineR>
+            {
+                ["ballista"] = new EngineR("Баллиста", 3, 1, 1, 60, 0, 0, 350, 80, 45, 60, 25, 3, 30, 20),
+                ["catapult"] = new EngineR("Катапульта (онагр)", 6, 2, 1, 40, 0, 50, 300, 65, 30, 45, 15, 10, 40, 30) { Indirect = true },
+                ["trebuchet"] = new EngineR("Требушет", 12, 4, 2, 0, 0, 100, 350, 60, 30, 35, 10, 25, 80, 50) { Indirect = true },
+                ["bombard"] = new EngineR("Бомбарда", 10, 2, 3, 15, 1, 30, 400, 75, 40, 35, 10, 40, 60, 60) { Burst = 3, Shock = 15 },
+                ["cannon"] = new EngineR("Пушка", 6, 2, 2, 50, 0, 0, 500, 70, 40, 55, 20, 15, 80, 40) { Burst = 2, Shock = 10 },
+                ["mortar"] = new EngineR("Мортира", 6, 2, 2, 20, 1, 50, 300, 55, 25, 40, 15, 10, 60, 50) { Burst = 2, Shock = 15, Indirect = true },
+                ["ribauldequin"] = new EngineR("Рибодекин", 4, 1, 3, 80, 0, 0, 150, 70, 40, 75, 35, 1, 150, 25) { Burst = 3, Shock = 10 },
+                ["magic"] = new EngineR("Маг-пушка", 3, 1, 2, 60, 1, 0, 600, 85, 45, 85, 45, 50, 0, 40) { Magic = true },
+                ["ram"] = new EngineR("Таран", 12, 4, 1, 40, 0, 0, 5, 0, 0, 0, 0, 25, 0, 60) { Ram = true },
+                ["tower"] = new EngineR("Осадная башня", 20, 8, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 80) { Tower = true, Capacity = 40 },
+            };
+            public MagicR Magic = new MagicR();
+            public double RamWallK = 0.25;   // таран по камню (стене, башне); ворота и частокол — полным уроном
+        }
+        public sealed class EngineR
+        {
+            public string Name;
+            public double Crew, MinCrew, Reload, Move, Deploy, Wall, Die, Hp, Burst, Shock, Capacity;
+            public double[] Range, HitWall, HitTroops;
+            public bool Indirect, Magic, Ram, Tower;
+            public EngineR(string name, double crew, double minCrew, double reload, double move, double deploy, double r0, double r1,
+                           double wallNear, double wallFar, double troopsNear, double troopsFar, double wall, double die, double hp)
+            {
+                Name = name; Crew = crew; MinCrew = minCrew; Reload = reload; Move = move; Deploy = deploy;
+                Range = new[] { r0, r1 }; HitWall = new[] { wallNear, wallFar }; HitTroops = new[] { troopsNear, troopsFar };
+                Wall = wall; Die = die; Hp = hp;
+            }
+        }
+        // Маг-батарея (SPEC 6б): как siege.magic в rules.js
+        public sealed class MagicR
+        {
+            public double SkillK = 3, ArmorCap = 0.15, ArmorDiv = 1000, SplashM = 30, ExplodeM = 40;
+            public double[] KillPct = { 70, 100 }, SplashPct = { 5, 15 }, ExplodePct = { 20, 50 };
         }
         public SiegeR Siege = new SiegeR();
 

@@ -12,7 +12,8 @@ import { generateMap } from "../src/engine/mapgen.js";
 import { footprint, unitCorners, unitGap, groundUnder, mapModsFor, fatigueMultFor, unitSpeed, reachMap, pathCost,
          runOver, runUpBlock, rangeOf, attackReach } from "../src/engine/battlemap.js";
 import { lineOfSight, panicWave } from "../src/engine/panic.js";
-import { buildSections, damageSection, repairSection, sectionHp } from "../src/engine/fortify.js";
+import { buildSections, damageSection, repairSection, sectionHp, getSection } from "../src/engine/fortify.js";
+import { makeMachine, siegeVolley, siegeEndTurn, machineMoved, hitMachine, magicStrike, captureMachine } from "../src/engine/siege.js";
 
 // FNV-1a (32 бита) по байтам — короткий отпечаток слоя карты или массива цен пути
 export function fnv(bytes){
@@ -259,7 +260,76 @@ function fortCases(R){
   return {sections, drawn, damage, corrupt};
 }
 
+// ── осадные орудия (6б, Ш3–Ш4): залпы на зерне — по стене, по отряду, маг-батарея, таран, отказы, между залпами ──
+const SIEGE_UNITS = [
+  {id: 1, name: "Пехота"}, {id: 2, name: "Рыцари", soldiers: 500, eqDef: 120, exp: 60, morale: 90, discipline: 40},
+  {id: 3, name: "Ополчение", soldiers: 800, eqDef: 30, exp: 0, morale: 25, discipline: 30}, {id: 4, name: "Соседи", soldiers: 300},
+];
+const siegeUnits = () => SIEGE_UNITS.map(o => Object.assign({soldiers: 1000, eqDef: 60, exp: 20, morale: 70, discipline: 50,
+  broken: false, breakGrace: 0, breakPenalty: 0, totKilled: 0, totWounded: 0, status: "active"}, o));
+// [[вид, число орудий, поля машины], [цель: "unit" номер | "section" номер участка замка, точка], opts, зерно]
+export const SIEGE_SHOTS = [
+  [["ballista", 5, {}], ["unit", 0], {dist: 120, los: true, coverPct: 0}, 1],
+  [["catapult", 3, {}], ["unit", 1], {dist: 200, los: false, coverPct: 30}, 2],
+  [["trebuchet", 4, {}], ["section", 3, [50.5, 41.5]], {dist: 150}, 3],
+  [["trebuchet", 4, {}], ["section", 3], {dist: 360}, 3],
+  [["bombard", 6, {exp: 80}], ["section", 19], {dist: 100}, 4],
+  [["bombard", 10, {}], ["unit", 2], {dist: 80, los: true}, 5],
+  [["cannon", 8, {}], ["unit", 0], {dist: 300, los: true, coverPct: 30}, 6],
+  [["cannon", 8, {crew: 20}], ["unit", 0], {dist: 100, los: true}, 7],
+  [["mortar", 4, {exp: 20}], ["unit", 1], {dist: 120, los: false}, 8],
+  [["ribauldequin", 6, {}], ["unit", 0], {dist: 60, los: true}, 9],
+  [["ribauldequin", 6, {}], ["unit", 0], {dist: 200, los: true}, 9],
+  [["magic", 3, {mageSkill: 14}], ["unit", 0], {dist: 300, los: true}, 10],
+  [["magic", 4, {count: 2}], ["section", 5], {dist: 200, los: true}, 11],
+  [["magic", 3, {mageSkill: 0}], ["unit", 0], {dist: 100, los: true}, 12],
+  [["ram", 1, {}], ["section", 19], {dist: 3}, 13],
+  [["ram", 2, {}], ["section", 3], {dist: 2}, 13],
+  [["ram", 1, {}], ["unit", 0], {dist: 2}, 13],
+  [["tower", 1, {}], ["section", 3], {dist: 2}, 13],
+  [["cannon", 2, {ready: 1}], ["unit", 0], {dist: 100}, 14],
+  [["bombard", 2, {deployLeft: 1}], ["unit", 0], {dist: 100}, 14],
+  [["ballista", 2, {}], ["section", 3], {dist: 100, los: false}, 15],
+  [["bombard", 20, {}], ["section", 8], {dist: 200, los: true}, 16],
+  [["bombard", 20, {}], ["section", 8], {dist: 200, los: true}, 17],
+  [["bombard", 20, {crew: 33}], ["section", 8], {dist: 200, los: true}, 18],
+  [["cannon", 3, {}], ["unit", 3], {dist: 0, los: true}, 19],
+];
+function siegeCases(R){
+  const out = r => r && {ok: r.ok, title: r.title, lines: r.lines, tone: r.tone, machine: r.machine, patches: r.patches, stats: r.stats};
+  const shots = SIEGE_SHOTS.map(([[kind, count, extra], [tk, ti, at], opts, seed]) => {
+    const m = makeMachine(kind, count, R, extra);
+    let map = null, target;
+    if(tk === "section"){
+      map = generateMap("castle", {}, 1);
+      buildSections(map, R);
+      target = {section: {map, id: ti, at: at ? {x: at[0], y: at[1]} : null}};
+    } else {
+      const us = siegeUnits();
+      target = {unit: us[ti], splash: us.filter((_, k) => k !== ti).map((u, k) => ({unit: u, gap: 10 + k * 15}))};
+    }
+    const r = siegeVolley(m, target, opts, {rules: R, rng: mulberry32(seed)});
+    const f = map ? getSection(map, ti) : null;
+    return {kind, count, extra, target: [tk, ti, at || null], opts, seed, r: out(r), t: map ? fnv(map.t) : null,
+            sec: f ? [f.dmg, f.breaches, f.up] : null};
+  });
+  // между залпами: конец хода, марш, удар по машине, взрыв маг-пушки, захват
+  const kinds = Object.keys(R.siege.engines);
+  const moved = kinds.map(k => machineMoved(makeMachine(k, 2, R), R));
+  const endTurn = [{ready: 2, deployLeft: 1}, {ready: 0, deployLeft: 0}, {}].map(m => siegeEndTurn(m));
+  const tre = makeMachine("trebuchet", 3, R);
+  const h1 = hitMachine(tre, 120, R), h2 = hitMachine(Object.assign({}, tre, h1.patch), 30, R), h3 = hitMachine(makeMachine("magic", 2, R), 39.5, R);
+  const strikes = [3, 4, 5, 6, 7, 8, 9, 10].map(seed => {
+    const mg = makeMachine("magic", 3, R, {mageSkill: 9});
+    const us = siegeUnits();
+    const r = magicStrike(mg, us.map((u, k) => ({unit: u, gap: k * 20})), {rules: R, rng: mulberry32(seed)});
+    return {seed, calm: r.calm, lines: r.lines, patches: r.patches, machine: r.machine};
+  });
+  const capture = [captureMachine(makeMachine("magic", 3, R, {ready: 1}), 5, R), captureMachine(makeMachine("cannon", 3, R, {deployLeft: 2}), 5, R)];
+  return {units: siegeUnits(), shots, misc: {moved, endTurn, hits: [h1, h2, h3], strikes, capture}};
+}
+
 export function buildMapCases(){
   const R = getRules("base");
-  return {maps: maps(), codec: codec(), paint: paint(), geo: geoCases(R), panic: panicCases(R), forts: fortCases(R)};
+  return {maps: maps(), codec: codec(), paint: paint(), geo: geoCases(R), panic: panicCases(R), forts: fortCases(R), siege: siegeCases(R)};
 }
