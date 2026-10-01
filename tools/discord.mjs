@@ -4,7 +4,8 @@
 // Запуск: node tools/discord.mjs  →  dist/discord/part-1.md, part-2.md …
 import fs from "node:fs";
 
-const LIMIT = 4000;
+// Для вебхука лимит 2000 (4000 — только у обычного аккаунта с Nitro): DISCORD_LIMIT=2000
+const LIMIT = Number(process.env.DISCORD_LIMIT) || 4000;
 const ROOT = new URL("../", import.meta.url);
 const pkg = JSON.parse(fs.readFileSync(new URL("package.json", ROOT), "utf8"));
 const md = fs.readFileSync(new URL("PATCHNOTES.md", ROOT), "utf8").trim();

@@ -10,6 +10,9 @@
     "golden": "node tools/make-golden.mjs",
     "smoke": "node tools/smoke.mjs",
     "discord": "node tools/discord.mjs",
+    "discord:post": "node tools/discord-post.mjs",
+    "discord:export": "node tools/discord-export.mjs",
+    "discord:search": "node tools/discord-search.mjs",
     "check": "npm test && npm run build && npm run smoke && npm run discord"
   },
   "engines": {
