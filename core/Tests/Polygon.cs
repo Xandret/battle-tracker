@@ -181,6 +181,23 @@ static class Polygon
         flank.Order(fl, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
         flank.Order(gd, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
         list.Add(flank);
+
+        var shoot = new Scene { Name = "Бой: стрельба", Turns = 3, Geo = MoveTests.Open(1300, 800),
+            Note = "БД2 (Г65, Г66, Г67): стрелки бьют только по приказу и отвечают, если по ним стреляют. Каждая стрела летит сама и задевает того, " +
+                   "кого встретит; бойцы идут вместе со своими фигурками. По идущей цели — с упреждением и ошибкой. Павшие остаются лежать, под ними — кровь, " +
+                   "брызги — по направлению удара. Слева — лучники по стоящей пехоте, посередине — перестрелка, справа — лучники встречают наступающую пехоту." };
+        shoot.Battle = new Battle(shoot.Geo, R0, new EngineContext { Rng = new Mulberry32(9).Next });
+        shoot.Fighter("infantry", 2, "Враг: пехота", 220, 520, 0, faction: 2);
+        var s1 = shoot.Fighter("archers", 1, "Лучники", 220, 520 - (4 + 100 + 2.5), 180);
+        shoot.Fighter("archers", 4, "Враг: стрелки", 650, 520, 0, faction: 2);
+        var s2 = shoot.Fighter("archers", 3, "Стрелки", 650, 520 - (2.5 + 120 + 2.5), 180);
+        var s3 = shoot.Fighter("archers", 5, "Лучники Б", 1080, 330, 0);
+        var foe = shoot.Fighter("infantry", 6, "Враг: наступают", 1080, 330 - (2.5 + 190 + 4), 180, faction: 2);
+        shoot.Order(s1, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        shoot.Order(s2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
+        shoot.Order(s3, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
+        shoot.Order(foe, new MoveOrder { Kind = OrderKind.Attack, TargetId = 5 });
+        list.Add(shoot);
         return list;
     }
     static readonly Rules R0 = Rules.Base;
@@ -203,6 +220,10 @@ static class Polygon
             // бой (БД1): численность по кадрам и где упали фигурки — [x, y, номер кадра]
             var soldiers = new List<double[]> { ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray() };
             var fallen = ms.Select(_ => new List<double[]>()).ToList();
+            // павшие поимённо (Г67): [x, y, кадр, отряд, куда смотрел, откуда удар, часть тела 0 голова 1 корпус 2 ноги 3 конь]
+            var dead = new List<double[]>();
+            var idx = ms.Select((m, i) => (m.P.U.Id, i)).ToDictionary(p => p.Id, p => p.i);
+            int seenDead = 0;
             var logs = new List<List<string>>();
             var stats = new List<object>();
             for (int turn = 0; turn < sc.Turns; turn++)
@@ -213,6 +234,13 @@ static class Polygon
                     if (++k % 4 != 0) return;
                     frames.Add(Snap(ms));
                     soldiers.Add(ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray());
+                    if (sc.Battle != null)
+                        for (; seenDead < sc.Battle.Deaths.Count; seenDead++)
+                        {
+                            var d = sc.Battle.Deaths[seenDead];
+                            int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
+                            dead.Add(new[] { Math.Round(d.X, 2), Math.Round(d.Y, 2), frames.Count - 1, idx[d.UnitId], Math.Round(d.Facing), Math.Round(d.Dir), part });
+                        }
                     for (int i = 0; i < ms.Count; i++)
                         while (fallen[i].Count < ms[i].Fallen.Count)
                         {
@@ -241,7 +269,7 @@ static class Polygon
                     flow = Flow(u.M.Field), note = u.M.Note,
                 }).ToList(),
                 frames, logs, stats,
-                soldiers = sc.Battle != null ? soldiers : null, fallen = sc.Battle != null ? fallen : null,
+                soldiers = sc.Battle != null ? soldiers : null, fallen = sc.Battle != null ? fallen : null, dead = sc.Battle != null ? dead : null,
             });
         }
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },
