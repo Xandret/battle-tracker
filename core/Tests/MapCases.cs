@@ -59,6 +59,18 @@ static class MapCases
             int n = k++;
             yield return ($"участки стен: старое и битое сохранение №{n + 1}", () => FortCorruptCase(c, $"forts.corrupt[{n}]"));
         }
+        // ── осадные орудия (6б, Ш3–Ш4) ──
+        var siege = g.GetProperty("siege");
+        var sUnits = siege.GetProperty("units");
+        k = 0;
+        foreach (var c in siege.GetProperty("shots").EnumerateArray())
+        {
+            int n = k++;
+            var tg = c.GetProperty("target");
+            yield return ($"орудия: {c.GetProperty("kind").GetString()} ×{c.GetProperty("count").GetDouble()} → {tg[0].GetString()} {tg[1].GetDouble()}, зерно {c.GetProperty("seed").GetDouble()}",
+                          () => SiegeShotCase(c, sUnits, R, $"siege.shots[{n}]"));
+        }
+        yield return ("орудия: конец хода, марш, удар по машине, взрыв маг-пушки, захват", () => SiegeMiscCase(siege.GetProperty("misc"), sUnits, R));
     }
 
     static string Title(JsonElement c)
@@ -308,6 +320,115 @@ static class MapCases
         {
             ["result"] = m == null || m.S == null ? null : new JsonObject { ["s"] = Terrain.EncodeLayer(m.S), ["forts"] = FortsOut(m) },
         }, where);
+    }
+
+    // ── осадные орудия: те же залпы, что в mapcases.mjs (siegeCases) ──
+    static Unit SiegeUnitOf(JsonElement e) => new Unit
+    {
+        Id = e.GetProperty("id").GetInt32(), Name = e.GetProperty("name").GetString(), Soldiers = Num(e, "soldiers"),
+        EqDef = Num(e, "eqDef"), Exp = Num(e, "exp"), Morale = Num(e, "morale"), Discipline = Num(e, "discipline"),
+        Broken = e.TryGetProperty("broken", out var br) && br.ValueKind == JsonValueKind.True,
+        BreakGrace = Num(e, "breakGrace"), BreakPenalty = Num(e, "breakPenalty"), TotKilled = Num(e, "totKilled"), TotWounded = Num(e, "totWounded"),
+        Status = e.GetProperty("status").GetString(),
+    };
+    static List<Unit> SiegeUnits(JsonElement units) => units.EnumerateArray().Select(SiegeUnitOf).ToList();
+    static Machine MachineOf(string kind, double count, JsonElement extra, Rules R)
+    {
+        var m = Siege.MakeMachine(kind, count, R);
+        foreach (var p in extra.EnumerateObject())
+        {
+            double v = p.Value.GetDouble();
+            switch (p.Name)
+            {
+                case "exp": m.Exp = v; break;
+                case "crew": m.Crew = v; break;
+                case "mageSkill": m.MageSkill = v; break;
+                case "count": m.Count = v; break;
+                case "ready": m.Ready = v; break;
+                case "deployLeft": m.DeployLeft = v; break;
+                default: throw new Exception("неизвестное поле машины: " + p.Name);
+            }
+        }
+        return m;
+    }
+    static JsonNode MPatch(MachinePatch p)
+    {
+        if (p == null) return null;
+        var o = new JsonObject();
+        void Add(string k, double? v) { if (v != null) o[k] = v; }
+        Add("count", p.Count); Add("crew", p.Crew); Add("ready", p.Ready); Add("deployLeft", p.DeployLeft); Add("dmg", p.Dmg);
+        Add("factionId", p.FactionId); Add("mageSkill", p.MageSkill);
+        return o;
+    }
+    static JsonArray UPatches(List<UnitPatch> ps) => new JsonArray(ps.Select(x => (JsonNode)new JsonObject { ["id"] = x.Id, ["patch"] = PatchOf(x.Patch) }).ToArray());
+    static void SiegeShotCase(JsonElement c, JsonElement unitsJson, Rules R, string where)
+    {
+        var m = MachineOf(c.GetProperty("kind").GetString(), c.GetProperty("count").GetDouble(), c.GetProperty("extra"), R);
+        var tg = c.GetProperty("target");
+        var target = new SiegeTarget();
+        int ti = (int)tg[1].GetDouble();
+        TerrainMap map = null;
+        if (tg[0].GetString() == "section")
+        {
+            map = MapGen.Generate("castle", new Dictionary<string, object>(), 1);
+            Fortify.BuildSections(map, R);
+            target.Map = map; target.SectionId = ti;
+            if (tg[2].ValueKind == JsonValueKind.Array) { target.AtX = tg[2][0].GetDouble(); target.AtY = tg[2][1].GetDouble(); }
+        }
+        else
+        {
+            var us = SiegeUnits(unitsJson);
+            target.Unit = us[ti];
+            int k = 0;
+            for (int i = 0; i < us.Count; i++) if (i != ti) target.Splash.Add((us[i], 10 + k++ * 15));
+        }
+        var o = c.GetProperty("opts");
+        var opts = new SiegeOpts
+        {
+            Dist = o.GetProperty("dist").GetDouble(),
+            Los = o.TryGetProperty("los", out var l) ? l.GetBoolean() : (bool?)null,
+            CoverPct = Num(o, "coverPct"),
+        };
+        var r = Siege.Volley(m, target, opts, new EngineContext { Rules = R, Rng = new Mulberry32((uint)c.GetProperty("seed").GetDouble()).Next });
+        var f = map != null ? Fortify.GetSection(map, ti) : null;
+        Check(c, new JsonObject
+        {
+            ["r"] = new JsonObject
+            {
+                ["ok"] = r.Ok, ["title"] = r.Title, ["lines"] = Strings(r.Lines), ["tone"] = r.Tone, ["machine"] = MPatch(r.Machine),
+                ["patches"] = UPatches(r.Patches),
+                ["stats"] = r.Ok ? new JsonObject { ["guns"] = r.Guns, ["hits"] = r.Hits, ["bursts"] = r.Bursts } : null,
+            },
+            ["t"] = map != null ? Fnv(map.T) : null,
+            ["sec"] = f != null ? new JsonArray(f.Dmg, f.Breaches, f.Up) : null,
+        }, where);
+    }
+    static void SiegeMiscCase(JsonElement c, JsonElement unitsJson, Rules R)
+    {
+        var moved = new JsonArray(R.Siege.Engines.Keys.Select(k => MPatch(Siege.Moved(Siege.MakeMachine(k, 2, R), R))).ToArray());
+        var endTurn = new JsonArray(new[] { (2.0, 1.0), (0.0, 0.0), (0.0, 0.0) }
+            .Select(x => MPatch(Siege.EndTurn(new Machine { Ready = x.Item1, DeployLeft = x.Item2 }))).ToArray());
+        JsonNode Hit(MachineHit h) => new JsonObject { ["patch"] = MPatch(h.Patch), ["lines"] = Strings(h.Lines), ["lost"] = h.Lost };
+        var tre = Siege.MakeMachine("trebuchet", 3, R);
+        var h1 = Siege.HitMachine(tre, 120, R);
+        var t2 = tre.Clone(); t2.Count = h1.Patch.Count.Value; t2.Crew = h1.Patch.Crew.Value; t2.Dmg = h1.Patch.Dmg.Value;
+        var h2 = Siege.HitMachine(t2, 30, R);
+        var h3 = Siege.HitMachine(Siege.MakeMachine("magic", 2, R), 39.5, R);
+        var strikes = new JsonArray();
+        foreach (var seed in new[] { 3, 4, 5, 6, 7, 8, 9, 10 })
+        {
+            var mg = Siege.MakeMachine("magic", 3, R); mg.MageSkill = 9;
+            var us = SiegeUnits(unitsJson);
+            var h = Siege.MagicStrike(mg, us.Select((u, k) => (u, k * 20.0)).ToList(), new EngineContext { Rules = R, Rng = new Mulberry32((uint)seed).Next });
+            strikes.Add(new JsonObject { ["seed"] = seed, ["calm"] = h.Calm, ["lines"] = Strings(h.Lines), ["patches"] = UPatches(h.Patches), ["machine"] = MPatch(h.Patch) });
+        }
+        var m1 = Siege.MakeMachine("magic", 3, R); m1.Ready = 1;
+        var m2 = Siege.MakeMachine("cannon", 3, R); m2.DeployLeft = 2;
+        Check(c, new JsonObject
+        {
+            ["moved"] = moved, ["endTurn"] = endTurn, ["hits"] = new JsonArray(Hit(h1), Hit(h2), Hit(h3)), ["strikes"] = strikes,
+            ["capture"] = new JsonArray(MPatch(Siege.Capture(m1, 5, R)), MPatch(Siege.Capture(m2, 5, R))),
+        }, "siege.misc");
     }
 
     // ── как трекер выводит результаты (mapcases.mjs: groundOut, modsOut, reachOut) ──
