@@ -369,11 +369,7 @@ function drawMen(u, [w, d, men, rank], fx, fy, h, col, moving, t, k){
 // ── павшие и кровь (Г67; по мотивам «hit visuals» автора Iron Kings — рисунок свой) ──
 // Под павшим — лужа (три неровных пятна, растекается за ~1 с), брызги — по направлению удара, за спину.
 // Сам павший — тот же боец, обесцвеченный в цвет своей стороны, лежит, как упал. Удар в голову — кровь на голове.
-const BLOOD = "#7b1212";
-function mix(a, b, k){
-  const p = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)), A = p(a), B = p(b);
-  return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * k).toString(16).padStart(2, "0")).join("");
-}
+const BLOOD = "#7b1212";   // смешение цветов mix() — выше, у одежды бойцов
 function drawDead(){
   if(!S.dead) return;
   const now = frame, near = view.s >= MEN_FROM;
