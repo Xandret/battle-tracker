@@ -153,6 +153,23 @@ static class Polygon
             parade.Add(kinds[k][0], k + 1, kinds[k][1], x, 500, 0, x, 300, 0, men: 200);
         }
         list.Add(parade);
+        // Облик земли и построек (В1–В3): сгенерированные крепости — стены, башни, ворота, дома, ров, рощи, холм
+        var cm = MapGen.Generate("concentric", new Dictionary<string, object> { ["hill"] = true, ["moat"] = true, ["gates"] = 2.0 }, 11);
+        var castle = new Scene { Name = "Облик: замок", Turns = 2, Geo = new Geo { Map = cm, W = Terrain.WidthM(cm), H = Terrain.HeightM(cm) },
+            Note = "В1–В5: земля с неровными краями по клеткам 5 м, светотень холма и горизонтали, рощи кронами, ров с тёмной кромкой. " +
+                   "Стены — каменная лента с зубцами, башни — с конусом крыши, донжон, ворота створками; тени ложатся влево вниз. " +
+                   "Стороны — своими цветами. Сгенерированный концентрический замок на холме, зерно 11. Рисунки свои (Г10)." };
+        castle.Add("infantry", 1, "Пехота", 230, 560, 0, 230, 480, 0, men: 400);
+        castle.Add("archers", 2, "Лучники", 360, 570, 0, 360, 500, 0, men: 300);
+        castle.Add("knights", 3, "Рыцари", 500, 570, 0, 480, 490, 0, men: 300);
+        castle.Stand("pikemen", 4, "Враг: вылазка", 350, 100, 180, faction: 2);
+        list.Add(castle);
+        var pm = MapGen.Generate("palisade", new Dictionary<string, object> { ["moat"] = false }, 5);
+        var ostrog = new Scene { Name = "Облик: острог", Turns = 2, Geo = new Geo { Map = pm, W = Terrain.WidthM(pm), H = Terrain.HeightM(pm) },
+            Note = "Частокол — ряд брёвен торцами, вышки и избы под соломой и тёсом, дорога к воротам. Сгенерированный острог, зерно 5." };
+        ostrog.Add("militia", 1, "Ополчение", 90, 340, 0, 90, 290, 0, men: 300);
+        ostrog.Stand("infantry", 2, "Враг: пехота", 420, 70, 180, faction: 2);
+        list.Add(ostrog);
         // ── бой в движении (БД1) ──
         var hit = new Scene { Name = "Бой: натиск и стычки", Turns = 3, Geo = MoveTests.Open(1100, 800),
             Note = "БД1 (Г62, Г29, К29): касание — обмен ударами по формуле стола, бой идёт через границу хода без перерыва. " +
@@ -260,6 +277,7 @@ static class Polygon
                 units = sc.Units.Select((u, ui) => new
                 {
                     id = u.M.P.U.Id, name = u.M.P.U.Name, type = u.M.P.U.Type, men = start[ui].men, tpl = sc.Tpl[u.M],
+                    faction = u.M.P.U.FactionId ?? 1,   // цвет стороны на рисунке (В4)
                     norm = BattleMap.UnitSpeed(u.M.P.U, R), front = start[ui].front, depth = start[ui].depth,
                     // фигурка: ширина, глубина, бойцов, ряд квадратиков (0 — передний); шаг бойца в строю — pm × rd
                     figs = start[ui].figs,
