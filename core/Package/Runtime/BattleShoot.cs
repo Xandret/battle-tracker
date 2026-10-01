@@ -20,7 +20,6 @@ namespace BattleCore
         public bool Over;
         public double LossA, LossB, Friendly; public long Arrows;   // за этот ход — для журнала
         internal List<VWin> Wins = new List<VWin>();
-        internal Dictionary<Mover, int> CountersLeft = new Dictionary<Mover, int>();
     }
     internal sealed class VWin
     {
@@ -249,14 +248,13 @@ namespace BattleCore
         {
             int n = (int)Units.AttackLimit(v.A.P.U, R);
             double len = R.Move.TurnSec / Math.Max(1, n);
-            v.CountersLeft[v.B] = (int)Units.CounterLimit(v.B.P.U, R);
+            Budget(v.B, start);   // ответы — общий запас отряда (Г69)
             for (int j = 0; j < n; j++)
             {
                 double t0 = start + j * len, t1 = start + (j + 1) * len;
                 v.Wins.Add(new VWin { V = v, Att = v.A, Def = v.B, T0 = t0, T1 = t1 });
-                if (Shooter(v.B) && v.CountersLeft[v.B] > 0)
+                if (Shooter(v.B) && TakeCounter(v.B))
                 {
-                    v.CountersLeft[v.B]--;
                     v.Wins.Add(new VWin { V = v, Att = v.B, Def = v.A, Counter = true, T0 = t0, T1 = t1 });
                 }
             }

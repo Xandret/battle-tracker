@@ -692,6 +692,10 @@ function draw(){
       ctx.beginPath(); ctx.moveTo(px - s, py - s); ctx.lineTo(px + s, py + s); ctx.moveTo(px + s, py - s); ctx.lineTo(px - s, py + s); ctx.stroke();
     });
   });
+  // охват (Г68): фигурки, развёрнутые не по строю, — свой курс
+  const HD = new Map();
+  const hf = S.heads ? S.heads[Math.min(S.heads.length - 1, Math.round(frame))] : null;
+  if(hf) for(const [ui, k, a] of hf) HD.set(ui * 100000 + k, a * Math.PI / 180);
   drawVignette(r);
   S.units.forEach((u, i) => {
     const col = u.col;
@@ -712,7 +716,7 @@ function draw(){
         if(fx === undefined) return;
         const pad = (Math.max(fig[0], fig[1]) / 2 + 5) * view.s, sx = X(fx), sy = Y(fy);   // за краем экрана не рисуем
         if(sx < -pad || sy < -pad || sx > r.width + pad || sy > r.height + pad) return;
-        drawMen(u, fig, fx, fy, h, col, moving, t, k);
+        drawMen(u, fig, fx, fy, HD.get(i * 100000 + k) ?? h, col, moving, t, k);
       });
     } else {
       // издали — плашка: фигурка одним прямоугольником
@@ -720,7 +724,7 @@ function draw(){
       u.figs.forEach(([w, d], k) => {
         if(f[4 + 2 * k] === undefined) return;   // бой: фигурок стало меньше (Г30)
         const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
-        ctx.save(); ctx.translate(x, y); ctx.rotate(h);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(HD.get(i * 100000 + k) ?? h);
         const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
         ctx.fillRect(-W / 2, -D / 2, W, D); if(view.s > 2) ctx.strokeRect(-W / 2, -D / 2, W, D);
         ctx.restore();

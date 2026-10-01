@@ -1,4 +1,4 @@
-// ═══════════ Battle.cs — бой в движении (И1, БД1; Г62–Г64, Г44, Г29, Г30) — ЧЕРНОВИК ДО ГМа ═══════════
+// ═══════════ Battle.cs — бой в движении (И1, БД1, БД3; Г62–Г64, Г68–Г69, Г44, Г29, Г30) — ЧЕРНОВИК ДО ГМа ═══════════
 // Один ход боя — то же движение (MoveSim.Step), а между его шагами — рукопашная. Схватка (Fight) — пара
 // врагов, чьи фигурки коснулись (не дальше MeleeGap): обмены ударами по кругу в 15 с от касания (Г62) —
 // сначала атаки того, кто начал (Г44), на каждую — ответ, если удар пришёл во фронт; потом атаки второго.
@@ -6,7 +6,8 @@
 // окна — округление, летальность, БД. Бьют колонны фигурок, что касаются врага (Г27). Натиск (Г29) — всплеск
 // в первые 2 с касания, цель в это время не отвечает: нужен приказ «натиск», конница и разбег ≥ 50 м по
 // чистому (К29); пики во фронт его гасят. Павшие фигурки выпадают из строя, строй смыкается с краёв (Г30).
-// Атакованный во фланг сам не поворачивается — ждёт приказа (Г63).
+// Атакованный во фланг сам не поворачивается — ждёт приказа (Г63). Свисающие колонны огибают врага перед
+// фронтом — во фланг и в тыл (Г68); колонны делятся между врагами, ответы — общие на круг (Г69).
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,7 +24,6 @@ namespace BattleCore
         public double LossA, LossB;         // потери за этот ход — для журнала (сколько бойцов выбыло, по шагам)
         public List<string> Notes = new List<string>();
         internal List<Win> Wins = new List<Win>();
-        internal Dictionary<Mover, int> CountersLeft = new Dictionary<Mover, int>();
 
         // Как отряд касается врага: доля бойцов в колоннах, что касаются (Г27), и куда приходится удар — во фронт,
         // фланг или тыл врага (доли от касающихся)
@@ -119,7 +119,7 @@ namespace BattleCore
                 var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
                 MoveSim.Step(Movers, Geo, R, k);
                 for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
-                if (k % contactEvery == 0) Contacts(t);
+                if (k % contactEvery == 0) { Contacts(t); Envelop(); }
                 Strike(t, dt);
                 Shoot(t, dt);
                 foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
@@ -172,9 +172,13 @@ namespace BattleCore
 
         // ── касание (Г27): колонна бьёт, если хоть одна её фигурка не дальше MeleeGap от фигурки врага ──
         readonly Dictionary<Mover, (List<int> figs, Mover foe)> frontFigs = new Dictionary<Mover, (List<int> figs, Mover foe)>();
+        // Касания этого полушага: x → y, по фигуркам x; и чья колонна кому досталась (Г69)
+        readonly Dictionary<(Mover x, Mover y), (int ky, double d)[]> touches = new Dictionary<(Mover x, Mover y), (int ky, double d)[]>();
+        readonly Dictionary<Mover, Dictionary<int, (Mover foe, double d)>> colFoe = new Dictionary<Mover, Dictionary<int, (Mover foe, double d)>>();
         Fight.Side SideOf(Mover x, Mover y)
         {
-            var touch = Bodies.Touch(x, y, R.Map.MeleeGap);
+            if (!touches.TryGetValue((x, y), out var touch)) return new Fight.Side();
+            var mine = colFoe.TryGetValue(x, out var cf) ? cf : new Dictionary<int, (Mover foe, double d)>();
             var touching = new List<int>();
             for (int k = 0; k < touch.Length; k++) if (touch[k].ky >= 0) touching.Add(k);
             if (touching.Count > 0) frontFigs[x] = (touching, y);
@@ -187,6 +191,7 @@ namespace BattleCore
                 total += f.Men;
                 colMen[f.File] = (colMen.TryGetValue(f.File, out var c) ? c : 0) + f.Men;
                 if (touch[k].ky < 0) continue;
+                if (!mine.TryGetValue(f.File, out var own) || own.foe != y) continue;   // колонна бьёт ближайшего врага (Г69)
                 // сектор — по тому, где фигурка стоит относительно строя врага: прямо перед ним — фронт, прямо за — тыл
                 y.P.ToLocal(x.Figs[k].X, x.Figs[k].Y, out var lx, out var ly);
                 double ex = Math.Abs(lx) - y.P.Fp.Front / 2;
@@ -206,17 +211,39 @@ namespace BattleCore
 
         void Contacts(double t)
         {
-            frontFigs.Clear();
+            frontFigs.Clear(); touches.Clear(); colFoe.Clear();
+            // 1) касания фигурок у всех пар врагов поблизости
+            for (int i = 0; i < Movers.Count; i++)
+                for (int j = i + 1; j < Movers.Count; j++)
+                {
+                    Mover x = Movers[i], y = Movers[j];
+                    if (!(Alive(x) && Alive(y) && Enemies(x.P.U, y.P.U))) continue;
+                    double reach = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10 + WrapReach(x) + WrapReach(y);
+                    if (JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) > reach) continue;
+                    touches[(x, y)] = Bodies.Touch(x, y, R.Map.MeleeGap);
+                    touches[(y, x)] = Bodies.Touch(y, x, R.Map.MeleeGap);
+                }
+            // 2) колонна — тому врагу, которого касается ближе всех (Г69): сила отряда делится, а не растёт
+            foreach (var kv in touches)
+            {
+                var (x, y) = kv.Key;
+                if (!colFoe.TryGetValue(x, out var cf)) colFoe[x] = cf = new Dictionary<int, (Mover foe, double d)>();
+                for (int k = 0; k < kv.Value.Length; k++)
+                {
+                    if (kv.Value[k].ky < 0) continue;
+                    int file = x.P.Figs[k].File;
+                    if (!cf.TryGetValue(file, out var o) || kv.Value[k].d < o.d) cf[file] = (y, kv.Value[k].d);
+                }
+            }
+            // 3) схватки пар
             for (int i = 0; i < Movers.Count; i++)
                 for (int j = i + 1; j < Movers.Count; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
                     var f = FightOf(x, y);
                     bool can = Alive(x) && Alive(y) && Enemies(x.P.U, y.P.U);
-                    double reach = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10;
-                    bool near = can && JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) <= reach;
-                    var sx = near ? SideOf(x, y) : new Fight.Side();
-                    var sy = near ? SideOf(y, x) : new Fight.Side();
+                    var sx = can ? SideOf(x, y) : new Fight.Side();
+                    var sy = can ? SideOf(y, x) : new Fight.Side();
                     bool touch = sx.Engaged > 0 || sy.Engaged > 0;
                     if (touch)
                     {
@@ -270,8 +297,19 @@ namespace BattleCore
             double w = len / Math.Max(1, ex.Count);
             for (int j = 0; j < ex.Count; j++) f.Wins.Add(new Fight.Win { Att = ex[j].x, Def = ex[j].y, T0 = start + j * w, T1 = start + (j + 1) * w });
             f.CycleEnd = start + len;
-            f.CountersLeft[f.A] = (int)Units.CounterLimit(f.A.P.U, R);
-            f.CountersLeft[f.B] = (int)Units.CounterLimit(f.B.P.U, R);
+            Budget(f.A, start); Budget(f.B, start);
+        }
+        // Ответные удары — общий запас отряда на все его схватки и перестрелки за круг в 15 с (Г69), как за ход стола
+        readonly Dictionary<Mover, (int left, double since)> counters = new Dictionary<Mover, (int left, double since)>();
+        internal void Budget(Mover m, double t)
+        {
+            if (!counters.TryGetValue(m, out var c) || t - c.since >= R.Move.TurnSec - 1e-6) counters[m] = ((int)Units.CounterLimit(m.P.U, R), t);
+        }
+        internal bool TakeCounter(Mover m)
+        {
+            if (!counters.TryGetValue(m, out var c) || c.left <= 0) return false;
+            counters[m] = (c.left - 1, c.since);
+            return true;
         }
 
         void End(Fight f)
@@ -301,9 +339,8 @@ namespace BattleCore
                     if (!w.Counter && !w.Charge)
                     {
                         var sa = f.Of(w.Att);
-                        if (f.Of(w.Def).Engaged > 0 && sa.Front > 0 && f.CountersLeft[w.Def] > 0)
+                        if (f.Of(w.Def).Engaged > 0 && sa.Front > 0 && TakeCounter(w.Def))
                         {
-                            f.CountersLeft[w.Def]--;
                             bool pikeStop = Units.IsCav(w.Att.P.U) && Units.IsPike(w.Def.P.U);
                             var c = new Fight.Win
                             {
@@ -401,8 +438,208 @@ namespace BattleCore
             }
         }
 
+        // ── охват (Г68): свободные колонны огибают врага — на свободные места по его обводу: фланги, тыл, фронт ──
+        // Колонна идёт целиком: голова — к врагу, остальные — за ней наружу; кто из фигурок колонны ближе к месту,
+        // та и голова. Угол огибают через точки снаружи, а не сквозь врага. Место за колонной держится, пока она
+        // к нему идёт и пока бьётся; мест не хватило — встаёт второй линией за своим. Кому охватывать нечего —
+        // идут на свои места в строю.
+        double WrapReach(Mover m) => m.P.Fp.Front;
+        void Envelop()
+        {
+            var was = new HashSet<FigState>(Movers.SelectMany(m => m.Figs).Where(s => s.Wrap));
+            // колонны каждого отряда в схватке: обернувшиеся, что уже бьются, держат место у врага (kept),
+            // свободные (не бьются) — к ближайшему из врагов (free)
+            var plan = new Dictionary<(Mover x, Mover y), (List<List<int>> kept, List<List<int>> free)>();
+            (List<List<int>> kept, List<List<int>> free) Plan(Mover x, Mover y)
+            {
+                if (!plan.TryGetValue((x, y), out var p)) plan[(x, y)] = p = (new List<List<int>>(), new List<List<int>>());
+                return p;
+            }
+            foreach (var x in Movers)
+            {
+                var foes = Fights.Where(f => !f.Over && f.Touching && (f.A == x || f.B == x)).Select(f => f.Other(x)).ToList();
+                if (foes.Count == 0 || x.P.Figs.Count == 0)
+                {
+                    foreach (var s in x.Figs) { s.Wrap = false; s.WFoe = null; }
+                    continue;
+                }
+                var engaged = colFoe.TryGetValue(x, out var cf) ? cf : new Dictionary<int, (Mover foe, double d)>();
+                // огибают только того, кто перед фронтом: атакованный во фланг или в тыл сам не поворачивается (Г63)
+                var ahead = foes.Where(q => Math.Abs(MoveSim.AngleDiff(x.P.Facing, MoveSim.HeadingOf(q.P.X - x.P.X, q.P.Y - x.P.Y))) <= R.Sectors.FrontMax).ToList();
+                foreach (var g in Enumerable.Range(0, x.P.Figs.Count).GroupBy(k => x.P.Figs[k].File))
+                {
+                    var col = g.ToList();
+                    var head = x.Figs[col[0]];
+                    if (engaged.ContainsKey(g.Key))
+                    {
+                        if (col.Any(k => x.Figs[k].Wrap) && head.WFoe != null && foes.Contains(head.WFoe)) { Plan(x, head.WFoe).kept.Add(col); continue; }
+                        foreach (int k in col) { x.Figs[k].Wrap = false; x.Figs[k].WFoe = null; }
+                        continue;
+                    }
+                    foreach (int k in col) x.Figs[k].Wrap = false;
+                    if (ahead.Count == 0) { foreach (int k in col) x.Figs[k].WFoe = null; continue; }
+                    var y = ahead.OrderBy(q => JsMath.Hypot(q.P.X - head.X, q.P.Y - head.Y)).First();
+                    Plan(x, y).free.Add(col);
+                }
+            }
+            foreach (var kv in plan) WrapAround(kv.Key.x, kv.Key.y, kv.Value.kept, kv.Value.free);
+            // отпущенные из охвата идут на свои места сквозь свой строй (Returning), пока не дойдут
+            foreach (var m in Movers)
+                for (int k = 0; k < m.Figs.Count; k++)
+                {
+                    var s = m.Figs[k];
+                    if (s.Wrap) { s.Returning = false; continue; }
+                    if (was.Contains(s)) s.Returning = true;
+                    if (!s.Returning) continue;
+                    m.P.ToWorld(m.P.Figs[k].X, m.P.Figs[k].Y, out var sx, out var sy);
+                    if (JsMath.Hypot(s.X - sx, s.Y - sy) < ReturnedM) s.Returning = false;
+                }
+        }
+        const double ReturnedM = 1;   // дошла до своего места в строю — снова твёрдая для своих
+
+        // Места по всему обводу врага, снаружи, лицом к нему: обернувшиеся, что бьются, — при своих; кто шёл —
+        // к своему (или соседнему, если строй врага сузился); остальные — по близости к врагу, ближайшее к голове
+        void WrapAround(Mover x, Mover y, List<List<int>> kept, List<List<int>> cols)
+        {
+            var P = x.P; var Q = y.P;
+            double figW = P.Figs.Max(q => q.Width), figD = P.Figs.Max(q => q.Depth), mg = 0.5;
+            double F = Q.Fp.Front / 2, D = Q.Fp.Depth / 2, off = figD / 2 + mg;
+            var slots = new List<(double lx, double ly, double nx, double ny, double face)>();
+            void Edge(bool alongX, double fixedV, double half, double nx, double ny, double face)
+            {
+                if (2 * half <= figW) { slots.Add(alongX ? (0, fixedV, nx, ny, face) : (fixedV, 0, nx, ny, face)); return; }
+                for (double v = -half + figW / 2; v <= half - figW / 2 + 1e-9; v += figW)
+                    slots.Add(alongX ? (v, fixedV, nx, ny, face) : (fixedV, v, nx, ny, face));
+            }
+            Edge(true, -D - off, F, 0, -1, Q.Facing + 180);    // фронт врага
+            Edge(true, D + off, F, 0, 1, Q.Facing);            // тыл
+            Edge(false, -F - off, D, -1, 0, Q.Facing + 90);    // левый фланг
+            Edge(false, F + off, D, 1, 0, Q.Facing - 90);      // правый фланг
+            int Nearest(IEnumerable<int> from, double lx, double ly) =>
+                from.OrderBy(i => JsMath.Hypot(slots[i].lx - lx, slots[i].ly - ly)).ThenBy(i => i).DefaultIfEmpty(-1).First();
+            // занято: у места стоит чья-то фигурка (кроме самого врага и колонн, что здесь раздаются) —
+            // каждая занимает одно место, ближайшее к себе
+            var mine = new HashSet<FigState>(kept.Concat(cols).SelectMany(c => c.Select(k => x.Figs[k])));
+            var busy = new bool[slots.Count];
+            foreach (var m in Movers)
+            {
+                if (m == y) continue;
+                foreach (var s in m.Figs)
+                {
+                    if (mine.Contains(s)) continue;
+                    Q.ToLocal(s.X, s.Y, out var lx, out var ly);
+                    int i = Nearest(Enumerable.Range(0, slots.Count), lx, ly);
+                    if (i >= 0 && JsMath.Hypot(slots[i].lx - lx, slots[i].ly - ly) < figW * 0.75) busy[i] = true;
+                }
+            }
+            var free = Enumerable.Range(0, slots.Count).Where(i => !busy[i]).ToList();
+            void Take(List<int> col, int si, int behind)
+            {
+                var sl = slots[si];
+                foreach (int k in col)
+                {
+                    var s = x.Figs[k];
+                    s.Wrap = true; s.WFoe = y; s.WSlotX = sl.lx; s.WSlotY = sl.ly; s.WNx = sl.nx; s.WNy = sl.ny; s.WBehind = behind; s.WH = MoveSim.Norm(sl.face);
+                }
+                Route(x, col, figW, figD, mg);
+            }
+            // 1) бьются — при своём месте (ближайшем к прежнему: строй врага сужается и места сдвигаются)
+            foreach (var col in kept)
+            {
+                var head = x.Figs[col[0]];
+                int si = Nearest(free, head.WSlotX, head.WSlotY);
+                if (si >= 0 && JsMath.Hypot(slots[si].lx - head.WSlotX, slots[si].ly - head.WSlotY) < figW) { free.Remove(si); Take(col, si, head.WBehind); }
+                else Route(x, col, figW, figD, mg);
+            }
+            // 2) кто шёл к своему месту — держит его; 3) остальные — по близости к врагу
+            var order = cols.OrderBy(c => x.Figs[c[0]].WFoe == y ? 0 : 1)
+                            .ThenBy(c => JsMath.Hypot(x.Figs[c[0]].X - Q.X, x.Figs[c[0]].Y - Q.Y)).ToList();
+            foreach (var col in order)
+            {
+                var head = x.Figs[col[0]];
+                bool had = head.WFoe == y;
+                double lx = head.WSlotX, ly = head.WSlotY;
+                if (!had) Q.ToLocal(head.X, head.Y, out lx, out ly);
+                int si = Nearest(free, lx, ly);
+                if (si >= 0) { free.Remove(si); Take(col, si, 0); }
+                else if (had) Take(col, Nearest(Enumerable.Range(0, slots.Count), lx, ly), col.Count);   // мест нет — второй линией за своим
+                else foreach (int k in col) x.Figs[k].WFoe = null;
+            }
+        }
+
+        // Колонна у своего места: голова — та фигурка, что ближе к врагу (по нормали места), остальные — за ней
+        // наружу; каждой — первая точка пути в обход строя врага
+        void Route(Mover x, List<int> col, double figW, double figD, double mg)
+        {
+            var h = x.Figs[col[0]]; var Q = h.WFoe.P;
+            double sx = h.WSlotX, sy = h.WSlotY, nx = h.WNx, ny = h.WNy; int behind = h.WBehind;
+            var byDepth = col.OrderBy(k =>
+            {
+                Q.ToLocal(x.Figs[k].X, x.Figs[k].Y, out var lx, out var ly);
+                return (lx - sx) * nx + (ly - sy) * ny;
+            }).ThenBy(k => k).ToList();
+            for (int r = 0; r < byDepth.Count; r++)
+            {
+                var s = x.Figs[byDepth[r]];
+                double tx = sx + nx * (behind + r) * figD, ty = sy + ny * (behind + r) * figD;
+                var (gx, gy) = AroundCorner(Q, s, tx, ty, figW, figD, mg);
+                Q.ToWorld(gx, gy, out var wx, out var wy);
+                s.WX = wx; s.WY = wy;
+            }
+        }
+
+        // Путь к месту у врага в обход его строя: кратчайший путь по углам снаружи (граф видимости: где стоит
+        // фигурка, четыре угла, место), берём первую точку. Прямо видно место — сразу к нему; дошла до угла —
+        // дальше к следующему углу или к месту, а не снова к тому же углу
+        static (double x, double y) AroundCorner(Placed Q, FigState s, double tx, double ty, double figW, double figD, double mg)
+        {
+            double F = Q.Fp.Front / 2, D = Q.Fp.Depth / 2, a = figD / 2;
+            Q.ToLocal(s.X, s.Y, out var cx, out var cy);
+            if (Math.Abs(cx) < F + a && Math.Abs(cy) < D + a) return (tx, ty);   // уже вплотную — напрямую
+            if (!SegHitsBox(cx, cy, tx, ty, F + a, D + a)) return (tx, ty);
+            double c = Math.Max(figW, figD) / 2 + mg, ox = F + c, oy = D + c;
+            var pt = new[] { (cx, cy), (-ox, -oy), (ox, -oy), (ox, oy), (-ox, oy), (tx, ty) };
+            int n = pt.Length;
+            var dist = new double[n]; var prev = new int[n]; var done = new bool[n];
+            for (int i = 0; i < n; i++) { dist[i] = double.MaxValue; prev[i] = -1; }
+            dist[0] = 0;
+            for (int it = 0; it < n; it++)
+            {
+                int u = -1;
+                for (int i = 0; i < n; i++) if (!done[i] && dist[i] < double.MaxValue && (u < 0 || dist[i] < dist[u])) u = i;
+                if (u < 0 || u == n - 1) break;
+                done[u] = true;
+                for (int v = 1; v < n; v++)
+                {
+                    if (done[v] || SegHitsBox(pt[u].Item1, pt[u].Item2, pt[v].Item1, pt[v].Item2, F + a, D + a)) continue;
+                    double w = dist[u] + JsMath.Hypot(pt[v].Item1 - pt[u].Item1, pt[v].Item2 - pt[u].Item2);
+                    if (w < dist[v]) { dist[v] = w; prev[v] = u; }
+                }
+            }
+            if (prev[n - 1] < 0) return (tx, ty);
+            int k = n - 1;
+            while (prev[k] != 0) k = prev[k];
+            return pt[k];
+        }
+        // Пересекает ли отрезок прямоугольник |x| < hx, |y| < hy (Лян — Барски)
+        static bool SegHitsBox(double x0, double y0, double x1, double y1, double hx, double hy)
+        {
+            double t0 = 0, t1 = 1, dx = x1 - x0, dy = y1 - y0;
+            bool Clip(double p, double q)
+            {
+                if (Math.Abs(p) < 1e-12) return q > 0;
+                double r = q / p;
+                if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+                else { if (r < t0) return false; if (r < t1) t1 = r; }
+                return true;
+            }
+            return Clip(-dx, x0 + hx) && Clip(dx, hx - x0) && Clip(-dy, y0 + hy) && Clip(dy, hy - y0) && t1 - t0 > 1e-9;
+        }
+
         // ── потери — фигурками (Г30): раскладка по нынешней численности, фронт сужается с краёв, как фишка
-        // трекера; новые места — ближайшим фигуркам спереди назад, лишние фигурки падают на месте ──
+        // трекера; лишние фигурки падают на месте. Строй развёрнут — место в строю (колонна, шеренга) остаётся за
+        // той же фигуркой: колонна не рвётся, даже если ушла в охват (Г68) далеко от своего места. Остальные места
+        // (и всё в походной колонне) — ближайшим фигуркам спереди назад ──
         public void Relayout(Mover m)
         {
             var P = m.P;
@@ -416,8 +653,16 @@ namespace BattleCore
             var figs = Formation.Layout(P.U, MenPerFigure, R);
             var free = Enumerable.Range(0, m.Figs.Count).ToList();
             var bodies = new FigState[figs.Count];
+            if (oldCols == oldNominal && P.Figs.Count == m.Figs.Count)
+            {
+                var had = new Dictionary<(int file, int rank), int>();
+                for (int q = 0; q < P.Figs.Count; q++) had[(P.Figs[q].File, P.Figs[q].Rank)] = q;
+                for (int k = 0; k < figs.Count; k++)
+                    if (had.TryGetValue((figs[k].File, figs[k].Rank), out var q)) { bodies[k] = m.Figs[q]; free.Remove(q); }
+            }
             foreach (int k in Enumerable.Range(0, figs.Count).OrderBy(i => figs[i].Y).ThenBy(i => figs[i].X))
             {
+                if (bodies[k] != null) continue;
                 P.ToWorld(figs[k].X, figs[k].Y, out var wx, out var wy);
                 int best = -1; double bd = double.MaxValue;
                 for (int q = 0; q < free.Count; q++)
