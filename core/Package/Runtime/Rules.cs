@@ -161,6 +161,24 @@ namespace BattleCore
         }
         public RangedR Ranged = new RangedR();
 
+        // ── Движение фигурками (Г31, Г52–Г54) — ЧЕРНОВИК, только для игры; в трекере фигурок нет ──
+        // Норма хода — Map.Speed (как за столом), местность — Map.Terrain. Здесь — как строй её проходит.
+        public sealed class MoveR
+        {
+            public double TurnSec = 15, Dt = 0.05;
+            // Г53: разгон и торможение, с — от места до полной скорости и обратно
+            public double AccelInfantry = 1, AccelArcher = 1, AccelPike = 1.5, AccelCavalry = 3, AccelHorseArcher = 2;
+            // Г52: поворот колесом — фланги идут во столько раз быстрее марша; кругом — каждый на месте
+            public double WheelK = 3, WheelMaxDegPerSec = 180;
+            public double AboutFaceDeg = 135, AboutFaceSec = 1;
+            public double MarchAlignDeg = 20;     // курс разошёлся с путём сильнее — стоп и поворот колесом
+            // Г54: цель ближе этой доли нормы — без поворота: боком и назад — на доле скорости
+            public double CloseShare = 1.0 / 3, SideSpeed = 0.5, ForwardConeDeg = 45;
+            // Фигурка догоняет своё место в строю: быстрее марша, резвее отряда, отставание выбирает за SlotTau с
+            public double FigureCatchUp = 1.3, FigureAccelK = 2, SlotTau = 0.5;
+        }
+        public MoveR Move = new MoveR();
+
         public double ModeDivFor(string mode)
         {
             switch (mode)

@@ -21,3 +21,6 @@ game/[Mm]emoryCaptures/
 game/*.csproj
 game/*.sln
 game/*.slnx
+
+# полигон движения — генерируется: dotnet run --project Tests -- polygon
+core/polygon/

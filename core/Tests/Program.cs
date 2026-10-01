@@ -3,6 +3,7 @@
 // строка в строку. Запуск: dotnet run --project Tests (из core/). Код возврата 0 — всё зелёное.
 // dotnet run --project Tests -- calibrate [ходов рукопашной] [ходов стрельбы] — сверка модели со столом: shared/calibration/*
 // (или calibrate-melee / calibrate-ranged по отдельности)
+// dotnet run --project Tests -- polygon — полигон движения (Г55): core/polygon/polygon.html
 using System.Text.Json;
 using BattleCore;
 
@@ -278,6 +279,10 @@ Test("баллистика сверх стола: вблизи смертоно�
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
 foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Test(name, run);
 
+// ── И1: движение строя фигурками (Г31 шаг 1; Г52–Г54), см. MoveTests.cs ──
+foreach (var (name, run) in MoveTests.All()) Test(name, run);
+
+if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
 if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); CalibrateRanged(args.Length > 2 ? int.Parse(args[2]) : 400); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-melee") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-ranged") { CalibrateRanged(args.Length > 1 ? int.Parse(args[1]) : 400); return 0; }

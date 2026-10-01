@@ -165,14 +165,16 @@ namespace BattleCore
             }
         }
         // Множитель пути по клетке; null — непроходимо. «Не задано» — как поле.
-        static double? MoveMult(TerrainMap map, int i, Unit u, Rules r)
+        static double? MoveMult(TerrainMap map, int i, Unit u, Rules r) => MoveMult(map, i, u.Type == "cavalry", r);
+        public static double? MoveMult(TerrainMap map, int i, bool horse, Rules r)
         {
             int t = map.T[i];
             if (t == 0) return 1;
             var tr = TR(r, Terrain.ById[t].Key);
             if (tr == null || tr.Move == null) return null;
-            return tr.Move[u.Type == "cavalry" ? 1 : 0];
+            return tr.Move[horse ? 1 : 0];
         }
+        public static bool IsHorse(Unit u) => u.Type == "cavalry";
 
         // Карта досягаемости: цена пути в метрах до каждой клетки (Дейкстра, 8 соседей), до limitM.
         // Куча — та же, что в трекере, шаг в шаг: при равных ценах порядок обхода решает, какая сумма
