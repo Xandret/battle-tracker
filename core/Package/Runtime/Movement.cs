@@ -37,6 +37,14 @@ namespace BattleCore
         public double X, Y, Vx, Vy;
         public double Dvx, Dvy, Vmax;
         public int BlockedBy; public bool BlockedByEnemy, Slowed;
+        // Охват (Г68): колонна огибает врага — фигурка идёт к (WX, WY) и смотрит по WH (градусы), а не по строю
+        public bool Wrap; public double WX, WY, WH;
+        // место у врага WFoe (в его системе), которое колонна заняла, — держится за ним, пока оно свободно
+        public Mover WFoe; public double WSlotX, WSlotY, WNx, WNy; public int WBehind;
+        // тело развёрнуто не по строю (Turned): ось капсулы Axis поворачивается к нужной постепенно (FigTurnDegPerSec)
+        public bool Turned; public double Axis;
+        // отпущена из охвата и идёт на своё место — свои её пропускают (на половине скорости, как Г56)
+        public bool Returning;
     }
 
     public sealed class Mover
@@ -365,7 +373,7 @@ namespace BattleCore
             {
                 var s = m.Figs[k];
                 P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
-                double gx = sx, gy = sy;
+                double gx = s.Wrap ? s.WX : sx, gy = s.Wrap ? s.WY : sy;
                 double rho = F != null && F.Inside(s.X, s.Y) ? F.Mult(F.CellOf(s.X, s.Y)) ?? 1 : 1;
                 double vmax = vmax0 / rho;
                 double dvx, dvy;
@@ -383,6 +391,11 @@ namespace BattleCore
                 {
                     double ex = via.Value.x - s.X, ey = via.Value.y - s.Y, el = Math.Max(1e-9, JsMath.Hypot(ex, ey));
                     dvx = ex / el * vmax; dvy = ey / el * vmax;
+                }
+                else if (s.Wrap)
+                {
+                    // охват: к точке у врага, без скорости места в строю
+                    dvx = (gx - s.X) / M.SlotTau; dvy = (gy - s.Y) / M.SlotTau;
                 }
                 else
                 {
@@ -542,6 +555,7 @@ namespace BattleCore
                     {
                         var a = P.Figs[i]; var b = P.Figs[j];
                         if (a.Width != b.Width || a.Depth != b.Depth || a.Men != b.Men) continue;
+                        if (m.Figs[i].Wrap || m.Figs[j].Wrap) continue;   // в охвате (Г68) идут не к своим местам — не меняются
                         if (D(i, i) + D(j, j) - (D(j, i) + D(i, j)) > r.Move.ReassignGain)
                         { (m.Figs[i], m.Figs[j]) = (m.Figs[j], m.Figs[i]); any = true; }
                     }

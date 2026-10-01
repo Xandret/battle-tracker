@@ -23,10 +23,10 @@ static class Polygon
         }
         // бой (БД1): отряды живут в Battle, приказы — через Battle.Order; ходы считает Battle.Turn
         public Battle Battle;
-        public Mover Fighter(string tpl, int id, string name, double x, double y, double facing, int faction = 1)
+        public Mover Fighter(string tpl, int id, string name, double x, double y, double facing, int faction = 1, double men = 1000)
         {
             var t = Templates.Get(tpl);
-            var m = Battle.Add(t.Make(id, name, 1000, faction), x, y, facing);
+            var m = Battle.Add(t.Make(id, name, men, faction), x, y, facing);
             Units.Add((m, null)); Tpl[m] = tpl;
             return m;
         }
@@ -198,6 +198,22 @@ static class Polygon
         shoot.Order(s3, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
         shoot.Order(foe, new MoveOrder { Kind = OrderKind.Attack, TargetId = 5 });
         list.Add(shoot);
+
+        var wrap = new Scene { Name = "Бой: охват и двое на одного", Turns = 3, Geo = MoveTests.Open(1100, 800),
+            Note = "БД3 (Г68, Г69). Слева — рыцари шире пехоты: свисающие колонны сами огибают её углы и бьют во фланг и в тыл, " +
+                   "колонна идёт целиком, голова — к врагу; мест не хватило — встают второй линией. Справа — двое на одного: " +
+                   "колонны «Стоят» делятся между врагами (каждая бьёт того, кого касается), ответ — один на круг на всех: " +
+                   "первый ударивший его получает, второй — нет; удар во фланг ответа не даёт вовсе." };
+        wrap.Battle = new Battle(wrap.Geo, R0, new EngineContext { Rng = new Mulberry32(11).Next });
+        wrap.Fighter("infantry", 2, "Враг: пехота", 260, 450, 0, faction: 2);
+        var kn = wrap.Fighter("knights", 1, "Рыцари", 260, 450 - (4 + 40 + 7.5), 180);
+        wrap.Fighter("infantry", 5, "Враг: стоят", 780, 450, 0, faction: 2);
+        var w1 = wrap.Fighter("infantry", 3, "В лоб", 780, 450 - (4 + 40 + 4), 180, men: 500);
+        var w2 = wrap.Fighter("infantry", 4, "Во фланг", 780 + 62.5 + 4 + 60, 450, 270, men: 500);
+        wrap.Order(kn, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        wrap.Order(w1, new MoveOrder { Kind = OrderKind.Attack, TargetId = 5 });
+        wrap.Order(w2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 5 });
+        list.Add(wrap);
         return list;
     }
     static readonly Rules R0 = Rules.Base;
@@ -211,6 +227,7 @@ static class Polygon
             var ms = sc.Units.Select(u => u.M).ToList();
             if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
             var frames = new List<double[][]> { Snap(ms) };
+            var heads = new List<List<double[]>> { Heads(ms) };   // фигурки, развёрнутые не по строю (охват, Г68)
             // каким отряд был до первого хода — численность, строй, фигурки (в бою они меняются, Г30)
             var start = ms.Select(m => new
             {
@@ -233,6 +250,7 @@ static class Polygon
                 {
                     if (++k % 4 != 0) return;
                     frames.Add(Snap(ms));
+                    heads.Add(Heads(ms));
                     soldiers.Add(ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray());
                     if (sc.Battle != null)
                         for (; seenDead < sc.Battle.Deaths.Count; seenDead++)
@@ -270,6 +288,7 @@ static class Polygon
                 }).ToList(),
                 frames, logs, stats,
                 soldiers = sc.Battle != null ? soldiers : null, fallen = sc.Battle != null ? fallen : null, dead = sc.Battle != null ? dead : null,
+                heads = sc.Battle != null ? heads : null,
             });
         }
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },
@@ -293,6 +312,23 @@ static class Polygon
         for (int k = 0; k < m.Figs.Count; k++) { a[4 + 2 * k] = Math.Round(m.Figs[k].X, 1); a[5 + 2 * k] = Math.Round(m.Figs[k].Y, 1); }
         return a;
     }).ToArray();
+
+    // Курсы фигурок, развёрнутых не по строю (охват, Г68): [отряд, фигурка, курс°] — ось тела, повёрнутая
+    // в ту сторону, куда фигурка смотрит (к врагу в охвате, по строю — когда возвращается)
+    static List<double[]> Heads(List<Mover> ms)
+    {
+        var list = new List<double[]>();
+        for (int i = 0; i < ms.Count; i++)
+            for (int k = 0; k < ms[i].Figs.Count; k++)
+            {
+                var s = ms[i].Figs[k];
+                if (!s.Turned) continue;
+                double want = s.Wrap ? s.WH : ms[i].P.Facing, a = s.Axis;
+                if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
+                list.Add(new[] { i, k, Math.Round(MoveSim.Norm(a), 1) });
+            }
+        return list;
+    }
 
     // Карта направлений строкой: на клетку — номер соседа 0…7 (как в FlowField), «T» — цель, «.» — не дойти
     static string Flow(FlowField f)

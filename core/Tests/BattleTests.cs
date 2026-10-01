@@ -247,6 +247,111 @@ static class BattleTests
             True(bm.Deaths.Where(d => d.UnitId == 2).All(d => d.Y < edge + 6), "павшие B — у переднего края");
         });
 
+        // ── БД3: охват (Г68) и двое на одного (Г69) ──
+        yield return ("охват (Г68): рыцари шире пехоты — свисающие колонны огибают её: в деле больше 3/4, бьют во фланг и в тыл", () =>
+        {
+            var (bt, a, b) = Duel("knights", "infantry", 0.5, 31);
+            bt.Order(a, Attack(2));
+            double most = 0, side = 0;
+            bt.Turn(t =>
+            {
+                var f = bt.Fights.FirstOrDefault();
+                if (f == null) return;
+                var s = f.Of(a);
+                most = Math.Max(most, s.Engaged); side = Math.Max(side, s.Flank + s.Rear);
+            });
+            int behind = 0;
+            foreach (var s in a.Figs) { b.P.ToLocal(s.X, s.Y, out _, out var ly); if (ly > b.P.Fp.Depth / 2) behind++; }
+            True(most > 0.75, $"в деле не больше {most:P0}");
+            True(side > 0.1, $"во фланг и в тыл — {side:P0} касающихся");
+            True(behind >= 5, $"за спиной пехоты фигурок {behind}");
+        });
+
+        yield return ("охват (Г68): рыцари на пехоту в упор — потери пехоты не меньше 70% стола (без охвата было 55%)", () =>
+        {
+            const int N = 10, NT = 1000;
+            var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+            double table = 0, game = 0;
+            for (uint i = 1; i <= NT; i++)
+                table += Tabletop.Turn(TA.Make(1, "A", 1000, 1), TB.Make(2, "B", 1000, 2), new TurnSetup(), new EngineContext { Rng = new Mulberry32(i).Next }).LossB / NT;
+            for (uint i = 1; i <= N; i++)
+            {
+                var (bt, a, b) = Duel("knights", "infantry", 0.5, i + 7000);
+                bt.Order(a, Attack(2));
+                bt.Turn();
+                game += (1000 - b.P.U.Soldiers) / N;
+            }
+            True(game >= 0.7 * table && game <= 1.1 * table, $"стол {table:0}, бой в движении {game:0}");
+        });
+
+        yield return ("охват (Г68, Г63): пехота во фланг пехоте — что не влезло во фланг, огибает; атакованный сам не заворачивает и отвечает слабее стола", () =>
+        {
+            const int N = 20, NT = 1000;
+            var inf = Templates.Get("infantry");
+            double tA = 0, tB = 0, gA = 0, gB = 0; int wrapA = 0, wrapB = 0;
+            for (uint i = 1; i <= NT; i++)
+            {
+                var t = Tabletop.Turn(inf.Make(1, "A", 1000, 1), inf.Make(2, "B", 1000, 2), new TurnSetup { SectorA = "flank" }, new EngineContext { Rng = new Mulberry32(i).Next });
+                tA += t.LossA / (double)NT; tB += t.LossB / (double)NT;
+            }
+            for (uint i = 1; i <= N; i++)
+            {
+                var bt = new Battle(Open(), R, new EngineContext { Rng = new Mulberry32(i + 7000).Next });
+                var b = bt.Add(inf.Make(2, "B", 1000, 2), 500, 500, 0);
+                var fa = Formation.Of(inf.Make(1, "A", 1000, 1), R);
+                var a = bt.Add(inf.Make(1, "A", 1000, 1), 500 - (b.P.Fp.Front / 2 + 0.5 + fa.Depth / 2), 500, 90);
+                bt.Order(a, Attack(2));
+                bt.Turn(t => { wrapA = Math.Max(wrapA, a.Figs.Count(q => q.Wrap)); wrapB = Math.Max(wrapB, b.Figs.Count(q => q.Wrap)); });
+                gA += (1000 - a.P.U.Soldiers) / N; gB += (1000 - b.P.U.Soldiers) / N;
+            }
+            True(wrapA > 10 && wrapB == 0, $"в охвате фигурок: у атакующего {wrapA}, у атакованного {wrapB}");
+            // охват идёт секунды — за первый ход стоящий теряет меньше стола, но не меньше 70%; ответ — слабее стола (Г63)
+            True(gB >= 0.7 * tB && gB <= 1.15 * tB && gA < tA, $"стол {tA:0}/{tB:0}, бой в движении {gA:0}/{gB:0}");
+        });
+
+        yield return ("двое на одного (Г69): колонны защитника делятся между врагами, ответ — один на круг на всех", () =>
+        {
+            var bt = new Battle(Open(), R, new EngineContext { Rng = new Mulberry32(12).Next });
+            var inf = Templates.Get("infantry");
+            var b = bt.Add(inf.Make(3, "Стоят", 1000, 2), 500, 500, 0);
+            var half = Formation.Of(inf.Make(1, "Левые", 500, 1), R);
+            double y = 500 - (b.P.Fp.Depth / 2 + 0.5 + half.Depth / 2);
+            var a1 = bt.Add(inf.Make(1, "Левые", 500, 1), 500 - half.Front / 2 - 0.5, y, 180);
+            var a2 = bt.Add(inf.Make(2, "Правые", 500, 1), 500 + half.Front / 2 + 0.5, y, 180);
+            bt.Order(a1, Attack(3)); bt.Order(a2, Attack(3));
+            double most = 0; bool both = false;
+            bt.Turn(t =>
+            {
+                var live = bt.Fights.Where(f => !f.Over).ToList();
+                most = Math.Max(most, live.Sum(f => f.Of(b).Engaged));
+                if (live.Count == 2 && live.All(f => f.Of(b).Engaged > 0)) both = true;
+            });
+            True(both, "«Стоят» бились с обоими сразу");
+            True(most <= 1 + 1e-9, $"в деле у «Стоят» в сумме {most:P0}");
+            int Lines(string from, bool counter) => bt.Details.Count(l => l.Contains($" · {from} → ") && l.Contains("(ответ)") == counter);
+            True(Lines("Левые", false) == 1 && Lines("Правые", false) == 1, "обе атаки: " + string.Join(" | ", bt.Details));
+            True(Lines("Стоят", true) == (int)Units.CounterLimit(b.P.U, R), "ответы «Стоят»: " + string.Join(" | ", bt.Details));
+        });
+
+        yield return ("охват (Г68): враг разбит — колонны возвращаются на свои места сквозь свой строй", () =>
+        {
+            var (bt, a, b) = Duel("knights", "infantry", 0.5, 31);
+            bt.Order(a, Attack(2));
+            bt.Turn();
+            int wrapped = a.Figs.Count(s => s.Wrap);
+            True(wrapped > 10, $"в охвате {wrapped} фигурок");
+            b.P.U.Status = "destroyed"; b.P.U.Soldiers = 0;
+            bt.Turn();
+            double far = 0;
+            for (int k = 0; k < a.Figs.Count; k++)
+            {
+                a.P.ToWorld(a.P.Figs[k].X, a.P.Figs[k].Y, out var sx, out var sy);
+                far = Math.Max(far, JsMath.Hypot(a.Figs[k].X - sx, a.Figs[k].Y - sy));
+            }
+            True(a.Figs.All(s => !s.Wrap && !s.Turned && !s.Returning), "охват снят");
+            True(far < 1, $"дальше всех от своего места — {far:0.0} м");
+        });
+
         yield return ("бой: одно зерно — один исход", () =>
         {
             double[] Run()
@@ -254,7 +359,7 @@ static class BattleTests
                 var (bt, a, b) = Duel("knights", "infantry", 120, 21);
                 bt.Order(a, Attack(2, charge: true));
                 for (int i = 0; i < 2; i++) bt.Turn();
-                return new[] { a.P.U.Soldiers, b.P.U.Soldiers }.Concat(a.Figs.SelectMany(f => new[] { f.X, f.Y })).ToArray();
+                return new[] { a.P.U.Soldiers, b.P.U.Soldiers }.Concat(a.Figs.SelectMany(f => new[] { f.X, f.Y, f.Wrap ? 1 : 0 })).ToArray();
             }
             True(Run().SequenceEqual(Run()), "повтор совпал");
         });

@@ -29,14 +29,37 @@ namespace BattleCore
         static bool SameSide(Unit a, Unit b) => a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId;
         static Rel RelOf(B a, B b)
         {
-            if (a.M == b.M) return Rel.Same;
+            if (a.M == b.M) return a.S.Returning || b.S.Returning ? Rel.Ghost : Rel.Same;   // из охвата — сквозь свой строй (Г68)
             if (!SameSide(a.M.P.U, b.M.P.U)) return Rel.Enemy;
             return a.Archer || b.Archer ? Rel.Ghost : Rel.Friend;
         }
 
+        // Ось тела фигурки в охвате (Г68) поворачивается к WH постепенно, а не рывком: капсула 15 м шириной,
+        // развёрнутая разом на 90°, расшвыривает соседей. Капсула симметрична — разворот на 180° мгновенный.
+        // Вернулась в строй и ось совпала со строем — снова идёт по строю (Turned = false)
+        static void TurnAxes(IList<Mover> ms, double dt, Rules r)
+        {
+            double step = r.Move.FigTurnDegPerSec * dt;
+            foreach (var m in ms)
+                foreach (var s in m.Figs)
+                {
+                    double want = s.Wrap ? s.WH : m.P.Facing;
+                    if (!s.Turned)
+                    {
+                        if (!s.Wrap || Math.Abs(AxisDiff(want, m.P.Facing)) < 1e-9) continue;
+                        s.Turned = true; s.Axis = m.P.Facing;
+                    }
+                    double d = AxisDiff(want, s.Axis);
+                    if (Math.Abs(d) <= step) { s.Axis = want; if (!s.Wrap) s.Turned = false; }
+                    else s.Axis += Math.Sign(d) * step;
+                }
+        }
+        static double AxisDiff(double a, double b) => (((a - b) % 180) + 270) % 180 - 90;   // по модулю 180°, в [−90, 90)
+
         public static void Step(IList<Mover> ms, double dt, Rules r)
         {
             var M = r.Move;
+            TurnAxes(ms, dt, r);
             var bs = new List<B>();
             for (int mi = 0; mi < ms.Count; mi++)
             {
@@ -48,9 +71,11 @@ namespace BattleCore
                     var f = P.Figs[k]; var s = m.Figs[k];
                     s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false;
                     bool wide = f.Width >= f.Depth;
+                    double wrx = rx, wry = ry, wfx = fx, wfy = fy;
+                    if (s.Turned) { double wh = s.Axis * Math.PI / 180; wrx = Math.Cos(wh); wry = Math.Sin(wh); wfx = Math.Sin(wh); wfy = -Math.Cos(wh); }
                     bs.Add(new B
                     {
-                        M = m, Mi = mi, S = s, Ux = wide ? rx : fx, Uy = wide ? ry : fy,
+                        M = m, Mi = mi, S = s, Ux = wide ? wrx : wfx, Uy = wide ? wry : wfy,
                         Half = Math.Abs(f.Width - f.Depth) / 2, Rad = Math.Min(f.Width, f.Depth) / 2, X0 = s.X, Y0 = s.Y, Archer = archer,
                     });
                 }
@@ -185,7 +210,8 @@ namespace BattleCore
             for (int k = 0; k < P.Figs.Count; k++)
             {
                 var f = P.Figs[k]; bool wide = f.Width >= f.Depth;
-                list.Add(new B { M = m, S = m.Figs[k], Ux = wide ? Math.Cos(h) : Math.Sin(h), Uy = wide ? Math.Sin(h) : -Math.Cos(h),
+                double fh = m.Figs[k].Turned ? m.Figs[k].Axis * Math.PI / 180 : h;
+                list.Add(new B { M = m, S = m.Figs[k], Ux = wide ? Math.Cos(fh) : Math.Sin(fh), Uy = wide ? Math.Sin(fh) : -Math.Cos(fh),
                                  Half = Math.Abs(f.Width - f.Depth) / 2, Rad = Math.Min(f.Width, f.Depth) / 2 });
             }
             return list;
