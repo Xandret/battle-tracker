@@ -178,6 +178,7 @@ namespace BattleCore
             public double FigureCatchUp = 1.3, FigureAccelK = 2, SlotTau = 0.5;
             // Шаг 2 — тела (Г56–Г58): фигурка — капсула размером с квадратик; перекрытие меньше BodyTol не считается
             public double BodyTol = 0.05, LookAheadSec = 0.6, YieldMargin = 0.5;
+            public double EnemyLookAheadSec = 0.1;     // врагу уступают в последний миг: врезаются с разгона и упираются (Г58, Г29)
             public double PassThroughSpeed = 0.5;      // Г56: стрелки и свои сквозь друг друга
             public double TieSec = 0.5;                // Г57: «одновременно» — разница прихода меньше этого
             public double RightsForgetSec = 2;         // очередь забывается, если отряды разошлись
