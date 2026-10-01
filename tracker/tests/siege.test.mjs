@@ -162,3 +162,35 @@ test("удар по машине, взрыв маг-пушки и захват",
   assert.deepEqual(E.captureMachine(mg, 7, R), {factionId: 7, mageSkill: 0, ready: 0, deployLeft: 0}, "маг-батарее мага назначает ГМ");
   assert.equal(E.captureMachine(t, 7, R).mageSkill, 0);
 });
+
+test("прицел с карты: до края строя, видимость сквозь стены и с башни, укрытие (Ш4)", () => {
+  const map = castle(), geo = {map, W: E.mapWidthM(map), H: E.mapHeightM(map)};
+  const at = (x, y) => E.makeMachine("cannon", 1, R, {mapX: x / map.w * 100, mapY: y / map.h * 100});
+  const u = foot({type: "infantry", onMap: true, mapX: 50, mapY: 90, facing: 0});   // 1000 пехоты к югу от замка
+  // без местности — только дистанция до края строя
+  const open = E.siegeAim(at(60, 80), {unit: u}, {map: null, W: geo.W, H: geo.H}, R);
+  assert.ok(open.los.ok && open.coverPct === 0);
+  // изнутри двора — стена закрывает
+  const inside = E.siegeAim(at(55, 50), {unit: u}, geo, R);
+  assert.equal(inside.los.ok, false);
+  // с угловой башни своя башня не мешает
+  const tw = map.forts.find(f => f.kind === "tower" && f.cy > 55);
+  const fromTower = E.siegeAim(at(tw.cx, tw.cy), {unit: u}, geo, R);
+  assert.equal(fromTower.los.ok, true, "с башни видно поле");
+  // по участку — до ближайшей целой клетки, точка попадания — её центр
+  const wall = map.forts.find(f => f.kind === "wall" && f.cy > 55);
+  const a = E.siegeAim(at(wall.cx, wall.cy + 10), {section: {id: wall.id}}, geo, R);
+  assert.ok(a.los.ok, "свои клетки цели видимость не закрывают");
+  assert.ok(Math.abs(a.dist - (10 - 0.5) * map.cell) < 1e-9, `до стены ${a.dist} м`);
+  assert.ok(Math.abs(a.at.y - wall.cy) < 1e-9);
+});
+
+test("сбор армий: орудия — батареи, слоны — отряды (Ш4)", () => {
+  assert.equal(E.guessMachine("46 Пушки в артелерии"), "cannon");
+  assert.equal(E.guessMachine("Маг-пушки Сэйрая"), "magic");
+  assert.equal(E.guessMachine("магическая артиллерия"), "magic");
+  assert.equal(E.guessMachine("Осадные башни"), "tower");
+  assert.equal(E.guessMachine("Органная пушка"), "ribauldequin");
+  assert.equal(E.guessMachine("Боевые слоны"), null);
+  assert.equal(E.guessMachine("Магистр ордена"), null, "магистр — не маг-пушка");
+});

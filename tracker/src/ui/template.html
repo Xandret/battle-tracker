@@ -244,12 +244,28 @@
   .tmenu button{width:100%;text-align:left;margin-bottom:5px;padding:6px 9px;font-size:12px;}
   .tmenu button:last-child{margin-bottom:0;}
   .fmenu{min-width:250px;max-width:290px;}
+  .mmenu{min-width:260px;max-width:310px;}
+  .mmenu .fm-row input{width:58px;margin:0;}
+  .mmenu .fm-row select{flex:1;margin:0;}
+  .mtoken{position:absolute;transform:translate(-50%,-50%);cursor:grab;text-align:center;font-family:'Arial Narrow',sans-serif;line-height:1.05;z-index:5;}
+  .mtoken.dragging{cursor:grabbing;z-index:50;}
+  .mtoken .mt-body{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;min-width:34px;height:30px;padding:0 4px;
+    background:#2A2620;border:3px solid #C9A227;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.7),inset 0 0 0 1px #14181A;color:#E8E2CC;}
+  .mtoken .mt-ab{font-size:11px;font-weight:700;letter-spacing:.5px;}
+  .mtoken .mt-n{font-size:10px;font-family:'Courier New',monospace;color:#D8C690;}
+  .mtoken .mt-wait{font-size:10px;font-family:'Courier New',monospace;color:#F0C060;text-shadow:0 1px 3px #000;}
+  .mtoken.dead .mt-body{filter:grayscale(1);opacity:.5;}
+  .mtoken.aimer .mt-body,.mtoken.open .mt-body{box-shadow:0 0 0 3px var(--brass),0 2px 8px rgba(0,0,0,.7);}
+  .mapwrap.aiming{cursor:crosshair;}
+  .mcard{display:flex;justify-content:space-between;gap:8px;align-items:center;}
+  .mcard .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;}
   .fmenu .hpbar{height:6px;background:#3A2A26;border-radius:3px;overflow:hidden;margin:0 0 8px;}
   .fmenu .hpbar i{display:block;height:100%;background:linear-gradient(90deg,#B04A32,#D8B060);}
-  .fmenu .fm-row{display:flex;gap:6px;margin-bottom:5px;}
-  .fmenu .fm-row input{width:70px;margin:0;}
-  .fmenu .fm-row button{margin:0;flex:1;}
-  .fmenu .fm-note{font-size:10.5px;color:#8F8A7C;line-height:1.4;margin-top:6px;}
+  .tmenu .fm-row{display:flex;gap:6px;margin-bottom:5px;}
+  .tmenu .fm-row input{width:70px;margin:0;}
+  .tmenu .fm-row button{margin:0;flex:1;}
+  .tmenu .fm-note{font-size:10.5px;color:#8F8A7C;line-height:1.4;margin-top:6px;font-family:inherit;}
+  .tmenu .fm-cap{font-size:10.5px;color:#8F8A7C;margin:2px 0 3px;}
   .targethint{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:110;
     background:rgba(28,34,36,.95);border:1px solid var(--red);border-radius:5px;padding:7px 14px;
     font-family:'Arial Narrow',sans-serif;font-size:14px;color:#F0A090;text-transform:uppercase;}
@@ -555,6 +571,24 @@ VS
       </div>
       <div id="tplTable"></div>
       <div class="hint">С этими характеристиками встают отряды, собранные из текста. База посчитана по сохранению armiya_hod1: медиана по отрядам каждой категории (наведи курсор на название шаблона — увидишь, по каким). «Все фракции» меняет базу этой партии, выбранная фракция — только её отряды: например, Кольчугам — конные рыцари с дисциплиной 80. Изменённое подсвечено; пустое поле возвращает прежнее значение. Уже стоящих отрядов правки не касаются.</div>
+    </details>
+
+    <details class="panel" id="machinePanel" style="margin-top:12px">
+      <summary>⚙ Осадные машины <span class="draft">черновик 6б</span></summary>
+      <div class="clist" id="machineList"></div>
+      <div class="frow2">
+        <div><label>Орудие</label><select id="mc_kind" onchange="renderMachines()"></select></div>
+        <div><label>Фракция</label><select id="mc_faction"></select></div>
+      </div>
+      <div class="frow4">
+        <div><label>Орудий</label><input id="mc_count" type="number" value="4" min="1"></div>
+        <div><label>Расчёт</label><input id="mc_crew" type="number" min="0" placeholder="полный"></div>
+        <div><label>Опыт расчёта</label><input id="mc_exp" type="number" value="50" min="0" max="100"></div>
+        <div id="mc_mageBox"><label>Навык мага</label><input id="mc_mage" type="number" value="10" min="1" max="20"></div>
+      </div>
+      <div class="mb8"><label>Название</label><input id="mc_name" placeholder="по виду орудия"></div>
+      <div class="btnrow"><button class="gold" onclick="addMachine()">+ Машина</button></div>
+      <div class="hint">Фишка — батарея одинаковых орудий. Щелчок по фишке — меню: выстрел (потом щелчок по отряду или по стене), правка, удар по машине, захват. Стреляют при включённых «Правилах карты» и «Штурме». Дистанция, видимость и укрытие — по карте; навесом (катапульта, требушет, мортира) — через стены. Перезарядка и развёртывание идут в конце хода. Числа — черновик до ГМа (shared/siege/catalog.md).</div>
     </details>
 
     <details class="panel" style="margin-top:12px" open>

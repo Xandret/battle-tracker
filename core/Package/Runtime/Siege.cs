@@ -14,6 +14,7 @@ namespace BattleCore
     {
         public string Engine, Name;
         public double Count, CountFull, Crew, Exp = 50, MageSkill, Ready, DeployLeft, Dmg;
+        public double MapX = 50, MapY = 50;   // место на карте, % (как у отряда)
         public double? FactionId;
         public Machine Clone() => (Machine)MemberwiseClone();
     }
@@ -50,6 +51,15 @@ namespace BattleCore
         public List<UnitPatch> Patches = new List<UnitPatch>();
         public FortHit Section;
         public int Guns, Hits, Bursts;
+    }
+
+    public sealed class AimResult
+    {
+        public double Dist;
+        public SightResult Los = new SightResult();
+        public double CoverPct;
+        public string CoverNote;
+        public double AtX = double.NaN, AtY = double.NaN;   // точка попадания по участку, в клетках
     }
 
     public sealed class MachineHit
@@ -310,6 +320,67 @@ namespace BattleCore
             var e = EngineOf(m.Engine, R);
             h.Patch = new MachinePatch { Count = count, Crew = Math.Min(m.Crew, count * e.Crew) };
             return h;
+        }
+        // ── прицел с карты (Ш4): как siegeAim в siege.js ──
+        static SightResult SightLine(Geo geo, Rules R, double ax, double ay, double za, double bx, double by, double zb, Func<int, bool> skip)
+        {
+            double len = JsMath.Hypot(bx - ax, by - ay);
+            int n = (int)Math.Max(2, Math.Ceiling(len / 5));
+            double step = len / n;
+            var through = new Dictionary<string, double>();
+            for (int k = 1; k < n; k++)
+            {
+                var c = Terrain.CellAt(geo.Map, (ax + (bx - ax) * k / n) / geo.W, (ay + (by - ay) * k / n) / geo.H);
+                if (skip(c.Y * geo.Map.W + c.X)) continue;
+                if (c.Z > Math.Max(za, zb)) return new SightResult { Ok = false, Why = "холм" };
+                if (c.T == 0) continue;
+                var t = Terrain.ById[c.T];
+                if (R.Map.Terrain.TryGetValue(t.Key, out var tr) && tr.Sight.HasValue)
+                {
+                    through[t.Key] = (through.TryGetValue(t.Key, out var was) ? was : 0) + step;
+                    if (through[t.Key] > tr.Sight.Value) return new SightResult { Ok = false, Why = t.Name.ToLowerInvariant() };
+                }
+            }
+            return new SightResult();
+        }
+        public static AimResult Aim(Machine m, SiegeTarget target, Geo geo, Rules R)
+        {
+            double mx = m.MapX / 100 * geo.W, my = m.MapY / 100 * geo.H;
+            var map = geo.Map;
+            var mc = map != null ? Terrain.CellAt(map, mx / geo.W, my / geo.H) : default;
+            int own = map != null && map.S != null ? map.S[mc.Y * map.W + mc.X] : 0;
+            if (target.Unit != null)
+            {
+                var u = target.Unit;
+                double dist = BattleMap.PolyGap(new[] { new[] { mx, my } }, BattleMap.UnitCorners(u, geo, R));
+                if (map == null) return new AimResult { Dist = dist };
+                var g = BattleMap.GroundUnder(u, geo, R);
+                var (bx, by) = BattleMap.UnitCenter(u, geo);
+                var los = SightLine(geo, R, mx, my, mc.Z, bx, by, g.Z, i => own != 0 && map.S[i] == own);
+                double cover = g.Key != null ? R.Map.Terrain[g.Key].Cover : 0;
+                return new AimResult { Dist = dist, Los = los, CoverPct = cover, CoverNote = cover > 0 ? $"укрытие «{u.Name}»: {g.Name.ToLowerInvariant()}" : null };
+            }
+            var f = map != null && target.Map != null ? Fortify.GetSection(map, target.SectionId) : null;
+            if (f == null) return null;
+            double cw = geo.W / map.W, ch = geo.H / map.H;
+            byte code = Terrain.FortCode(f.Kind);
+            int best = -1; double bestD = double.PositiveInfinity;
+            foreach (bool standing in new[] { true, false })
+            {
+                for (int i = 0; i < map.S.Length; i++)
+                {
+                    if (map.S[i] != f.Id || (standing && map.T[i] != code)) continue;
+                    int x = i % map.W, y = i / map.W;
+                    double dx = Math.Max(Math.Max(x * cw - mx, 0), mx - (x + 1) * cw), dy = Math.Max(Math.Max(y * ch - my, 0), my - (y + 1) * ch);
+                    double d = JsMath.Hypot(dx, dy);
+                    if (d < bestD) { bestD = d; best = i; }
+                }
+                if (best >= 0) break;
+            }
+            int bx0 = best % map.W, by0 = best / map.W;
+            int fid = f.Id;
+            var sl = SightLine(geo, R, mx, my, mc.Z, (bx0 + 0.5) * cw, (by0 + 0.5) * ch, map.Z[best], i => map.S[i] == fid || (own != 0 && map.S[i] == own));
+            return new AimResult { Dist = bestD, Los = sl, AtX = bx0 + 0.5, AtY = by0 + 0.5 };
         }
         // Захват (Г49): маг-батарее нового мага назначает ГМ
         public static MachinePatch Capture(Machine m, double factionId, Rules R)

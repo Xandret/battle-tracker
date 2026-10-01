@@ -71,6 +71,7 @@ static class MapCases
                           () => SiegeShotCase(c, sUnits, R, $"siege.shots[{n}]"));
         }
         yield return ("орудия: конец хода, марш, удар по машине, взрыв маг-пушки, захват", () => SiegeMiscCase(siege.GetProperty("misc"), sUnits, R));
+        yield return ("орудия: прицел с карты — дистанция, видимость, укрытие (замок на холме)", () => SiegeAimCase(siege.GetProperty("aim"), R));
     }
 
     static string Title(JsonElement c)
@@ -429,6 +430,42 @@ static class MapCases
             ["moved"] = moved, ["endTurn"] = endTurn, ["hits"] = new JsonArray(Hit(h1), Hit(h2), Hit(h3)), ["strikes"] = strikes,
             ["capture"] = new JsonArray(MPatch(Siege.Capture(m1, 5, R)), MPatch(Siege.Capture(m2, 5, R))),
         }, "siege.misc");
+    }
+
+    static void SiegeAimCase(JsonElement c, Rules R)
+    {
+        var am = MapGen.Generate("castle", new Dictionary<string, object> { ["hill"] = true, ["widthM"] = 600.0, ["depthM"] = 500.0 }, 1);
+        Fortify.BuildSections(am, R);
+        var geo = new Geo { Map = am, W = Terrain.WidthM(am), H = Terrain.HeightM(am) };
+        var open = new Geo { Map = null, W = geo.W, H = geo.H };
+        var secs = c.GetProperty("secs").EnumerateArray().Select(x => x.GetInt32()).ToList();
+        var us = c.GetProperty("units").EnumerateArray().Select(e =>
+        {
+            var u = SiegeUnitOf(e);
+            u.Type = e.GetProperty("type").GetString(); u.OnMap = true;
+            u.MapX = Num(e, "mapX"); u.MapY = Num(e, "mapY"); u.Facing = Num(e, "facing");
+            return u;
+        }).ToList();
+        JsonNode Out(AimResult a) => a == null ? null : new JsonObject
+        {
+            ["dist"] = a.Dist, ["los"] = new JsonObject { ["ok"] = a.Los.Ok, ["why"] = a.Los.Why }, ["coverPct"] = a.CoverPct, ["coverNote"] = a.CoverNote,
+            ["at"] = double.IsNaN(a.AtX) ? null : new JsonObject { ["x"] = a.AtX, ["y"] = a.AtY },
+        };
+        var aims = new JsonArray();
+        foreach (var spot in c.GetProperty("aims").EnumerateArray())
+        {
+            var sp = spot.GetProperty("spot");
+            var m = Siege.MakeMachine("cannon", 1, R);
+            m.MapX = sp[0].GetDouble(); m.MapY = sp[1].GetDouble();
+            aims.Add(new JsonObject
+            {
+                ["spot"] = new JsonArray(m.MapX, m.MapY),
+                ["sections"] = new JsonArray(secs.Select(id => Out(Siege.Aim(m, new SiegeTarget { Map = am, SectionId = id }, geo, R))).ToArray()),
+                ["units"] = new JsonArray(us.Select(u => Out(Siege.Aim(m, new SiegeTarget { Unit = u }, geo, R))).ToArray()),
+                ["open"] = new JsonArray(us.Select(u => Out(Siege.Aim(m, new SiegeTarget { Unit = u }, open, R))).ToArray()),
+            });
+        }
+        Check(c, new JsonObject { ["aims"] = aims }, "siege.aim");
     }
 
     // ── как трекер выводит результаты (mapcases.mjs: groundOut, modsOut, reachOut) ──

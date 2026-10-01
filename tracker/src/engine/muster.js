@@ -348,14 +348,25 @@ const sideName = (s, i) => {
 };
 const contingentName = (c, j) => c.faction || c.commanders[0] || (c.lines[0] && c.lines[0].name) || `Контингент ${j + 1}`;
 
-// Пушки, катапульты, слоны: своей механики до этапа 6б нет — заводятся обычным отрядом с пометкой
+// Слоны и прочее особое: своей механики нет — заводятся обычным отрядом с пометкой.
+// Орудия (6б, Ш4) — не отряд, а батарея: число в строке — число орудий (siege.engines в rules.js).
 export const SPECIAL_RE = /пушк|орудий|орудия|катапульт|требушет|баллист|бомбард|мортир|слон/i;
+const MACHINE_WORDS = [
+  [/маг\S*[\s-]*(пушк|артил|орудия|орудий)/i, "magic"], [/бомбард/i, "bombard"], [/мортир/i, "mortar"],
+  [/рибодекин|органн\S* пушк/i, "ribauldequin"], [/требушет/i, "trebuchet"], [/катапульт|онагр/i, "catapult"],
+  [/баллист|скорпион/i, "ballista"], [/таран/i, "ram"], [/осадн\S* башн/i, "tower"], [/пушк|орудий|орудия|артил/i, "cannon"],
+];
+export function guessMachine(name){
+  for(const [re, key] of MACHINE_WORDS) if(re.test(name || "")) return key;
+  return null;
+}
 export function planLine(line, factionName, overrides){
   const g = guessUnitType(line.name);
   const t = matchTemplate(line.name, g);
   const tpl = resolveTemplate(t.id, factionName, overrides);
+  const machine = guessMachine(line.name);
   return Object.assign({}, line, {
-    templateId: t.id, fallback: t.fallback, special: SPECIAL_RE.test(line.name),
+    templateId: t.id, fallback: t.fallback, machine, special: !machine && SPECIAL_RE.test(line.name),
     type: g ? g.type : tpl.type, weapon: g ? g.weapon : tpl.weapon,
     size: null,   // null — размер из шаблона (с правками фракции)
   });
@@ -428,7 +439,7 @@ export function expandMuster(plan, opts = {}){
     const name = String(s.faction || "").trim() || `Сторона ${i + 1}`;
     const taken = new Set(existing[name.toLowerCase()] || []);
     const multi = s.contingents.length > 1;
-    const F = {name, subfactions: [], commanders: [], units: []};
+    const F = {name, subfactions: [], commanders: [], units: [], machines: []};
     s.contingents.forEach((c, j) => {
       const sub = multi ? (String(c.name || "").trim() || `Контингент ${j + 1}`) : null;
       if(sub && !F.subfactions.includes(sub)) F.subfactions.push(sub);
@@ -440,6 +451,12 @@ export function expandMuster(plan, opts = {}){
         if(!(count > 0) || !unitName){
           perLine[key] = {units: 0, sizes: [], size: 0};
           warnings.push(`«${l.src || unitName}»: ${count > 0 ? "нет названия" : "нет численности"} — пропущено`);
+          return;
+        }
+        // орудия — одна батарея на строку: число в строке — число орудий (Ш4)
+        if(l.machine){
+          perLine[key] = {units: 0, sizes: [], size: 0, machine: {engine: l.machine, count}};
+          F.machines.push({name: numberedNames(unitName, 1, taken)[0], engine: l.machine, count, subfaction: sub, commander: l.commander || null});
           return;
         }
         const tpl = resolveTemplate(l.templateId, name, overrides);
@@ -459,5 +476,6 @@ export function expandMuster(plan, opts = {}){
   });
   const unitsTotal = factions.reduce((a, F) => a + F.units.length, 0);
   const soldiersTotal = factions.reduce((a, F) => a + F.units.reduce((b, u) => b + u.soldiers, 0), 0);
-  return {factions, perLine, warnings, unitsTotal, soldiersTotal};
+  const machinesTotal = factions.reduce((a, F) => a + F.machines.length, 0);
+  return {factions, perLine, warnings, unitsTotal, soldiersTotal, machinesTotal};
 }

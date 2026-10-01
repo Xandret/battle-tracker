@@ -12,8 +12,9 @@
 import { clamp, r1, rollDie } from "./util.js";
 import { applyMoraleChange } from "./morale.js";
 import { casualtyPatch } from "./combat.js";
-import { FORT_KINDS } from "./terrain.js";
+import { FORT_KINDS, TERRAIN_BY_ID, cellAt, fortCode } from "./terrain.js";
 import { getSection, damageSection } from "./fortify.js";
+import { unitCenter, unitCorners, polyGap, groundUnder } from "./battlemap.js";
 
 export const engineOf = (key, R) => (key && Object.prototype.hasOwnProperty.call(R.siege.engines, key) ? R.siege.engines[key] : null);
 
@@ -257,4 +258,59 @@ export function magicStrike(m, nearby, ctx){
 export function captureMachine(m, factionId, R){
   const e = engineOf(m.engine, R);
   return {factionId, mageSkill: e && e.magic ? 0 : m.mageSkill, ready: m.ready, deployLeft: m.deployLeft};
+}
+
+// ── прицел с карты (Ш4) ──
+// Машина — точка (mapX, mapY в % карты). До отряда — до края строя, до участка — до ближайшей целой клетки
+// (её центр — точка попадания at, в клетках). Видимость — как у паники: шаги по 5 м, холм выше обоих концов
+// и больше sight метров леса или камня закрывают; но клетки самой цели и укрепления, на котором стоит
+// машина, не мешают — с башни стреляют. Укрытие — местность под строем цели (rules.map.terrain.cover).
+function sightLine(geo, R, ax, ay, za, bx, by, zb, skip){
+  const len = Math.hypot(bx - ax, by - ay), n = Math.max(2, Math.ceil(len / 5)), step = len / n;
+  const through = {};
+  for(let k = 1; k < n; k++){
+    const c = cellAt(geo.map, (ax + (bx - ax) * k / n) / geo.W, (ay + (by - ay) * k / n) / geo.H);
+    if(skip(c.y * geo.map.w + c.x)) continue;
+    if(c.z > Math.max(za, zb)) return {ok: false, why: "холм"};
+    const t = c.t && TERRAIN_BY_ID[c.t], r = t && R.map.terrain[t.key];
+    if(r && r.sight !== undefined){
+      through[t.key] = (through[t.key] || 0) + step;
+      if(through[t.key] > r.sight) return {ok: false, why: t.name.toLowerCase()};
+    }
+  }
+  return {ok: true};
+}
+export function siegeAim(m, target, geo, R){
+  const mx = m.mapX / 100 * geo.W, my = m.mapY / 100 * geo.H;
+  const map = geo.map || null;
+  const mc = map ? cellAt(map, mx / geo.W, my / geo.H) : null;
+  const own = map && map.s ? map.s[mc.y * map.w + mc.x] : 0;
+  if(target.unit){
+    const u = target.unit;
+    const dist = polyGap([[mx, my]], unitCorners(u, geo, R));
+    if(!map) return {dist, los: {ok: true}, coverPct: 0, coverNote: null, at: null};
+    const g = groundUnder(u, geo, R);
+    const [bx, by] = unitCenter(u, geo);
+    const los = sightLine(geo, R, mx, my, mc.z, bx, by, g.z, i => !!own && map.s[i] === own);
+    const cover = g.key ? (R.map.terrain[g.key].cover || 0) : 0;
+    return {dist, los, coverPct: cover, coverNote: cover ? `укрытие «${u.name}»: ${g.name.toLowerCase()}` : null, at: null};
+  }
+  const f = map && target.section ? getSection(map, target.section.id) : null;
+  if(!f) return null;
+  const cw = geo.W / map.w, ch = geo.H / map.h, code = fortCode(f.kind);
+  let best = -1, bestD = Infinity;
+  for(const standing of [true, false]){
+    for(let i = 0; i < map.s.length; i++){
+      if(map.s[i] !== f.id || (standing && map.t[i] !== code)) continue;
+      const x = i % map.w, y = (i - x) / map.w;
+      const dx = Math.max(x * cw - mx, 0, mx - (x + 1) * cw), dy = Math.max(y * ch - my, 0, my - (y + 1) * ch);
+      const d = Math.hypot(dx, dy);
+      if(d < bestD){ bestD = d; best = i; }
+    }
+    if(best >= 0) break;
+  }
+  const bx0 = best % map.w, by0 = (best - bx0) / map.w;
+  const los = sightLine(geo, R, mx, my, mc.z, (bx0 + 0.5) * cw, (by0 + 0.5) * ch, map.z[best],
+                        i => map.s[i] === f.id || (!!own && map.s[i] === own));
+  return {dist: bestD, los, coverPct: 0, coverNote: null, at: {x: bx0 + 0.5, y: by0 + 0.5}};
 }

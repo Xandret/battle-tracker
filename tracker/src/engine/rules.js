@@ -144,7 +144,7 @@ export const BASE_RULES = {
       mortar:       { name: "Мортира",            crew: 6,  minCrew: 2, reload: 2, move: 20, deploy: 1, range: [50, 300],  hitWall: [55, 25], hitTroops: [40, 15], wall: 10, die: 60,  hp: 50, burst: 2, shock: 15, indirect: true },
       ribauldequin: { name: "Рибодекин",          crew: 4,  minCrew: 1, reload: 3, move: 80, deploy: 0, range: [0, 150],   hitWall: [70, 40], hitTroops: [75, 35], wall: 1,  die: 150, hp: 25, burst: 3, shock: 10 },
       magic:        { name: "Маг-пушка",          crew: 3,  minCrew: 1, reload: 2, move: 60, deploy: 1, range: [0, 600],   hitWall: [85, 45], hitTroops: [85, 45], wall: 50, die: 0,   hp: 40, magic: true },
-      ram:          { name: "Таран",              crew: 12, minCrew: 4, reload: 1, move: 40, deploy: 0, range: [0, 5],     wall: 25, die: 0, hp: 60, ram: true },
+      ram:          { name: "Таран",              crew: 12, minCrew: 4, reload: 1, move: 40, deploy: 0, range: [0, 10],    wall: 25, die: 0, hp: 60, ram: true },   // от центра фишки: таран ~10 м длиной
       tower:        { name: "Осадная башня",      crew: 20, minCrew: 8, reload: 0, move: 25, deploy: 0, range: [0, 0],     wall: 0,  die: 0, hp: 80, tower: true, capacity: 40 },
     },
     // Маг-батарея (SPEC 6б): залп — один бросок на попадание; шанс + (навык мага − 10) × 3;

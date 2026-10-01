@@ -10,7 +10,7 @@ export { effStats, computeStrike, casualtyPatch, resolveBattle } from "./combat.
 export { endTurn } from "./turn.js";
 export { TEMPLATE_STATS, TEMPLATE_LIMITS, BASE_TEMPLATES, getTemplate, matchTemplate,
          normalizeOverrides, clampField, factionOverrides, resolveTemplate } from "./templates.js";
-export { MUSTER, SPECIAL_RE, parseCount, toNominative, splitCommanders, instrumentalToNom, parseArmyText, planLine, planMuster,
+export { MUSTER, SPECIAL_RE, guessMachine, parseCount, toNominative, splitCommanders, instrumentalToNom, parseArmyText, planLine, planMuster,
          splitSoldiers, lineSize, numberedNames, expandMuster } from "./muster.js";
 export { CELL_M, MAX_HEIGHT, MAX_CELLS, TERRAIN, TERRAIN_BY_ID, TERRAIN_BY_KEY, terrainName, createTerrain,
          mapWidthM, mapHeightM, encodeLayer, decodeLayer, serializeTerrain, deserializeTerrain, cloneTerrain,
@@ -23,4 +23,4 @@ export { lineOfSight, panicWave } from "./panic.js";
 export { buildSections, ensureSections, sectionMax, sectionHp, sectionName, getSection, sectionAt,
          damageSection, repairSection } from "./fortify.js";
 export { engineOf, makeMachine, firingGuns, machineReload, hitChance, siegeVolley, siegeEndTurn, machineMoved,
-         hitMachine, magicStrike, captureMachine } from "./siege.js";
+         hitMachine, magicStrike, captureMachine, siegeAim } from "./siege.js";

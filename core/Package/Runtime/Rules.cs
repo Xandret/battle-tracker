@@ -221,7 +221,7 @@ namespace BattleCore
                 ["mortar"] = new EngineR("Мортира", 6, 2, 2, 20, 1, 50, 300, 55, 25, 40, 15, 10, 60, 50) { Burst = 2, Shock = 15, Indirect = true },
                 ["ribauldequin"] = new EngineR("Рибодекин", 4, 1, 3, 80, 0, 0, 150, 70, 40, 75, 35, 1, 150, 25) { Burst = 3, Shock = 10 },
                 ["magic"] = new EngineR("Маг-пушка", 3, 1, 2, 60, 1, 0, 600, 85, 45, 85, 45, 50, 0, 40) { Magic = true },
-                ["ram"] = new EngineR("Таран", 12, 4, 1, 40, 0, 0, 5, 0, 0, 0, 0, 25, 0, 60) { Ram = true },
+                ["ram"] = new EngineR("Таран", 12, 4, 1, 40, 0, 0, 10, 0, 0, 0, 0, 25, 0, 60) { Ram = true },   // от центра фишки: таран ~10 м длиной
                 ["tower"] = new EngineR("Осадная башня", 20, 8, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 80) { Tower = true, Capacity = 40 },
             };
             public MagicR Magic = new MagicR();

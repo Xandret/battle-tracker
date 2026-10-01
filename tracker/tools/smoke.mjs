@@ -365,4 +365,59 @@ ev(`applyLoadedState(${JSON.stringify(old)}); renderAll();`);
 ok(ev("mapRules.siege") === true && ev("terrainMap.forts.length") === 21, "сохранение v30.7: штурм включён по умолчанию, участки построены заново");
 ev("setMapRule('on', false);");
 
+console.log("Осадные машины на карте (v30.9)");
+ev(`terrainMap = Engine.generateMap('castle', {}, 3); terrainVersion++; setMapRule('on', true); setMapRule('siege', true);`);
+ev(`document.getElementById('mc_kind').value = 'trebuchet'; document.getElementById('mc_count').value = '4';
+    document.getElementById('mc_faction').value = String(factions[0].id); addMachine();`);
+const trb = ev("machines[machines.length - 1].id");
+ok(ev("machines.length") === 1 && ev("machines[0].name") === "Требушет" && ev("machines[0].count") === 4 && ev("machines[0].crew") === 48,
+   "машина из панели: требушет ×4, расчёт 48");
+ok(ev("log[0].title") === "⚙ Новая машина: «Требушет»", "новая машина — в журнале");
+ev(`placeMachine(${trb}); machines[0].mapX = 60 / terrainMap.w * 100; machines[0].mapY = 82 / terrainMap.h * 100; renderMap();`);
+ok(ev("document.querySelector('.mtoken .mt-ab').textContent") === "ТРБ", "фишка машины на карте");
+ev(`machineClick(${trb})`);
+ok(ev("document.querySelector('.mmenu .tm-head').textContent").includes("Требушет"), "щелчок по фишке — меню машины");
+ev(`startMachineAim(${trb})`);
+ok(ev("document.getElementById('mapHint').textContent").includes("Цель для «Требушет»") && ev("document.getElementById('mapWrap').classList.contains('aiming')"),
+   "режим прицела: подсказка и прицел вместо курсора");
+const wallS = JSON.parse(ev("JSON.stringify(terrainMap.forts.find(f => f.kind === 'wall' && f.cy > 55))"));
+const fire = () => ev(`fireMachine({sectionId: ${wallS.id}, x: ${wallS.cx} / terrainMap.w * 100, y: ${wallS.cy} / terrainMap.h * 100})`);
+fire();
+ok(ev("log[0].title") === `⚙ Требушет → участок №${wallS.id} (каменная стена)`, "залп по стене — запись журнала: " + ev("log[0].title"));
+ok(ev("log[0].lines[0]").startsWith("🗺 До цели") && ev("log[0].lines.some(l => l.startsWith('Шанс попасть'))"), "в журнале — дистанция и шанс попасть");
+ok(ev("machines[0].ready") === 2 && ev("undoStack[undoStack.length - 1].label") === "залп «Требушет»", "после залпа — перезарядка 2 хода, залп в откате");
+const dmg1 = ev(`Engine.getSection(terrainMap, ${wallS.id}).dmg + Engine.getSection(terrainMap, ${wallS.id}).breaches * 100`);
+ev(`machineAim = ${trb};`); fire();
+ok(ev("log[0].title") === "Выстрел невозможен" && ev("log[0].lines.some(l => l.includes('перезаряжается'))"), "перезаряжается — второй залп не даёт");
+ev("endTurn(); endTurn();");
+ok(ev("machines[0].ready") === 0, "конец хода снимает перезарядку");
+ev("undo(); undo(); undo();");
+ok(ev(`Engine.getSection(terrainMap, ${wallS.id}).dmg`) === 0 && ev("machines[0].ready") === 0, "откат залпа вернул стену и машину" + (dmg1 ? "" : " (залп промахнулся)"));
+ok(JSON.parse(ev("localStorage.getItem('battle_tracker_v13')")).machines.length === 1, "машины — в сохранении партии");
+// перемещение: ход марша
+ev(`moveMachine(${trb}, 30, 85)`);
+ok(ev("machines[0].mapX") === 30, "требушет перенесли (подтверждение — разборка)");
+ok(ev("machines[0].deployLeft") === 1 && ev("log[0].title") === "⚙ «Требушет»: новая позиция", "после марша — ход без выстрела");
+// удар по машине и захват
+ev(`machineClick(${trb}); document.getElementById('mmHit').value = '120'; hitMachineUi(${trb});`);
+ok(ev("machines[0].count") === 2 && ev("log[0].lines.some(l => l.includes('выбито орудий 2'))"), "удар 120 по прочности 50 — выбито два орудия");
+ev(`openMachineId = ${trb}; renderMap(); document.getElementById('mmFaction').value = String(factions[1].id); captureMachineUi(${trb});`);
+ok(ev("machines[0].factionId") === ev("factions[1].id") && ev("log[0].title").startsWith("🏳 «Требушет» захвачена"), "захват — машина у другой фракции");
+// маг-батарея по отряду: брызги и шок не нужны — без мага молчит
+ev(`machines.push(Engine.makeMachine('magic', 2, currentRules(), {id: nextId++, onMap: true, mapX: 50, mapY: 90, mageSkill: 0})); renderAll();`);
+const mg = ev("machines[machines.length - 1].id");
+ev(`machineAim = ${mg}; fireMachine({unitId: units.find(u => u.onMap || true).id});`);
+ok(ev("log[0].lines.some(l => l.includes('нет мага'))"), "маг-пушка без мага молчит");
+// сбор армий: пушки — батарея, а не отряд
+ev(`document.getElementById('importText').value = 'Армия Пробы,\\n1000 копейщиков\\n46 пушек\\n3 маг-пушки'; parseImport(); commitImport();`);
+ok(ev("machines.some(m => m.engine === 'cannon' && m.count === 46)") && ev("machines.some(m => m.engine === 'magic' && m.count === 3)"),
+   "из текста: 46 пушек и 3 маг-пушки — батареи");
+ok(!ev("units.some(u => u.factionId === factions.find(f => f.name === 'Армия Пробы').id && /пуш/i.test(u.name))") && ev("log[0].lines.some(l => l.includes('⚙ машины'))"),
+   "отрядов «пушки» нет, в журнале — машины");
+// старое сохранение без машин
+const oldS = JSON.parse(ev("JSON.stringify(stateObj())")); delete oldS.machines;
+ev(`applyLoadedState(${JSON.stringify(oldS)}); renderAll();`);
+ok(ev("Array.isArray(machines) && machines.length === 0"), "сохранение v30.8 без машин открывается");
+ev("setMapRule('on', false);");
+
 console.log(process.exitCode ? "\nЕСТЬ ОШИБКИ" : "\nВсё в порядке");

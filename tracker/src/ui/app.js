@@ -34,6 +34,9 @@ let mapAttackerId = null, mapCharge = false, openMenuId = null, mapModeOverride 
 let fortMenu = null;          // открытый участок стены: {id, x, y — % сцены, cx, cy — клетки попадания}
 let fortVersion = 0;          // растёт при уроне и починке — по нему перерисовывается слой участков
 let lastFortDmg = 25;
+let machines = [];            // осадные машины (6б, Ш4): батареи орудий — на карте и в запасе
+let machineAim = null;        // id машины, которая выбирает цель
+let openMachineId = null;     // открытое меню машины
 let selectedTokens = {};
 let templateOverrides = Engine.normalizeOverrides(null);   // правки шаблонов отрядов: {base, factions}
 let importDraft = null;                                    // предпросмотр импорта армий (не сохраняется)
@@ -82,7 +85,7 @@ function readMapOpts(){
 }
 function stateObj(){
   return {factions, subfactions, commanders, units, log: log.slice(0,300), turn, nextId, ruleset,
-          templateOverrides, battleMap: Engine.serializeTerrain(terrainMap), mapRules, mapImage, mapOpts: readMapOpts()};
+          templateOverrides, battleMap: Engine.serializeTerrain(terrainMap), mapRules, mapImage, mapOpts: readMapOpts(), machines};
 }
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(stateObj())); }
@@ -107,6 +110,10 @@ function applyLoadedState(s){
   if($("rulesetSel")) $("rulesetSel").value = ruleset;
   // до v30.1 шаблонов в сохранении нет — остаются базовые
   templateOverrides = Engine.normalizeOverrides(s.templateOverrides);
+  // до v30.9 машин нет
+  machines = (Array.isArray(s.machines) ? s.machines : []).map(m => Object.assign(
+    {onMap: false, mapX: 50, mapY: 50, factionId: null, exp: 50, mageSkill: 0, ready: 0, deployLeft: 0, dmg: 0}, m));
+  machineAim = null; openMachineId = null;
   // до v30.3 местности нет; битая — не мешает открыть партию
   terrainMap = Engine.deserializeTerrain(s.battleMap); terrainVersion++;
   // до v30.5 правил карты нет — выключены
@@ -151,7 +158,7 @@ function renderUndoBtn(){
 }
 function resetAll(){
   if(!confirm("Стереть все фракции, подфракции, полководцев, юниты и журнал? Шаблоны отрядов и их правки сохранятся.")) return;
-  units = []; factions = []; subfactions = []; commanders = []; log = [];
+  units = []; factions = []; subfactions = []; commanders = []; log = []; machines = [];
   turn = 1; nextId = 1; undoStack = []; mapImage = null;
   terrainMap = null; terrainVersion++;
   localStorage.removeItem(LS_KEY);
@@ -326,7 +333,8 @@ function renderImportPreview(){
           ${c.commanders.length ? `<select class="imp-cmdsel" title="Полководец этих отрядов" onchange="impCmdr(${at}, this.value)">${optionsHtml(cmdrList, l.commander || "")}</select>` : ""}
           ${l.cmdrCheck ? '<div class="hint imp-guess">В строке выше несколько полководцев — отряды отданы первому. Выбери нужного.</div>' : ""}
           ${l.fallback ? '<div class="hint imp-guess">Название не подсказало шаблон — взято ополчение. Проверь.</div>' : ""}
-          ${l.special ? '<div class="hint imp-guess">Своей механики у пушек, катапульт и слонов пока нет (этап 6б) — встанет обычным отрядом.</div>' : ""}
+          <select class="imp-cmdsel" title="Орудие: строка станет батареей, число — числом орудий" onchange="impMachine(${at}, this.value)">${optionsHtml(MACHINE_KINDS(), l.machine || "")}</select>
+          ${l.special ? '<div class="hint imp-guess">Своей механики у слонов пока нет — встанет обычным отрядом.</div>' : ""}
         </div>`;
       });
       html += `</div>`;
@@ -359,13 +367,14 @@ function updateImportResults(){
     s.contingents.forEach((c, j) => c.lines.forEach((l, k) => {
       const id = `${i}_${j}_${k}`, pl = r.perLine[`${i}.${j}.${k}`] || {units: 0, sizes: []};
       const res = $("impRes_" + id);
-      if(res) res.textContent = pl.units ? "→ " + sizesText(pl.sizes) : "→ пропуск: нет численности или названия";
+      if(res) res.textContent = pl.machine ? `→ батарея: ${Engine.engineOf(pl.machine.engine, currentRules()).name.toLowerCase()} ×${pl.machine.count}`
+        : pl.units ? "→ " + sizesText(pl.sizes) : "→ пропуск: нет численности или названия";
       const sz = $("impSize_" + id);
       if(sz) sz.placeholder = Engine.resolveTemplate(l.templateId, s.faction, templateOverrides).size;
     }));
   });
   const t = $("impTotal");
-  if(t) t.innerHTML = `Будет собрано: <b>${r.unitsTotal}</b> отрядов · <b>${fmtN(r.soldiersTotal)}</b> солдат` +
+  if(t) t.innerHTML = `Будет собрано: <b>${r.unitsTotal}</b> отрядов · <b>${fmtN(r.soldiersTotal)}</b> солдат${r.machinesTotal ? ` · <b>${r.machinesTotal}</b> батарей` : ""}` +
     r.factions.map(F => `<br>${esc(F.name)}: ${F.units.length} отр.` +
       (F.subfactions.length ? ` · подфракций ${F.subfactions.length}` : "") +
       (F.commanders.length ? ` · полководцев ${F.commanders.length}` : "")).join("");
@@ -383,6 +392,11 @@ function impCmdr(i, j, k, v){
   l.commander = v || null; l.cmdrCheck = false;
   renderImportPreview();
 }
+function impMachine(i, j, k, v){
+  const l = impLineAt(i, j, k); if(!l) return;
+  l.machine = v || null;
+  updateImportResults();
+}
 function impKind(i, j, k, v){
   const l = impLineAt(i, j, k); if(!l) return;
   [l.type, l.weapon] = v.split("/");
@@ -397,7 +411,7 @@ function impTemplate(i, j, k, id){
 function commitImport(){
   if(!importDraft) return;
   const r = importExpand();
-  if(!r.unitsTotal && !r.factions.some(F => F.commanders.length)){
+  if(!r.unitsTotal && !r.machinesTotal && !r.factions.some(F => F.commanders.length)){
     alert("Нечего собирать: нет ни одной строки с численностью."); return;
   }
   pushUndo("сбор армий из текста");
@@ -423,6 +437,8 @@ function commitImport(){
       if(!c){ c = {id: nextId++, name, factionId: fac.id, buffMorale: 0, buffDisc: 0, buffDmg: 0, buffDef: 0}; commanders.push(c); }
       cmdIds[name] = c.id;
     });
+    F.machines.forEach(M => machines.push(Engine.makeMachine(M.engine, M.count, currentRules(),
+      {id: nextId++, name: M.name, factionId: fac.id, onMap: false, mapX: 50, mapY: 50})));
     F.units.forEach(U => units.push(makeUnit({
       name: U.name, type: U.type, weapon: U.weapon,
       factionId: fac.id, subfactionId: U.subfaction ? subIds[U.subfaction] : null,
@@ -436,6 +452,7 @@ function commitImport(){
     if(F.units.length) lines.push("  по шаблонам: " + Object.entries(byTpl).map(([id, n]) => `${Engine.getTemplate(id).name} ${n}`).join(" · "));
     if(F.subfactions.length) lines.push("  подфракции: " + F.subfactions.join(", "));
     if(F.commanders.length) lines.push("  полководцы: " + F.commanders.join(", "));
+    if(F.machines.length) lines.push("  ⚙ машины: " + F.machines.map(M => `${M.name} — ${Engine.engineOf(M.engine, currentRules()).name.toLowerCase()} ×${M.count}`).join(", "));
   });
   importDraft.warnings.forEach(w => lines.push("⚠ " + w.text));
   r.warnings.forEach(w => lines.push("⚠ " + w));
@@ -1179,7 +1196,7 @@ function renderQueue(){
 function renderAll(){
   $("turnNum").textContent = turn;
   renderFactions(); renderCmdrs(); renderUnits(); renderLog(); renderNecro(); renderTemplates();
-  renderSummary(); renderQueue(); renderUndoBtn(); renderMap();
+  renderSummary(); renderQueue(); renderUndoBtn(); renderMachines(); renderMap();
   if(ed.open) refreshEditor();
 }
 
@@ -1438,6 +1455,10 @@ function endTurn(){
   units = r.units.map(u => (u.movedM || u.runUpM) ? Object.assign({}, u, {movedM: 0, runUpM: 0}) : u);
   turn += 1;
   $("turnNum").textContent = turn;
+  // машины: перезарядка и развёртывание — на ход ближе
+  const waiting = machines.filter(m => m.ready > 0 || m.deployLeft > 0);
+  machines.forEach(m => Object.assign(m, Engine.siegeEndTurn(m)));
+  if(waiting.length) r.lines.push(`⚙ Машины: перезарядка и развёртывание −1 ход — ${waiting.map(m => `«${m.name}» ${m.ready || m.deployLeft ? `ещё ${Math.max(m.ready, m.deployLeft)} х.` : "готова"}`).join(", ")}`);
   addLog(`— Конец хода ${turn - 1} —`, r.lines.length ? r.lines : ["Без изменений"]);
   // побег без броска (дисциплина иссякла) тоже запускает волну
   runPanic(units.filter(u => u.status === "fled" && wasActive.has(u.id)).map(u => u.id));
@@ -1617,7 +1638,7 @@ function tokenMenuHtml(u){
     ${items}</div>`;
 }
 function openTokenMenu(id){
-  openMenuId = id; fortMenu = null;
+  openMenuId = id; fortMenu = null; openMachineId = null;
   renderMap();
 }
 function closeTokenMenu(){
@@ -1780,6 +1801,7 @@ function mapAttack(targetId){
   renderMap();
 }
 function tokenClick(id){
+  if(machineAim){ fireMachine({unitId: id}); return; }
   if(mapAttackerId){
     if(id === mapAttackerId){ cancelTargeting(); return; }
     const att = units.find(u => u.id === mapAttackerId);
@@ -2170,6 +2192,17 @@ function renderMap(){
   }
   if(fortMenu && fortsReady()) layer.insertAdjacentHTML("beforeend", fortMenuHtml());
   else fortMenu = null;
+  layer.insertAdjacentHTML("beforeend", machines.filter(m => m.onMap).map(machineTokenHtml).join(""));
+  if(openMachineId){
+    const mm = machines.find(m => m.id === openMachineId);
+    if(mm && mm.onMap) layer.insertAdjacentHTML("beforeend", machineMenuHtml(mm));
+    else openMachineId = null;
+  }
+  wrap.classList.toggle("aiming", !!machineAim);
+  if(machineAim && !moveZone){
+    const am = machines.find(m => m.id === machineAim), ae = am && Engine.engineOf(am.engine, currentRules());
+    if(am && ae) $("mapHint").innerHTML = `<div class="targethint">Цель для «${esc(am.name)}»: щёлкни по отряду${terrainMap ? " или по стене" : ""} · ${ae.ram ? "вплотную" : `${ae.range[0]}–${ae.range[1]} м`}${ae.indirect ? " · навесом" : ""} · Esc — отмена</div>`;
+  }
 
   renderSelBar();
   const unplaced = units.filter(u => !u.onMap && u.status === "active");
@@ -2183,6 +2216,7 @@ function renderMap(){
 // Проценты считаются от сцены (#mapTop), а не от окна: при приближении сцена больше окна.
 (function(){
   let tok = null, tid = null, moved = false, groupStart = null, dragStart = null;
+  let mtok = null, mid = null;   // фишка машины
   let marquee = null, mqStart = null, mqShift = false;
   let pan = null, overMap = false;
   document.addEventListener("mouseover", e => { overMap = !!(e.target.closest && e.target.closest("#mapWrap")); });
@@ -2198,6 +2232,13 @@ function renderMap(){
       return;
     }
     if(e.button !== 0) return;
+    const mt = e.target.closest && e.target.closest(".mtoken");
+    if(mt){
+      mtok = mt; mid = +mt.dataset.mid; moved = false;
+      mt.classList.add("dragging");
+      e.preventDefault();
+      return;
+    }
     const t = e.target.closest && e.target.closest(".token");
     if(t){
       tok = t; tid = +t.dataset.tid; moved = false;
@@ -2238,6 +2279,12 @@ function renderMap(){
       marquee.style.height = Math.abs(y - mqStart.y) + "px";
       return;
     }
+    if(mtok){
+      const q = pct(e.clientX, e.clientY, topRect());
+      mtok.style.left = clamp(q.x, 0, 100) + "%"; mtok.style.top = clamp(q.y, 0, 100) + "%";
+      moved = true;
+      return;
+    }
     if(!tok) return;
     const p = pct(e.clientX, e.clientY, topRect());
     let x = clamp(p.x, 0, 100), y = clamp(p.y, 0, 100);
@@ -2263,6 +2310,14 @@ function renderMap(){
   document.addEventListener("mouseup", e => {
     const wrap = $("mapWrap");
     if(pan){ pan = null; if(wrap) wrap.classList.remove("panning"); return; }
+    if(mtok){
+      const id = mid, el = mtok;
+      mtok = null; mid = null; el.classList.remove("dragging");
+      if(moved) moveMachine(id, parseFloat(el.style.left), parseFloat(el.style.top));
+      else machineClick(id);
+      moved = false;
+      return;
+    }
     if(marquee && mqStart && wrap){
       const r = wrap.getBoundingClientRect(), tr = topRect();
       const x2 = clamp(e.clientX - r.left, 0, r.width), y2 = clamp(e.clientY - r.top, 0, r.height);
@@ -2273,9 +2328,14 @@ function renderMap(){
       const tiny = (box.rt - box.l) < 0.7 && (box.b - box.t) < 0.7;
       if(tiny){
         if(!mqShift) selectedTokens = {};
-        // щелчок по стене при включённом штурме — меню участка
+        // щелчок по стене при включённом штурме — меню участка; в режиме прицела — выстрел по участку
         const f = !mqShift && fortsReady() ? Engine.sectionAt(terrainMap, box.l / 100, box.t / 100) : null;
+        if(machineAim){
+          if(f){ marquee.remove(); marquee = null; mqStart = null; fireMachine({sectionId: f.id, x: box.l, y: box.t}); return; }
+          machineAim = null;
+        }
         fortMenu = f ? {id: f.id, x: box.l, y: box.t, cx: box.l / 100 * terrainMap.w, cy: box.t / 100 * terrainMap.h} : null;
+        openMachineId = null;
       } else {
         if(!mqShift) selectedTokens = {};
         units.filter(u => u.onMap).forEach(u => {
@@ -2348,6 +2408,8 @@ function renderMap(){
     // пробел над картой — сдвиг, а не прокрутка страницы
     if(e.code === "Space" && !typing(e)){ spaceDown = true; if(ed.open || overMap) e.preventDefault(); }
     if(e.key === "Escape"){
+      if(machineAim){ machineAim = null; renderMap(); return; }
+      if(openMachineId && !typing(e)){ openMachineId = null; renderMap(); return; }
       if(fortMenu && !typing(e)){ closeFortMenu(); return; }
       if(calib){ calib = null; document.querySelectorAll(".calibdot").forEach(el => el.remove()); renderMap(); }
       else if(mapAttackerId) cancelTargeting();
@@ -2886,6 +2948,216 @@ function fortRepair(){
   fortVersion++;
   addLog(`🔧 Починка участка №${f.id} (${Engine.FORT_KINDS[f.kind]})`, r.lines);
   renderMap();
+}
+// ═══════════ осадные машины на карте (6б, Ш4) — черновик до ГМа ═══════════
+// Машина — батарея одинаковых орудий (Engine.makeMachine). Интерфейс ставит её на карту, передаёт движку
+// цель (Engine.siegeAim — дистанция, видимость, укрытие) и залп (Engine.siegeVolley), применяет патчи и рисует.
+const MACHINE_ABBR = {ballista: "БАЛ", catapult: "КАТ", trebuchet: "ТРБ", bombard: "БОМ", cannon: "ПУШ", mortar: "МОР",
+                      ribauldequin: "РИБ", magic: "МАГ", ram: "ТАР", tower: "БАШ"};
+const MACHINE_KINDS = () => [["", "— не орудие —"], ...Object.entries(currentRules().siege.engines).map(([k, e]) => [k, e.name])];
+const machineOf = id => machines.find(m => m.id === id) || null;
+function machineStatus(m){
+  if(m.count <= 0) return "уничтожена";
+  if(m.deployLeft > 0) return `развёртывается — ${m.deployLeft} х.`;
+  if(m.ready > 0) return `перезарядка — ${m.ready} х.`;
+  return "готова";
+}
+function renderMachines(){
+  const list = $("machineList"); if(!list) return;
+  const R = currentRules();
+  list.innerHTML = machines.length ? machines.map(m => {
+    const e = Engine.engineOf(m.engine, R);
+    return `<div class="citem mcard">
+      <span><span class="dot" style="background:${factionColor(m.factionId)}"></span><b>${esc(m.name)}</b> · ${esc(e ? e.name : m.engine)} ×${m.count}
+        <span class="hint" style="margin:0">· расчёт ${m.crew} · ${machineStatus(m)}${m.factionId ? " · " + esc(factionName(m.factionId)) : ""}</span></span>
+      <span><button class="sm" onclick="${m.onMap ? `machineOffMap(${m.id})` : `placeMachine(${m.id})`}">${m.onMap ? "С карты" : "На карту"}</button>
+        <button class="sm red" onclick="removeMachine(${m.id})">✕</button></span>
+    </div>`;
+  }).join("") : '<div class="hint" style="margin:0">Машин нет. Добавь ниже или собери армию из текста: строки «46 пушек», «3 требушета», «маг-пушки» становятся батареями.</div>';
+  const kind = $("mc_kind");
+  if(kind && !kind.options.length){ kind.innerHTML = optionsHtml(MACHINE_KINDS().slice(1), "trebuchet"); }
+  const fs = $("mc_faction");
+  if(fs){
+    const prev = fs.value;
+    fs.innerHTML = '<option value="">— без фракции —</option>' + factions.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join("");
+    fs.value = prev;
+  }
+  const box = $("mc_mageBox");
+  if(box) box.classList.toggle("hidden", !(kind && kind.value === "magic"));
+}
+function addMachine(){
+  const R = currentRules(), key = $("mc_kind").value, e = Engine.engineOf(key, R);
+  if(!e) return;
+  const count = clamp(Math.round(+$("mc_count").value || 1), 1, 500);
+  const extra = {id: nextId++, factionId: +$("mc_faction").value || null, onMap: false, mapX: 50, mapY: 50,
+                 exp: clamp(Math.round(+$("mc_exp").value || 50), 0, 100)};
+  const nm = $("mc_name").value.trim();
+  if(nm) extra.name = nm;
+  if(e.magic) extra.mageSkill = clamp(Math.round(+$("mc_mage").value || 10), 1, 20);
+  pushUndo("новая машина");
+  const m = Engine.makeMachine(key, count, R, extra);
+  const crew = Math.round(+$("mc_crew").value);
+  if(crew > 0) m.crew = crew;
+  machines.push(m);
+  $("mc_name").value = ""; $("mc_crew").value = "";
+  addLog(`⚙ Новая машина: «${m.name}»`, [`${e.name} ×${m.count} · расчёт ${m.crew} из ${m.count * e.crew}${e.magic ? ` · навык мага ${m.mageSkill}` : ` · опыт ${m.exp}`}`, "Черновик до ГМа: числа — shared/siege/catalog.md."]);
+  renderAll(); saveState();
+}
+function placeMachine(id){
+  const m = machineOf(id); if(!m) return;
+  m.onMap = true;
+  renderAll(); saveState();
+}
+function machineOffMap(id){
+  const m = machineOf(id); if(!m) return;
+  m.onMap = false; if(openMachineId === id) openMachineId = null; if(machineAim === id) machineAim = null;
+  renderAll(); saveState();
+}
+function removeMachine(id){
+  const m = machineOf(id); if(!m || !confirm(`Убрать машину «${m.name}» из партии?`)) return;
+  pushUndo(`машина «${m.name}» убрана`);
+  machines = machines.filter(q => q.id !== id);
+  if(openMachineId === id) openMachineId = null; if(machineAim === id) machineAim = null;
+  addLog(`⚙ Машина «${m.name}» убрана`, []);
+  renderAll(); saveState();
+}
+function machineTokenHtml(m){
+  const e = Engine.engineOf(m.engine, currentRules());
+  const wait = Math.max(m.ready || 0, m.deployLeft || 0);
+  const cls = [m.count <= 0 ? "dead" : "", machineAim === m.id ? "aimer" : "", openMachineId === m.id ? "open" : ""].join(" ");
+  const tip = `${m.name} — ${e ? e.name.toLowerCase() : m.engine} ×${m.count} · расчёт ${m.crew} · ${machineStatus(m)}`;
+  return `<div class="mtoken ${cls}" data-mid="${m.id}" style="left:${m.mapX}%;top:${m.mapY}%" title="${esc(tip)}">
+    <div class="mt-body" style="border-color:${factionColor(m.factionId)}"><span class="mt-ab">${MACHINE_ABBR[m.engine] || "⚙"}</span><span class="mt-n">×${m.count}</span></div>
+    <div class="tlabel">${esc(m.name)}</div>
+    ${wait > 0 && m.count > 0 ? `<div class="mt-wait">⟳ ${wait}</div>` : ""}
+  </div>`;
+}
+function machineClick(id){
+  if(machineAim === id){ machineAim = null; renderMap(); return; }
+  machineAim = null; openMenuId = null; fortMenu = null;
+  openMachineId = openMachineId === id ? null : id;
+  renderMap();
+}
+function machineMenuHtml(m){
+  const R = currentRules(), e = Engine.engineOf(m.engine, R);
+  // в нижней половине видимой карты меню раскрывается вверх — иначе его срежет край окна
+  const v = battleView, up = v.oy + m.mapY / 100 * v.sh > v.vh / 2;
+  const left = clamp(m.mapX, 6, 80), top = up ? m.mapY - 3 : m.mapY + 4;
+  const can = siegeActive() || (mapActive() && mapRules.siege);
+  const facOpts = factions.filter(f => f.id !== m.factionId).map(f => [f.id, f.name]);
+  return `<div class="tmenu mmenu" style="left:${left}%;top:${top}%${up ? ";transform:translateY(-100%)" : ""}" onclick="event.stopPropagation()">
+    <div class="tm-head">⚙ ${esc(m.name)}</div>
+    <div class="tm-sub">${esc(e.name)} ×${m.count} из ${m.countFull}${m.factionId ? " · " + esc(factionName(m.factionId)) : ""}<br>
+      расчёт ${m.crew} из ${m.count * e.crew} · ${e.magic ? `навык мага ${m.mageSkill || "— нет мага"}` : `опыт ${m.exp}`} · ${machineStatus(m)}<br>
+      ${e.tower ? `ведёт на стену ${e.capacity} чел. за ход` : `${e.ram ? "вплотную" : `${e.range[0]}–${e.range[1]} м`}${e.indirect ? " · навесом" : ""} · перезарядка ${e.reload} х.`} · ход ${e.move ? e.move + " м" : "строится на месте"}${m.dmg ? ` · повреждение ${Math.round(m.dmg * 10) / 10} из ${e.hp}` : ""}</div>
+    ${e.tower ? "" : can ? `<button class="gold" onclick="startMachineAim(${m.id})">🎯 Выстрел — выбрать цель</button>`
+      : `<div class="fm-note">Стрелять — при включённых «Правилах карты» и «Штурме».</div>`}
+    <div class="fm-cap">Орудий · расчёт · ${e.magic ? "навык мага (1–20)" : "опыт расчёта"}</div>
+    <div class="fm-row"><input type="number" id="mmCount" min="0" value="${m.count}" title="Орудий"><input type="number" id="mmCrew" min="0" value="${m.crew}" title="Расчёт, человек">
+      <input type="number" id="mmSkill" min="0" max="${e.magic ? 20 : 100}" value="${e.magic ? m.mageSkill : m.exp}" title="${e.magic ? "Навык мага 1–20" : "Опыт расчёта 0–100"}">
+      <button onclick="editMachine(${m.id})" title="Орудий · расчёт · ${e.magic ? "навык мага" : "опыт"}">✎</button></div>
+    <div class="fm-cap">Прочность одного орудия — ${e.hp}</div>
+    <div class="fm-row"><input type="number" id="mmHit" min="1" value="${Math.round(e.hp / 2)}" title="Сколько прочности снять"><button onclick="hitMachineUi(${m.id})">💥 Удар по машине</button></div>
+    ${e.magic ? `<button onclick="magicStrikeUi(${m.id})">🔮 Попадание по маг-пушке: погаснет или взрыв</button>` : ""}
+    ${facOpts.length ? `<div class="fm-row"><select id="mmFaction">${optionsHtml(facOpts, "")}</select><button onclick="captureMachineUi(${m.id})">🏳 Захватить</button></div>` : ""}
+    <button onclick="machineOffMap(${m.id})">✕ Снять с карты</button>
+    <button onclick="openMachineId = null; renderMap()">Закрыть</button>
+    <div class="fm-note">Черновик до ГМа: числа — shared/siege/catalog.md. Перетащи фишку — машина развернётся заново.</div>
+  </div>`;
+}
+function startMachineAim(id){
+  const m = machineOf(id); if(!m) return;
+  openMachineId = null; openMenuId = null; fortMenu = null; mapAttackerId = null;
+  machineAim = id;
+  renderMap();
+}
+// Выстрел по отряду ({unitId}) или по участку стены ({sectionId, x, y} — точка щелчка, % сцены)
+function fireMachine(t){
+  const m = machineOf(machineAim); machineAim = null;
+  if(!m){ renderMap(); return; }
+  const R = currentRules(), geo = mapGeo();
+  let target, aimT;
+  if(t.unitId){
+    const u = units.find(q => q.id === t.unitId);
+    if(!u){ renderMap(); return; }
+    if(m.factionId && u.factionId === m.factionId && !confirm(`«${u.name}» — свои. Всё равно стрелять?`)){ renderMap(); return; }
+    target = {unit: u, splash: units.filter(v => v.onMap && v.id !== u.id && v.status !== "destroyed").map(v => ({unit: v, gap: Engine.unitGap(u, v, geo, R)}))};
+    aimT = {unit: u};
+  } else {
+    target = {section: {map: terrainMap, id: t.sectionId, at: {x: t.x / 100 * terrainMap.w, y: t.y / 100 * terrainMap.h}}};
+    aimT = {section: {id: t.sectionId}};
+  }
+  const aim = Engine.siegeAim(m, aimT, geo, R);
+  const opts = {dist: aim.dist, los: aim.los.ok, coverPct: terrainActive() ? aim.coverPct : 0};
+  const pre = `🗺 До цели ${Math.round(aim.dist)} м${aim.los.ok ? "" : ` · цели не видно — мешает ${aim.los.why}`}${opts.coverPct ? ` · ${aim.coverNote} (${opts.coverPct}%)` : ""} · черновик`;
+  const snap = JSON.stringify(stateObj());   // залп меняет стену на месте — снимок до него
+  const r = Engine.siegeVolley(m, target, opts, engineCtx());
+  if(!r.ok){ addLog(r.title, [pre, ...r.lines], r.tone); renderMap(); return; }
+  undoStack.push({label: `залп «${m.name}»`, turn, snap});
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  Object.assign(m, r.machine);
+  r.patches.forEach(p => updUnit(p.id, p.patch));
+  if(r.section && r.section.opened) terrainVersion++;
+  fortVersion++;
+  addLog(r.title, [pre, ...r.lines], r.tone);
+  renderAll(); saveState();
+}
+function moveMachine(id, x, y){
+  const m = machineOf(id); if(!m) return;
+  const R = currentRules(), e = Engine.engineOf(m.engine, R);
+  x = clamp(x, 0, 100); y = clamp(y, 0, 100);
+  const live = siegeActive();
+  if(live && !e.move && !confirm(`«${m.name}»: ${e.name.toLowerCase()} строится на месте и сам не ездит. Перенести (разобрать и собрать заново)?`)){ renderMap(); return; }
+  pushUndo(`перемещение «${m.name}»`);
+  const geo = mapGeo(), dist = Math.round(Math.hypot((x - m.mapX) / 100 * geo.W, (y - m.mapY) / 100 * geo.H));
+  m.mapX = x; m.mapY = y;
+  if(live){
+    Object.assign(m, Engine.machineMoved(m, R));
+    const lines = [`Прошла ${dist} м${e.move ? ` (норма ${e.move} м за ход)` : ""} · стреляет через ${m.deployLeft} х.: ход марша${e.deploy ? ` и ${e.deploy} х. развёртывания` : ""}`];
+    if(e.move && dist > e.move) lines.push(`Сверх нормы на ${dist - e.move} м — решение мастера`);
+    addLog(`⚙ «${m.name}»: новая позиция`, lines);
+  }
+  renderAll(); saveState();
+}
+function editMachine(id){
+  const m = machineOf(id); if(!m) return;
+  const e = Engine.engineOf(m.engine, currentRules());
+  const count = clamp(Math.round(+$("mmCount").value), 0, 500), crew = Math.max(0, Math.round(+$("mmCrew").value));
+  const skill = Math.round(+$("mmSkill").value);
+  pushUndo(`правка «${m.name}»`);
+  const was = `×${m.count}, расчёт ${m.crew}, ${e.magic ? `навык мага ${m.mageSkill}` : `опыт ${m.exp}`}`;
+  m.count = count; m.crew = crew; m.countFull = Math.max(m.countFull, count);
+  if(e.magic) m.mageSkill = clamp(skill, 0, 20); else m.exp = clamp(skill, 0, 100);
+  addLog(`⚙ «${m.name}»: правка мастера`, [`Было: ${was}`, `Стало: ×${m.count}, расчёт ${m.crew}, ${e.magic ? `навык мага ${m.mageSkill}` : `опыт ${m.exp}`}`]);
+  renderAll(); saveState();
+}
+function hitMachineUi(id){
+  const m = machineOf(id); if(!m) return;
+  const amount = Math.max(0, +$("mmHit").value || 0); if(!amount) return;
+  pushUndo(`удар по «${m.name}»`);
+  const r = Engine.hitMachine(m, amount, currentRules());
+  Object.assign(m, r.patch);
+  addLog(`⚙ Удар по «${m.name}»`, r.lines, r.lost ? "danger" : undefined);
+  renderAll(); saveState();
+}
+function magicStrikeUi(id){
+  const m = machineOf(id); if(!m) return;
+  pushUndo(`попадание по «${m.name}»`);
+  const R = currentRules(), geo = mapGeo();
+  const nearby = units.filter(u => u.onMap && u.status !== "destroyed").map(u => ({unit: u, gap: Engine.siegeAim(m, {unit: u}, geo, R).dist}));
+  const r = Engine.magicStrike(m, nearby, engineCtx());
+  Object.assign(m, r.machine);
+  r.patches.forEach(p => updUnit(p.id, p.patch));
+  addLog(`🔮 Попадание по «${m.name}»`, r.lines, r.calm ? undefined : "danger");
+  renderAll(); saveState();
+}
+function captureMachineUi(id){
+  const m = machineOf(id), fid = +$("mmFaction").value; if(!m || !fid) return;
+  pushUndo(`захват «${m.name}»`);
+  const e = Engine.engineOf(m.engine, currentRules());
+  Object.assign(m, Engine.captureMachine(m, fid, currentRules()));
+  addLog(`🏳 «${m.name}» захвачена: ${factionName(fid)}`, e.magic ? ["Захваченная маг-батарея молчит, пока ГМ не назначит ей своего мага (навык — в меню машины)."] : []);
+  renderAll(); saveState();
 }
 const moveActive = () => mapActive() && mapRules.move;
 const rangeActive = () => mapActive() && mapRules.range;

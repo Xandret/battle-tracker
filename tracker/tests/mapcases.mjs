@@ -13,7 +13,7 @@ import { footprint, unitCorners, unitGap, groundUnder, mapModsFor, fatigueMultFo
          runOver, runUpBlock, rangeOf, attackReach } from "../src/engine/battlemap.js";
 import { lineOfSight, panicWave } from "../src/engine/panic.js";
 import { buildSections, damageSection, repairSection, sectionHp, getSection } from "../src/engine/fortify.js";
-import { makeMachine, siegeVolley, siegeEndTurn, machineMoved, hitMachine, magicStrike, captureMachine } from "../src/engine/siege.js";
+import { makeMachine, siegeVolley, siegeEndTurn, machineMoved, hitMachine, magicStrike, captureMachine, siegeAim } from "../src/engine/siege.js";
 
 // FNV-1a (32 бита) по байтам — короткий отпечаток слоя карты или массива цен пути
 export function fnv(bytes){
@@ -326,7 +326,24 @@ function siegeCases(R){
     return {seed, calm: r.calm, lines: r.lines, patches: r.patches, machine: r.machine};
   });
   const capture = [captureMachine(makeMachine("magic", 3, R, {ready: 1}), 5, R), captureMachine(makeMachine("cannon", 3, R, {deployLeft: 2}), 5, R)];
-  return {units: siegeUnits(), shots, misc: {moved, endTurn, hits: [h1, h2, h3], strikes, capture}};
+  // прицел с карты: замок на холме, машина в разных местах — до участков и до отрядов
+  const am = generateMap("castle", {hill: true, widthM: 600, depthM: 500}, 1);
+  buildSections(am, R);
+  const ageo = {map: am, W: mapWidthM(am), H: mapHeightM(am)};
+  const tower = am.forts.find(f => f.kind === "tower");
+  const spots = [[50, 85], [50, 15], [50, 50], [tower.cx / am.w * 100, tower.cy / am.h * 100], [8, 50], [30, 70]];
+  const secs = [am.forts.find(f => f.kind === "wall").id, am.forts.find(f => f.kind === "gateIron").id, am.forts[am.forts.length - 1].id, tower.id];
+  const aus = siegeUnits().slice(0, 3).map((u, k) => Object.assign(u, {type: ["infantry", "cavalry", "archer"][k], onMap: true,
+    mapX: [50, 50, 25][k], mapY: [48, 80, 30][k], facing: [0, 30, 90][k]}));
+  const aimOut = a => a && {dist: a.dist, los: a.los, coverPct: a.coverPct, coverNote: a.coverNote, at: a.at};
+  const aims = spots.map(([x, y]) => {
+    const m = makeMachine("cannon", 1, R, {mapX: x, mapY: y});
+    return {spot: [x, y], sections: secs.map(id => aimOut(siegeAim(m, {section: {id}}, ageo, R))),
+            units: aus.map(u => aimOut(siegeAim(m, {unit: u}, ageo, R))),
+            open: aus.map(u => aimOut(siegeAim(m, {unit: u}, {map: null, W: ageo.W, H: ageo.H}, R)))};
+  });
+  return {units: siegeUnits(), shots, misc: {moved, endTurn, hits: [h1, h2, h3], strikes, capture},
+          aim: {secs, units: aus, aims}};
 }
 
 export function buildMapCases(){

@@ -286,7 +286,13 @@ test("Битва при Кордуа: число в конце, «во глав�
   assert.equal(kord.sum, 19000);
   const plan = E.planMuster(p);
   const guns = plan.sides[0].contingents[0].lines[3];
-  assert.equal(guns.special, true, "пушки помечены: механики нет до 6б");
+  assert.equal(guns.machine, "cannon", "пушки — батарея (Ш4), а не отряд");
+  assert.equal(guns.special, false);
+  assert.equal(plan.sides[0].contingents[2].lines[1].special, true, "слоны — по-прежнему отряд с пометкой");
+  const ex = E.expandMuster(plan);
+  assert.deepEqual(ex.factions[0].machines.map(m => [m.name, m.engine, m.count]), [["Пушки в артелерии", "cannon", 46]], "46 пушек — одна батарея");
+  assert.ok(!ex.factions[0].units.some(u => u.name.startsWith("Пушки")), "отряда «Пушки» нет");
+  assert.equal(ex.machinesTotal, 1);
   assert.equal(plan.sides[1].contingents[0].lines[1].templateId, "infantry", "кордуанские мечники — пехота");
 });
 
