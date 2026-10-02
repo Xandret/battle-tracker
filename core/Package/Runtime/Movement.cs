@@ -22,7 +22,7 @@ namespace BattleCore
 {
     // Приказ (Г15): двигаться в точку (X, Y, Facing — центр строя, м, и куда смотреть), атаковать отряд TargetId
     // (идти на него, преследуя; Charge — с натиском, Г29) или держать позицию (стоять, отвечать — Г44)
-    public enum OrderKind { Move, Attack, Hold, Rally }   // Rally — «сплотить» бегущих (Г72)
+    public enum OrderKind { Move, Attack, Hold, Rally, Retreat }   // Rally — «сплотить» бегущих (Г72); Retreat — пятится (Г81)
     public sealed class MoveOrder
     {
         public double X, Y, Facing;
@@ -156,7 +156,8 @@ namespace BattleCore
             if (m.Track == null) { m.Note = "пути нет"; return; }
             if (m.Track.Pieces.Count == 0) m.OnSpot = true;   // уже на месте — остаётся довернуться
             // атакующий идёт на врага лицом, а не боком (Г54 — только для приказа «двигаться»)
-            m.Side = o.Kind == OrderKind.Move && m.Track.Cost <= r.Move.CloseShare * BattleMap.UnitSpeed(m.P.U, r);
+            m.Side = o.Kind == OrderKind.Move && m.Track.Cost <= r.Move.CloseShare * BattleMap.UnitSpeed(m.P.U, r)
+                  || o.Kind == OrderKind.Retreat;   // Г81: отступает — пятится, не поворачиваясь, на половине нормы
             // разгон переходит в новый приказ, только если он ведёт туда же, куда отряд уже идёт
             if (m.Side || m.Track.Pieces.Count == 0 || Math.Abs(AngleDiff(m.P.Facing, LegHeading(m.Track, 0))) > r.Move.MarchAlignDeg) m.Vs = 0;
         }

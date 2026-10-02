@@ -78,6 +78,14 @@ namespace BattleCore
             if (m.Fleeing) { if (o.Kind == OrderKind.Rally) m.RallyPending = true; return; }   // бегущий слышит только «сплотить» (Г72)
             if (o.Kind == OrderKind.Rally) return;
             aimed.Remove(m);
+            if (o.Kind == OrderKind.Retreat)
+            {
+                // Г81: пятится лицом туда же, куда смотрел; точки нет — прямо назад на полнормы
+                if (double.IsNaN(o.X) || double.IsNaN(o.Y)) (o.X, o.Y) = RetreatPoint(m);
+                o.Facing = m.P.Facing;
+                MoveSim.Give(m, o, Geo, R);
+                return;
+            }
             if (o.Kind == OrderKind.Hold) { m.Order = o; m.Track = null; m.Done = true; m.Vs = 0; return; }
             if (o.Kind == OrderKind.Attack)
             {
@@ -108,34 +116,58 @@ namespace BattleCore
         }
 
         // ── ход ──
+        // Целиком (тесты, полигон) или по шагам (игра, Г43: ход считается во время показа): BeginTurn — Step, пока
+        // не вернёт false, — EndTurn. StepTime — секунды хода, отсчитанные к этому шагу
         public List<string> Turn(Action<double> frame = null)
         {
-            var M = R.Move; double dt = M.Dt;
-            int steps = MoveSim.StepsPerTurn(R);
-            int contactEvery = Math.Max(1, (int)Math.Round(ContactEverySec / dt)), replanEvery = Math.Max(1, (int)Math.Round(ReplanSec / dt));
-            double turnStart = Clock;
+            BeginTurn();
+            while (Step(frame)) { }
+            return EndTurn();
+        }
+        int stepK = -1, stepsInTurn;
+        double turnStart;
+        List<Volley> shotThisTurn = new List<Volley>();
+        public bool TurnRunning => stepK >= 0 && stepK < stepsInTurn;
+        public double StepTime => Math.Max(0, stepK) * R.Move.Dt;
+        public void BeginTurn()
+        {
+            stepsInTurn = MoveSim.StepsPerTurn(R);
+            turnStart = Clock;
             MoveSim.BeginTurn(Movers);
             Details.Clear(); events.Clear();
             foreach (var f in Fights) { f.LossA = f.LossB = 0; f.Notes.Clear(); }
             foreach (var v in Volleys) { v.LossA = v.LossB = v.Friendly = 0; v.Arrows = 0; }
             Shots = new ShotStats();
-            var shotThisTurn = new List<Volley>();
+            shotThisTurn = new List<Volley>();
             foreach (var m in Movers) chargesLeft[m] = (int)Units.AttackLimit(m.P.U, R);   // Г29: 1 натиск за ход, 2 при дисциплине 80+
-            for (int k = 0; k < steps; k++)
-            {
-                double t = turnStart + k * dt;
-                if (k % replanEvery == 0) foreach (var m in Movers) Replan(m);
-                var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
-                MoveSim.Step(Movers, Geo, R, k);
-                for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
-                foreach (var m in Movers) if (m.Fleeing) EdgeCheck(m, t + dt);
-                if (k % contactEvery == 0) { Contacts(t); Envelop(); TryRally(t); foreach (var m in Movers) if (m.Fleeing) OwnFleeCourses(m); }
-                Strike(t, dt);
-                Shoot(t, dt);
-                foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
-                if ((k + 1) % contactEvery == 0) foreach (var m in Movers) Relayout(m);
-                frame?.Invoke((k + 1) * dt);
-            }
+            stepK = 0;
+        }
+        // Один шаг Dt; false — ход кончился (шагов больше нет)
+        public bool Step(Action<double> frame = null)
+        {
+            if (stepK < 0 || stepK >= stepsInTurn) return false;
+            var M = R.Move; double dt = M.Dt; int k = stepK;
+            int contactEvery = Math.Max(1, (int)Math.Round(ContactEverySec / dt)), replanEvery = Math.Max(1, (int)Math.Round(ReplanSec / dt));
+            double t = turnStart + k * dt;
+            if (k % replanEvery == 0) foreach (var m in Movers) Replan(m);
+            var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
+            MoveSim.Step(Movers, Geo, R, k);
+            for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
+            foreach (var m in Movers) if (m.Fleeing) EdgeCheck(m, t + dt);
+            if (k % contactEvery == 0) { Contacts(t); Envelop(); TryRally(t); foreach (var m in Movers) if (m.Fleeing) OwnFleeCourses(m); }
+            Strike(t, dt);
+            Shoot(t, dt);
+            foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
+            if ((k + 1) % contactEvery == 0) foreach (var m in Movers) Relayout(m);
+            stepK = k + 1;
+            frame?.Invoke(stepK * dt);
+            return stepK < stepsInTurn;
+        }
+        public List<string> EndTurn()
+        {
+            var M = R.Move;
+            while (Step()) { }   // недосчитанные шаги — досчитать (ход всегда целиком)
+            stepK = -1;
             EndOfTurnTable(turnStart + M.TurnSec);
             Clock = turnStart + M.TurnSec;
             var L = MoveSim.EndTurn(Movers, R);
