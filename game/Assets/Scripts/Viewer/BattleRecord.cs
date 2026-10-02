@@ -16,7 +16,9 @@ namespace Journal.Viewer
         public double Men, PerMan, RankDepth, Front, Depth;
         public readonly List<double[]> Figs = new List<double[]>();   // по номеру тела: [ширина, глубина, бойцов, ряд]
     }
-    public struct DeadRec { public float X, Y, Facing, Dir; public int Frame, Unit, Part; }   // часть: 0 голова, 1 корпус, 2 ноги, 3 конь
+    public struct DeadRec { public float X, Y, Facing, Dir; public int Frame, Unit, Part, Man; }   // часть: 0 голова, 1 корпус, 2 ноги, 3 конь; Man — номер бойца (0 — неизвестен)
+    // бойцы отряда в кадре (Г75): по номеру бойца — x, y, курс°; NaN — нет (пал, ушёл, ещё не было); фигурка и ряд
+    public sealed class MenFrame { public float[] Xyh; public short[] Fig; public byte[] Row; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
 
     public sealed class Recording
@@ -30,11 +32,13 @@ namespace Journal.Viewer
         public readonly List<Dictionary<int, float>> Heads = new List<Dictionary<int, float>>();   // кадр → отряд·65536+тело → курс°
         public readonly List<int[]> Fights = new List<int[]>();                                      // кадр → [a, b, a, b, …]
         public readonly List<int[]> Soldiers = new List<int[]>();                                    // кадр → в строю по отрядам
+        public readonly List<MenFrame[]> Men = new List<MenFrame[]>();                               // кадр → отряд → бойцы (Г75)
         public List<int>[] States;                                                                   // отряд → [кадр, код, кадр, код, …]
         public readonly List<DeadRec> Dead = new List<DeadRec>();
         public readonly List<ArrowRec> Arrows = new List<ArrowRec>();
         public readonly List<List<string>> Logs = new List<List<string>>();
         public double Seconds => (Frames.Count - 1) * Dt;
+        public bool Done;                                                                            // досчитана; иначе дописывается по ходу счёта
 
         public int StateAt(int ui, int frame)
         {
@@ -45,77 +49,115 @@ namespace Journal.Viewer
         }
     }
 
+    // Снятие кадров боя в запись. Одно на сцену и на живую игру: BattleRecord.Run зовёт Snap раз в 0,2 с счёта, ход в игре
+    // (Play/*) — так же, по ходу Battle.Step. Стрелы попадают в запись, когда долетят (порядок не важен — смотрелка
+    // ищет летящие по времени). Snap и чтение записи — из одного потока (иначе — под lock(Rec)).
+    public sealed class Recorder
+    {
+        public readonly Recording Rec;
+        readonly List<Mover> ms; readonly Battle battle;
+        readonly Dictionary<int, int> idx = new Dictionary<int, int>();
+        int seenDead, seenArrow;
+        readonly List<int> pending = new List<int>();   // стрелы, что ещё летят: номера в ArrowLog
+
+        public Recorder(string name, string note, Geo geo, IList<Mover> movers, Func<Mover, string> tplOf, Battle battle, int turns)
+        {
+            var R = Rules.Base;
+            ms = movers.ToList(); this.battle = battle;
+            if (battle != null && battle.ArrowLog == null) battle.ArrowLog = new List<ArrowTrace>();
+            Rec = new Recording { Name = name, Note = note, Map = geo.Map, W = geo.W, H = geo.H, TurnSec = R.Move.TurnSec, Turns = turns };
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var m = ms[i]; var u = m.P.U; idx[u.Id] = i;
+                var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+                var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Name = u.Name, Tpl = tplOf(m), Type = u.Type, Men = u.Soldiers,
+                    PerMan = f.PerMan, RankDepth = f.RankDepth, Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
+                foreach (var fig in m.P.Figs) info.Figs.Add(new[] { fig.Width, fig.Depth, fig.Men, fig.Rank });
+                Rec.Units.Add(info);
+            }
+            Rec.States = ms.Select(m => new List<int> { 0, State(m) }).ToArray();
+        }
+        static int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
+
+        public void Snap()
+        {
+            var rec = Rec;
+            rec.Frames.Add(ms.Select(m =>
+            {
+                var a = new float[4 + 2 * m.NextFigId];
+                for (int k = 4; k < a.Length; k++) a[k] = float.NaN;
+                a[0] = (float)m.P.X; a[1] = (float)m.P.Y; a[2] = (float)m.P.Facing; a[3] = (float)m.Vs;
+                foreach (var s in m.Figs) { a[4 + 2 * s.Id] = (float)s.X; a[5 + 2 * s.Id] = (float)s.Y; }
+                return a;
+            }).ToArray());
+            var heads = new Dictionary<int, float>();
+            for (int i = 0; i < ms.Count; i++)
+                foreach (var s in ms[i].Figs)
+                {
+                    if (!s.Turned) continue;
+                    double want = s.Wrap ? s.WH : ms[i].Fleeing && !double.IsNaN(s.FleeH) ? s.FleeH : ms[i].P.Facing, a = s.Axis;
+                    if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
+                    heads[i * 65536 + s.Id] = (float)MoveSim.Norm(a);
+                }
+            rec.Heads.Add(heads);
+            rec.Soldiers.Add(ms.Select(m => (int)Math.Round(m.P.U.Soldiers)).ToArray());
+            rec.Men.Add(ms.Select(m =>
+            {
+                int n = m.NextManId + 1;
+                var mf = new MenFrame { Xyh = new float[3 * n], Fig = new short[n], Row = new byte[n] };
+                for (int k = 0; k < mf.Xyh.Length; k++) mf.Xyh[k] = float.NaN;
+                foreach (var man in m.Men)
+                {
+                    if (!man.Alive || man.Id >= n) continue;
+                    mf.Xyh[3 * man.Id] = (float)man.X; mf.Xyh[3 * man.Id + 1] = (float)man.Y; mf.Xyh[3 * man.Id + 2] = (float)man.Facing;
+                    mf.Fig[man.Id] = (short)(man.Fig?.Id ?? 0); mf.Row[man.Id] = (byte)Math.Min(255, man.Row);
+                }
+                return mf;
+            }).ToArray());
+            int fr = rec.Frames.Count - 1;
+            if (battle == null) { rec.Fights.Add(Array.Empty<int>()); return; }
+            rec.Fights.Add(battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());
+            for (; seenDead < battle.Deaths.Count; seenDead++)
+            {
+                var d = battle.Deaths[seenDead];
+                int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
+                rec.Dead.Add(new DeadRec { X = (float)d.X, Y = (float)d.Y, Frame = fr, Unit = idx[d.UnitId], Facing = (float)d.Facing, Dir = (float)d.Dir, Part = part, Man = d.ManId });
+            }
+            for (int i = 0; i < ms.Count; i++) if (rec.States[i][rec.States[i].Count - 1] != State(ms[i])) { rec.States[i].Add(fr); rec.States[i].Add(State(ms[i])); }
+            // стрелы: новые — в ожидание, долетевшие — в запись
+            var log = battle.ArrowLog;
+            for (; seenArrow < log.Count; seenArrow++) pending.Add(seenArrow);
+            for (int q = pending.Count - 1; q >= 0; q--)
+            {
+                var a = log[pending[q]];
+                if (!(a.T1 > a.T0)) continue;
+                rec.Arrows.Add(new ArrowRec { T0 = (float)a.T0, X0 = (float)a.X0, Y0 = (float)a.Y0, Z0 = (float)a.Z0, VX = (float)a.VX, VY = (float)a.VY, VZ = (float)a.VZ,
+                    T1 = (float)a.T1, X1 = (float)a.X1, Y1 = (float)a.Y1, Z1 = (float)a.Z1, Unit = idx[a.UnitId], End = a.End });
+                pending.RemoveAt(q);
+            }
+        }
+    }
+
     public static class BattleRecord
     {
+        // Сцена целиком: все ходы движком, кадр раз в 0,2 с; запись готова (Done), когда досчитана
         public static Recording Run(SceneDef sc, Action<string> progress = null)
         {
             var R = Rules.Base;
             var ms = sc.Units.Select(u => u.M).ToList();
             if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
-            if (sc.Battle != null) sc.Battle.ArrowLog = new List<ArrowTrace>();
-            var rec = new Recording { Name = sc.Name, Note = sc.Note, Map = sc.Geo.Map, W = sc.Geo.W, H = sc.Geo.H, TurnSec = R.Move.TurnSec, Turns = sc.Turns };
-            var idx = new Dictionary<int, int>();
-            for (int i = 0; i < ms.Count; i++)
-            {
-                var m = ms[i]; var u = m.P.U; idx[u.Id] = i;
-                var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
-                var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Name = u.Name, Tpl = sc.Tpl[m], Type = u.Type, Men = u.Soldiers,
-                    PerMan = f.PerMan, RankDepth = f.RankDepth, Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
-                foreach (var fig in m.P.Figs) info.Figs.Add(new[] { fig.Width, fig.Depth, fig.Men, fig.Rank });
-                rec.Units.Add(info);
-            }
-            int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
-            rec.States = ms.Select(m => new List<int> { 0, State(m) }).ToArray();
-            int seenDead = 0;
-            void Snap()
-            {
-                rec.Frames.Add(ms.Select(m =>
-                {
-                    var a = new float[4 + 2 * m.NextFigId];
-                    for (int k = 4; k < a.Length; k++) a[k] = float.NaN;
-                    a[0] = (float)m.P.X; a[1] = (float)m.P.Y; a[2] = (float)m.P.Facing; a[3] = (float)m.Vs;
-                    foreach (var s in m.Figs) { a[4 + 2 * s.Id] = (float)s.X; a[5 + 2 * s.Id] = (float)s.Y; }
-                    return a;
-                }).ToArray());
-                var heads = new Dictionary<int, float>();
-                for (int i = 0; i < ms.Count; i++)
-                    foreach (var s in ms[i].Figs)
-                    {
-                        if (!s.Turned) continue;
-                        double want = s.Wrap ? s.WH : ms[i].Fleeing && !double.IsNaN(s.FleeH) ? s.FleeH : ms[i].P.Facing, a = s.Axis;
-                        if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
-                        heads[i * 65536 + s.Id] = (float)MoveSim.Norm(a);
-                    }
-                rec.Heads.Add(heads);
-                rec.Soldiers.Add(ms.Select(m => (int)Math.Round(m.P.U.Soldiers)).ToArray());
-                int fr = rec.Frames.Count - 1;
-                if (sc.Battle != null)
-                {
-                    rec.Fights.Add(sc.Battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());
-                    for (; seenDead < sc.Battle.Deaths.Count; seenDead++)
-                    {
-                        var d = sc.Battle.Deaths[seenDead];
-                        int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
-                        rec.Dead.Add(new DeadRec { X = (float)d.X, Y = (float)d.Y, Frame = fr, Unit = idx[d.UnitId], Facing = (float)d.Facing, Dir = (float)d.Dir, Part = part });
-                    }
-                    for (int i = 0; i < ms.Count; i++) if (rec.States[i][rec.States[i].Count - 1] != State(ms[i])) { rec.States[i].Add(fr); rec.States[i].Add(State(ms[i])); }
-                }
-                else rec.Fights.Add(Array.Empty<int>());
-            }
-            Snap();
+            var rc = new Recorder(sc.Name, sc.Note, sc.Geo, ms, m => sc.Tpl[m], sc.Battle, sc.Turns);
+            rc.Snap();
             for (int turn = 0; turn < sc.Turns; turn++)
             {
                 progress?.Invoke($"ход {turn + 1} из {sc.Turns}");
                 sc.Before?.Invoke(turn);
                 int k = 0;
-                Action<double> step = t => { if (++k % 4 == 0) Snap(); };   // шаг движка 0,05 с — кадр раз в 0,2 с
-                rec.Logs.Add(sc.Battle != null ? sc.Battle.Turn(step) : MoveSim.Turn(ms, sc.Geo, R, step));
+                Action<double> step = t => { if (++k % 4 == 0) rc.Snap(); };   // шаг движка 0,05 с — кадр раз в 0,2 с
+                rc.Rec.Logs.Add(sc.Battle != null ? sc.Battle.Turn(step) : MoveSim.Turn(ms, sc.Geo, R, step));
             }
-            if (sc.Battle != null)
-                foreach (var a in sc.Battle.ArrowLog.Where(a => a.T1 > a.T0).OrderBy(a => a.T0))
-                    rec.Arrows.Add(new ArrowRec { T0 = (float)a.T0, X0 = (float)a.X0, Y0 = (float)a.Y0, Z0 = (float)a.Z0, VX = (float)a.VX, VY = (float)a.VY, VZ = (float)a.VZ,
-                        T1 = (float)a.T1, X1 = (float)a.X1, Y1 = (float)a.Y1, Z1 = (float)a.Z1, Unit = idx[a.UnitId], End = a.End });
-            return rec;
+            rc.Rec.Done = true;
+            return rc.Rec;
         }
     }
 }

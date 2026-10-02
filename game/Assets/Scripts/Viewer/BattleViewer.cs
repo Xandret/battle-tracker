@@ -1,6 +1,8 @@
 // ═══════════ BattleViewer.cs — смотрелка боя (И2, шаг 1): движок считает бой в Unity, сцена проигрывает ход ═══════════
 // Сцену выбирают кнопкой сверху; бой считается в фоновом потоке (BattleRecord.Run), потом проигрывается: пробел — пауза,
 // ← → — кадр, колесо — приближение к курсору, тянуть мышью — сдвиг, F — вся карта, 1…8 — сцены.
+// Режим игры (SetLive): показывает чужую живую запись (ход с приказами, Play/*), сцены не трогает; время ставит игра
+// (T, Playing, Speed); ЛКМ/ПКМ — игре (выбор, приказы), камера — средней кнопкой, WASD/стрелками, колесом, F.
 // Шаг 1 — простой рисунок: земля по клеткам 5 м, тела — плашки цвета стороны, павшие — пятна, стрелы — чёрточки.
 // Облик полигона (земля шейдером, бойцы из атласов) — следующими шагами, поверх этого же каркаса.
 using System;
@@ -42,6 +44,33 @@ namespace Journal.Viewer
         const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — плашки
         readonly List<Rect> uiRects = new List<Rect>();
         bool dragging; Vector2 dragFrom; Vector3 camFrom;
+        bool live;                       // режим игры: запись снаружи (SetLive)
+
+        // ── для режима игры (Play/*) ──
+        // Слои рисунка: земля 0, кровь 4, павшие 5–6, кони 9, бойцы и плашки 10, стрелы в полёте 20; 21–39 — за смотрелкой
+        // (знамёна, дым, подсветка), 50+ — подсказки приказов игры.
+        public bool ShowGui = true;                       // false — без OnGUI (кнопок сцен и нижней полосы)
+        public Func<Vector2, bool> OverExternalUi;        // экранная точка над интерфейсом игры — колесо и сдвиг камеры её не трогают
+        public bool Live => live;
+        public Recording Rec => rec;
+        public Camera Cam { get { Init(); return cam; } }
+        public double T { get => t; set => t = rec == null ? 0 : Math.Max(0, Math.Min(rec.Seconds, value)); }
+        public bool Playing { get => playing; set => playing = value; }
+        public float Speed { get => speed; set => speed = Mathf.Max(0, value); }
+        // Живая запись (Recorder.Rec): кадры дописываются по ходу счёта, показ идёт до последнего готового кадра.
+        // Recorder.Snap и показ — в главном потоке (или Snap под lock(rec), см. Recorder).
+        public void SetLive(Recording r)
+        {
+            Init();
+            // сцена смотрелки ещё считается в фоне — дождаться: два боя разом движок пока не считает (Soldiers.Jostle)
+            if (job != null) { try { job.Wait(); } catch (AggregateException) { } job = null; }
+            live = true; pendingScene = -1; scene = -1;
+            rec = r; t = 0; playing = false;
+            BuildGround(); FitView();
+        }
+        // экран (px) ↔ карта (м, y вниз)
+        public Vector2 ScreenToMap(Vector2 screen) { Init(); var w = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, 10)); return new Vector2(w.x, -w.y); }
+        public Vector2 MapToScreen(Vector2 map) { Init(); var s = cam.WorldToScreenPoint(new Vector3(map.x, -map.y, 0)); return new Vector2(s.x, s.y); }
 
         // для проверки из CLI: бой посчитан и показан; что сейчас на экране
         public bool Ready => rec != null && job == null;
@@ -51,8 +80,9 @@ namespace Journal.Viewer
         public void Seek(double at) { if (rec != null) { t = Math.Max(0, Math.Min(rec.Seconds, at)); playing = false; } }
         public void LookAt(float x, float y, float size) { cam.transform.position = new Vector3(x, -y, -10); cam.orthographicSize = size; }
 
-        void Start()
+        void Init()
         {
+            if (cam != null) return;
             cam = Camera.main;
             cam.orthographic = true;
             cam.backgroundColor = new Color32(23, 22, 26, 255);
@@ -64,11 +94,16 @@ namespace Journal.Viewer
             units.AddComponent<MeshFilter>().sharedMesh = unitsMesh;
             var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
             menView = new MenView(transform);
-            Load(0);
+        }
+        void Start()
+        {
+            Init();
+            if (!live) Load(0);
         }
 
         void Load(int i)
         {
+            if (live) return;                                 // в режиме игры сцен нет
             if (job != null) { pendingScene = i; return; }   // бой ещё считается — выберем, когда досчитает
             scene = i; playing = false; t = 0; jobNote = "строю сцену";
             var (name, make) = ViewerScenes.All[i];
@@ -80,19 +115,21 @@ namespace Journal.Viewer
             if (job != null && job.IsCompleted)
             {
                 if (job.IsFaulted) { Debug.LogException(job.Exception); jobNote = "ошибка: " + job.Exception.InnerException?.Message; }
-                else { rec = job.Result; BuildGround(); FitView(); playing = true; }
+                else if (!live) { rec = job.Result; BuildGround(); FitView(); playing = true; }
                 job = null;
                 if (pendingScene >= 0) { int p = pendingScene; pendingScene = -1; Load(p); }
             }
             HandleInput();
-            if (rec == null) return;
-            if (playing) { t += Time.deltaTime * speed; if (t >= rec.Seconds) { t = rec.Seconds; playing = false; } }
+            if (rec == null || rec.Frames.Count == 0) { unitsMesh.Clear(); menView?.Hide(); return; }
+            // живая запись (ход ещё считается) — играем до последнего готового кадра и ждём; досчитанная — стоп в конце
+            if (playing) { t += Time.deltaTime * speed; if (t >= rec.Seconds) { t = rec.Seconds; if (rec.Done) playing = false; } }
             DrawUnits();
         }
 
         // ── ввод: камера и проигрывание ──
         bool OverUI(Vector2 screen)
         {
+            if (OverExternalUi != null && OverExternalUi(screen)) return true;
             var gui = new Vector2(screen.x, Screen.height - screen.y);
             foreach (var r in uiRects) if (r.Contains(gui)) return true;
             return false;
@@ -100,6 +137,7 @@ namespace Journal.Viewer
         void HandleInput()
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
+            if (live) { GameInput(mouse, kb); return; }
             if (kb != null)
             {
                 if (kb.spaceKey.wasPressedThisFrame && rec != null) { if (t >= rec.Seconds) t = 0; playing = !playing; }
@@ -111,14 +149,7 @@ namespace Journal.Viewer
             }
             if (mouse == null) return;
             Vector2 mp = mouse.position.ReadValue();
-            float wheel = mouse.scroll.ReadValue().y;
-            if (Mathf.Abs(wheel) > 0.01f && !OverUI(mp))
-            {
-                Vector3 before = cam.ScreenToWorldPoint(mp);
-                cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * Mathf.Pow(0.85f, Mathf.Sign(wheel)), 3f, 4000f);
-                Vector3 after = cam.ScreenToWorldPoint(mp);
-                cam.transform.position += before - after;
-            }
+            Zoom(mouse, mp);
             if ((mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame) && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
             if (dragging)
             {
@@ -129,6 +160,43 @@ namespace Journal.Viewer
                     Vector2 d = (mp - dragFrom) * k;
                     cam.transform.position = camFrom - new Vector3(d.x, d.y, 0);
                 }
+            }
+        }
+        // колесо — приближение к точке под курсором
+        void Zoom(Mouse mouse, Vector2 mp)
+        {
+            float wheel = mouse.scroll.ReadValue().y;
+            if (Mathf.Abs(wheel) < 0.01f || OverUI(mp)) return;
+            Vector3 before = cam.ScreenToWorldPoint(mp);
+            cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * Mathf.Pow(0.85f, Mathf.Sign(wheel)), 3f, 4000f);
+            Vector3 after = cam.ScreenToWorldPoint(mp);
+            cam.transform.position += before - after;
+        }
+        // режим игры: ЛКМ/ПКМ — игре; камера — средняя кнопка, WASD/стрелки (быстрее с Shift), колесо, F
+        void GameInput(Mouse mouse, Keyboard kb)
+        {
+            if (kb != null)
+            {
+                if (kb.fKey.wasPressedThisFrame) FitView();
+                var d = Vector2.zero;
+                if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) d.x -= 1;
+                if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) d.x += 1;
+                if (kb.wKey.isPressed || kb.upArrowKey.isPressed) d.y += 1;
+                if (kb.sKey.isPressed || kb.downArrowKey.isPressed) d.y -= 1;
+                if (d != Vector2.zero)
+                {
+                    float v = cam.orthographicSize * 1.4f * (kb.shiftKey.isPressed ? 2.5f : 1);   // ~0,7 экрана в секунду
+                    cam.transform.position += (Vector3)(d.normalized * v * Time.unscaledDeltaTime);
+                }
+            }
+            if (mouse == null) return;
+            Vector2 mp = mouse.position.ReadValue();
+            Zoom(mouse, mp);
+            if (mouse.middleButton.wasPressedThisFrame && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
+            if (dragging)
+            {
+                if (!mouse.middleButton.isPressed) dragging = false;
+                else cam.transform.position = camFrom - (Vector3)((mp - dragFrom) * (2 * cam.orthographicSize / Screen.height));
             }
         }
         void FitView()
@@ -253,8 +321,7 @@ namespace Journal.Viewer
             var ink = Lin(new Color32(30, 24, 18, 255));
             foreach (var ar in rec.Arrows)
             {
-                if (ar.T0 > t) break;
-                if (ar.T1 <= t) continue;
+                if (ar.T0 > t || ar.T1 <= t) continue;
                 float uu = (float)((t - ar.T0) / Math.Max(1e-3, ar.T1 - ar.T0));
                 float x = ar.X0 + (ar.X1 - ar.X0) * uu, y = ar.Y0 + (ar.Y1 - ar.Y0) * uu;
                 float head = Mathf.Atan2(ar.X1 - ar.X0, -(ar.Y1 - ar.Y0)) * Mathf.Rad2Deg;
@@ -269,11 +336,12 @@ namespace Journal.Viewer
         void OnGUI()
         {
             uiRects.Clear();
+            if (!ShowGui) return;
             var st = new GUIStyle(GUI.skin.label) { fontSize = 14, normal = { textColor = new Color(0.92f, 0.9f, 0.85f) } };
             var btn = new GUIStyle(GUI.skin.button) { fontSize = 13 };
             // сцены
             float x = 10, y = 8;
-            for (int i = 0; i < ViewerScenes.All.Length; i++)
+            for (int i = 0; i < ViewerScenes.All.Length && !live; i++)
             {
                 string label = $"{i + 1}. {ViewerScenes.All[i].Name}";
                 float w = btn.CalcSize(new GUIContent(label)).x + 12;
@@ -288,8 +356,8 @@ namespace Journal.Viewer
             float by = Screen.height - 40;
             var bar = new Rect(0, by - 6, Screen.width, 46); uiRects.Add(bar);
             GUI.Box(bar, GUIContent.none);
-            if (job != null) { GUI.Label(new Rect(12, by, 600, 28), $"Считаю бой «{ViewerScenes.All[scene].Name}»: {jobNote}…", st); return; }
-            if (rec == null) return;
+            if (job != null && !live) { GUI.Label(new Rect(12, by, 600, 28), $"Считаю бой «{ViewerScenes.All[scene].Name}»: {jobNote}…", st); return; }
+            if (rec == null || rec.Frames.Count == 0) return;
             if (GUI.Button(new Rect(10, by, 44, 28), playing ? "❚❚" : "▶", btn)) { if (t >= rec.Seconds) t = 0; playing = !playing; }
             float sx = 60;
             foreach (var sp in new[] { 1f, 2f, 4f })

@@ -130,7 +130,9 @@ namespace Journal.Viewer
                     float ox = Mathf.Cos(a) * off + (H(seed, k + 3) - 0.5f) * 0.3f, oy = Mathf.Sin(a) * off + (H(seed, k + 5) - 0.5f) * 0.3f;
                     decals.Quad(disc, Aff.At(dd.X + ox, dd.Y + oy).R(a).S(2 * r, 2 * r * (0.65f + 0.35f * H(seed, k + 9))), blood, solid);
                 }
-                var u = kits[dd.Unit]; var kit = u[(int)(H(seed, 50) * u.Length)]; int v = (int)(H(seed, 51) * 2);
+                // павший с известным номером — в своём комплекте (тот же выбор, что у живого бойца)
+                var u = kits[dd.Unit]; var kit = dd.Man > 0 ? u[(int)(H(rec.Units[dd.Unit].Id * 7919 + dd.Man, 4) * u.Length)] : u[(int)(H(seed, 50) * u.Length)];
+                int v = (int)(H(seed, 51) * 2);
                 float fall = Mathf.Min(1, since / 0.35f), e = 1 - (1 - fall) * (1 - fall);
                 // тело ложится от ног: голова — туда, куда толкнул удар
                 var cm = Aff.At(dd.X, dd.Y).R(a + Mathf.PI / 2 + (H(seed, 52) - 0.5f) * 0.5f).S(1, 0.25f + 0.75f * e).T(0, -0.8f);
@@ -159,6 +161,8 @@ namespace Journal.Viewer
                 float pm = (float)info.PerMan, rd = (float)info.RankDepth;
                 int fd = 1; foreach (var fg in info.Figs) fd = Math.Max(fd, Mathf.RoundToInt((float)fg[1] / rd));
                 float h0 = a[2], dh = Mathf.DeltaAngle(a[2], b[2]);
+                // живые бойцы движка (Г75): у каждого своё место, курс и номер; комплект — по номеру
+                if (f0 < rec.Men.Count && DrawEngineMen(ui, rec.Men[f0][ui], rec.Men[Math.Min(f1, rec.Men.Count - 1)][ui], q, ks, col, fd, In, soft, shadow, ppm, t32)) continue;
                 for (int k = 0; 5 + 2 * k < a.Length; k++)
                 {
                     float fx = a[4 + 2 * k], fy = a[5 + 2 * k];
@@ -192,6 +196,7 @@ namespace Journal.Viewer
             // ── стрелы: упавшие — торчат, в полёте — дугой с тенью ──
             var px = men.Get("util/px");
             var shaft = new Color32(42, 31, 22, 255); var fletch = new Color32(232, 226, 210, 255); var shade = new Color32(20, 16, 10, 56);
+            float thin = Mathf.Max(1, 0.9f / ppm / 0.035f);   // древко не тоньше ~1 px: вдали иначе стрел не видно
             if (ppm >= 2.5f)
                 foreach (var ar in rec.Arrows)
                 {
@@ -201,22 +206,49 @@ namespace Journal.Viewer
                     float x = ar.X1, y = ar.Y1;
                     if (ar.End == 2) { int s = (int)(ar.T0 * 1000); x += (H(s, 1) - 0.5f) * 0.7f; y += (H(s, 2) - 0.5f) * 0.7f; ang += (H(s, 3) - 0.5f) * 2.5f; }
                     var m = Aff.At(x - Mathf.Cos(ang) * L / 2, y - Mathf.Sin(ang) * L / 2).R(ang + Mathf.PI / 2);
-                    deadTop.Quad(px, m.S(0.35f, L * 10), shaft, solid);
+                    deadTop.Quad(px, m.S(0.35f * thin, L * 10), shaft, solid);
                 }
             foreach (var ar in rec.Arrows)
             {
-                if (ar.T0 > t) break;
-                if (ar.T1 <= t) continue;
+                if (ar.T0 > t || ar.T1 <= t) continue;   // в живой записи стрелы идут не по порядку вылета
                 var (x, y, z, ang, pitch) = ArrowAt(ar, (float)t);
                 if (!In(x, y, 3)) continue;
                 float L = 0.8f * Mathf.Max(0.25f, Mathf.Cos(pitch)) * (1 + Mathf.Max(0, z) * 0.012f);
                 var m = Aff.At(x, y).R(ang + Mathf.PI / 2);
                 float sx = -0.6f * z * 0.55f, sy = 0.8f * z * 0.55f;
-                air.Quad(px, Aff.At(x + sx, y + sy).R(ang + Mathf.PI / 2).S(0.5f, L * 10), shade, solid);
-                air.Quad(px, m.S(0.45f, L * 10), shaft, solid);
+                air.Quad(px, Aff.At(x + sx, y + sy).R(ang + Mathf.PI / 2).S(0.5f * thin, L * 10), shade, solid);
+                air.Quad(px, m.S(0.45f * thin, L * 10), shaft, solid);
                 if (ppm >= 8) air.Quad(px, m.T(0, L * 0.38f).S(0.9f, 1.4f), fletch, solid);
             }
             decals.To(decalMesh); corpses.To(deadMesh); deadTop.To(deadTopMesh); horseB.To(horseMesh); menB.To(menMesh); air.To(airMesh);
+        }
+
+        bool DrawEngineMen(int ui, MenFrame m0, MenFrame m1, float q, Kit[] ks, Color32 col, int fd, Func<float, float, float, bool> In, Part soft, Color32 shadow, float ppm, float t)
+        {
+            var info = rec.Units[ui]; bool any = false;
+            int n = m0.Xyh.Length / 3;
+            for (int id = 1; id < n; id++)
+            {
+                float x = m0.Xyh[3 * id];
+                if (float.IsNaN(x)) continue;
+                any = true;
+                float y = m0.Xyh[3 * id + 1], h = m0.Xyh[3 * id + 2];
+                bool moving = false;
+                if (3 * id + 2 < m1.Xyh.Length && !float.IsNaN(m1.Xyh[3 * id]))
+                {
+                    float x1 = m1.Xyh[3 * id], y1 = m1.Xyh[3 * id + 1];
+                    moving = (x1 - x) * (x1 - x) + (y1 - y) * (y1 - y) > 0.0036f;   // быстрее 0,3 м/с
+                    x += (x1 - x) * q; y += (y1 - y) * q; h += Mathf.DeltaAngle(h, m1.Xyh[3 * id + 2]) * q;
+                }
+                if (!In(x, y, 6)) continue;
+                int fig = m0.Fig[id], rank = (fig < info.Figs.Count ? (int)info.Figs[fig][3] : 0) * fd + m0.Row[id];
+                int seed = info.Id * 7919 + id;
+                var kit = ks[(int)(H(seed, 4) * ks.Length)];
+                var m = Aff.At(x, y).R(h * Mathf.Deg2Rad);
+                if (moving) m = m.T(0, Mathf.Sin((t * 2f + H(seed, 5)) * 6.283f) * 0.04f);
+                DrawMan(kit, m, rank, moving, t, H(seed, 5), col, soft, shadow, ppm);
+            }
+            return any;
         }
 
         void DrawMan(Kit kit, Aff m, int rank, bool moving, float t, float ph, Color32 col, Part soft, Color32 shadow, float ppm)
