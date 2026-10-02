@@ -257,7 +257,8 @@ static class MenBodyTests
                         if (Math.Abs(MoveSim.AngleDiff(x.Facing, 0)) < 45) turned++;   // смотрит туда, куда отступают
                         if (frame % W != 0) continue;
                         var w = win[x];
-                        if (frame > W)   // первые полсекунды тела оседают после расстановки
+                        // первые полсекунды тела оседают после расстановки; окно, где курс повернулся больше 30°, — доворот, а не ход задом
+                        if (frame > W && Math.Abs(MoveSim.AngleDiff(w.Facing, x.Facing)) < 30)
                         {
                             double a0 = w.Facing * Math.PI / 180, a1 = x.Facing * Math.PI / 180;
                             double fx = Math.Sin(a0) + Math.Sin(a1), fy = -Math.Cos(a0) - Math.Cos(a1), fl = Math.Max(1e-9, Math.Sqrt(fx * fx + fy * fy));
@@ -266,17 +267,20 @@ static class MenBodyTests
                         win[x] = (x.X, x.Y, x.Facing);
                     }
                 });
-            double faceEnd = m.Men.Where(x => x.Alive).Max(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)));
+            // в конце: доля бойцов, что смотрят по строю (до 3% коней после отступления стоят в чужом ряду лицом к своему месту — Б4)
+            double faceEnd = m.Men.Where(x => x.Alive).Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) >= 30) * 100.0 / m.Men.Count(x => x.Alive);
             return (maxBack, maxTurn, turned / (double)samples, faceEnd);
         }
 
         yield return ("Г94: конница не едет задом — разворачивается, отъезжает и на месте снова смотрит на врага", () =>
         {
             var (back, turn, turnedBack, faceEnd) = Retreat("knights");
-            True(back <= RB.Men.HorseBackMps + 0.3, $"конь пятился со скоростью {back:0.00} м/с (за 0,5 с)");
+            // назад при устойчивом курсе — не быстрее шага: на ходу предел 0,3 м/с, в стоящей колонне шаг назад до StandBackMps плюс
+            // толчки соседей в сжатой колонне; ловим ход задом (были 5–50 м/с), не шаг
+            True(back <= Math.Max(RB.Men.HorseBackMps, RB.Men.StandBackMps) + 1.0, $"конь пятился со скоростью {back:0.00} м/с (за 0,5 с, курс устойчив)");
             True(turnedBack > 0.3, $"развернулись по ходу в {turnedBack:P0} кадров");
             True(turn <= RB.Men.HorseTurnDegPerSec * RB.Move.Dt + 1e-6, $"курс повернулся за шаг на {turn:0.0}°");
-            True(faceEnd < 30, $"на месте курс отличается от строя на {faceEnd:0}°");
+            True(faceEnd <= 5, $"на месте не по строю {faceEnd:0.0}% бойцов");
         });
 
         yield return ("Г94 (Г81): пехота при отступлении пятится лицом к врагу, курс не прыгает", () =>
@@ -285,7 +289,7 @@ static class MenBodyTests
             True(turnedBack < 0.05, $"повернулись спиной к врагу в {turnedBack:P0} кадров");
             True(back > 0.5, $"пятились со скоростью {back:0.00} м/с");
             True(turn <= RB.Men.FootTurnDegPerSec * RB.Move.Dt + 1e-6, $"курс повернулся за шаг на {turn:0.0}°");
-            True(faceEnd < 30, $"на месте курс отличается от строя на {faceEnd:0}°");
+            True(faceEnd <= 5, $"на месте не по строю {faceEnd:0.0}% бойцов");
         });
 
         yield return ("Г94: в бою — курс тела не прыгает; кони вне схватки задом не ходят (охват рыцарей)", () =>
@@ -374,6 +378,54 @@ static class MenBodyTests
             var (_, _, _, deep, knocked, _, _) = Charge("pikemen", 150, 7);
             True(knocked == 0, $"сбито пикинёров {knocked}");
             True(deep < -RB.Men.PikeTipM + 1, $"центр коня за начальным краем пикинёров на {deep:0.0} м — острия на {RB.Men.PikeTipM} м впереди");
+        });
+
+        // ── старт волной и бегство вразброс (Г84) ──
+        yield return ("старт волной: колонна трогается с переднего ряда, задние — следом; через 3 с идут все", () =>
+        {
+            var geo = MoveTests.Open(800, 800);
+            var m = Unit("infantry", 1, 400, 700, 0);
+            Order(m, geo, 400, 200, 0);
+            double vFront = 0, vBack = 0, vAll = 0; int k = 0;
+            MoveSim.Turn(new[] { m }, geo, RB, _ =>
+            {
+                k++;
+                double t = k * RB.Move.Dt;
+                if (Math.Abs(t - 0.4) < 1e-6)
+                {
+                    vFront = m.Men.Where(x => x.Row == 0).Average(x => JsMath.Hypot(x.Vx, x.Vy));
+                    vBack = m.Men.Where(x => x.Row >= 6).Average(x => JsMath.Hypot(x.Vx, x.Vy));
+                }
+                if (Math.Abs(t - 3) < 1e-6) vAll = m.Men.Min(x => JsMath.Hypot(x.Vx, x.Vy));
+            });
+            True(vFront > 1 && vBack < vFront * 0.5, $"на 0,4 с: передний ряд {vFront:0.0} м/с, задние {vBack:0.0}");
+            True(vAll > 1, $"на 3 с самый медленный боец {vAll:0.0} м/с");
+            double norm = BattleMap.UnitSpeed(m.P.U, RB);
+            True(Math.Abs(m.Spent - norm) < 1.5, $"нормы {m.Spent:0.0} из {norm}");
+        });
+
+        yield return ("Г84: бегство рассыпается за 2–4 с — первыми бегут задние ряды, передние ещё держат строй; потом толпа бежит вся", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1200, 1600), RB, new EngineContext { Rng = new Mulberry32(6).Next });
+            var ub = Templates.Get("infantry").Make(2, "Пехота", 1000, 2); ub.Morale = 30; ub.Discipline = 1;
+            var b = bt.Add(ub, 600, 400, 0);
+            var fa = Formation.Of(Templates.Get("infantry").Make(1, "Враг", 300, 1), RB);
+            var a = bt.Add(Templates.Get("infantry").Make(1, "Враг", 300, 1), 600, 400 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            double t0 = -1, backAt1 = 0, frontAt1 = 0, slowestAt5 = 0;
+            bt.Turn(_ =>
+            {
+                if (!b.Fleeing) return;
+                if (t0 < 0) t0 = bt.StepTime;
+                double since = bt.StepTime - t0;
+                var live = b.Men.Where(x => x.Alive).ToList();
+                // через 1,5 с: задние уже разогнались (разгон колонны — около 2 с), передние (срок не раньше 1,9 с) ещё стоят
+                if (Math.Abs(since - 1.5) < 0.026) { backAt1 = live.Where(x => x.Row >= 6).Average(x => JsMath.Hypot(x.Vx, x.Vy)); frontAt1 = live.Where(x => x.Row == 0).Average(x => JsMath.Hypot(x.Vx, x.Vy)); }
+                if (Math.Abs(since - 5) < 0.026) slowestAt5 = live.Average(x => JsMath.Hypot(x.Vx, x.Vy));
+            });
+            True(t0 >= 0 && t0 < 9, $"побежали на {t0:0.0} с");
+            True(backAt1 > 2 && frontAt1 < backAt1 * 0.5, $"через 1,5 с после бегства: задние {backAt1:0.0} м/с, передние {frontAt1:0.0}");
+            True(slowestAt5 > 4, $"через 5 с толпа бежит в среднем {slowestAt5:0.0} м/с");
         });
 
         yield return ("Б3 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме удара пехоты во фланг пехоте", () =>

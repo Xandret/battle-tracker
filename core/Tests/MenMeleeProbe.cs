@@ -395,6 +395,25 @@ static class MenTurnProbe
             }
             if (k % 40 == 0) Console.WriteLine($"  {k * RB.Move.Dt:0.0} с: рамка {m.P.X:0},{m.P.Y:0.0}, курс бойцов: по ходу (около 0°) {m.Men.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 0)) < 45)}, к врагу (около 180°) {m.Men.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) < 45)}");
         });
+        // второй ход: кто к концу не довернулся к строю (180°) и почему
+        int k2 = 0;
+        var stuck = m.Men.Where(x => x.Alive && Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) > 30).Take(2).ToList();
+        var trace = new List<string>();
+        bt.Turn(_ =>
+        {
+            k2++;
+            if (k2 <= 30) trace.Add(string.Join(" ", stuck.Select(x => $"{x.Facing:0}°/{JsMath.Hypot(x.Vx, x.Vy):0.0}")));
+            if (k2 == 30) Console.WriteLine("  курс/скорость двух застрявших по шагам (1,5 с): " + string.Join(" | ", trace));
+            if (k2 % 100 != 0 && k2 != 300) return;
+            var off = m.Men.Where(x => x.Alive && Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) > 30).ToList();
+            Console.WriteLine($"  ход 2, {k2 * RB.Move.Dt:0.0} с: не довернулись {off.Count} из {m.Men.Count(x => x.Alive)}; рамка {m.P.X:0.0},{m.P.Y:0.0} done {m.Done}");
+            foreach (var x in off.Take(4))
+            {
+                var h = Soldiers.HomeOf(m, x); var s = x.Fig;
+                var occ = m.Men.Where(o => o.Alive && o != x).OrderBy(o => JsMath.Hypot(o.X - h.x, o.Y - h.y)).First(); var oh = Soldiers.HomeOf(m, occ);
+                Console.WriteLine($"     боец {x.Id} ряд {x.Row} колонна {s.Id}: курс {x.Facing:0}, V {JsMath.Hypot(x.Vx, x.Vy):0.00}, до места {JsMath.Hypot(h.x - x.X, h.y - x.Y):0.0} м (место {h.x:0.0},{h.y:0.0}, сам {x.X:0.0},{x.Y:0.0}, якорь {s.AX:0.0},{s.AY:0.0}); у его места стоит боец {occ.Id} колонны {occ.Fig.Id} ряд {occ.Row} в {JsMath.Hypot(occ.X - h.x, occ.Y - h.y):0.0} м, тот от своего места в {JsMath.Hypot(oh.x - occ.X, oh.y - occ.Y):0.0} м");
+            }
+        });
     }
 }
 

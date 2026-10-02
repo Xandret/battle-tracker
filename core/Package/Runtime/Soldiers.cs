@@ -240,6 +240,56 @@ namespace BattleCore
             if (moved) m.MenVersion++;
         }
 
+        // Б3: колонна встала (не в схватке), а бойцы пришли вразнобой (старт волной, пробка у мест) и кто-то дальше SettleFarM от
+        // места: места колонны раздаются заново — каждому ближайшее свободное (ближние пары первыми), если общий путь до мест короче
+        // не меньше чем на SettleGainM. Никто не бежит через строй — каждый берёт место, у которого стоит. В ходу не трогаем: место
+        // держит (В14). Между колоннами не меняем: раздача по отряду ломала возврат из охвата и бегство — снос в чужой ряд остаётся (Б4)
+        internal static void Settle(Mover m, Rules r)
+        {
+            if (m.Fleeing) return;
+            bool any = false;
+            var mem = new List<Man>();
+            foreach (var s in m.Figs)
+            {
+                if (s.Moving || s.Fighting) continue;
+                mem.Clear();
+                foreach (var man in m.Men) if (man.Alive && man.Fig == s && !man.Reseat) mem.Add(man);
+                int n = mem.Count;
+                if (n < 2) continue;
+                var hx = new double[n]; var hy = new double[n]; var slot = new (double lx, double ly, int row)[n];
+                double was = 0, maxFar = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    slot[i] = (mem[i].Lx, mem[i].Ly, mem[i].Row);
+                    World(m, s, mem[i].Lx, mem[i].Ly, out hx[i], out hy[i]);
+                    double d = JsMath.Hypot(mem[i].X - hx[i], mem[i].Y - hy[i]); was += d; if (d > maxFar) maxFar = d;
+                }
+                if (maxFar < r.Men.SettleFarM) continue;
+                var take = new int[n]; var used = new bool[n];
+                for (int i = 0; i < n; i++) take[i] = -1;
+                double now = 0;
+                for (int step = 0; step < n; step++)
+                {
+                    int bi = -1, bj = -1; double bd = double.MaxValue;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (take[i] >= 0) continue;
+                        for (int j = 0; j < n; j++)
+                        {
+                            if (used[j]) continue;
+                            double d = JsMath.Hypot(mem[i].X - hx[j], mem[i].Y - hy[j]);
+                            if (d < bd) { bd = d; bi = i; bj = j; }
+                        }
+                    }
+                    take[bi] = bj; used[bj] = true; now += bd;
+                }
+                if (was - now < r.Men.SettleGainM) continue;
+                for (int i = 0; i < n; i++) { var sl = slot[take[i]]; mem[i].Lx = sl.lx; mem[i].Ly = sl.ly; mem[i].Row = sl.row; }
+                any = true;
+            }
+            if (any) m.MenVersion++;
+        }
+
         // Шаг бойцов: к своему месту с запаздыванием, выпады в схватке, толкотня со всеми. Фигурки не двигает.
         // Курс фигурки (синус, косинус) — один раз на фигурку за шаг; соседи для толкотни — сетка на массивах без выделений
         public static void Step(IList<Mover> ms, double dt, Rules r)
