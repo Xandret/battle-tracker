@@ -1206,11 +1206,12 @@
 
 .army-card {
     width: 132px;
-    height: 112px;
+    height: 128px;
     margin: 4px;
-    padding: 8px 6px 6px 6px;
+    padding: 5px 6px 6px 6px;
     background-color: #2b241a;
     border-width: 2px;
+    border-top-width: 5px;
     border-color: #4b3b22;
     border-radius: 4px;
 }
@@ -1224,17 +1225,11 @@
     border-color: var(--gold-bright);
 }
 
-.army-card-stripe {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 4px;
-}
-
 .army-card-icon {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
+    margin-bottom: 2px;
+    flex-shrink: 0;
     align-self: center;
     color: var(--ink);
 }
@@ -1245,6 +1240,8 @@
     -unity-text-align: middle-center;
     white-space: normal;
     height: 28px;
+    margin: 0;
+    flex-shrink: 0;
 }
 
 .army-card-men {
@@ -1252,12 +1249,15 @@
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     color: var(--gold-bright);
+    margin: 2px 0;
+    flex-shrink: 0;
 }
 
 .army-card-sub {
     font-size: 10px;
     -unity-text-align: middle-center;
     white-space: normal;
+    margin: 0;
     color: var(--ink-dim);
 }
 

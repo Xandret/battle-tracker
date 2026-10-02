@@ -85,7 +85,7 @@ namespace Journal.Armies
         public JArray Units => (JArray)Root["units"];
         public int Turn => (int?)Root["turn"] ?? 1;
         int NextId() { int id = (int)Root["nextId"]; Root["nextId"] = id + 1; return id; }
-        static int? Id(JToken t) => t == null || t.Type == JTokenType.Null ? (int?)null : (int)t;
+        public static int? Id(JToken t) => t == null || t.Type == JTokenType.Null ? (int?)null : (int)t;
         // число как в трекере: целое — без «.0»
         public static JToken Num(double v) => Math.Abs(v - Math.Round(v)) < 1e-9 && Math.Abs(v) < 1e15 ? (JToken)(long)Math.Round(v) : v;
 
@@ -221,11 +221,11 @@ namespace Journal.Armies
         }
 
         // Облик по умолчанию (В16): стиль — угаданный по имени, иначе как у прошлого отряда фракции, иначе Западный
-        public string DefaultStyle(int? factionId, string name)
+        public string DefaultStyle(int? factionId, string name, JObject except = null)
         {
             var g = Styles.Guess(name);
             if (g != null) return g;
-            var last = UnitsOf(factionId).LastOrDefault(u => Styles.Known((string)u["style"]));
+            var last = UnitsOf(factionId).LastOrDefault(u => u != except && Styles.Known((string)u["style"]));
             return (string)last?["style"] ?? Styles.Default;
         }
         // облик отряда, у которого полей нет (старые сохранения): угадать, не записывая

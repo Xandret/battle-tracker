@@ -29,6 +29,7 @@ namespace Journal.Play
         JObject unit, cmdr;                           // что открыто справа
         bool unitChanged;
         readonly List<JObject> fresh = new List<JObject>();   // созданы в этом окне — в журнал, когда уже названы
+        readonly HashSet<JObject> stylePicked = new HashSet<JObject>(), kitPicked = new HashSet<JObject>();   // облик выбран руками — не угадывать
         string pendingConfirm; float confirmUntil;    // «нажми ещё раз» для опасных действий
 
         readonly Label fileLabel, status, unitsTitle;
@@ -228,7 +229,7 @@ namespace Journal.Play
             foreach (var u in file.UnitsOf(factionId))
             {
                 var card = Div("army-card", cards);
-                var stripe = Div("army-card-stripe", card); stripe.style.backgroundColor = Hex((string)file.Faction(factionId)?["color"] ?? "#6e6a62");
+                card.style.borderTopColor = Hex((string)file.Faction(factionId)?["color"] ?? "#6e6a62");   // кромка — цвет фракции
                 string kit = ArmyFile.KitOf(u), style = ArmyFile.StyleOf(u);
                 var ic = new Icon(Icon.OfType(KitSets.TplOf(kit), (string)u["type"])); ic.AddToClassList("army-card-icon"); card.Add(ic);
                 Lbl(card, (string)u["name"], "army-card-name");
@@ -254,7 +255,7 @@ namespace Journal.Play
         void UnitForm(JObject u)
         {
             Lbl(form, "Отряд", "army-h");
-            Text("Имя", (string)u["name"], v => { u["name"] = v; Changed(); });
+            Text("Имя", (string)u["name"], v => { u["name"] = v; if (fresh.Contains(u)) Reguess(u); Changed(); });
             var tpls = new List<string> { "— шаблон: заполнить числа —" }; tpls.AddRange(Templates.Base.Select(t => t.Name));
             var tdd = new DropdownField("Шаблон", tpls, 0);
             tdd.RegisterValueChangedCallback(e =>
@@ -263,15 +264,15 @@ namespace Journal.Play
                 u["type"] = t.Type; u["weapon"] = t.Weapon;
                 u["discipline"] = ArmyFile.Num(t.Discipline); u["morale"] = ArmyFile.Num(t.Morale); u["eqAtk"] = ArmyFile.Num(t.EqAtk); u["eqDef"] = ArmyFile.Num(t.EqDef);
                 u["exp"] = ArmyFile.Num(t.Exp); u["mastery"] = ArmyFile.Num(t.Mastery);
-                if (Kits.LookByTpl.TryGetValue(t.Id, out var look)) u["kit"] = look;
+                if (Kits.LookByTpl.TryGetValue(t.Id, out var look)) { u["kit"] = look; kitPicked.Add(u); }
                 Changed(); Say($"Числа и снаряжение — по шаблону «{t.Name}»");
             });
             form.Add(tdd);
             Choice("Род войск", Types, (string)u["type"], v => { u["type"] = v; Changed(); });
             Choice("Оружие", Weapons, (string)u["weapon"], v => { u["weapon"] = v; Changed(); });
             Lbl(form, "Облик", "army-h2");
-            Choice("Снаряжение", KitSets.All.Select(k => (k.Id, k.Name)).ToArray(), ArmyFile.KitOf(u), v => { u["kit"] = v; Changed(); });
-            Choice("Стиль", Styles.All.Select(s => (s.Id, s.Name)).ToArray(), ArmyFile.StyleOf(u), v => { u["style"] = v; Changed(); });
+            Choice("Снаряжение", KitSets.All.Select(k => (k.Id, k.Name)).ToArray(), ArmyFile.KitOf(u), v => { u["kit"] = v; kitPicked.Add(u); Changed(); });
+            Choice("Стиль", Styles.All.Select(s => (s.Id, s.Name)).ToArray(), ArmyFile.StyleOf(u), v => { u["style"] = v; stylePicked.Add(u); Changed(); });
             Lbl(form, Styles.All.First(s => s.Id == ArmyFile.StyleOf(u)).Note, "army-note");
             if (u["style"] == null || u["kit"] == null) Lbl(form, "В файле облика нет — показан угаданный по имени; выбери, чтобы записать", "army-note warn");
             Lbl(form, "Числа", "army-h2");
@@ -341,6 +342,16 @@ namespace Journal.Play
             form.Add(d);
         }
         void Changed() { unitChanged = true; file.Dirty = true; Rebuild(); }
+        // новый отряд назвали — облик угадываем заново уже по настоящему имени (при создании имя временное), пока его не
+        // выбрали руками (В16)
+        void Reguess(JObject u)
+        {
+            string style = (string)u["style"], kit = (string)u["kit"];
+            if (!stylePicked.Contains(u)) u["style"] = file.DefaultStyle(ArmyFile.Id(u["factionId"]), (string)u["name"], except: u);
+            if (!kitPicked.Contains(u)) u["kit"] = KitSets.Guess((string)u["name"], (string)u["type"], (string)u["weapon"]);
+            if ((string)u["style"] != style || (string)u["kit"] != kit)
+                Say($"Облик угадан по имени: {KitSets.NameOf((string)u["kit"])} · {Styles.NameOf((string)u["style"])} — можно сменить справа");
+        }
         // журнал: созданное — «основана», «принял командование», «встал в строй» уже с настоящим именем; правка отряда —
         // одной записью «изменён», когда уходим с него (как в трекере)
         void FlushUnitLog()
