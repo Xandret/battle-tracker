@@ -3,7 +3,8 @@ using System.Diagnostics;
 using BattleCore;
 using Journal.Viewer;
 
-if (args.Length == 0) { Console.WriteLine("dotnet run -c Release -- <сохранение armiya_hodN.txt> [ходов=2] [ширина карты, м]"); return; }
+if (args.Length == 0) { Console.WriteLine("dotnet run -c Release -- <сохранение armiya_hodN.txt> [ходов=2] [ширина карты, м]\ndotnet run -c Release -- looks — сверка облика отряда с трекером"); return; }
+if (args[0] == "looks") Environment.Exit(Looks.Check());
 string path = args[0];
 int turns = args.Length > 1 ? int.Parse(args[1]) : 2;
 double width = args.Length > 2 ? double.Parse(args[2]) : 0;

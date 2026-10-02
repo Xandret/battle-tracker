@@ -242,13 +242,12 @@ namespace Journal.Armies
             foreach (var k in BattleCore.Templates.Stats) u[k] = Num(t[k]);
         }
 
-        // Облик по умолчанию (В16): стиль — угаданный по имени, иначе как у прошлого отряда фракции, иначе Западный
+        // Стиль нового отряда (В16, решение Алекса): как у прошлого отряда фракции; у первого — угаданный по имени, иначе
+        // Западный. Сам отряд не в счёт. Так же — looks.js трекера (сверка: shared/golden/looks.json)
         public string DefaultStyle(int? factionId, string name, JObject except = null)
         {
-            var g = Styles.Guess(name);
-            if (g != null) return g;
             var last = UnitsOf(factionId).LastOrDefault(u => u != except && Styles.Known((string)u["style"]));
-            return (string)last?["style"] ?? Styles.Default;
+            return (string)last?["style"] ?? Styles.Guess(name) ?? Styles.Default;
         }
         // облик отряда, у которого полей нет (старые сохранения): угадать, не записывая
         public static string StyleOf(JObject u) => Styles.Known((string)u["style"]) ? (string)u["style"] : Styles.Guess((string)u["name"]) ?? Styles.Default;
