@@ -4,7 +4,8 @@
 // место с запаздыванием ~Tau (Г76), со своим пределом скорости и разгона; расталкивается с любым бойцом рядом — своим
 // и чужим (Г77), но фигурки этим не двигает. В схватке передняя шеренга касающихся фигурок делает шаг к врагу и
 // бьётся выпадами (Г78). Стрела бьёт в бойца там, где он стоит (Man.Body, Г33); в рукопашной падают те, кто у врага;
-// при раскладке (Г30) задние выходят на места павших — сперва внутри своей фигурки, лишние — к ближайшим пустым местам.
+// при раскладке (Г30, В14) на место павшего выходит стоящий за ним; между фигурками строй смыкается понемногу — по одному
+// бойцу в секунду к соседке; на новое место идут шагом, далёкое — догоняют трусцой, без мгновенных переносов.
 // Случайность только хешем от номеров — генератор боя не трогаем.
 using System;
 using System.Collections.Generic;
@@ -22,6 +23,7 @@ namespace BattleCore
         public bool Alive = true;
         public double Hu;            // своя доля 0…1 (хеш номера): фаза выпадов и виляния
         public Body Body;            // мишень для стрел (Г33) — та же точка
+        public bool Reseat;          // В14: идёт на новое место (дальше ReseatM) — шагом, без подтягивания
     }
 
     public static class Soldiers
@@ -73,13 +75,14 @@ namespace BattleCore
             man.Fig = s; man.Row = sl.row;
             man.Lx = sl.ox + (MoveSim.Hash01(m.P.U.Id, man.Id, 11) - 0.5) * M.Jitter * f.PerMan;
             man.Ly = sl.oy + (MoveSim.Hash01(m.P.U.Id, man.Id, 12) - 0.5) * M.Jitter * f.RankDepth;
+            World(m, s, man.Lx, man.Ly, out var hx, out var hy);
+            if (JsMath.Hypot(hx - man.X, hy - man.Y) > M.ReseatM) man.Reseat = true;
         }
 
-        // Разложить бойцов по фигуркам. spawn — новый отряд: бойцы встают ровно на места. Иначе (после потерь, Г30):
-        // в каждой фигурке должно быть столько бойцов, сколько велит раскладка; бойцы остаются в своей фигурке, а
-        // нехватку закрывают по цепочке соседних фигурок: из соседней в нехватку, из её соседки — в соседнюю… — каждый
-        // сдвигается на одну фигурку, а не бежит через весь строй; так задние и выходят на места павших. Бойцы
-        // исчезнувших фигурок сперва приписаны к ближайшей. Внутри фигурки — места спереди назад ближайшим
+        // Разложить бойцов по фигуркам. spawn — новый отряд: бойцы встают ровно на места. Иначе (после потерь, Г30, В14):
+        // бойцы остаются в своей фигурке; бойцы исчезнувших фигурок — к ближайшей. Внутри фигурки места спереди назад —
+        // ближайшим: на место павшего шагает стоящий за ним, дыра уходит в задний ряд. Между фигурками после потерь
+        // никто не бегает — строй смыкается постепенно (Balance в Step: по одному бойцу в секунду, к соседке)
         public static void Assign(Mover m, Rules r, bool spawn = false)
         {
             var P = m.P;
@@ -93,6 +96,7 @@ namespace BattleCore
                         man.Hu = MoveSim.Hash01(m.P.U.Id, man.Id, 13);
                         Seat(m, man, m.Figs[k], sl, r);
                         World(m, m.Figs[k], man.Lx, man.Ly, out man.X, out man.Y);
+                        man.Reseat = false;
                         man.Facing = FigHeading(m, m.Figs[k]);
                         m.Men.Add(man);
                     }
@@ -113,65 +117,111 @@ namespace BattleCore
                 for (int q = 0; q < nk; q++) { double d = (m.Figs[q].X - man.X) * (m.Figs[q].X - man.X) + (m.Figs[q].Y - man.Y) * (m.Figs[q].Y - man.Y); if (d < bd) { bd = d; best = q; } }
                 members[best].Add(man);
             }
-            var want = Enumerable.Range(0, nk).Select(k => (int)Math.Round(P.Figs[k].Men)).ToArray();
-            // соседи — фигурки ближе полутора своих размеров (по месту на поле: в охвате колонна соседствует с колонной)
-            var nbr = Enumerable.Range(0, nk).Select(_ => new List<int>()).ToList();
-            for (int a = 0; a < nk; a++)
-                for (int b = a + 1; b < nk; b++)
-                {
-                    double lim = 1.6 * Math.Max(Math.Max(P.Figs[a].Width, P.Figs[a].Depth), Math.Max(P.Figs[b].Width, P.Figs[b].Depth));
-                    if (JsMath.Hypot(m.Figs[a].X - m.Figs[b].X, m.Figs[a].Y - m.Figs[b].Y) <= lim) { nbr[a].Add(b); nbr[b].Add(a); }
-                }
-            Man Nearest(List<Man> from, FigState to) => from.OrderBy(x => (x.X - to.X) * (x.X - to.X) + (x.Y - to.Y) * (x.Y - to.Y)).ThenBy(x => x.Id).First();
-            // нехватка — спереди назад: по цепочке от ближайшей (по соседству) фигурки с лишними
-            foreach (int d in Enumerable.Range(0, nk).OrderBy(k => P.Figs[k].Rank).ThenBy(k => P.Figs[k].Y).ThenBy(k => P.Figs[k].X))
+            for (int k = 0; k < nk; k++) SeatFigure(m, k, members[k], r);
+            m.MenVersion++;
+        }
+
+        // Места внутри фигурки (В14): каждый держит своё место. Ряды — спереди назад: в ряду остаются его бойцы, на пустое
+        // место выходит ближайший по фронту из ряда позади (дальше — из следующих рядов, последними — пришедшие из других
+        // фигурок); в ряду бойцы встают по порядку слева направо, никто никого не обходит. Неполный задний ряд — по
+        // середине: при потере его бойцы сдвигаются на полшага
+        static void SeatFigure(Mover m, int k, List<Man> members, Rules r)
+        {
+            var s = m.Figs[k];
+            long seatKey = members.Count;
+            foreach (var man in members) seatKey = seatKey * 1000003 + man.Id * 7 + (man.Fig == s ? 1 : 0);
+            seatKey = seatKey * 31 + (long)Math.Round(m.P.Figs[k].Width * 100) * 7919 + (long)Math.Round(m.P.Figs[k].Depth * 100);
+            if (seatKey == s.SeatKey && members.All(x => x.Fig == s)) return;   // состав и размер те же — места те же
+            s.SeatKey = seatKey;
+            double h = FigHeading(m, s) * Math.PI / 180, c = Math.Cos(h), sn = Math.Sin(h);
+            // где боец сейчас в осях фигурки: свой — по своему месту, пришлый — по тому, где стоит; пришлые — за всеми рядами
+            var buckets = new SortedDictionary<int, List<(Man man, double lx)>>();
+            foreach (var man in members)
             {
-                while (members[d].Count < want[d])
+                int row; double lx;
+                if (man.Fig == s) { row = man.Row; lx = man.Lx; }
+                else { double dx = man.X - s.X, dy = man.Y - s.Y; row = int.MaxValue; lx = dx * c + dy * sn; }
+                if (!buckets.TryGetValue(row, out var b)) buckets[row] = b = new List<(Man, double)>();
+                b.Add((man, lx));
+            }
+            var rows = SlotsOf(m, k, r, members.Count).GroupBy(q => q.row).OrderBy(g => g.Key).Select(g => g.OrderBy(q => q.ox).ToList()).ToList();
+            var carry = new List<(Man man, double lx)>();
+            for (int j = 0; j < rows.Count; j++)
+            {
+                var slots = rows[j];
+                var pool = new List<(Man man, double lx)>(carry); carry.Clear();
+                if (buckets.TryGetValue(j, out var own)) { pool.AddRange(own); buckets.Remove(j); }
+                if (pool.Count < slots.Count)
                 {
-                    var prev = new int[nk]; for (int q = 0; q < nk; q++) prev[q] = -2;
-                    prev[d] = -1; var queue = new Queue<int>(); queue.Enqueue(d); int src = -1;
-                    while (queue.Count > 0 && src < 0)
+                    // пустые места: каждый из ряда занимает ближайшее к себе свободное
+                    var taken = new bool[slots.Count];
+                    foreach (var p in pool.OrderBy(p => p.lx))
                     {
-                        int u = queue.Dequeue();
-                        foreach (int v in nbr[u].OrderBy(v => JsMath.Hypot(m.Figs[v].X - m.Figs[u].X, m.Figs[v].Y - m.Figs[u].Y)))
+                        int bi = -1; double bd = double.MaxValue;
+                        for (int q = 0; q < slots.Count; q++) if (!taken[q] && Math.Abs(slots[q].ox - p.lx) < bd) { bd = Math.Abs(slots[q].ox - p.lx); bi = q; }
+                        if (bi >= 0) taken[bi] = true;
+                    }
+                    // на пустые — ближайший по фронту из ближайшего ряда позади
+                    for (int q = 0; q < slots.Count && pool.Count < slots.Count; q++)
+                    {
+                        if (taken[q]) continue;
+                        foreach (var key in buckets.Keys.ToList())
                         {
-                            if (prev[v] != -2) continue;
-                            prev[v] = u;
-                            if (members[v].Count > want[v]) { src = v; break; }
-                            queue.Enqueue(v);
+                            var b = buckets[key]; if (b.Count == 0) continue;
+                            int bi = 0; double bd = double.MaxValue;
+                            for (int i = 0; i < b.Count; i++) { double d = Math.Abs(b[i].lx - slots[q].ox); if (d < bd) { bd = d; bi = i; } }
+                            pool.Add((b[bi].man, slots[q].ox)); b.RemoveAt(bi);
+                            if (b.Count == 0) buckets.Remove(key);
+                            taken[q] = true;
+                            break;
                         }
                     }
-                    if (src < 0)
-                    {
-                        // по соседству лишних нет — ближайшая фигурка с лишними напрямую
-                        int best = -1; double bd = double.MaxValue;
-                        for (int q = 0; q < nk; q++)
-                            if (members[q].Count > want[q]) { double dd = JsMath.Hypot(m.Figs[q].X - m.Figs[d].X, m.Figs[q].Y - m.Figs[d].Y); if (dd < bd) { bd = dd; best = q; } }
-                        if (best < 0) break;   // лишних нет нигде — фигурка неполная
-                        var man0 = Nearest(members[best], m.Figs[d]); members[best].Remove(man0); members[d].Add(man0);
-                        continue;
-                    }
-                    // сдвиг по цепочке: каждая фигурка на пути отдаёт ближайшего к следующей
-                    for (int v = src; prev[v] != -1; v = prev[v])
-                    {
-                        int to = prev[v];
-                        var man1 = Nearest(members[v], m.Figs[to]); members[v].Remove(man1); members[to].Add(man1);
-                    }
                 }
-            }
-            // по местам внутри фигурки: спереди назад — ближайшему
-            for (int k = 0; k < nk; k++)
-            {
-                var s = m.Figs[k]; var mine = members[k];
-                foreach (var sl in SlotsOf(m, k, r, mine.Count).OrderBy(q => q.oy).ThenBy(q => q.ox))
+                if (pool.Count > slots.Count)
                 {
-                    World(m, s, sl.ox, sl.oy, out var wx, out var wy);
-                    int best = 0; double bd = double.MaxValue;
-                    for (int q = 0; q < mine.Count; q++) { double dd = (mine[q].X - wx) * (mine[q].X - wx) + (mine[q].Y - wy) * (mine[q].Y - wy); if (dd < bd) { bd = dd; best = q; } }
-                    Seat(m, mine[best], s, sl, r); mine.RemoveAt(best);
+                    // ряд стал короче — лишние (пришлые и самые задние, потом крайние) уходят в ряд позади
+                    var keep = pool.OrderBy(p => p.man.Fig == s ? 0 : 1).ThenBy(p => p.man.Fig == s ? p.man.Row : 0)
+                        .ThenBy(p => Math.Abs(p.lx)).Take(slots.Count).ToList();
+                    foreach (var p in pool) if (!keep.Contains(p)) carry.Add(p);
+                    pool = keep;
                 }
+                pool = pool.OrderBy(p => p.lx).ThenBy(p => p.man.Id).ToList();
+                for (int i = 0; i < pool.Count && i < slots.Count; i++) Seat(m, pool[i].man, s, slots[i], r);
             }
-            m.MenVersion++;
+        }
+
+        // В14: смыкание между фигурками. Излишек фигурки — бойцов в ней сверх раскладки стола (Г30: фронт сужается с краёв,
+        // и раскладка велит, где сколько). Фигурка, у которой излишек меньше, чем у соседки (ближе полутора размеров),
+        // на BalanceDiff и больше, берёт у неё одного бойца — ближнего к себе; за раз — не больше одного на фигурку.
+        // Так строй смыкается от краёв понемногу, каждый идёт только к соседней фигурке, а одна потеря строй не дёргает
+        static void Balance(Mover m, Rules r)
+        {
+            var P = m.P; int nk = m.Figs.Count;
+            if (nk < 2 || m.Fleeing) return;   // бегущая толпа строя не держит
+            var idx = new Dictionary<FigState, int>();
+            for (int k = 0; k < nk; k++) idx[m.Figs[k]] = k;
+            var members = Enumerable.Range(0, nk).Select(_ => new List<Man>()).ToList();
+            foreach (var man in m.Men) if (man.Alive && man.Fig != null && idx.TryGetValue(man.Fig, out int k)) members[k].Add(man);
+            int Surplus(int k) => members[k].Count - (int)Math.Round(P.Figs[k].Men);
+            bool moved = false;
+            foreach (int d in Enumerable.Range(0, nk).OrderBy(k => P.Figs[k].Rank).ThenBy(k => P.Figs[k].Y).ThenBy(k => P.Figs[k].X))
+            {
+                int best = -1; double bd = double.MaxValue;
+                for (int q = 0; q < nk; q++)
+                {
+                    if (q == d || members[q].Count == 0 || Surplus(q) - Surplus(d) < r.Men.BalanceDiff) continue;
+                    double lim = 1.6 * Math.Max(Math.Max(P.Figs[q].Width, P.Figs[q].Depth), Math.Max(P.Figs[d].Width, P.Figs[d].Depth));
+                    double dist = JsMath.Hypot(m.Figs[q].X - m.Figs[d].X, m.Figs[q].Y - m.Figs[d].Y);
+                    if (dist <= lim && dist < bd) { bd = dist; best = q; }
+                }
+                if (best < 0) continue;
+                var to = m.Figs[d];
+                var man0 = members[best].OrderBy(x => (x.X - to.X) * (x.X - to.X) + (x.Y - to.Y) * (x.Y - to.Y)).ThenBy(x => x.Id).First();
+                members[best].Remove(man0); members[d].Add(man0);
+                SeatFigure(m, best, members[best], r); SeatFigure(m, d, members[d], r);
+                moved = true;
+            }
+            if (moved) m.MenVersion++;
         }
 
         // Шаг бойцов: к своему месту с запаздыванием, выпады в схватке, толкотня со всеми. Фигурки не двигает.
@@ -182,6 +232,8 @@ namespace BattleCore
             foreach (var m in ms)
             {
                 if (m.Men.Count == 0) continue;
+                int every = Math.Max(1, (int)Math.Round(M.BalanceSec / dt));
+                if (m.Steps % every == 0) Balance(m, r);
                 foreach (var s in m.Figs) { double h = FigHeading(m, s) * Math.PI / 180; s.Hc = Math.Cos(h); s.Hs = Math.Sin(h); s.Hd = FigHeading(m, s); }
                 double amax = M.AccelK * MoveSim.FigAccel(m, r) * dt, time = m.Steps * dt;
                 var F = m.Field;
@@ -204,7 +256,21 @@ namespace BattleCore
                         double lunge = M.LungeM + M.LungeAmpM * Math.Sin(time * 2 * Math.PI / M.LungeSec + hu * 6.283);
                         hx += s.FightX * lunge; hy += s.FightY * lunge;
                     }
-                    double vx = s.Vx + (hx - man.X) / M.Tau, vy = s.Vy + (hy - man.Y) / M.Tau;
+                    double cx = (hx - man.X) / M.Tau, cy = (hy - man.Y) / M.Tau;
+                    // В14: место далеко (дальше ReseatRunM) — никогда не подтягивается, а догоняет; новое место (Reseat) —
+                    // идёт шагом сверх хода фигурки, далёкое — трусцой; в бегущей толпе — трусцой
+                    double far = JsMath.Hypot(hx - man.X, hy - man.Y);
+                    if (far > M.ReseatRunM) man.Reseat = true;
+                    if (man.Reseat)
+                    {
+                        if (far < M.ReseatM / 2) man.Reseat = false;
+                        else
+                        {
+                            double lim = m.Fleeing || far > M.ReseatRunM ? M.ReseatRunMps : M.ReseatMps, c = Math.Sqrt(cx * cx + cy * cy);
+                            if (c > lim) { cx *= lim / c; cy *= lim / c; }
+                        }
+                    }
+                    double vx = s.Vx + cx, vy = s.Vy + cy;
                     double vmax = Math.Max(s.Vmax, M.WalkMin) * M.SpeedK, v2 = vx * vx + vy * vy;
                     if (v2 > vmax * vmax) { double k = vmax / Math.Sqrt(v2); vx *= k; vy *= k; }
                     double ax = vx - man.Vx, ay = vy - man.Vy, a2 = ax * ax + ay * ay;
@@ -212,7 +278,7 @@ namespace BattleCore
                     man.Vx += ax; man.Vy += ay;
                     double nx = man.X + man.Vx * dt, ny = man.Y + man.Vy * dt;
                     double ex = nx - hx, ey = ny - hy, e2 = ex * ex + ey * ey;
-                    if (e2 > M.MaxLagM * M.MaxLagM) { double k = M.MaxLagM / Math.Sqrt(e2); nx = hx + ex * k; ny = hy + ey * k; }   // не отрывается от места
+                    if (!man.Reseat && e2 > M.MaxLagM * M.MaxLagM) { double k = M.MaxLagM / Math.Sqrt(e2); nx = hx + ex * k; ny = hy + ey * k; }   // не отрывается от места
                     if (F == null || MoveSim.Free(F, nx, ny) || !MoveSim.Free(F, man.X, man.Y)) { man.X = nx; man.Y = ny; }
                     else { man.Vx = 0; man.Vy = 0; }
                     man.Facing = m.Fleeing && man.Vx * man.Vx + man.Vy * man.Vy > 0.25 ? MoveSim.HeadingOf(man.Vx, man.Vy) : s.Hd;
