@@ -19,6 +19,7 @@ namespace Journal.Viewer
         public Action<int> Before;                               // перед ходом i (с нуля): приказы между ходами
         public byte[] Image;                                     // картинка карты вместо земли по клеткам (сохранение трекера)
         public readonly Dictionary<Mover, string> Color = new Dictionary<Mover, string>();   // цвет отряда (#rrggbb); нет — оттенок стороны
+        public readonly Dictionary<Mover, string> Style = new Dictionary<Mover, string>();   // стиль облика (В16); нет — западный
         public readonly Dictionary<int, string> SideNames = new Dictionary<int, string>();   // сторона → имя (сохранение — фракции через запятую)
 
         static Rules R => Rules.Base;
@@ -30,12 +31,13 @@ namespace Journal.Viewer
         public static Geo Of(TerrainMap m) => new Geo { Map = m, W = Terrain.WidthM(m), H = Terrain.HeightM(m) };
 
         // движение без боя: отряд с приказом «иди туда, встань так»
-        public void Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf, int faction = 1, double men = 1000)
+        public Mover Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf, int faction = 1, double men = 1000)
         {
             var t = Templates.Get(tpl);
             var m = Mover.Place(t.Make(id, name, men, faction), x, y, facing, R);
             Units.Add((m, new MoveOrder { X = tx, Y = ty, Facing = tf }));
             Tpl[m] = tpl;
+            return m;
         }
         // бой: отряды живут в Battle
         public Mover Fighter(string tpl, int id, string name, double x, double y, double facing, int faction = 1, double men = 1000)
@@ -55,7 +57,7 @@ namespace Journal.Viewer
     public static class ViewerScenes
     {
         static Rules R => Rules.Base;
-        static Battle NewBattle(Geo geo, uint seed) => new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next });
+        static Battle NewBattle(Geo geo, uint seed, Rules r = null) => new Battle(geo, r ?? R, new EngineContext { Rng = new Mulberry32(seed).Next });
 
         // Имена — для списка в смотрелке; сцена строится заново при каждом выборе (в фоне, не в кадре)
         public static readonly (string Name, Func<SceneDef> Make)[] All = Builtin()
@@ -70,7 +72,9 @@ namespace Journal.Viewer
             ("Бой: сплотить", Rally),
             ("Река: брод и мост", River),
             ("Рода войск", Parade),
-            ("Облик: анимации", Anim),
+            ("Облик: анимации", () => Anim()),
+            ("Бойцы: рукопашная (Б2)", () => Anim(true)),
+            ("Облик: стили", StylesShow),
         };
 
         static SceneDef Shoot()
@@ -188,12 +192,18 @@ namespace Journal.Viewer
             return sc;
         }
         // Облик (В13): анимации пачки 1 — как сцена «Облик: анимации» полигона (core/Tests/Polygon.cs)
-        static SceneDef Anim()
+        // menBodies — те же отряды при рукопашной по бойцам (Б2, переключатель MenBodies, черновик чата механики): у каждого бойца
+        // свой противник, удар в своём ритме, падает тот, кого ударили, — смотрелка играет удары и щит по движку
+        static SceneDef Anim(bool menBodies = false)
         {
-            var sc = new SceneDef { Name = "Облик: анимации", Turns = 3, Geo = SceneDef.Open(1300, 800),
-                Note = "В13. Пикинёры опускают пики в 30 м от врага; арбалетчики взводят через стремя; пехота рубит ополчение — " +
+            var sc = new SceneDef { Name = menBodies ? "Бойцы: рукопашная (Б2)" : "Облик: анимации", Turns = 3, Geo = SceneDef.Open(1300, 800),
+                Note = menBodies ? "Б2. Рукопашная по бойцам: каждый бьётся со своим противником — удар в миг удара в движке, ударенный падает тогда же; " +
+                       "не попал в потери — принял на щит и отшатнулся." :
+                       "В13. Пикинёры опускают пики в 30 м от врага; арбалетчики взводят через стремя; пехота рубит ополчение — " +
                        "удары сбоку и сверху, щит навстречу, вспышки; рыцари шагом и рысью выходят на 40 м и встают; раненые ползут." };
-            sc.Battle = NewBattle(sc.Geo, 13);
+            Rules r = null;
+            if (menBodies) { r = new Rules(); r.Move.MenBodies = true; }
+            sc.Battle = NewBattle(sc.Geo, 13, r);
             sc.Fighter("infantry", 2, "Враг: пехота", 190, 420, 0, faction: 2, men: 400);
             var pk = sc.Fighter("pikemen", 1, "Пикинёры", 190, 420 - 170, 180, men: 400);
             sc.Fighter("infantry", 4, "Враг: пехота Б", 520, 420, 0, faction: 2, men: 400);
@@ -205,6 +215,23 @@ namespace Journal.Viewer
             sc.Order(xb, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
             sc.Order(inf, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
             sc.Order(kn, new MoveOrder { X = 1150, Y = 600, Facing = 0 });
+            return sc;
+        }
+
+        // облик по стилям (В16, В18): строки — стили, столбцы — наборы; отряды по 12 человек, тесно, шагают на юг 6 м —
+        // при ~18 px/м весь ряд стиля в кадре
+        static SceneDef StylesShow()
+        {
+            var sc = new SceneDef { Name = "Облик: стили", Turns = 2, Geo = SceneDef.Open(200, 160),
+                Note = "В16, В18. Строки — стили: западный, северный, восточный, южный, дальневосточный; столбцы — ополчение, пехота, гвардия, пикинёры, лучники, рыцари." };
+            string[] styles = { "west", "north", "east", "south", "fareast" }, tpls = { "militia", "infantry", "guard", "pikemen", "archers", "knights" };
+            for (int r = 0; r < styles.Length; r++)
+                for (int k = 0; k < tpls.Length; k++)
+                {
+                    double x = 40 + k * 13, y = 40 + r * 16;
+                    var m = sc.Add(tpls[k], r * 10 + k + 1, tpls[k], x, y, 180, x, y + 6, 180, faction: r % 2 + 1, men: 12);
+                    sc.Style[m] = styles[r];
+                }
             return sc;
         }
 

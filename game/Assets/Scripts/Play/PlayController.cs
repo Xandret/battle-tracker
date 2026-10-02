@@ -38,6 +38,10 @@ namespace Journal.Play
         public double ComputedTime => recorder == null ? 0 : (recorder.Rec.Frames.Count - 1) * recorder.Rec.Dt;
         public string Toast { get; private set; } = ""; public float ToastUntil;
         public event Action Changed;                         // приказ, выбор, фаза — панели перерисоваться
+        // сводки ходов (TurnSummary): снимок на «Ход!», итог — когда показ хода кончился; последняя — в панели справа
+        public readonly List<TurnSummary> Summaries = new List<TurnSummary>();
+        public TurnSummary LastSummary => Summaries.Count > 0 ? Summaries[Summaries.Count - 1] : null;
+        TurnSummary current;
 
         BattleViewer viewer;
         Recorder recorder;
@@ -77,10 +81,11 @@ namespace Journal.Play
             if (make != null) lastMake = make;
             Game = lastMake();
             recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
-                                    m => Game.Color.TryGetValue(m, out var c) ? c : null);
+                                    m => Game.Color.TryGetValue(m, out var c) ? c : null, m => Game.Style.TryGetValue(m, out var st) ? st : null);
             recorder.Rec.Image = Game.Image;
             recorder.Snap();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false;
+            Summaries.Clear(); current = null;
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
             if (viewer != null) { viewer.ShowGui = false; viewer.SetLive(recorder.Rec); viewer.Playing = false; }
@@ -93,6 +98,7 @@ namespace Journal.Play
         {
             if (Phase != PlayPhase.Orders) return;
             CancelDrag();
+            current = TurnSummary.Begin(Battle, Session.Turn);
             Session.Go();
             Phase = PlayPhase.Showing; Paused = false;
             TurnStartTime = ShowTime; stepInTurn = 0;
@@ -120,6 +126,7 @@ namespace Journal.Play
             if (Session.Phase != BattleCore.Phase.Playing && ShowTime >= turnEnd - 1e-6)
             {
                 ShowTime = turnEnd;
+                if (current != null) { current.End(Battle); Summaries.Add(current); current = null; }
                 if (Session.Phase == BattleCore.Phase.Over) { Phase = PlayPhase.Over; recorder.Rec.Done = true; }
                 else Phase = PlayPhase.Orders;
                 Selection.RemoveAll(m => !Present(m)); AfterSelect();

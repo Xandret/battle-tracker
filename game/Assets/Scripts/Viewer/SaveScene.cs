@@ -24,6 +24,7 @@ namespace Journal.Viewer
         public string Scale;                                  // как выбрана ширина карты (для подписи)
         public byte[] Image;                                  // картинка карты (JPEG/PNG) или null
         public readonly List<Unit> Units = new List<Unit>();
+        public readonly Dictionary<int, (string Kit, string Style)> Look = new Dictionary<int, (string, string)>();   // облик отряда (В16): из файла или угадан
         public readonly Dictionary<int, (string Name, string Color)> Factions = new Dictionary<int, (string, string)>();
         public readonly Dictionary<int, int> Side = new Dictionary<int, int>();   // фракция → сторона 1 / 2
     }
@@ -63,7 +64,11 @@ namespace Journal.Viewer
                 var (iw, ih) = ImageSize(s.Image);
                 if (iw > 0 && ih > 0) aspect = (double)ih / iw;
             }
-            foreach (var e in units) s.Units.Add(UnitOf(e));
+            foreach (JObject e in units)
+            {
+                var u = UnitOf(e); s.Units.Add(u);
+                s.Look[u.Id] = (Journal.Armies.ArmyFile.KitOf(e), Journal.Armies.ArmyFile.StyleOf(e));
+            }
             var wm = (double?)o["mapOpts"]?["widthM"];
             if (widthM > 0) { s.W = widthM; s.Scale = $"ширина {s.W:0} м задана"; }
             else if (wm.HasValue) { s.W = wm.Value; s.Scale = $"ширина {s.W:0} м из сохранения"; }
@@ -130,19 +135,6 @@ namespace Journal.Viewer
             return (0, 0);
         }
 
-        // облик по имени и роду войск — в сохранении шаблона нет
-        static string TplOf(Unit u)
-        {
-            string n = u.Name.ToLowerInvariant();
-            if (n.Contains("арбалет")) return "crossbowmen";
-            if (n.Contains("лучник") || n.Contains("охотник") || u.Type == "archer") return n.Contains("ополч") ? "militia_archers" : "archers";
-            if (n.Contains("пикин") || n.Contains("алебард") || u.Type == "pike") return "pikemen";
-            if (u.Type == "cavalry") return n.Contains("элит") ? "elite_cavalry" : "knights";
-            if (n.Contains("страж") || n.Contains("гвард")) return "guard";
-            if (n.Contains("ополч")) return "militia";
-            return "infantry";
-        }
-
         public static SceneDef Make(string path, int turns = 4, uint seed = 16, double widthM = 0)
         {
             var R = Rules.Base;
@@ -160,7 +152,8 @@ namespace Journal.Viewer
                 u.FactionId = s.Side.TryGetValue(fac, out var side) ? side : 1;   // движку — сторона, смотрелке — цвет фракции
                 double x = Math.Max(20, Math.Min(s.W - 20, u.MapX / 100 * s.W)), y = Math.Max(20, Math.Min(s.H - 20, u.MapY / 100 * s.H));
                 var m = sc.Battle.Add(u, x, y, u.Facing);
-                sc.Units.Add((m, null)); sc.Tpl[m] = TplOf(u);
+                sc.Units.Add((m, null)); sc.Tpl[m] = Journal.Art.KitSets.TplOf(s.Look[u0.Id].Kit);   // облик — набора отряда (поле kit или угадан)
+                sc.Style[m] = s.Look[u0.Id].Style;                                                   // и его стиля (поле style или угадан)
                 sc.Color[m] = s.Factions.TryGetValue(fac, out var fi) ? fi.Color : null;
                 placed++; men += u.Soldiers;
             }

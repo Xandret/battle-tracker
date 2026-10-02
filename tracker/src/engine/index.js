@@ -10,6 +10,8 @@ export { effStats, computeStrike, casualtyPatch, resolveBattle } from "./combat.
 export { endTurn } from "./turn.js";
 export { TEMPLATE_STATS, TEMPLATE_LIMITS, BASE_TEMPLATES, getTemplate, matchTemplate,
          normalizeOverrides, clampField, factionOverrides, resolveTemplate } from "./templates.js";
+export { LOOK_STYLES, LOOK_STYLE_DEFAULT, LOOK_KITS, KIT_BY_TEMPLATE, isLookStyle, isLookKit, guessStyle, guessKit,
+         defaultStyle, styleOf, kitOf } from "./looks.js";
 export { MUSTER, SPECIAL_RE, guessMachine, parseCount, toNominative, splitCommanders, instrumentalToNom, parseArmyText, planLine, planMuster,
          splitSoldiers, lineSize, numberedNames, expandMuster } from "./muster.js";
 export { CELL_M, MAX_HEIGHT, MAX_CELLS, TERRAIN, TERRAIN_BY_ID, TERRAIN_BY_KEY, terrainName, createTerrain,

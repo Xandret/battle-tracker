@@ -1,0 +1,208 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Бойцы сверху — проба В18</title>
+<!-- Проба облика В18 «как у Iron Kings»: строго сверху, плоско (рисовальщик polygon-men-flat.js поверх polygon-men.js).
+     Смотреть: node game/Tools/art-server.mjs → http://localhost:8790/men-flat.html
+     ?style=north — стиль первых разделов (west, north, east, south, fareast); ?bg=grass — трава вместо бумаги;
+     ?t=2.5 — застыть в этот миг; ?shot=имя — снимок в game/Assets/_Shots/имя.png; ?k=2 — пикселей на точку экрана -->
+<style>
+  body { margin: 0; background: #23201b; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script src="polygon-men.js"></script>
+<script src="polygon-men-flat.js"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+if(Q.get("k")) Object.defineProperty(window, "devicePixelRatio", {get: () => +Q.get("k")});
+const view = {s: 70};
+let ctx;
+const RED = "#d0503c", BLUE = "#3f78c0", GRASS = Q.get("bg") === "grass", STYLE = Q.get("style") || "west";
+const LOOKS = [["militia", "militia", "Ополчение"], ["spear", "infantry", "Копейщики"], ["sword", "guard", "Мечники"],
+               ["pike", "pikemen", "Пикинёры"], ["bow", "archers", "Лучники"], ["crossbow", "crossbowmen", "Арбалетчики"],
+               ["lance", "knights", "Рыцари"], ["barded", "elite_cavalry", "Тяжёлые рыцари"]];
+const STYLES = [["west", "Западный"], ["north", "Северный"], ["east", "Восточный"], ["south", "Южный"], ["fareast", "Дальневосточный"]];
+const FOOT = LOOKS.slice(0, 6);
+// отряды — постоянные объекты: комплекты считаются один раз
+const UNITS = new Map();
+function kitsFor(i, col = RED, style = STYLE){
+  const key = i + col + style;
+  if(!UNITS.has(key)) UNITS.set(key, {id: 300 + i * 17 + (col === BLUE ? 5 : 0) + STYLES.findIndex(s => s[0] === style) * 101, col, tpl: LOOKS[i][1], style});
+  return kitsF(UNITS.get(key));
+}
+const W = Math.max(innerWidth, 1320), H = 3780;
+const c = document.getElementById("c"), dpr = window.devicePixelRatio || 1;
+c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
+ctx = c.getContext("2d");
+const sparks = [];
+
+function ground(){
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if(GRASS){
+    ctx.fillStyle = "#6f7a45"; ctx.fillRect(0, 0, W, H);
+    for(let i = 0; i < 9000; i++){ const x = hash(i, 1) * W, y = hash(i, 2) * H; ctx.fillStyle = hash(i, 3) < 0.5 ? "rgba(60,70,30,.25)" : "rgba(150,150,90,.18)"; ctx.fillRect(x, y, 2, 2); }
+  } else {
+    ctx.fillStyle = "#f3f4f1"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(120,128,140,.18)";   // точки сетки, как на столе у автора
+    for(let y = 20; y < H; y += 46) for(let x = 20; x < W; x += 46){ ctx.beginPath(); ctx.arc(x, y, 1.3, 0, 6.283); ctx.fill(); }
+  }
+}
+function label(text, x, y, small){
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = small ? "12px system-ui" : "bold 15px system-ui"; ctx.fillStyle = GRASS ? "#f4ecd6" : "#3a312a"; ctx.fillText(text, x, y);
+}
+// матрица раздела: начало (px), масштаб s px/м
+function base(ox, oy, s){ view.s = s; setZoom(); return [s * dpr, 0, 0, s * dpr, ox * dpr, oy * dpr]; }
+const stepAt = (t, speed, seed) => Math.sin(6.283 * (t * speed / 1.4 + hash(seed, 9)));
+const styleName = STYLES.find(s => s[0] === STYLE)?.[1] || STYLE;
+
+function frame(t){
+  ground();
+  let y = 30;
+  // ── 1. Вплотную: образец по обмеру и наши ──
+  label(`Вплотную (180 px/м): слева — образец по обмеру ролика, дальше — наши (стиль: ${styleName})`, 20, y); y += 20;
+  {
+    const s = 180, B = base(75, y + 0.75 * s, s);
+    const pick = [[2, 0], [2, 3], [1, 0], [1, 4], [0, 1], [0, 6], [3, 2], [4, 0], [5, 1]];
+    [RED, BLUE, "#a3a8ad"].forEach((col, i) => { fShadow(B, i * 0.72, 0, 0); put(fSampleSpr(col), mT(B, i * 0.72, 0)); });
+    pick.forEach(([kit, n], i) => { const ks = kitsFor(kit); fMan(B, (i + 3.3) * 0.72, 0, 0, ks[n % ks.length], {low: 0}); });
+    y += 1.35 * s;
+  }
+  // ── 2. Все пешие наборы стоя ──
+  label("Все пешие наборы (70 px/м): передняя шеренга, древки к бою", 20, y); y += 16;
+  {
+    const s = 70, colW = 640;
+    FOOT.forEach(([look, , name], i) => {
+      const cx = 20 + (i % 2) * colW, top = y + Math.floor(i / 2) * 175;
+      label(name, cx, top + 14, true);
+      const B = base(cx + 30, top + (look === "spear" || look === "militia" ? 125 : 95), s);
+      kitsFor(i).slice(0, 8).forEach((k, j) => fMan(B, j * 0.8, 0, 0, k, {low: look === "pike" ? 0 : 1}));
+    });
+    y += 3 * 175 + 10;
+  }
+  // ── 3. Движение и бой ──
+  label("Движение и бой (70 px/м): строй идёт кругом, схватка, стрелки", 20, y); y += 16;
+  {
+    const s = 70;
+    // строй 4 × 3 копейщиков идёт по кругу: центр — на круге по часовой, правая рука бойца — к середине круга
+    const B1 = base(200, y + 190, s), sp = kitsFor(1), R0 = 1.9, a = t * 1.25 / R0, ca = Math.cos(a), sa = Math.sin(a);
+    for(let r = 0; r < 3; r++) for(let f = 0; f < 4; f++){
+      const ox = (f - 1.5) * 0.75, oy = r * 0.8;
+      fMan(B1, R0 * ca - ox * ca + oy * sa, R0 * sa - ox * sa - oy * ca, a + Math.PI, sp[(r * 4 + f) % sp.length], {low: 0, rank: r, step: stepAt(t, 1.25 * (R0 - ox) / R0, r * 4 + f)});
+    }
+    // схватка: мечники (красные) против копейщиков (синих)
+    const B2 = base(560, y + 200, s), sw = kitsFor(2), spB = kitsFor(1, BLUE);
+    for(let i = 0; i < 3; i++){
+      const q1 = t / 1.3 + hash(i, 21), q2 = t / 1.45 + hash(i, 22);
+      fMan(B2, i * 0.85, 0.65, 0, sw[i], {ap: frac(q1), kind: fKind(sw[i], Math.floor(q1), i), sparks});
+      fMan(B2, i * 0.85, -0.65, Math.PI, spB[i], {ap: frac(q2), kind: fKind(spB[i], Math.floor(q2), i + 9), low: 1, sparks});
+    }
+    fSparks(sparks);
+    // лучники натягивают и стреляют, арбалетчики — выстрел и взвод
+    const B3 = base(900, y + 200, s), bw = kitsFor(4), xb = kitsFor(5);
+    for(let i = 0; i < 4; i++){
+      const u = frac(t / 2.6 + i * 0.13), bowSt = u < 0.15 ? 0 : u < 0.3 ? 1 : u < 0.5 ? 2 : u < 0.85 ? 3 : 4;
+      fMan(B3, i * 0.8, -0.6, 0, bw[i], {bowSt});
+      const v = frac(t / 4 + i * 0.21), xs = v < 0.25 ? 0 : v < 0.35 ? 1 : v < 0.65 ? 2 : v < 0.9 ? 3 : 0;
+      fMan(B3, i * 0.8, 0.9, 0, xb[i], {xb: xs, bowSt: xs ? 2 : 3});
+    }
+    y += 380;
+  }
+  // ── 4. Как в игре ──
+  for(const s of [30, 14]){
+    label(`Как в игре: ${s} px/м, строи 8 × 4 шагают на месте`, 20, y); y += 12;
+    const B = base(30, y + (s === 30 ? 130 : 62), s);   // сверху — место под опущенные пики
+    FOOT.forEach(([look], i) => {
+      const ks = kitsFor(i), x0 = i * (s === 30 ? 7.4 : 13.5);
+      for(let r = 0; r < 4; r++) for(let f = 0; f < 8; f++){
+        const n = r * 8 + f;
+        fMan(B, x0 + f * 0.8, r * 0.85, 0, ks[n % ks.length], {low: 1, rank: r, step: stepAt(t, 1.2, n + i * 40)});
+      }
+    });
+    y += s === 30 ? 250 : 125;
+  }
+  // ── 5. Конница ──
+  label("Кони вблизи (110 px/м): отметины, грива, уздечка и поводья, седло со стременами, чепрак, попона, ламелляр", 20, y); y += 16;
+  {
+    const s = 110, B0 = base(90, y + 1.5 * s, s);
+    const near = [kitsFor(6, RED, "west")[1], kitsFor(6, BLUE, "north")[3], kitsFor(7, RED, "west")[0], kitsFor(7, BLUE, "east")[0], kitsFor(6, RED, "fareast")[2], kitsFor(6, BLUE, "south")[5]];
+    near.forEach((k, i) => fCav(B0, i * 1.45, 0, 0, k, {v: i === 5 ? 1.6 : 0, ph: t * 1.6 / 1.7, t, seed: i + 40}));
+    y += 2.95 * s;
+  }
+  label("Конница (55 px/м): стоят; скачут с опущенными копьями; конные лучники и сабли на шагу", 20, y); y += 16;
+  {
+    const s = 55;
+    // стоят: рыцари и тяжёлые рыцари своего стиля — переступают, машут хвостом
+    const B1 = base(60, y + 1.45 * s, s), kn = kitsFor(6), hv = kitsFor(7);
+    [kn[0], kn[1], kn[2], kn[3], hv[0], hv[1]].forEach((k, i) => fCav(B1, i * 1.35, 0, 0, k, {v: 0, t, seed: i}));
+    // скачут влево разных стилей: копьё опущено, аллюр — по пройденному пути
+    const B2 = base(0, y + 4.1 * s, s), span = (W - 40) / s + 4;
+    STYLES.forEach(([st], i) => {
+      const k = kitsFor(i % 2 ? 7 : 6, i % 2 ? BLUE : RED, st)[i], d = t * 7 + i * span / 5;
+      fCav(B2, span - 2 - (d % span), (i % 2) * 0.9, -Math.PI / 2, k, {v: 7, ph: d / 5 + hash(i, 3), t, seed: i, run: true});
+    });
+    // на шагу вправо: дальневосточные конные лучники стреляют, восточные рубят саблями
+    const B3 = base(0, y + 6.4 * s, s), span3 = 14;
+    for(let i = 0; i < 6; i++){
+      const st = i % 2 ? "east" : "fareast", ks = kitsFor(6, RED, st), k = ks.find(kk => fBase(kk.weapon) === (st === "east" ? "sword" : "bow")) || ks[0];
+      const d = t * 1.6 + i * span3 / 6, x = 1 + (d % span3), u = frac(t / 2.4 + i * 0.3);
+      const o = {v: 1.6, ph: d / 1.7 + hash(i, 5), t, seed: i + 7};
+      if(fBase(k.weapon) === "bow") o.bowSt = u < 0.2 ? 0 : u < 0.35 ? 1 : u < 0.55 ? 2 : u < 0.85 ? 3 : 4;
+      else { o.ap = frac(t / 1.3 + i * 0.2); o.kind = "swing"; o.sparks = sparks; }
+      fCav(B3, x, (i % 3) * 0.2, Math.PI / 2, k, o);
+    }
+    fSparks(sparks);
+    y += 7.9 * s;
+  }
+  // ── 6. Павшие и раненые ──
+  label("Павшие и раненые (70 px/м): лежат с оружием и щитом, кровь; раненые ползут; кони; падение", 20, y); y += 16;
+  {
+    const s = 70, B1 = base(60, y + 1.1 * s, s);
+    const dead = [[2, "west"], [1, "north"], [2, "east"], [3, "south"], [2, "fareast"], [0, "west"]];
+    dead.forEach(([i, st], j) => { const k = kitsFor(i, j % 2 ? BLUE : RED, st)[j]; put(fBloodSpr(j), mT(B1, j * 1.45, -0.15)); put(fCorpseSpr(k, j), mR(mT(B1, j * 1.45, 0), (hash(j, 1) - 0.5) * 0.6)); });
+    // раненые ползут рывками: 0,32 м за 0,9 с, рисунок отражается через рывок
+    for(let j = 0; j < 2; j++){
+      const k = kitsFor(1, RED, j ? "east" : "west")[j + 2], ph = t / 0.9 + j * 0.5, n = Math.floor(ph), e = ease(frac(ph));
+      const yy = 0.6 - ((n + e) * 0.32) % 2.2, M = mT(B1, 9.0 + j * 1.2, yy);
+      put(fCrawlSpr(k), n % 2 ? mS(M, -1, 1) : M);
+    }
+    // павшие кони: большая лужа у груди и шеи
+    [[kitsFor(7, BLUE, "west")[0], 12.0, 0.3], [kitsFor(6, RED, "east")[1], 14.2, -0.4]].forEach(([k, x, r], j) => {
+      const M = mR(mT(B1, x, 0.1), r); put(fBloodSpr(50 + j), mS(mT(M, 0.25, -0.4), 1.9, 1.9)); put(fDeadHorseSpr(k), M);
+    });
+    // падение по кругу: стоит, удар — отшатнулся, падает навзничь, лужа растёт
+    const B2 = base(60, y + 3.0 * s, s);
+    for(let j = 0; j < 8; j++){
+      const k = kitsFor(j % 6, RED, STYLES[j % 5][0])[j], p = frac(t / 3.2 + j / 8), tau = (p - 0.25) * 3.2;
+      if(p < 0.25){ fMan(B2, j * 1.3, 0, 0, k, {low: 0}); continue; }
+      if(tau > 0.5){ const g2 = Math.min(1, (tau - 0.5) / 1.5); put(fBloodSpr(j + 20), mS(mT(B2, j * 1.3, 0.75), 0.3 + 0.7 * g2, 0.3 + 0.7 * g2)); }
+      fFall(B2, j * 1.3, 0, 0, k, tau / 0.75, j + 30);
+    }
+    y += 5.0 * s;
+  }
+  // ── 7. Стили ──
+  label("Стили (42 px/м): строки — стили, столбцы — наборы", 20, y); y += 22;
+  {
+    const s = 42, cw = 142, lx = 130, rh = 150;
+    LOOKS.forEach(([, , name], i) => label(name, lx + i * cw + 6, y, true));
+    y += 8;
+    STYLES.forEach(([st, sname], r) => {
+      const top = y + r * rh;
+      label(sname, 20, top + rh / 2, true);
+      LOOKS.forEach(([look], i) => {
+        const ks = kitsFor(i, RED, st), cx = lx + i * cw + cw / 2;
+        if(i >= 6){ const B = base(cx, top + rh / 2 + 4, s); fCav(B, 0, 0, 0, ks[r % ks.length], {v: 0, t, seed: r * 8 + i}); return; }
+        const B = base(cx, top + rh / 2 + 22, s);
+        for(let j = 0; j < 3; j++) fMan(B, (j - 1) * 0.8, 0, 0, ks[(j + r) % ks.length], {low: look === "pike" ? 0 : 1});
+      });
+    });
+    y += STYLES.length * rh;
+  }
+}
+
+const T0 = performance.now(), fixed = Q.get("t");
+function loop(){ frame(fixed ? +fixed : (performance.now() - T0) / 1000); if(!fixed) requestAnimationFrame(loop); }
+loop();
+if(Q.get("shot")) c.toBlob(b => fetch("/shot?file=" + encodeURIComponent(Q.get("shot")) + ".png", {method: "POST", body: b})
+  .then(r => r.text()).then(tx => document.title = "снимок: " + tx));
+</script>

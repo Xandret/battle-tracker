@@ -794,3 +794,560 @@
     top: 14px;
     font-size: 8px;
 }
+
+/* ── сводка хода справа ── */
+.sum-box {
+    margin-top: 2px;
+}
+
+.sum-side {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.sum-stripe {
+    width: 4px;
+    height: 14px;
+    margin-right: 6px;
+}
+
+.sum-stripe.side-1 {
+    background-color: var(--side1);
+}
+
+.sum-stripe.side-2 {
+    background-color: var(--side2);
+}
+
+.sum-side-name {
+    flex-grow: 1;
+    font-size: 13px;
+    -unity-font-style: bold;
+}
+
+.sum-loss {
+    font-size: 13px;
+    -unity-font-style: bold;
+    color: #e0806a;
+}
+
+.sum-sub {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-left: 10px;
+    white-space: normal;
+}
+
+.sum-hint {
+    font-size: 12px;
+    color: var(--ink-dim);
+    white-space: normal;
+}
+
+.sum-event {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 5px;
+    padding: 3px 4px;
+    border-left-width: 3px;
+    border-color: var(--edge-dark);
+    border-radius: 2px;
+}
+
+.sum-event:hover {
+    background-color: #3d3223;
+}
+
+.sum-event.side-1 {
+    border-color: var(--side1);
+}
+
+.sum-event.side-2 {
+    border-color: var(--side2);
+}
+
+.sum-icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+    color: var(--gold-bright);
+}
+
+.sum-text {
+    flex-shrink: 1;
+    font-size: 12px;
+    white-space: normal;
+}
+
+.sum-toggle {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--gold);
+}
+
+.sum-toggle:hover {
+    color: var(--gold-bright);
+}
+
+.sum-details {
+    max-height: 260px;
+    margin-top: 4px;
+}
+
+/* ── лента событий слева во время хода ── */
+.feed {
+    position: absolute;
+    left: 10px;
+    top: 50px;
+    width: 330px;
+}
+
+.feed-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+    padding: 5px 10px 5px 6px;
+    background-color: var(--panel);
+    border-left-width: 4px;
+    border-color: var(--edge);
+    border-radius: 3px;
+}
+
+.feed-row.side-1 {
+    border-color: var(--side1);
+}
+
+.feed-row.side-2 {
+    border-color: var(--side2);
+}
+
+.feed-icon {
+    width: 18px;
+    height: 18px;
+    margin-right: 7px;
+    color: var(--gold-bright);
+}
+
+.feed-text {
+    font-size: 13px;
+    -unity-font-style: bold;
+    white-space: normal;
+    flex-shrink: 1;
+}
+
+.log-panel.is-collapsed > .sum-box,
+.log-panel.is-collapsed > .sum-toggle,
+.log-panel.is-collapsed > .sum-details {
+    display: none;
+}
+
+.sum-loss.is-none {
+    color: var(--ink-dim);
+    -unity-font-style: normal;
+}
+
+/* ── редактор армий (Г93, шаг 1) ── */
+.menu-armies {
+    border-color: var(--gold-deep);
+}
+
+.army {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 12px 28px 12px;
+    background-color: rgb(16, 13, 9);
+}
+
+.army-top {
+    flex-direction: row;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom-width: 1px;
+    border-color: var(--edge);
+}
+
+.army-title {
+    font-size: 22px;
+    -unity-font-style: bold;
+    color: var(--gold-bright);
+    margin-right: 14px;
+}
+
+.army-file {
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-right: 14px;
+}
+
+.army-file.is-dirty {
+    color: var(--gold-bright);
+}
+
+.army-btn {
+    height: 28px;
+    margin: 0 3px;
+    padding: 0 12px;
+    font-size: 12px;
+    -unity-font-style: bold;
+    color: var(--ink);
+    background-color: var(--panel-2);
+    border-width: 1px;
+    border-color: var(--edge);
+    border-radius: 4px;
+}
+
+.army-btn:hover {
+    border-color: var(--gold);
+    color: var(--gold-bright);
+}
+
+.army-btn.is-gold {
+    color: #2a1d0a;
+    background-color: var(--gold);
+    border-color: var(--gold-bright);
+}
+
+.army-btn.is-gold:hover {
+    background-color: var(--gold-bright);
+}
+
+.army-btn.is-bad {
+    color: #e0806a;
+}
+
+.army-btn.small {
+    height: 22px;
+    padding: 0 8px;
+    font-size: 11px;
+}
+
+.army-saveas {
+    width: 150px;
+    margin: 0 3px;
+}
+
+.army-files {
+    position: absolute;
+    left: 150px;
+    top: 48px;
+    width: 420px;
+    max-height: 420px;
+    padding: 6px;
+    background-color: var(--panel-2);
+    border-width: 2px;
+    border-color: var(--gold-deep);
+    border-radius: 5px;
+}
+
+.army-file-row {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 3px;
+}
+
+.army-file-row:hover {
+    background-color: #3d3223;
+}
+
+.army-file-name {
+    -unity-font-style: bold;
+}
+
+.army-file-where {
+    font-size: 11px;
+    color: var(--ink-dim);
+}
+
+.army-body {
+    flex-direction: row;
+    flex-grow: 1;
+    margin-top: 8px;
+}
+
+.army-col {
+    padding: 6px 8px;
+    background-color: var(--panel);
+    border-width: 1px;
+    border-color: var(--edge-dark);
+    border-radius: 5px;
+}
+
+.army-left {
+    width: 300px;
+    margin-right: 8px;
+}
+
+.army-mid {
+    flex-grow: 1;
+    margin-right: 8px;
+}
+
+.army-right {
+    width: 380px;
+}
+
+.army-scroll {
+    flex-grow: 1;
+}
+
+.army-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    margin: 4px 0 6px 0;
+}
+
+.army-head-btns {
+    flex-direction: row;
+}
+
+.army-h {
+    font-size: 14px;
+    -unity-font-style: bold;
+    color: var(--gold-bright);
+}
+
+.army-h2 {
+    margin-top: 10px;
+    margin-bottom: 2px;
+    font-size: 12px;
+    -unity-font-style: bold;
+    color: var(--gold);
+}
+
+.army-note {
+    font-size: 11px;
+    color: var(--ink-dim);
+    white-space: normal;
+    margin: 2px 0 4px 0;
+}
+
+.army-note.warn {
+    color: #e0b070;
+}
+
+.army-list {
+    margin-bottom: 8px;
+}
+
+.army-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 6px;
+    margin-bottom: 2px;
+    border-width: 1px;
+    border-color: rgba(0, 0, 0, 0);
+    border-radius: 3px;
+}
+
+.army-row:hover {
+    background-color: #2b241a;
+}
+
+.army-row.is-on {
+    background-color: #3b301f;
+    border-color: var(--gold-deep);
+}
+
+.army-swatch {
+    width: 12px;
+    height: 12px;
+    margin-right: 7px;
+    border-width: 1px;
+    border-color: #15110b;
+    border-radius: 2px;
+}
+
+.army-swatch.big {
+    width: 18px;
+    height: 18px;
+    margin: 2px;
+}
+
+.army-swatch.is-on {
+    border-color: var(--gold-bright);
+    border-width: 2px;
+}
+
+.army-palette {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin: 4px 0;
+}
+
+.army-row-name {
+    flex-grow: 1;
+    font-size: 12px;
+    -unity-font-style: bold;
+}
+
+.army-row-sub {
+    font-size: 11px;
+    color: var(--ink-dim);
+}
+
+.army-faction {
+    padding: 6px 0;
+    margin-bottom: 6px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-color: var(--edge-dark);
+}
+
+.army-cards {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.army-card {
+    width: 132px;
+    height: 128px;
+    margin: 4px;
+    padding: 5px 6px 6px 6px;
+    background-color: #2b241a;
+    border-width: 2px;
+    border-top-width: 5px;
+    border-color: #4b3b22;
+    border-radius: 4px;
+}
+
+.army-card:hover {
+    border-color: var(--gold-deep);
+}
+
+.army-card.is-on {
+    background-color: #3b301f;
+    border-color: var(--gold-bright);
+}
+
+.army-card-icon {
+    width: 22px;
+    height: 22px;
+    margin-bottom: 2px;
+    flex-shrink: 0;
+    align-self: center;
+    color: var(--ink);
+}
+
+.army-card-name {
+    font-size: 11px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: normal;
+    height: 28px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.army-card-men {
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    color: var(--gold-bright);
+    margin: 2px 0;
+    flex-shrink: 0;
+}
+
+.army-card-sub {
+    font-size: 10px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin: 0;
+    color: var(--ink-dim);
+}
+
+.army-card-flag {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    font-size: 10px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(150, 45, 32, 0.9);
+}
+
+.army-form > * {
+    margin-bottom: 3px;
+}
+
+.army-status {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 6px;
+    font-size: 12px;
+    color: var(--gold-bright);
+}
+
+.army-status.is-bad {
+    color: #e0806a;
+}
+
+/* поля ввода — в тёмном стиле */
+.army .unity-base-field {
+    margin: 2px 0;
+}
+
+.army .unity-base-field__label {
+    min-width: 150px;
+    font-size: 12px;
+    color: var(--ink-dim);
+}
+
+.army .unity-base-text-field__input,
+.army .unity-base-popup-field__input {
+    background-color: #15110b;
+    border-color: var(--edge);
+    color: var(--ink);
+    font-size: 12px;
+}
+
+.army .unity-base-text-field__input:focus,
+.army .unity-base-popup-field__input:focus {
+    border-color: var(--gold);
+}
+
+.army .unity-base-popup-field__arrow {
+    -unity-background-image-tint-color: var(--gold);
+}
+
+
+/* слева колонка узкая — подпись над полем */
+.army-left .unity-base-field {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.army-left .unity-base-field__label {
+    min-width: 0;
+    margin-bottom: 1px;
+}
+
+/* полосы прокрутки — тёмные, тонкие */
+.army .unity-scroller--vertical {
+    width: 8px;
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.army .unity-scroller--vertical .unity-base-slider__tracker {
+    background-color: #15110b;
+    border-width: 0;
+}
+
+.army .unity-scroller--vertical .unity-base-slider__dragger {
+    background-color: var(--edge);
+    border-width: 0;
+    border-radius: 3px;
+}
+
+.army .unity-scroller__low-button,
+.army .unity-scroller__high-button {
+    display: none;
+}

@@ -58,6 +58,7 @@ const KIT = {
   barded: {helm: [["great", 100]], weapon: [["lance", 100]], shield: [["heater", 100]], paint: [["quarters", 50], ["chevron", 50]], back: [["none", 100]],
     armour: [["plate", 100]], bard: [["full", 100]], own: 0, uniform: true},
 };
+const TABARD = new Set(["plain", "halves", "quarters", "cross", "chevron", "stripe"]);
 function pickW(list, r){
   let sum = 0; for(const [, w] of list) sum += w;
   let x = r * sum;
@@ -84,11 +85,14 @@ function kitsOf(u){
       c1: own && R(10) < 0.5 ? cloth : u.col, c2: look === "militia" ? DEVICE[Math.floor(R(11) * 3)] : c2};
     if(shield) shield.key = [shield.shape, shield.paint, shield.c1, shield.c2].join(",");
     const back = pickW(K.back, R(12));
-    const k = {look, horse, cloth, armour: pickW(K.armour, R(13)), leather: LEATHER[Math.floor(R(14) * 3)], helm, helmCol,
+    const armour = pickW(K.armour, R(13));
+    // сюрко (В15): у кольчуги и лат — всегда, цвета стороны; герб — как на щите, у единообразных — один на всех
+    const tabard = armour === "mail" || armour === "plate" ? (TABARD.has(paint) ? paint : shield && TABARD.has(shield.paint) ? shield.paint : "plain") : null;
+    const k = {look, horse, cloth, armour, tabard, leather: LEATHER[Math.floor(R(14) * 3)], helm, helmCol,
       crest: helm === "great" && R(15) < 0.35 ? u.col : null, back, backCol: back === "pavise" ? u.col : shade(u.col, -0.3),
       weapon: pickW(K.weapon, R(16)), side: K.side ? pickW(K.side, R(17)) : "none", shield, col: u.col, c2,
       coat: COATS[Math.floor(R(18) * COATS.length)], bard: K.bard ? pickW(K.bard, R(19)) : "none"};
-    k.bodyKey = [k.cloth, k.armour, k.leather, k.helm, k.helmCol, k.crest, k.back, k.backCol, c2].join(",");
+    k.bodyKey = [k.cloth, k.armour, k.tabard, k.leather, k.helm, k.helmCol, k.crest, k.back, k.backCol, c2].join(",");
     k.horseKey = [k.coat, k.bard, u.col, c2].join(",");
     return k;
   });
@@ -107,52 +111,67 @@ function stick(g, x0, y0, x1, y1, width, color){
   g.strokeStyle = color; g.lineWidth = width; g.stroke();
 }
 function tip(g, x, y, len){ g.beginPath(); g.moveTo(x - 0.045, y); g.lineTo(x, y - len); g.lineTo(x + 0.045, y); g.closePath(); g.fillStyle = SHINE; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.025; g.stroke(); }
-function pill(g, col){
-  g.beginPath(); g.moveTo(-0.14, -0.11); g.lineTo(0.14, -0.11); g.arc(0.14, 0.02, 0.13, -Math.PI / 2, Math.PI / 2);
-  g.lineTo(-0.14, 0.15); g.arc(-0.14, 0.02, 0.13, Math.PI / 2, Math.PI * 1.5); g.closePath();
-  g.fillStyle = col; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.045; g.stroke();
+// ── Облик «настоящих солдатиков» (В15, шаг 2): объём краской, как у расписанной миниатюры ──
+// Свет не направленный — боец поворачивается, а направленный свет даёт Unity по картам нормалей: к середине детали
+// светлее, к краю темнее, по краю — тонкий контур. Пропорции — как у фигурок: плечи шире, голова меньше.
+function vol(g, col, cx, cy, r, k = 1){   // заливка объёмом: светлее в середине, темнее к краю
+  const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+  gr.addColorStop(0, shade(col, 0.18 * k)); gr.addColorStop(0.55, col); gr.addColorStop(1, shade(col, -0.3 * k));
+  return gr;
 }
-function folds(g, col){   // складки рукавов — штрихи веером у концов плеч
-  g.beginPath();
-  for(const s of [-1, 1]) for(const a of [-0.65, 0, 0.65]){
-    const c = Math.cos(a), sn = Math.sin(a);
-    g.moveTo(s * (0.14 + c * 0.045), 0.02 + sn * 0.045); g.lineTo(s * (0.14 + c * 0.11), 0.02 + sn * 0.11);
-  }
-  g.strokeStyle = shade(col, -0.42); g.lineWidth = 0.022; g.stroke();
+function edge(g, w = 0.035){ g.strokeStyle = INK; g.lineWidth = w; g.stroke(); }
+const ARM_X = 0.232, NECK_R = 0.135;
+// плечи и спина сверху: грудь чуть площе, лопатки круглее
+function torsoPath(g){
+  const w = 0.19, f = -0.115, b = 0.15;
+  g.beginPath(); g.moveTo(-w + 0.04, f);
+  g.quadraticCurveTo(0, f - 0.03, w - 0.04, f); g.quadraticCurveTo(w + 0.03, f + 0.01, w + 0.035, 0.02);
+  g.quadraticCurveTo(w + 0.03, b - 0.02, w - 0.06, b); g.quadraticCurveTo(0, b + 0.035, -w + 0.06, b);
+  g.quadraticCurveTo(-w - 0.03, b - 0.02, -w - 0.035, 0.02); g.quadraticCurveTo(-w - 0.03, f + 0.01, -w + 0.04, f);
+  g.closePath();
+}
+function rings(g, x0, y0, x1, y1, col){   // кольчуга: ряды колец со сдвигом
+  g.strokeStyle = col; g.lineWidth = 0.009;
+  for(let y = y0, row = 0; y <= y1; y += 0.03, row++)
+    for(let x = x0 + (row % 2) * 0.016; x <= x1; x += 0.032){ g.beginPath(); g.arc(x, y, 0.011, 0, 6.283); g.stroke(); }
 }
 function paintHead(g, k){
-  const c = k.helmCol;
+  const c = k.helmCol, steel = (x, y, rx, ry, col = STEEL, rot = 0) => {   // сталь: объём и блик почти посередине
+    g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, 6.283); g.fillStyle = vol(g, col, x - rx * 0.15, y - ry * 0.15, Math.max(rx, ry) * 1.1); g.fill(); edge(g);
+  };
+  const glint = (x, y, r) => ell(g, x, y, r, r * 1.1, SHINE, 0, false);
   switch(k.helm){
     case "hair":
-      ell(g, 0, 0, 0.112, 0.118, c);
-      g.beginPath(); g.moveTo(0, -0.1); g.lineTo(0.01, 0.09); g.strokeStyle = shade(c, -0.35); g.lineWidth = 0.016; g.stroke(); break;
-    case "cap":
-      ell(g, 0, 0, 0.12, 0.12, c); ell(g, 0, -0.025, 0.06, 0.05, shade(c, 0.15), 0, false); break;
-    case "hood":
-      g.beginPath(); g.moveTo(0.122, 0); g.arc(0, 0, 0.122, 0, Math.PI, true); g.quadraticCurveTo(-0.08, 0.16, 0, 0.25); g.quadraticCurveTo(0.08, 0.16, 0.122, 0);
-      g.fillStyle = c; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.035; g.stroke(); break;
+      g.beginPath(); g.ellipse(0, 0.005, 0.1, 0.106, 0, 0, 6.283); g.fillStyle = vol(g, c, 0, -0.01, 0.12, 0.8); g.fill(); edge(g);
+      g.beginPath(); g.moveTo(0, -0.09); g.lineTo(0.008, 0.08); g.strokeStyle = shade(c, -0.35); g.lineWidth = 0.014; g.stroke(); break;
+    case "cap":   // шапка с отворотом
+      g.beginPath(); g.ellipse(0, 0, 0.108, 0.108, 0, 0, 6.283); g.fillStyle = vol(g, c, 0, 0, 0.12); g.fill(); edge(g);
+      g.beginPath(); g.arc(0, 0, 0.078, 0, 6.283); g.strokeStyle = shade(c, -0.3); g.lineWidth = 0.014; g.stroke(); break;
+    case "hood":  // капюшон с наплечной пелериной
+      g.beginPath(); g.moveTo(0.11, 0); g.arc(0, 0, 0.11, 0, Math.PI, true); g.quadraticCurveTo(-0.075, 0.15, 0, 0.23); g.quadraticCurveTo(0.075, 0.15, 0.11, 0);
+      g.fillStyle = vol(g, c, 0, 0, 0.16); g.fill(); edge(g);
+      g.beginPath(); g.arc(0, -0.005, 0.07, Math.PI * 1.1, Math.PI * 1.9); g.strokeStyle = shade(c, -0.35); g.lineWidth = 0.014; g.stroke(); break;
     case "kettle":   // шапель: широкие поля, купол — кольцо, как у Iron Kings
-      ell(g, 0, 0, 0.165, 0.16, STEEL); ell(g, 0, 0, 0.092, 0.092, shade(STEEL, 0.12));
-      ell(g, -0.03, -0.03, 0.03, 0.03, SHINE, 0, false); break;
+      steel(0, 0, 0.15, 0.145); g.beginPath(); g.arc(0, 0, 0.142, 0, 6.283); g.strokeStyle = STEEL_D; g.lineWidth = 0.012; g.stroke();
+      steel(0, 0, 0.085, 0.085, shade(STEEL, 0.1)); glint(-0.02, -0.025, 0.022); break;
     case "capSteel":
-      ell(g, 0, 0, 0.12, 0.12, STEEL);
-      g.beginPath(); g.arc(0, 0, 0.072, 0, 6.283); g.strokeStyle = STEEL_D; g.lineWidth = 0.022; g.stroke();
-      ell(g, -0.035, -0.035, 0.035, 0.035, SHINE, 0, false); break;
-    case "nasal":
-      ell(g, 0, 0, 0.118, 0.124, STEEL);
-      g.beginPath(); g.moveTo(0, -0.12); g.lineTo(0, 0.11); g.moveTo(0, -0.125); g.lineTo(0, -0.16); g.strokeStyle = STEEL_D; g.lineWidth = 0.025; g.stroke();
-      ell(g, -0.04, -0.03, 0.03, 0.035, SHINE, 0, false); break;
-    case "great":    // топфхельм: плоский верх с ободом, у некоторых — гребень цвета отряда
-      ell(g, 0, 0, 0.13, 0.13, "#8f9498");
-      g.beginPath(); g.arc(0, 0, 0.098, 0, 6.283); g.strokeStyle = "#62676c"; g.lineWidth = 0.02; g.stroke();
-      if(k.crest) ell(g, 0, 0, 0.032, 0.11, k.crest); else ell(g, -0.04, -0.04, 0.03, 0.03, "#c9cdd0", 0, false); break;
+      steel(0, 0, 0.108, 0.108);
+      g.beginPath(); g.arc(0, 0, 0.066, 0, 6.283); g.strokeStyle = STEEL_D; g.lineWidth = 0.018; g.stroke(); glint(-0.025, -0.03, 0.024); break;
+    case "nasal":    // шлем с наносником и гребнем-швом
+      steel(0, 0.002, 0.106, 0.112);
+      g.beginPath(); g.moveTo(0, -0.105); g.lineTo(0, 0.1); g.moveTo(0, -0.11); g.lineTo(0, -0.145); g.strokeStyle = STEEL_D; g.lineWidth = 0.022; g.stroke(); glint(-0.035, -0.025, 0.022); break;
+    case "great":    // топфхельм: плоский верх с ободом, спереди — смотровая щель, у некоторых — гребень цвета отряда
+      steel(0, 0, 0.12, 0.12, "#8f9498");
+      g.beginPath(); g.arc(0, 0, 0.09, 0, 6.283); g.strokeStyle = "#62676c"; g.lineWidth = 0.018; g.stroke();
+      g.beginPath(); g.moveTo(-0.07, -0.1); g.quadraticCurveTo(0, -0.125, 0.07, -0.1); g.strokeStyle = INK; g.lineWidth = 0.016; g.stroke();
+      if(k.crest){ g.beginPath(); g.ellipse(0, 0, 0.03, 0.1, 0, 0, 6.283); g.fillStyle = vol(g, k.crest, 0, -0.02, 0.1); g.fill(); edge(g, 0.025); }
+      else glint(-0.035, -0.035, 0.024); break;
     case "bascinet": // бацинет с «клювом» забрала вперёд
-      ell(g, 0, 0.01, 0.118, 0.13, STEEL); ell(g, 0, -0.14, 0.05, 0.065, STEEL_D);
-      ell(g, -0.04, -0.02, 0.03, 0.035, SHINE, 0, false); break;
+      steel(0, 0.01, 0.106, 0.118); steel(0, -0.125, 0.045, 0.06, STEEL_D);
+      g.beginPath(); g.moveTo(-0.025, -0.12); g.lineTo(0.025, -0.12); g.strokeStyle = INK; g.lineWidth = 0.01; g.stroke(); glint(-0.035, -0.015, 0.024); break;
     case "morion":   // морион: поля лодочкой спереди назад, гребень
-      ell(g, 0, 0, 0.125, 0.2, STEEL);
-      g.beginPath(); g.moveTo(0, -0.19); g.lineTo(0, 0.19); g.strokeStyle = STEEL_D; g.lineWidth = 0.035; g.stroke();
-      ell(g, -0.05, -0.05, 0.025, 0.04, SHINE, 0, false); break;
+      steel(0, 0, 0.112, 0.18);
+      g.beginPath(); g.moveTo(0, -0.17); g.lineTo(0, 0.17); g.strokeStyle = STEEL_D; g.lineWidth = 0.032; g.stroke(); glint(-0.045, -0.04, 0.02); break;
   }
 }
 function backItem(g, k){
@@ -176,20 +195,99 @@ function backItem(g, k){
       g.strokeStyle = INK; g.lineWidth = 0.035; g.strokeRect(-0.28, 0.12, 0.56, 0.18); break;
   }
 }
+// Тело сверху: руки от плеча по бокам, плечи и спина — по доспеху. Ткань — стёганка с простёжкой; кожа — бригантина
+// (ткань одежды на пластинах, заклёпки), рукава кожаные; кольчуга и латы — под сюрко цвета стороны (paintTabard,
+// отдельный слой), видны руки и бармица вокруг шлема. Цвет одежды или стороны — на каждом бойце.
+const MAIL = "#9a9ea2", MAIL_D = "#6f7377";
 function paintBody(g, k){
   backItem(g, k);
-  pill(g, k.cloth);
-  if(k.armour === "mail"){
-    for(const s of [-1, 1]){
-      ell(g, s * 0.19, 0.02, 0.09, 0.122, "#9a9ea2");
-      g.fillStyle = "#6f7377";
-      for(let q = 0; q < 6; q++){ g.beginPath(); g.arc(s * (0.165 + 0.035 * (q % 2)), -0.07 + q * 0.035, 0.009, 0, 6.283); g.fill(); }
-    }
-  } else if(k.armour === "leather"){ for(const s of [-1, 1]) ell(g, s * 0.19, 0.02, 0.09, 0.122, k.leather); }
-  else if(k.armour === "plate"){ for(const s of [-1, 1]){ ell(g, s * 0.2, 0.0, 0.1, 0.125, STEEL); ell(g, s * 0.2 - 0.025, -0.035, 0.035, 0.04, SHINE, 0, false); } }
-  else folds(g, k.cloth);
+  const arm = sleeveOf(k), metal = k.armour === "mail" || k.armour === "plate";
+  for(const s of [-1, 1]){
+    g.beginPath(); g.ellipse(s * ARM_X, 0.02, 0.068, 0.118, 0, 0, 6.283);
+    g.fillStyle = vol(g, arm, s * ARM_X, 0.0, 0.13, k.armour === "plate" ? 1.3 : 1); g.fill();
+    if(k.armour === "mail"){ g.save(); g.clip(); rings(g, s * ARM_X - 0.07, -0.1, s * ARM_X + 0.07, 0.14, MAIL_D); g.restore(); }
+    if(k.armour === "plate"){ g.beginPath(); g.ellipse(s * ARM_X, 0.03, 0.06, 0.025, 0, 0, 6.283); g.strokeStyle = STEEL_D; g.lineWidth = 0.012; g.stroke(); }
+    g.beginPath(); g.ellipse(s * ARM_X, 0.02, 0.068, 0.118, 0, 0, 6.283); edge(g);
+  }
+  const base = k.armour === "mail" ? MAIL : k.armour === "plate" ? STEEL : k.cloth;
+  torsoPath(g); g.fillStyle = vol(g, base, 0, 0.01, 0.26, k.armour === "plate" ? 1.3 : 1); g.fill();
+  g.save(); torsoPath(g); g.clip();
+  if(k.armour === "mail") rings(g, -0.24, -0.15, 0.24, 0.2, MAIL_D);
+  else if(k.armour === "plate"){   // наплечники и хребет спинной пластины
+    for(const s of [-1, 1]){ g.beginPath(); g.ellipse(s * 0.15, 0.0, 0.09, 0.12, 0, 0, 6.283); g.fillStyle = vol(g, STEEL, s * 0.15, -0.02, 0.12, 1.4); g.fill(); edge(g, 0.022); }
+    g.beginPath(); g.moveTo(0, -0.1); g.lineTo(0, 0.17); g.strokeStyle = STEEL_D; g.lineWidth = 0.014; g.stroke();
+  } else if(k.armour === "leather"){   // бригантина: ткань на пластинах — ряды заклёпок, швы пластин
+    g.strokeStyle = shade(base, -0.35); g.lineWidth = 0.01; g.beginPath();
+    for(const y of [-0.04, 0.05, 0.13]){ g.moveTo(-0.22, y); g.lineTo(0.22, y); } g.stroke();
+    for(const y of [-0.075, 0.005, 0.09]) for(let x = -0.18; x <= 0.18; x += 0.045) ell(g, x, y, 0.011, 0.011, "#c9c3b4", 0, false);
+  } else {   // стёганка: простёжка ромбом
+    g.strokeStyle = shade(base, -0.32); g.lineWidth = 0.009; g.beginPath();
+    for(let d = -0.5; d <= 0.5; d += 0.075){ g.moveTo(d - 0.2, -0.2); g.lineTo(d + 0.2, 0.2); g.moveTo(d + 0.2, -0.2); g.lineTo(d - 0.2, 0.2); }
+    g.stroke();
+  }
+  g.restore();
+  torsoPath(g); edge(g, 0.04);
+  if(metal){   // бармица — кольцо кольчуги вокруг шеи; видна в вырезе сюрко
+    g.beginPath(); g.arc(0, 0, 0.15, 0, 6.283); g.fillStyle = vol(g, MAIL, 0, 0, 0.16); g.fill();
+    g.save(); g.clip(); rings(g, -0.16, -0.16, 0.16, 0.16, MAIL_D); g.restore(); g.beginPath(); g.arc(0, 0, 0.15, 0, 6.283); edge(g, 0.025);
+  }
+  if(k.tabard) paintTabard(g, k.tabard, k.col, k.c2);
   paintHead(g, k);
 }
+// Сюрко (В15): поверх плеч и спины, вырез у шеи; поле — цвет стороны, второй цвет — герб, как на щите
+function tabardPath(g){
+  g.beginPath(); g.moveTo(-0.15, -0.105);
+  g.quadraticCurveTo(0, -0.13, 0.15, -0.105); g.quadraticCurveTo(0.2, -0.08, 0.205, 0.02); g.quadraticCurveTo(0.2, 0.13, 0.15, 0.155);
+  g.quadraticCurveTo(0, 0.18, -0.15, 0.155); g.quadraticCurveTo(-0.2, 0.13, -0.205, 0.02); g.quadraticCurveTo(-0.2, -0.08, -0.15, -0.105);
+  g.closePath(); g.moveTo(NECK_R, 0); g.arc(0, 0, NECK_R, 0, 6.283, true);
+}
+function paintTabard(g, paint, c1, c2){
+  tabardPath(g); g.fillStyle = vol(g, c1, 0, 0.02, 0.24); g.fill("evenodd");
+  g.save(); tabardPath(g); g.clip("evenodd"); g.fillStyle = c2;
+  switch(paint){
+    case "halves": g.fillRect(0, -1, 1, 2); break;
+    case "quarters": g.fillRect(0, -1, 1, 1); g.fillRect(-1, 0, 1, 1); break;
+    case "stripe": g.fillRect(-1, 0.04, 2, 0.05); break;
+    case "cross": g.fillRect(-0.03, -1, 0.06, 2); g.fillRect(-1, 0.06, 2, 0.05); break;
+    case "chevron": g.beginPath(); g.moveTo(-0.25, 0.17); g.lineTo(0, 0.02); g.lineTo(0.25, 0.17); g.lineTo(0.25, 0.25); g.lineTo(0, 0.1); g.lineTo(-0.25, 0.25); g.closePath(); g.fill(); break;
+  }
+  // складки ткани по спине и тень у края
+  g.strokeStyle = "rgba(43,38,33,.28)"; g.lineWidth = 0.012; g.beginPath();
+  for(const x of [-0.09, 0.09]){ g.moveTo(x, 0.06); g.quadraticCurveTo(x * 1.2, 0.12, x * 1.1, 0.165); } g.stroke();
+  g.restore();
+  tabardPath(g); g.strokeStyle = INK; g.lineWidth = 0.03; g.stroke();
+}
+// ── Руки (В15): предплечье от локтя к кисти и кисть, держащая оружие и щит ──
+// Предплечье лежит под телом (у плеча его прячет рука от плеча), кисть — поверх рукояти. Кисть: голая, кожаная перчатка
+// под кольчугой, латная рукавица под латами.
+const SKIN = "#c49a74", ELB = [0.215, 0.0], FA_LEN = 0.3;
+const handKind = k => k.armour === "plate" ? "plate" : k.armour === "mail" ? "glove" : "skin";
+const HAND_COL = {skin: SKIN, glove: "#5d4734", plate: STEEL};
+// точка оружия (в его осях) — в осях бойца по позе T = [x, y, поворот, масштаб поперёк, вдоль]
+function onPose(T, x, y){ const c = Math.cos(T[2]), sn = Math.sin(T[2]), px = x * T[3], py = y * T[4]; return [T[0] + px * c - py * sn, T[1] + px * sn + py * c]; }
+// где кисти: [правая, левая, видна ли левая]. Правая — на рукояти; копьё, пика, вилы без щита — двумя руками (левая
+// впереди по древку); левая — за щитом (не видна), на луке или ложе арбалета; без всего — у бедра
+function handsOf(k, W, Sh, bowSt = 0, xb = 0){
+  const w = k.weapon;
+  if(w === "bow"){ const d = [0, 0.15, 0.55, 1, 0][bowSt], ty = -0.2 - 0.02 * d, cy = -0.56 - 0.1 * d; return [[0.02, Math.min(0.05, ty + 0.36 * d + 0.03)], [0, (ty + cy) / 2], true]; }
+  if(w === "crossbow") return [xb >= 2 ? [0.05, xb === 2 ? -0.4 : -0.2] : [0.05, -0.02], [0.05, xb >= 2 ? -0.46 : -0.3], true];
+  const r = W ? [W[0], W[1]] : null;
+  if(W && !Sh && (w === "pike" || w === "spear" || w === "fork")) return [r, onPose(W, 0, -0.4), true];
+  return [r, Sh ? [Sh[0], Sh[1]] : [-0.235, -0.07], !Sh];
+}
+function paintForearm(g, k){ stick(g, 0, 0, 0, -FA_LEN, 0.072, sleeveOf(k)); }          // в своих осях: локоть (0, 0), кисть (0, −FA_LEN)
+function paintHand(g, kind){                                                              // кулак: пальцы — штрихи поперёк
+  const c = HAND_COL[kind];
+  g.beginPath(); g.ellipse(0, 0, 0.04, 0.045, 0, 0, 6.283); g.fillStyle = vol(g, c, 0, -0.01, 0.05, kind === "plate" ? 1.4 : 1); g.fill(); edge(g, 0.022);
+  g.beginPath(); for(const y of [-0.012, 0.008]){ g.moveTo(-0.028, y); g.lineTo(0.028, y); } g.strokeStyle = shade(c, -0.4); g.lineWidth = 0.008; g.stroke();
+}
+// рука прямо в рисунке (готовый спрайт бойца): от локтя к кисти
+function drawArm(g, k, side, h){
+  const ex = side * ELB[0], ey = ELB[1], dx = h[0] - ex, dy = h[1] - ey, L = Math.hypot(dx, dy);
+  if(L < 0.02) return;
+  g.save(); g.translate(ex, ey); g.rotate(Math.atan2(dx, -dy)); g.scale(1, L / FA_LEN); paintForearm(g, k); g.restore();
+}
+function drawHand(g, k, h){ g.save(); g.translate(h[0], h[1]); paintHand(g, handKind(k)); g.restore(); }
 function shieldPath(g, shape){
   g.beginPath();
   if(shape === "heater"){ g.moveTo(-0.2, -0.24); g.lineTo(0.2, -0.24); g.quadraticCurveTo(0.21, 0.08, 0, 0.29); g.quadraticCurveTo(-0.21, 0.08, -0.2, -0.24); g.closePath(); }
@@ -197,8 +295,8 @@ function shieldPath(g, shape){
   else g.arc(0, 0, shape === "buckler" ? 0.13 : 0.24, 0, 6.283);
 }
 function paintShield(g, sh){
-  shieldPath(g, sh.shape);
-  g.fillStyle = sh.paint === "wood" ? "#9a7a50" : sh.paint === "steel" ? STEEL : sh.c1; g.fill();
+  const field = sh.paint === "wood" ? "#9a7a50" : sh.paint === "steel" ? STEEL : sh.c1;
+  shieldPath(g, sh.shape); g.fillStyle = vol(g, field, 0, 0, sh.shape === "buckler" ? 0.15 : 0.3, sh.paint === "steel" ? 1.3 : 0.8); g.fill();
   g.save(); g.clip(); g.fillStyle = sh.c2;
   switch(sh.paint){
     case "halves": g.fillRect(0, -1, 1, 2); break;
@@ -209,9 +307,16 @@ function paintShield(g, sh){
     case "boss": g.beginPath(); g.arc(0, 0, 0.15, 0, 6.283); g.lineWidth = 0.05; g.strokeStyle = sh.c2; g.stroke(); break;
     case "wood": g.beginPath(); for(let x = -0.18; x < 0.3; x += 0.09){ g.moveTo(x, -0.3); g.lineTo(x, 0.3); } g.strokeStyle = "rgba(60,40,20,.45)"; g.lineWidth = 0.012; g.stroke(); break;
   }
+  // объём: к краю темнее, по краю — обод (у дерева и круглых — железный, у треугольного — кожаный кант)
+  const gr = g.createRadialGradient(0, 0, 0.05, 0, 0, 0.3); gr.addColorStop(0, "rgba(255,255,255,.12)"); gr.addColorStop(0.6, "rgba(0,0,0,0)"); gr.addColorStop(1, "rgba(20,14,8,.32)");
+  g.fillStyle = gr; g.fillRect(-1, -1, 2, 2);
   g.restore();
-  shieldPath(g, sh.shape); g.strokeStyle = INK; g.lineWidth = 0.035; g.stroke();
-  if(sh.shape !== "heater"){ ell(g, 0, 0, 0.05, 0.05, STEEL); ell(g, -0.012, -0.012, 0.018, 0.018, SHINE, 0, false); }
+  if(sh.paint !== "steel"){ shieldPath(g, sh.shape); g.strokeStyle = sh.shape === "heater" ? "#5a4028" : STEEL_D; g.lineWidth = 0.05; g.stroke(); }
+  shieldPath(g, sh.shape); edge(g);
+  if(sh.shape !== "heater"){
+    g.beginPath(); g.arc(0, 0, sh.shape === "buckler" ? 0.05 : 0.06, 0, 6.283); g.fillStyle = vol(g, STEEL, -0.01, -0.01, 0.07, 1.4); g.fill(); edge(g, 0.025);
+    ell(g, -0.014, -0.016, 0.016, 0.016, SHINE, 0, false);
+  }
 }
 // оружие: в своих осях, рукоять — в начале (там кисть), острие — вперёд (−y)
 const WBOX = {spear: [-0.06, -1.47, 0.06, 0.6], fork: [-0.1, -1.23, 0.1, 0.45], pike: [-0.06, -4.06, 0.06, 0.75], lance: [-0.08, -2.94, 0.27, 0.65],
@@ -344,6 +449,47 @@ function paintHorse(g, k, f){
   at(HNECK[0], HNECK[1] + P.nod, 0, () => paintHorseHead(g, k));
   paintHorseCover(g, k);
 }
+// Лежащий (павший, раненый — В8, Г39; облик В17): руки и ноги — трубки с объёмом, кисти и сапоги, корпус по доспеху
+// (простёжка, бригантина, кольчуга, латы) с поясом. Лежащий виден сверху во весь рост — вид сверху для него верен.
+// P.legs — ломаные от бедра к ступне, P.arms — от плеча к кисти; голова — отдельно (Unity кладёт шлем)
+function paintLying(g, cloth, armour, leather, P){
+  const pants = mix(cloth, "#3e3328", 0.55), boot = "#3a2c20", sleeve = sleeveOf({armour, leather, cloth});
+  const tube = (pts, w, col) => {
+    g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+    g.strokeStyle = INK; g.lineWidth = w + 0.025; g.stroke();
+    g.strokeStyle = shade(col, -0.3); g.lineWidth = w; g.stroke();
+    g.strokeStyle = col; g.lineWidth = w * 0.62; g.stroke();
+    g.strokeStyle = shade(col, 0.15); g.lineWidth = w * 0.22; g.stroke();
+  };
+  for(const L of P.legs){
+    tube(L, 0.11, pants);
+    const [fx, fy] = L[L.length - 1]; g.beginPath(); g.ellipse(fx, fy + 0.04, 0.055, 0.08, 0, 0, 6.283); g.fillStyle = vol(g, boot, fx, fy + 0.03, 0.09); g.fill(); edge(g, 0.02);
+  }
+  for(const A of P.arms){
+    tube(A, 0.095, sleeve);
+    const [hx, hy] = A[A.length - 1]; g.beginPath(); g.arc(hx, hy, 0.04, 0, 6.283); g.fillStyle = vol(g, SKIN, hx, hy, 0.05); g.fill(); edge(g, 0.018);
+  }
+  const torso = () => { g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.23, -0.45, -0.12, -0.45); g.lineTo(0.12, -0.45); g.quadraticCurveTo(0.23, -0.45, 0.21, -0.36);
+    g.lineTo(0.18, 0.12); g.quadraticCurveTo(0, 0.17, -0.18, 0.12); g.closePath(); };
+  const base = armour === "mail" ? MAIL : armour === "plate" ? STEEL : cloth;
+  torso(); g.fillStyle = vol(g, base, 0, -0.15, 0.35, armour === "plate" ? 1.2 : 0.8); g.fill();
+  g.save(); torso(); g.clip();
+  if(armour === "mail") rings(g, -0.25, -0.5, 0.25, 0.2, MAIL_D);
+  else if(armour === "plate"){ g.strokeStyle = SHINE; g.lineWidth = 0.02; g.beginPath(); g.moveTo(0, -0.42); g.lineTo(0, 0.1); g.stroke(); }
+  else if(armour === "leather"){ for(let y = -0.38; y < 0.12; y += 0.08) for(let x = -0.15; x <= 0.15; x += 0.06) ell(g, x, y, 0.01, 0.01, "#c9c3b4", 0, false); }
+  else { g.strokeStyle = shade(base, -0.3); g.lineWidth = 0.009; g.beginPath(); for(let d = -0.7; d <= 0.7; d += 0.08){ g.moveTo(d - 0.3, -0.5); g.lineTo(d + 0.3, 0.2); g.moveTo(d + 0.3, -0.5); g.lineTo(d - 0.3, 0.2); } g.stroke(); }
+  g.fillStyle = "#5a4028"; g.fillRect(-0.2, 0.0, 0.4, 0.045);
+  g.restore(); torso(); edge(g, 0.03);
+}
+// поза павшего: на спине, ноги чуть врозь, руки раскинуты (v — вариант)
+function corpsePose(v){
+  const r = j => hash(v * 131 + 7, j), sp = 0.05 + 0.12 * r(1), la = -0.3 - 1.2 * r(2), ra = 0.3 + 1.2 * r(3);
+  const arm = (sx, a) => [[sx, -0.3], [sx + Math.sin(a) * 0.46, -0.3 + Math.cos(a) * 0.46]];
+  return {legs: [[[-0.07, 0.1], [-0.07 - sp, 0.78]], [[0.07, 0.1], [0.07 + sp * 0.7, 0.8]]], arms: [arm(-0.19, la), arm(0.19, ra)]};
+}
+// поза раненого: лицом вниз, правая рука вперёд, левая согнута, правая нога подтянута
+const CRAWL_POSE = {legs: [[[-0.08, 0.1], [-0.12, 0.8]], [[0.08, 0.1], [0.3, 0.42], [0.22, 0.76]]],
+  arms: [[[0.19, -0.3], [0.27, -0.95]], [[-0.19, -0.3], [-0.4, -0.46], [-0.27, -0.76]]]};
 // павший: лежит на спине, голова — к −y, ноги у начала; рядом — оружие и щит; краски приглушены (В8)
 function paintCorpse(g, k, v){
   const r = j => hash(v * 131 + 7, j), pants = mix(k.cloth, "#3e3328", 0.55), boot = "#3a2c20";
@@ -354,33 +500,14 @@ function paintCorpse(g, k, v){
     g.save(); g.translate(0.45 + 0.15 * r(5), -0.25 + 0.5 * r(6)); g.rotate(r(7) * 6.283);
     const sc = w === "pike" || w === "lance" ? 0.4 : w === "spear" || w === "fork" ? 0.7 : 0.9; g.scale(sc, sc); paintWeapon(g, w, k.col); g.restore();
   } else if(k.weapon === "bow"){ g.save(); g.translate(0.5, 0.1); g.rotate(r(7) * 6.283); paintBow(g, 0); g.restore(); }
-  const sp = 0.05 + 0.12 * r(1);
-  stick(g, -0.07, 0.1, -0.07 - sp, 0.78, 0.1, pants); ell(g, -0.07 - sp * 1.06, 0.83, 0.05, 0.07, boot);
-  stick(g, 0.07, 0.1, 0.07 + sp * 0.7, 0.8, 0.1, pants); ell(g, 0.07 + sp * 0.74, 0.85, 0.05, 0.07, boot);
-  const la = -0.3 - 1.2 * r(2), ra = 0.3 + 1.2 * r(3);
-  for(const [sx, a] of [[-0.19, la], [0.19, ra]]){
-    const hx = sx + Math.sin(a) * 0.46, hy = -0.3 + Math.cos(a) * 0.46;
-    stick(g, sx, -0.3, hx, hy, 0.09, sleeve); ell(g, hx, hy, 0.035, 0.035, "#c49a74");
-  }
-  g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.22, -0.44, -0.12, -0.44); g.lineTo(0.12, -0.44); g.quadraticCurveTo(0.22, -0.44, 0.21, -0.36);
-  g.lineTo(0.17, 0.14); g.lineTo(-0.17, 0.14); g.closePath(); g.fillStyle = k.cloth; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
+  paintLying(g, k.cloth, k.armour, k.leather, corpsePose(v));
   g.save(); g.translate(0, -0.56); paintHead(g, k); g.restore();
   g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(112,106,96,.38)"; g.fillRect(-2, -2, 4, 4); g.globalCompositeOperation = "source-over";
 }
 // раненый (Г39, В13): лежит лицом вниз, голова к −y, правая рука вытянута вперёд, левая согнута в локте, правая нога
 // подтянута — так он ползёт; следующий рывок — тот же рисунок, отражённый слева направо. Краски живые, не приглушены
 function sleeveOf(k){ return k.armour === "mail" ? "#8e9296" : k.armour === "leather" ? k.leather : k.armour === "plate" ? STEEL : k.cloth; }
-function paintCrawlBody(g, cloth, armour, leather){
-  const pants = mix(cloth, "#3e3328", 0.55), boot = "#3a2c20", sleeve = sleeveOf({armour, leather, cloth});
-  stick(g, -0.08, 0.1, -0.12, 0.8, 0.1, pants); ell(g, -0.125, 0.85, 0.05, 0.07, boot);
-  stick(g, 0.08, 0.1, 0.3, 0.42, 0.1, pants); stick(g, 0.3, 0.42, 0.22, 0.76, 0.095, pants); ell(g, 0.21, 0.8, 0.05, 0.07, boot);
-  stick(g, 0.19, -0.3, 0.27, -0.95, 0.09, sleeve); ell(g, 0.28, -0.99, 0.035, 0.035, "#c49a74");
-  stick(g, -0.19, -0.3, -0.4, -0.46, 0.09, sleeve); stick(g, -0.4, -0.46, -0.27, -0.76, 0.085, sleeve); ell(g, -0.26, -0.79, 0.035, 0.035, "#c49a74");
-  g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.22, -0.44, -0.12, -0.44); g.lineTo(0.12, -0.44); g.quadraticCurveTo(0.22, -0.44, 0.21, -0.36);
-  g.lineTo(0.17, 0.14); g.lineTo(-0.17, 0.14); g.closePath(); g.fillStyle = cloth; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
-  if(armour === "mail" || armour === "plate"){ ell(g, 0, -0.15, 0.15, 0.2, armour === "mail" ? "#9a9ea2" : STEEL); if(armour === "plate") ell(g, -0.04, -0.22, 0.04, 0.06, SHINE, 0, false); }
-  else if(armour === "leather") ell(g, 0, -0.15, 0.15, 0.2, leather);
-}
+function paintCrawlBody(g, cloth, armour, leather){ paintLying(g, cloth, armour, leather, CRAWL_POSE); }
 function paintCrawl(g, k){ paintCrawlBody(g, k.cloth, k.armour, k.leather); g.save(); g.translate(0, -0.56); paintHead(g, k); g.restore(); }
 // павший конь лежит на боку: ноги в сторону
 function paintDeadHorse(g, k){
@@ -417,6 +544,14 @@ const shieldSpr = sh => spr("s" + sh.key, [-0.25, -0.3, 0.25, 0.31], g => paintS
 const weapSpr = (w, col) => spr("w" + w + (w === "lance" ? col : ""), WBOX[w], g => paintWeapon(g, w, col));
 const bowSpr = st => spr("bow" + st, [-0.36, -1.12, 0.36, 0.2], g => paintBow(g, st));
 const xbowSpr = st => spr("xb" + st, [-0.3, -0.68, 0.38, 0.08], g => paintXbow(g, st));
+const armSpr = k => spr("fa" + sleeveOf(k), [-0.06, -FA_LEN - 0.06, 0.06, 0.06], g => paintForearm(g, k));
+const handSpr = kind => spr("hd" + kind, [-0.05, -0.055, 0.05, 0.055], g => paintHand(g, kind));
+// рука по частям: предплечье — от локтя к кисти (растянуто по длине), кисть — отдельно, поверх оружия
+function putArm(M, k, side, h){
+  const ex = side * ELB[0], ey = ELB[1], dx = h[0] - ex, dy = h[1] - ey, L = Math.hypot(dx, dy);
+  if(L >= 0.02) put(armSpr(k), mS(mR(mT(M, ex, ey), Math.atan2(dx, -dy)), 1, L / FA_LEN));
+}
+const putHand = (M, k, h) => put(handSpr(handKind(k)), mT(M, h[0], h[1]));
 const bootSpr = () => spr("boot", [-0.06, -0.08, 0.06, 0.08], g => ell(g, 0, 0, 0.045, 0.07, "#3a2c20", 0, false));
 const sparkSpr = () => spr("spark", [-0.16, -0.16, 0.16, 0.16], paintSpark);
 // вспышка удара (В13): четырёхлучевая звезда — белая, середина жёлтая, тонкий контур
@@ -470,11 +605,14 @@ function compSpr(k, rank){   // издали — весь боец одним с
     const P = restPose(k, [0, 2, 9][pose] ?? rank);
     if(k.weapon === "pike") P.W = pose === 2 ? [0.15, -0.04, 0.1, 1, 0.12] : [pose ? -0.3 : 0.12, 0, 0, 1, 1];
     if(k.horse) paintHorse(g, k, -1);
+    const [hr, hl, showL] = handsOf(k, P.W, P.Sh);
+    if(hr) drawArm(g, k, 1, hr); if(hl) drawArm(g, k, -1, hl);
     paintBody(g, k);
     const at = (T, fn) => { g.save(); g.translate(T[0], T[1]); g.rotate(T[2]); g.scale(T[3], T[4]); fn(); g.restore(); };
     if(P.Sh) at(P.Sh, () => paintShield(g, k.shield));
     if(k.weapon === "bow") paintBow(g, 0); else if(k.weapon === "crossbow") paintXbow(g, 0);
     else if(P.W) at(P.W, () => paintWeapon(g, k.weapon, k.col));
+    if(hr) drawHand(g, k, hr); if(hl && showL) drawHand(g, k, hl);
   });
 }
 
@@ -1060,12 +1198,15 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
       const run = walking || m.atk, HP = horsePose(m.sp, m.ph, t, s);
       putHorse(kit, base, HP);
       const Mr = mR(mT(base, ox, 0.02 + HP.bob), rot * 0.35);
-      put(bodySpr(kit), Mr);
-      if(P.Sh) put(shieldSpr(kit.shield), mP(Mr, P.Sh));
       let W = P.W;
       if(kit.weapon === "lance"){ if(run) W = [0.2, 0.25 + (m.atk ? thrustOff(ap) : 0), -0.04, 1, 1]; }
       else if(m.atk){ const [r2, sy2] = swingAng(ap); W = [0.22, -0.08, r2, 1, sy2]; }
+      const [hr, hl, showL] = handsOf(kit, W, P.Sh);
+      if(hr) putArm(Mr, kit, 1, hr); if(hl) putArm(Mr, kit, -1, hl);
+      put(bodySpr(kit), Mr);
+      if(P.Sh) put(shieldSpr(kit.shield), mP(Mr, P.Sh));
       if(W) put(weapSpr(kit.weapon, kit.col), mP(Mr, W));
+      if(hr) putHand(Mr, kit, hr); if(hl && showL) putHand(Mr, kit, hl);
       if(m.atk && ap >= 0.42 && ap < 0.5) sparks.push([m, kit.weapon === "lance" ? -2.6 : -0.9, ap]);
       continue;
     }
@@ -1098,13 +1239,11 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
     const raise = fire && !m.atk && P.Sh && kit.shield.shape !== "buckler" && hash(s, 13) < 0.85;
     const pole = (kit.weapon === "pike" || kit.weapon === "spear" || kit.weapon === "fork") && low > 0.02 && low < 0.98;
     if(!m.atk && !raise && !pole && !cheer && bowSt < 2 && bowSt !== 4 && !xb){ put(compSpr(kit, poleRank(m.rank)), Mm); continue; }
-    put(bodySpr(kit), Mm);
     // щит: под стрелами — над головой; в рукопашной — вперёд, навстречу удару врага (В13): прикрывается между своими ударами
-    if(P.Sh){
-      let Sh = P.Sh;
+    let Sh = P.Sh;
+    if(Sh){
       if(raise) Sh = [-0.03, -0.05, -0.1, 1, 0.9];
       else if(m.atk){ const c = Math.max(0, Math.sin((ap + 0.5) * 6.283)); Sh = [Sh[0] + 0.04 + 0.05 * c, Sh[1] - 0.06 - 0.09 * c, Sh[2] + 0.15 + 0.2 * c, Sh[3], Sh[4]]; }
-      put(shieldSpr(kit.shield), mP(Mm, Sh));
     }
     // оружие
     let wpn = wk, W = P.W;
@@ -1116,9 +1255,16 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
       if(ap >= 0.42 && ap < 0.5) sparks.push([m, kind === "thrust" ? (wpn === "pike" ? -3.7 : THRUST.has(wpn) ? -1.35 : -0.85) : -0.75, ap]);
     } else if(cheer && W) W = [W[0], W[1] - 0.05, W[2] * 0.3 - 0.1, 1, Math.min(W[4], 0.3) + 0.08 * Math.sin(t * 9 + ph0 * 6.283)];   // вскинули оружие
     else if(W && step) W = [W[0], W[1], W[2] + 0.03 * step, W[3], W[4]];
+    // руки (В15): предплечья под телом, кисти поверх оружия; стрелок в рукопашной держит запасное оружие одной рукой
+    const hk = m.atk && shoot ? Object.assign({}, kit, {weapon: wpn || "none"}) : kit;
+    const [hr, hl, showL] = handsOf(hk, wpn ? W : null, Sh, bowSt, xb);
+    if(hr) putArm(Mm, kit, 1, hr); if(hl) putArm(Mm, kit, -1, hl);
+    put(bodySpr(kit), Mm);
+    if(Sh) put(shieldSpr(kit.shield), mP(Mm, Sh));
     if(wpn === "bow" && !m.atk) put(bowSpr(bowSt), Mm);
     else if(wpn === "crossbow" && !m.atk) put(xbowSpr(xb), Mm);
     else if(W && wpn) put(weapSpr(wpn, kit.col), mP(Mm, W));
+    if(hr) putHand(Mm, kit, hr); if(hl && showL) putHand(Mm, kit, hl);
   }
   // вспышка удара (В13): в миг удара у острия — звёздочка, за 0,1 с вырастает и гаснет
   for(const [m, reach, ap] of sparks){

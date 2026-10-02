@@ -10,12 +10,12 @@ const pkg = JSON.parse(read("package.json"));
 
 // Порядок важен: модуль может использовать только то, что объявлено выше.
 const ENGINE_FILES = ["util.js", "rules.js", "units.js", "morale.js", "combat.js", "turn.js",
-                      "templates.js", "muster.js", "terrain.js", "mapgen.js", "battlemap.js", "panic.js", "fortify.js", "siege.js", "assault.js"];
+                      "templates.js", "looks.js", "muster.js", "terrain.js", "mapgen.js", "battlemap.js", "panic.js", "fortify.js", "siege.js", "assault.js"];
 
 const RELEASE = {
   version: pkg.version.replace(/\.0$/, ""),     // 30.0.0 → 30.0
   update: "Пушки и крепости",
-  patch: "Приступ",
+  patch: "Облик",
 };
 
 function bundleEngine(){

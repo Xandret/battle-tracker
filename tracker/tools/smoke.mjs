@@ -462,4 +462,32 @@ ev("undo()");
 ok(ev(`Engine.getSection(terrainMap, ${wallId}).holder`) === undefined, "откат вернул участок защитникам");
 ev("setMapRule('on', false);");
 
+console.log("Облик отряда в игре (v30.11)");
+ev("resetAll()");
+ev(`document.getElementById('fx_name').value = 'Дом Кацуры'; addFaction();`);
+const fk = ev("factions[0].id");
+const fv = id => ev(`document.getElementById('${id}').value`);
+const lookForm = name => ev(`newUnit(); document.getElementById('f_name').value = ${JSON.stringify(name)};
+  document.getElementById('f_faction').value = String(${fk}); onUnitFactionChange(); autoDetectType();`);
+lookForm("Самураи Кацуры");
+ok(fv("f_style") === "fareast" && fv("f_kit") === "bow", "облик нового отряда — по названию: самураи — дальневосточные лучники");
+ok(ev("document.getElementById('lookHint').textContent").includes("Япония"), "подсказка — во что одет стиль");
+ev(`document.getElementById('f_style').value = 'south'; styleTouched = true;
+  document.getElementById('f_name').value = 'Копейщики Кацуры'; autoDetectType(); saveUnit();`);
+const ku = JSON.parse(ev("JSON.stringify(units[units.length - 1])"));
+ok(ku.style === "south" && ku.kit === "pike", "стиль, выбранный вручную, название не сбивает; облик записан в отряд");
+lookForm("Ополчение Кацуры");
+ok(fv("f_style") === "south" && fv("f_kit") === "militia", "стиль нового отряда — как у прошлого отряда фракции");
+ev("hideForm()");
+ev(`cloneUnit(${ku.id})`);
+ok(ev("units[units.length - 1].style") === "south" && ev("units[units.length - 1].kit") === "pike", "клон — с тем же обликом");
+// старая партия без облика: открывается, форма показывает угаданный, «Сохранить» записывает
+const oldLook = {id: 900, name: "Рыцари Лоутайда", type: "infantry", weapon: "melee", factionId: null, soldiers: 500, initial: 500,
+  discipline: 60, morale: 60, eqAtk: 60, eqDef: 60, exp: 10, mastery: 20, fatigue: 0, status: "active"};
+ev(`applyLoadedState({factions: [], units: [${JSON.stringify(oldLook)}], log: [], turn: 1, nextId: 901}); renderAll(); startEdit(900);`);
+ok(fv("f_style") === "west" && fv("f_kit") === "sword" && ev("document.getElementById('lookHint').textContent").includes("ещё нет"),
+   "старый отряд без облика — угаданный (пешие рыцари — мечники), с пометкой");
+ev("saveUnit()");
+ok(ev("units[0].style") === "west" && ev("units[0].kit") === "sword", "«Сохранить» записывает облик");
+
 console.log(process.exitCode ? "\nЕСТЬ ОШИБКИ" : "\nВсё в порядке");

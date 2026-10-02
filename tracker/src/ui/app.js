@@ -448,6 +448,9 @@ function commitImport(){
       commanderId: U.commander ? cmdIds[U.commander] : null,
       soldiers: U.soldiers, discipline: U.discipline, morale: U.morale,
       eqAtk: U.eqAtk, eqDef: U.eqDef, exp: U.exp, mastery: U.mastery, fatigue: 0,
+      // облик в игре (В16): стиль — по названию или как у прошлого отряда фракции, снаряжение — по шаблону
+      style: Engine.defaultStyle(units, fac.id, U.name),
+      kit: Engine.KIT_BY_TEMPLATE[U.templateId] || Engine.guessKit(U.name, U.type, U.weapon),
     })));
     const byTpl = {};
     F.units.forEach(u => { byTpl[u.templateId] = (byTpl[u.templateId] || 0) + 1; });
@@ -764,6 +767,7 @@ function refreshUnitCmdrSelect(){
 function onUnitFactionChange(){
   refreshUnitSubSelect();
   refreshUnitCmdrSelect();
+  autoLook();
 }
 
 // ═══════════ форма юнита ═══════════
@@ -778,7 +782,7 @@ function formHtml(isNew){
     <div class="frow">
       <div><label>Название</label><input id="f_name" placeholder="Копейщики Данмиров" oninput="autoDetectType()"></div>
       <div><label>Тип войск</label>
-        <select id="f_type" onchange="typeTouched = true; renderTypeHint()">
+        <select id="f_type" onchange="typeTouched = true; renderTypeHint(); autoLook()">
           <option value="infantry">Пехота</option>
           <option value="cavalry">Кавалерия</option>
           <option value="archer">Лучники</option>
@@ -786,7 +790,7 @@ function formHtml(isNew){
         </select>
       </div>
       <div><label>Тип атаки</label>
-        <select id="f_weapon" onchange="typeTouched = true; renderTypeHint()">
+        <select id="f_weapon" onchange="typeTouched = true; renderTypeHint(); autoLook()">
           <option value="melee">Ближний бой</option>
           <option value="ranged">Дальний бой (стрелки)</option>
         </select>
@@ -797,6 +801,13 @@ function formHtml(isNew){
       <div><label>Подфракция</label><select id="f_sub"></select></div>
       <div><label>Полководец</label><select id="f_cmdr"></select></div>
     </div>
+    <div class="frow">
+      <div><label>Стиль</label><select id="f_style" onchange="styleTouched = true; renderLookHint()" title="Облик в игре (Unity): доспехи и оружие своего края. На бой не влияет">
+        ${Engine.LOOK_STYLES.map(s => `<option value="${s.id}">${s.name}</option>`).join("")}</select></div>
+      <div><label>Снаряжение</label><select id="f_kit" onchange="kitTouched = true; renderLookHint()" title="Облик в игре (Unity): во что одеты и чем вооружены. На бой не влияет">
+        ${Engine.LOOK_KITS.map(k => `<option value="${k.id}">${k.name}</option>`).join("")}</select></div>
+    </div>
+    <div class="hint" id="lookHint" style="margin:0 0 8px"></div>
     <div class="frow">
       <div><label>Солдаты</label><input id="f_soldiers" type="number" value="300"></div>
       <div><label>Дисциплина 1–100</label><input id="f_disc" type="number" value="50"></div>
@@ -823,7 +834,7 @@ function formHtml(isNew){
   </div>`;
 }
 const FORM_IDS = ["f_name","f_type","f_weapon","f_faction","f_sub","f_cmdr","f_soldiers","f_disc",
-                  "f_morale","f_eqAtk","f_eqDef","f_exp","f_mastery","f_fatigue","f_range","f_ladders"];
+                  "f_morale","f_eqAtk","f_eqDef","f_exp","f_mastery","f_fatigue","f_range","f_ladders","f_style","f_kit"];
 function snapshotForm(){
   if(!$("editBox")) return null;
   const o = {};
@@ -850,6 +861,9 @@ function fillForm(snap){
     $("f_eqAtk").value=u.eqAtk; $("f_eqDef").value=u.eqDef; $("f_exp").value=u.exp;
     $("f_mastery").value=u.mastery; $("f_fatigue").value=u.fatigue; $("f_range").value=u.range || "";
     $("f_ladders").value=u.ladders || 0;
+    $("f_style").value=Engine.styleOf(u); $("f_kit").value=Engine.kitOf(u);
+    renderLookHint(Engine.isLookStyle(u.style) && Engine.isLookKit(u.kit) ? undefined
+      : "Облика в отряде ещё нет — показан угаданный по названию; «Сохранить» запишет его.");
   } else {
     $("f_name").value=""; $("f_type").value="infantry"; $("f_weapon").value="melee";
     $("f_faction").value=""; onUnitFactionChange();
@@ -857,6 +871,7 @@ function fillForm(snap){
     $("f_soldiers").value=300; $("f_disc").value=50; $("f_morale").value=60;
     $("f_eqAtk").value=30; $("f_eqDef").value=30; $("f_exp").value=20;
     $("f_mastery").value=0; $("f_fatigue").value=0; $("f_range").value=""; $("f_ladders").value=0;
+    autoLook();
     if($("f_name").focus) $("f_name").focus();
   }
 }
@@ -867,12 +882,35 @@ function renderTypeHint(text){
     : (typeTouched ? "Тип задан вручную — по названию больше не подставляется." : "");
 }
 function autoDetectType(){
-  if(typeTouched) return;
+  if(typeTouched){ autoLook(); return; }
   const g = guessUnitType($("f_name").value);
-  if(!g){ renderTypeHint(""); return; }
+  if(!g){ renderTypeHint(""); autoLook(); return; }
   $("f_type").value = g.type;
   $("f_weapon").value = g.weapon;
   renderTypeHint(`Тип определён по названию: ${TYPE_NAMES[g.type]} · ${g.weapon === "ranged" ? "дальний бой" : "ближний бой"}. Можно поменять вручную.`);
+  autoLook();
+}
+// Облик в игре (В16): стиль — как у прошлого отряда фракции, у первого — по названию; снаряжение — по названию и
+// типу. Пока не выбран вручную; у существующего отряда сам не меняется.
+let styleTouched = false, kitTouched = false, styleUnguessed = false;
+function autoLook(){
+  if(!$("f_style") || editingId !== "new") return;
+  const name = $("f_name").value, fid = +$("f_faction").value || null;
+  if(!styleTouched){
+    $("f_style").value = Engine.defaultStyle(units, fid, name);
+    // ни прошлого отряда фракции, ни подсказки в названии — западный по умолчанию, пусть мастер выберет
+    styleUnguessed = !Engine.guessStyle(name) && !units.some(u => (u.factionId ?? null) === fid && Engine.isLookStyle(u.style));
+  }
+  if(!kitTouched) $("f_kit").value = Engine.guessKit(name, $("f_type").value, $("f_weapon").value);
+  renderLookHint();
+}
+function renderLookHint(text){
+  const h = $("lookHint"); if(!h) return;
+  const s = Engine.LOOK_STYLES.find(x => x.id === $("f_style").value);
+  const auto = editingId === "new" && !styleTouched;
+  h.textContent = text !== undefined ? text
+    : `Облик в игре: ${s ? s.note : ""}.` + (auto && styleUnguessed ? " Край по названию не угадан — выбери стиль."
+      : auto ? " Стиль — как у прошлых отрядов фракции или по названию; можно выбрать свой." : "");
 }
 function autoTypeAll(){
   const changes = [];
@@ -896,14 +934,14 @@ function autoTypeAll(){
 }
 function newUnit(){
   editingId = "new";
-  typeTouched = false;
+  typeTouched = false; styleTouched = false; kitTouched = false;
   renderUnits();
   const box = $("editBox");
   if(box && box.scrollIntoView) box.scrollIntoView({block: "nearest"});
 }
 function startEdit(id){
   const u = units.find(x => x.id === id); if(!u) return;
-  typeTouched = true;
+  typeTouched = true; styleTouched = true; kitTouched = true;
   collapsedGroups["f" + (u.factionId || null)] = false;
   collapsedGroups["s" + (u.subfactionId || null)] = false;
   editingId = id;
@@ -931,6 +969,9 @@ function saveUnit(){
     range: Math.max(0, Math.round(+$("f_range").value || 0)),
     ladders: Math.max(0, Math.round(+$("f_ladders").value || 0)),
   };
+  // облик в игре (В16): только известные значения; поле не на месте — не трогаем
+  if($("f_style") && Engine.isLookStyle($("f_style").value)) clean.style = $("f_style").value;
+  if($("f_kit") && Engine.isLookKit($("f_kit").value)) clean.kit = $("f_kit").value;
   const editing = editingId && editingId !== "new";
   pushUndo(editing ? `правка отряда «${name}»` : `создание отряда «${name}»`);
   if(editing){

@@ -17,6 +17,7 @@ namespace Journal.Art
     public sealed class ArtAtlas
     {
         public Texture2D Tex;
+        public Texture2D Normals;                 // карта объёма <имя>_n (ArtNormals, В15); нет — рисунок плоский
         public float Ppm;
         readonly Dictionary<string, Part> parts = new Dictionary<string, Part>();
         public int Count => parts.Count;
@@ -26,7 +27,7 @@ namespace Journal.Art
             var tex = Resources.Load<Texture2D>("Art/" + name);
             var json = Resources.Load<TextAsset>("Art/" + name);
             if (tex == null || json == null) { Debug.LogWarning($"нет атласа Art/{name} — выгрузи рисунок из полигона (game/Tools/art-server.mjs)"); return null; }
-            var a = new ArtAtlas { Tex = tex };
+            var a = new ArtAtlas { Tex = tex, Normals = Resources.Load<Texture2D>("Art/" + name + "_n") };
             var inv = CultureInfo.InvariantCulture;
             var m = Regex.Match(json.text, "\"ppm\"\\s*:\\s*([0-9.]+)");
             a.Ppm = m.Success ? float.Parse(m.Groups[1].Value, inv) : 64;

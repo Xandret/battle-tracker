@@ -1,6 +1,7 @@
 // ═══════════ BattleViewer.cs — смотрелка боя (И2, шаг 1): движок считает бой в Unity, сцена проигрывает ход ═══════════
 // Сцену выбирают кнопкой сверху; бой считается в фоновом потоке (BattleRecord.Run), потом проигрывается: пробел — пауза,
-// ← → — кадр, колесо — приближение к курсору, тянуть мышью — сдвиг, F — вся карта, 1…8 — сцены.
+// ← → — кадр, колесо — приближение к курсору, тянуть мышью — сдвиг, F — вся карта, 1…8 — сцены; F6 — стиль облика
+// всем отрядам по кругу (В16), F7 — свет на природе, F8 — эффект миниатюр.
 // Режим игры (SetLive): показывает чужую живую запись (ход с приказами, Play/*), сцены не трогает; время ставит игра
 // (T, Playing, Speed); ЛКМ/ПКМ — игре (выбор, приказы), камера — средней кнопкой, WASD/стрелками, колесом, F.
 // Шаг 1 — простой рисунок: земля по клеткам 5 м, тела — плашки цвета стороны, павшие — пятна, стрелы — чёрточки.
@@ -52,6 +53,7 @@ namespace Journal.Viewer
         // Слои рисунка: земля 0, кровь 4, павшие 5–6, кони 9, бойцы и плашки 10, стрелы в полёте 20; 21–39 — за смотрелкой
         // (знамёна, дым, подсветка), 50+ — подсказки приказов игры.
         public bool ShowGui = true;                       // false — без OnGUI (кнопок сцен и нижней полосы)
+        public bool InputBlocked;                         // окно игры поверх (меню, редактор армий) — камера клавиш и мыши не слушает
         public bool PlayInput;                            // управление игры: ЛКМ/ПКМ — игре, камера — средней кнопкой и клавишами (SetLive включает)
         public Func<Vector2, bool> OverExternalUi;        // экранная точка над интерфейсом игры — колесо и сдвиг камеры её не трогают
         public Vector4 Insets;                            // px экрана под панелями игры: слева, сверху, справа, снизу — кадр (F) в остаток
@@ -99,6 +101,7 @@ namespace Journal.Viewer
             var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
             menView = new MenView(transform);
             banners = new Banners(transform);
+            MiniatureLook.Setup(cam);   // облик «миниатюры на столе» (В15)
         }
         void Start()
         {
@@ -145,7 +148,11 @@ namespace Journal.Viewer
         void HandleInput()
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
-            if (!Application.isFocused) { dragging = false; return; }
+            if (!Application.isFocused || InputBlocked) { dragging = false; return; }
+            // облик: F6 — стиль всем отрядам по кругу (В16), F7 — свет на природе (бойцы с В18 плоские), F8 — эффект миниатюр
+            if (kb != null && kb.f6Key.wasPressedThisFrame) CycleStyle();
+            if (kb != null && kb.f7Key.wasPressedThisFrame) MenView.Light = !MenView.Light;
+            if (kb != null && kb.f8Key.wasPressedThisFrame) MiniatureLook.On = !MiniatureLook.On;
             if (PlayInput) { GameInput(mouse, kb); return; }
             if (kb != null)
             {
@@ -389,8 +396,17 @@ namespace Journal.Viewer
         }
 
         // ── интерфейс ──
+        // стиль облика всем отрядам по кругу (В16): как в данных → западный → … → дальневосточный; подпись — на 2,5 с
+        static readonly string[] StyleCycle = { null, "west", "north", "east", "south", "fareast" };
+        static readonly string[] StyleNames = { "как в данных", "западный", "северный", "восточный", "южный", "дальневосточный" };
+        int styleIdx; float styleToast;
+        void CycleStyle() { styleIdx = (styleIdx + 1) % StyleCycle.Length; MenView.ForceStyle = StyleCycle[styleIdx]; menView?.Restyle(); styleToast = Time.unscaledTime + 2.5f; }
+
         void OnGUI()
         {
+            if (Time.unscaledTime < styleToast)
+                GUI.Label(new Rect(Screen.width - 330, 52, 320, 26), $"Стиль облика: {StyleNames[styleIdx]} (F6)",
+                    new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight, normal = { textColor = new Color(0.98f, 0.95f, 0.85f) } });
             uiRects.Clear();
             if (!ShowGui) return;
             var st = new GUIStyle(GUI.skin.label) { fontSize = 14, normal = { textColor = new Color(0.92f, 0.9f, 0.85f) } };
