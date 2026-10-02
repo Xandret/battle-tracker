@@ -32,3 +32,4 @@ game/Assets/_Shots.meta
 # Unity пишет .meta в локальный пакет движка; на них ничего не ссылается (сборки берут BattleCore по имени)
 core/Package/*.meta
 core/Package/**/*.meta
+game/Saves/

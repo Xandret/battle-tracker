@@ -3,6 +3,7 @@
 // Повторяет сцены полигона, чтобы картинки можно было сравнить; меняются сцены полигона — меняем и здесь.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BattleCore;
 
 namespace Journal.Viewer
@@ -16,6 +17,8 @@ namespace Journal.Viewer
         public readonly List<(Mover M, MoveOrder O)> Units = new List<(Mover, MoveOrder)>();
         public readonly Dictionary<Mover, string> Tpl = new Dictionary<Mover, string>();
         public Action<int> Before;                               // перед ходом i (с нуля): приказы между ходами
+        public byte[] Image;                                     // картинка карты вместо земли по клеткам (сохранение трекера)
+        public readonly Dictionary<Mover, string> Color = new Dictionary<Mover, string>();   // цвет отряда (#rrggbb); нет — оттенок стороны
 
         static Rules R => Rules.Base;
         public static Geo Open(double w, double h, string fill = "field")
@@ -54,7 +57,9 @@ namespace Journal.Viewer
         static Battle NewBattle(Geo geo, uint seed) => new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next });
 
         // Имена — для списка в смотрелке; сцена строится заново при каждом выборе (в фоне, не в кадре)
-        public static readonly (string Name, Func<SceneDef> Make)[] All =
+        public static readonly (string Name, Func<SceneDef> Make)[] All = Builtin()
+            .Concat(SaveScene.Find().Select(f => (SaveScene.Label(f), (Func<SceneDef>)(() => SaveScene.Make(f))))).ToArray();
+        static (string Name, Func<SceneDef> Make)[] Builtin() => new (string, Func<SceneDef>)[]
         {
             ("Бой: стрельба", Shoot),
             ("Бой: натиск и стычки", Hit),

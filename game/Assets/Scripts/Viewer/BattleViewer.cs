@@ -40,6 +40,7 @@ namespace Journal.Viewer
         Material mat;
         GameObject groundGo; Mesh unitsMesh;
         Color32[] unitCol, unitColRaw;   // цвет стороны: для плашек (в линейном пространстве) и для шейдера бойцов (как есть)
+        Color32[] unitEdge;              // обводка плашки: тёмная у светлых цветов, светлая у тёмных — чтобы отряд читался на любой земле
         MenView menView;
         const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — плашки
         readonly List<Rect> uiRects = new List<Rect>();
@@ -247,6 +248,20 @@ namespace Journal.Viewer
             palTex.SetPixels32(pc); palTex.Apply(false, true);
             groundGo = new GameObject("Земля");
             float W = (float)rec.W, H = (float)rec.H;
+            Material gm;
+            if (rec.Image != null)
+            {
+                // карта из сохранения трекера — картинкой (sRGB, сглаженная, с мипами)
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
+                tex.LoadImage(rec.Image);
+                gm = new Material(Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default") ?? Shader.Find("Sprites/Default")) { mainTexture = tex };
+            }
+            else
+            {
+                gm = new Material(Shader.Find("Journal/Ground"));
+                gm.SetTexture("_Cells", cells); gm.SetTexture("_Pal", palTex);
+                gm.SetVector("_Info", new Vector4(m.W, m.H, (float)(rec.W / m.W), 1));
+            }
             var mesh = new Mesh
             {
                 vertices = new[] { new Vector3(0, -H, 1), new Vector3(W, -H, 1), new Vector3(W, 0, 1), new Vector3(0, 0, 1) },
@@ -254,18 +269,31 @@ namespace Journal.Viewer
                 triangles = new[] { 0, 2, 1, 0, 3, 2 },
             };
             groundGo.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var gm = new Material(Shader.Find("Journal/Ground"));
-            gm.SetTexture("_Cells", cells); gm.SetTexture("_Pal", palTex);
-            gm.SetVector("_Info", new Vector4(m.W, m.H, (float)(rec.W / m.W), 1));
             var r = groundGo.AddComponent<MeshRenderer>(); r.sharedMaterial = gm; r.sortingOrder = 0;
             // цвет отряда: оттенок стороны по порядку внутри фракции
             unitCol = new Color32[rec.Units.Count]; unitColRaw = new Color32[rec.Units.Count];
             var seen = new Dictionary<int, int>();
             for (int i = 0; i < rec.Units.Count; i++)
             {
-                int f = rec.Units[i].Faction; seen.TryGetValue(f, out int k); seen[f] = k + 1;
+                var info = rec.Units[i];
+                if (info.Color != null)
+                {
+                    // цвет фракции из сохранения; отряды одного цвета — чуть светлее/темнее по порядку
+                    seen.TryGetValue(info.Color.GetHashCode(), out int j); seen[info.Color.GetHashCode()] = j + 1;
+                    Color.RGBToHSV(Hex(info.Color), out float hh, out float ss, out float vv);
+                    unitColRaw[i] = Color.HSVToRGB(hh, ss, Mathf.Clamp01(vv * (1 - 0.07f * (j % 4)) + (vv < 0.15f ? 0.05f * (j % 4) : 0)));
+                    unitCol[i] = Lin(unitColRaw[i]);
+                    continue;
+                }
+                int f = info.Faction; seen.TryGetValue(f, out int k); seen[f] = k + 1;
                 var pal = Side.TryGetValue(f, out var p) ? p : Side[1];
                 unitColRaw[i] = Hex(pal[k % pal.Length]); unitCol[i] = Lin(unitColRaw[i]);
+            }
+            unitEdge = new Color32[rec.Units.Count];
+            for (int i = 0; i < rec.Units.Count; i++)
+            {
+                var c = unitColRaw[i]; float lum = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+                unitEdge[i] = Lin(lum < 110 ? new Color32(232, 226, 210, 190) : new Color32(16, 13, 10, 170));
             }
             menView?.SetRecording(rec);
         }
@@ -302,21 +330,25 @@ namespace Journal.Viewer
             var blood = Lin(new Color32(110, 22, 18, 255));
             foreach (var dd in rec.Dead) if (dd.Frame <= f0) Quad(dd.X, dd.Y, 0.9f, 1.6f, dd.Dir + 90, blood);   // удар (угол на карте) → курс: +90°
             var A = rec.Frames[f0]; var B = rec.Frames[f1];
+            float edge = 1.5f / ppm;   // обводка ~1,5 px
             for (int u = 0; u < A.Length; u++)
             {
                 var a = A[u]; var b = B[u]; var info = rec.Units[u];
                 if (rec.StateAt(u, f0) == 2) continue;   // ушёл с поля
-                var col = unitCol[u];
+                var col = unitCol[u]; var ec = unitEdge[u];
                 float h0 = a[2], dh = Mathf.DeltaAngle(a[2], b[2]);
-                for (int k = 0; 5 + 2 * k < a.Length; k++)
-                {
-                    float x = a[4 + 2 * k], y = a[5 + 2 * k];
-                    if (float.IsNaN(x)) continue;
-                    if (5 + 2 * k < b.Length && !float.IsNaN(b[4 + 2 * k])) { x += (b[4 + 2 * k] - x) * q; y += (b[5 + 2 * k] - y) * q; }
-                    float head = rec.Heads[f0].TryGetValue(u * 65536 + k, out var hd) ? hd : h0 + dh * q;
-                    var fig = k < info.Figs.Count ? info.Figs[k] : info.Figs[0];
-                    Quad(x, y, (float)fig[0], (float)fig[1], head, col);
-                }
+                // два прохода: сначала обводки всех тел отряда, потом заливки — иначе между соседними телами видны швы
+                for (int pass = 0; pass < 2; pass++)
+                    for (int k = 0; 5 + 2 * k < a.Length; k++)
+                    {
+                        float x = a[4 + 2 * k], y = a[5 + 2 * k];
+                        if (float.IsNaN(x)) continue;
+                        if (5 + 2 * k < b.Length && !float.IsNaN(b[4 + 2 * k])) { x += (b[4 + 2 * k] - x) * q; y += (b[5 + 2 * k] - y) * q; }
+                        float head = rec.Heads[f0].TryGetValue(u * 65536 + k, out var hd) ? hd : h0 + dh * q;
+                        var fig = k < info.Figs.Count ? info.Figs[k] : info.Figs[0];
+                        float e = pass == 0 ? 2 * edge : 0;
+                        Quad(x, y, (float)fig[0] + e, (float)fig[1] + e, head, pass == 0 ? ec : col);
+                    }
             }
             // стрелы в полёте — по прямой между вылетом и концом (дуга и тень — на шаге облика)
             var ink = Lin(new Color32(30, 24, 18, 255));
