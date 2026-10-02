@@ -232,12 +232,106 @@ static class MenBodyTests
             True(fallen.Count > 0 && near >= 0.9 * fallen.Count, $"у врага пали {near} из {fallen.Count}");
         });
 
-        yield return ("Б2 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме охвата, бегства и «сплотить» (Б3)", () =>
+        // ── Г94 (Алекс): бойцы разворачиваются, а не едут задом ──
+        // отступление (Г81) на battle: курс тела каждого бойца по шагам, сколько шли задом
+        (double maxBack, double maxTurn, double turnedBack, double faceEnd) Retreat(string tpl)
         {
-            // не догнали фигурки ещё в Б1 (те же 6 провалов были до Б2): охват — колонны идут к местам у врага дольше
-            // фигурок (стена бойцов, а не касание на 5 м); бегство и «сплотить» — Б3 (бегство вразброс)
-            var gaps = new[] { "охват (Г68): рыцари на пехоту в упор", "охват (Г68, Г63): пехота во фланг", "охват (Г68): враг разбит",
-                               "бегство (Г70, Г71)", "сплотить (Г72)" };
+            var bt = new Battle(MoveTests.Open(800, 800), RB, new EngineContext { Rng = new Mulberry32(5).Next });
+            var t = Templates.Get(tpl);
+            var m = bt.Add(t.Make(1, t.Name, 300, 1), 400, 300, 180);   // смотрит вниз (+y), отступает вверх
+            bt.Order(m, new MoveOrder { Kind = OrderKind.Retreat, X = double.NaN, Y = double.NaN });   // точки нет — прямо назад (Г81)
+            var was = m.Men.ToDictionary(x => x, x => x.Facing);
+            var win = m.Men.ToDictionary(x => x, x => (x.X, x.Y, x.Facing));
+            double maxBack = 0, maxTurn = 0; int turned = 0, samples = 0;
+            int frame = 0; const int W = 10;   // ход назад — смещением за W шагов (0,5 с): толчки соседей в толпе — толкотня, не ход
+            for (int turn = 0; turn < 2; turn++)
+                bt.Turn(_ =>
+                {
+                    frame++;
+                    foreach (var x in m.Men)
+                    {
+                        if (!x.Alive) continue;
+                        if (was.TryGetValue(x, out var f0)) maxTurn = Math.Max(maxTurn, Math.Abs(MoveSim.AngleDiff(f0, x.Facing)));
+                        was[x] = x.Facing;
+                        samples++;
+                        if (Math.Abs(MoveSim.AngleDiff(x.Facing, 0)) < 45) turned++;   // смотрит туда, куда отступают
+                        if (frame % W != 0) continue;
+                        var w = win[x];
+                        if (frame > W)   // первые полсекунды тела оседают после расстановки
+                        {
+                            double a0 = w.Facing * Math.PI / 180, a1 = x.Facing * Math.PI / 180;
+                            double fx = Math.Sin(a0) + Math.Sin(a1), fy = -Math.Cos(a0) - Math.Cos(a1), fl = Math.Max(1e-9, Math.Sqrt(fx * fx + fy * fy));
+                            maxBack = Math.Max(maxBack, -((x.X - w.X) * fx + (x.Y - w.Y) * fy) / fl / (W * RB.Move.Dt));
+                        }
+                        win[x] = (x.X, x.Y, x.Facing);
+                    }
+                });
+            double faceEnd = m.Men.Where(x => x.Alive).Max(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)));
+            return (maxBack, maxTurn, turned / (double)samples, faceEnd);
+        }
+
+        yield return ("Г94: конница не едет задом — разворачивается, отъезжает и на месте снова смотрит на врага", () =>
+        {
+            var (back, turn, turnedBack, faceEnd) = Retreat("knights");
+            True(back <= RB.Men.HorseBackMps + 0.3, $"конь пятился со скоростью {back:0.00} м/с (за 0,5 с)");
+            True(turnedBack > 0.3, $"развернулись по ходу в {turnedBack:P0} кадров");
+            True(turn <= RB.Men.HorseTurnDegPerSec * RB.Move.Dt + 1e-6, $"курс повернулся за шаг на {turn:0.0}°");
+            True(faceEnd < 30, $"на месте курс отличается от строя на {faceEnd:0}°");
+        });
+
+        yield return ("Г94 (Г81): пехота при отступлении пятится лицом к врагу, курс не прыгает", () =>
+        {
+            var (back, turn, turnedBack, faceEnd) = Retreat("infantry");
+            True(turnedBack < 0.05, $"повернулись спиной к врагу в {turnedBack:P0} кадров");
+            True(back > 0.5, $"пятились со скоростью {back:0.00} м/с");
+            True(turn <= RB.Men.FootTurnDegPerSec * RB.Move.Dt + 1e-6, $"курс повернулся за шаг на {turn:0.0}°");
+            True(faceEnd < 30, $"на месте курс отличается от строя на {faceEnd:0}°");
+        });
+
+        yield return ("Г94: в бою — курс тела не прыгает; кони вне схватки задом не ходят (охват рыцарей)", () =>
+        {
+            var (bt, a, b) = Duel(RB, "knights", "infantry", 301);
+            var was = new Dictionary<Man, double>();
+            var win = new Dictionary<Man, (double X, double Y, double F, bool Foe, bool Near, bool Fight)>();
+            double worstTurn = 0; int frame = 0, backN = 0, horseN = 0; const int W = 10;
+            bt.Turn(_ =>
+            {
+                frame++;
+                // враги рядом (клетки 3 м): давку у врага (толкают пехотинцы на выпадах) — в натиск телами (Г90, Б3)
+                var near = new HashSet<(int, int)>();
+                if (frame % W == 0) foreach (var y in b.Men) if (y.Alive) near.Add(((int)Math.Floor(y.X / 3), (int)Math.Floor(y.Y / 3)));
+                bool Close(Man x) { int cx = (int)Math.Floor(x.X / 3), cy = (int)Math.Floor(x.Y / 3); for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) if (near.Contains((cx + i, cy + j))) return true; return false; }
+                foreach (var m in new[] { a, b })
+                {
+                    bool horse = BattleMap.IsHorse(m.P.U);
+                    double lim = (horse ? RB.Men.HorseTurnDegPerSec : RB.Men.FootTurnDegPerSec) * RB.Move.Dt;
+                    foreach (var x in m.Men)
+                    {
+                        if (!x.Alive) continue;
+                        if (was.TryGetValue(x, out var f0)) worstTurn = Math.Max(worstTurn, Math.Abs(MoveSim.AngleDiff(f0, x.Facing)) / lim);
+                        was[x] = x.Facing;
+                        if (!horse || frame % W != 0) continue;
+                        // конь без противника за 0,5 с ушёл назад быстрее 1 м/с — пятился (толкотня в давке — не в счёт: она туда-сюда)
+                        // вне схватки: ни сам, ни его колонна не бьётся, врага ближе 3 м нет (давка — в натиск телами, Г90)
+                        if (win.TryGetValue(x, out var w) && !w.Foe && x.Foe == null && !w.Near && !Close(x) && !w.Fight && !x.Fig.Fighting)
+                        {
+                            double a0 = w.F * Math.PI / 180;
+                            double back = -((x.X - w.X) * Math.Sin(a0) - (x.Y - w.Y) * Math.Cos(a0)) / (W * RB.Move.Dt);
+                            horseN++; if (back > 1.0) backN++;
+                        }
+                        win[x] = (x.X, x.Y, x.Facing, x.Foe != null, Close(x), x.Fig.Fighting);
+                    }
+                }
+            });
+            True(worstTurn <= 1 + 1e-6, $"курс повернулся быстрее предела в {worstTurn:0.00} раза");
+            True(horseN > 1000 && backN <= 0.01 * horseN, $"кони вне схватки пятились быстрее 1 м/с в {backN} окнах по 0,5 с из {horseN}");
+        });
+
+        yield return ("Б3 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме удара пехоты во фланг пехоте", () =>
+        {
+            // пехота во фланг: колонны атакующего огибают врага дольше фигурок (касание бойцов, а не на 5 м) — за ход атакованный
+            // теряет 166 при пороге 70% стола = 178
+            var gaps = new[] { "охват (Г68, Г63): пехота во фланг" };
             // долгие сверки — отдельно: полный контакт — тест выше (против фигурок), стрельба бойцами не менялась (Б2 — рукопашная)
             var slow = new[] { "бой (Г62): полный контакт", "стрельба (Г65, Г75)", "стрельба (Г65): без приказа", "упреждение (Г66)",
                                "бегство: одно зерно", "бой: одно зерно" };

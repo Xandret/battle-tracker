@@ -563,7 +563,9 @@ namespace BattleCore
             for (int k = m.Figs.Count - 1; k >= 0; k--)
             {
                 var s = m.Figs[k];
-                if (!(s.X < e || s.Y < e || s.X > Geo.W - e || s.Y > Geo.H - e)) continue;
+                // у бойцов-тел колонна там, где её якорь: середина бойцов отстаёт от него на полколонны и края не достаёт
+                double px = MenMode ? s.AX : s.X, py = MenMode ? s.AY : s.Y;
+                if (!(px < e || py < e || px > Geo.W - e || py > Geo.H - e)) continue;
                 m.LeftMen += (int)m.P.Figs[k].Men; m.LaidMen -= (int)m.P.Figs[k].Men; left++;
                 m.Men.RemoveAll(x => x.Fig == s); m.MenVersion++;
                 m.Figs.RemoveAt(k); m.P.Figs.RemoveAt(k);
@@ -583,6 +585,9 @@ namespace BattleCore
             if (melee > 0) MeleeDeaths(m, melee);
             m.LaidMen = n;
             int keep = n <= 0 ? 0 : (int)Math.Ceiling(n / MenPerFigure);
+            // Б3: у бойцов-тел колонна вмещает не MenPerFigure, а сколько её раскладка (пехота — 8): иначе колонн остаётся мало,
+            // бойцы убранных набиваются в оставшиеся, и хвост колонны тянется назад к врагу
+            if (MenMode && n > 0 && m.P.Figs.Count > 0) keep = (int)Math.Ceiling(n / Math.Max(1, m.P.Figs.Average(f => f.Men)));
             var foes = Movers.Where(e => e != m && OnField(e) && Enemies(m.P.U, e.P.U)).ToList();
             double Danger(FigState s) => foes.Count == 0 ? 0 : -foes.Min(e => JsMath.Hypot(e.P.X - s.X, e.P.Y - s.Y));
             while (m.Figs.Count > keep)
@@ -853,7 +858,9 @@ namespace BattleCore
                     if (was.Contains(s)) s.Returning = true;
                     if (!s.Returning) continue;
                     m.P.ToWorld(m.P.Figs[k].X, m.P.Figs[k].Y, out var sx, out var sy);
-                    if (JsMath.Hypot(s.X - sx, s.Y - sy) < ReturnedM) s.Returning = false;
+                    // у бойцов-тел место держит якорь (середина неполной колонны смещена)
+                    double px = MenMode ? s.AX : s.X, py = MenMode ? s.AY : s.Y;
+                    if (JsMath.Hypot(px - sx, py - sy) < ReturnedM) s.Returning = false;
                 }
         }
         const double ReturnedM = 1;   // дошла до своего места в строю — снова твёрдая для своих

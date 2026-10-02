@@ -55,7 +55,10 @@ namespace BattleCore
         // Б1 (MenBodies): якорь колонны — где она хочет быть (её ведут Desire и FleeDesire); X, Y — середина её живых бойцов
         public double AX, AY, AVx, AVy;
         public int MenN;   // живых бойцов в колонне на прошлом шаге (Б1)
-        public double MLx, MLy;   // Б1: средний сдвиг мест живых бойцов от якоря (оси колонны) — колонна после потерь несимметрична
+        // Б1: где был бы якорь по бойцам (каждый: где стоит минус сдвиг его места); пересаживающийся (В14) не упёрся, а идёт
+        // шагом — он за нынешнее место якоря. RefN — сколько бойцов
+        public double RefX, RefY; public int RefN;
+        public double GoalM;      // Б3: сколько якорю до места (в строю или в охвате) — далёкая колонна перестраивается сквозь своих
     }
 
     public sealed class Mover
@@ -425,7 +428,7 @@ namespace BattleCore
                     if (next >= 0) { var c = F.CenterOf(next); double ex = c.x - px, ey = c.y - py, el = JsMath.Hypot(ex, ey); if (el > 1e-9) { hx = ex / el; hy = ey / el; } }
                 }
                 double a = (h2 * 2 - 1) * M.FleeSpreadDeg * Math.PI / 180, ca = Math.Cos(a), sa = Math.Sin(a);
-                s.Dvx = (hx * ca - hy * sa) * vmax; s.Dvy = (hx * sa + hy * ca) * vmax; s.Vmax = vmax;
+                s.Dvx = (hx * ca - hy * sa) * vmax; s.Dvy = (hx * sa + hy * ca) * vmax; s.Vmax = vmax; s.GoalM = 0;
             }
         }
         // Детерминированная «случайность» для вида толпы: не трогает генератор боя (исход не зависит от рисунка)
@@ -481,7 +484,7 @@ namespace BattleCore
                 }
                 double dv = JsMath.Hypot(dvx, dvy);
                 if (dv > vmax) { dvx *= vmax / dv; dvy *= vmax / dv; }
-                s.Dvx = dvx; s.Dvy = dvy; s.Vmax = vmax;
+                s.Dvx = dvx; s.Dvy = dvy; s.Vmax = vmax; s.GoalM = JsMath.Hypot(gx - px, gy - py);
             }
         }
         public static bool Free(FlowField f, double x, double y) => f.Inside(x, y) && f.Passable(f.CellOf(x, y));
@@ -629,7 +632,10 @@ namespace BattleCore
             var P = m.P; int n = P.Figs.Count;
             if (n < 2) return;
             var slot = Slots(P);
-            double D(int fig, int sl) => JsMath.Hypot(m.Figs[fig].X - slot[sl].x, m.Figs[fig].Y - slot[sl].y);
+            // у бойцов-тел (Б1) колонна там, где якорь: середина неполной колонны смещена, и обмены по ней выходят ложными —
+            // колонны гоняются за меняющимися местами
+            bool mb = r.Move.MenBodies;
+            double D(int fig, int sl) { var f = m.Figs[fig]; return JsMath.Hypot((mb ? f.AX : f.X) - slot[sl].x, (mb ? f.AY : f.Y) - slot[sl].y); }
             // несколько проходов, пока находятся выгодные обмены: сумма расстояний только убывает — раскачки нет
             for (int pass = 0; pass < 4; pass++)
             {

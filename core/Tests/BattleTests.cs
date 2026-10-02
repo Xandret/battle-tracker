@@ -105,8 +105,9 @@ static class BattleTests
             var (bt, a, b) = Duel("militia", "guard", 40, 9);
             bt.Order(a, Attack(2));
             bt.Order(b, new MoveOrder { Kind = OrderKind.Hold });
-            bt.Turn();
-            var f = bt.Fights.Single();
+            Fight f = null;
+            bt.Turn(_ => f ??= bt.Fights.FirstOrDefault());   // схватку — в миг начала: к концу хода ополчение может уже бежать
+            True(f != null, "не сошлись");
             True(f.A == a, $"начал «{f.A.P.U.Name}», а атаковало ополчение");
         });
 
@@ -347,8 +348,10 @@ static class BattleTests
             double far = 0;
             for (int k = 0; k < a.Figs.Count; k++)
             {
+                // у бойцов-тел (Б1) место колонны держит якорь
+                var f = a.Figs[k]; double fx = R.Move.MenBodies ? f.AX : f.X, fy = R.Move.MenBodies ? f.AY : f.Y;
                 a.P.ToWorld(a.P.Figs[k].X, a.P.Figs[k].Y, out var sx, out var sy);
-                far = Math.Max(far, JsMath.Hypot(a.Figs[k].X - sx, a.Figs[k].Y - sy));
+                far = Math.Max(far, JsMath.Hypot(fx - sx, fy - sy));
             }
             True(a.Figs.All(s => !s.Wrap && !s.Turned && !s.Returning), "охват снят");
             True(far < 1, $"дальше всех от своего места — {far:0.0} м");
@@ -447,7 +450,12 @@ static class BattleTests
             for (int i = 0; i < 8 && far >= 3; i++)   // отбившиеся за строем врага подходят в обход, а то и прорубаясь, — до восьми ходов
             {
                 bt.Turn(); far = 0;
-                for (int k = 0; k < b.Figs.Count; k++) { b.P.ToWorld(b.P.Figs[k].X, b.P.Figs[k].Y, out var sx, out var sy); far = Math.Max(far, JsMath.Hypot(b.Figs[k].X - sx, b.Figs[k].Y - sy)); }
+                for (int k = 0; k < b.Figs.Count; k++)
+                {
+                    // у бойцов-тел (Б1) место колонны держит якорь; середина бойцов неполной колонны смещена вперёд
+                    var f = b.Figs[k]; double fx = R.Move.MenBodies ? f.AX : f.X, fy = R.Move.MenBodies ? f.AY : f.Y;
+                    b.P.ToWorld(b.P.Figs[k].X, b.P.Figs[k].Y, out var sx, out var sy); far = Math.Max(far, JsMath.Hypot(fx - sx, fy - sy));
+                }
             }
             True(far < 3 && b.Order.Kind == OrderKind.Hold, $"строй собран: дальше всех от места {far:0.0} м");
         });
