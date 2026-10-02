@@ -277,6 +277,7 @@ Test("баллистика сверх стола: вблизи смертоно�
 });
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
+if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "jumps") { var all = Polygon.Jumps(); Console.WriteLine($"прыжков {all.Count}"); foreach (var l in all.Take(20)) Console.WriteLine("  " + l); return 0; }
 foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Test(name, run);
 
@@ -289,6 +290,8 @@ foreach (var (name, run) in BattleTests.All()) Test(name, run);
 foreach (var (name, run) in LookTests.All()) Test(name, run);
 // ── живые бойцы (Г75–Г78), см. MenTests.cs ──
 foreach (var (name, run) in MenTests.All()) Test(name, run);
+// ── приказы и ход (И2, Г79–Г81), см. OrdersTests.cs ──
+foreach (var (name, run) in OrdersTests.All()) Test(name, run);
 Test("тела не прыгают: ни тело, ни фигурка в кадре полигона не сдвигается за шаг дальше 45 м/с (мост, давка, бой с потерями)", () =>
 {
     var j = Polygon.Jumps("Река: брод и мост", "Бой: фланг и потери");
