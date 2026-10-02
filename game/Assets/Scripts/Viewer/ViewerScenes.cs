@@ -207,7 +207,7 @@ namespace Journal.Viewer
             }
             var sc = new SceneDef { Name = name, Turns = 2, Geo = SceneDef.Of(map),
                 Note = "В19. Укрепления из клеток карты: стены лентой 5 м с зубцами наружу, башни, ворота, " + (breach ? "пролом, " : "") + "тени по высоте — рисунок пробы build-flat.html." };
-            sc.Add("infantry", 1, "Гарнизон", cx, cy, Math.PI, cx, cy, Math.PI, faction: 1, men: 300);
+            sc.Add("infantry", 1, "Гарнизон", cx, cy + 24, Math.PI, cx, cy + 24, Math.PI, faction: 1, men: 300);   // во дворе, южнее донжона
             sc.Add("infantry", 2, "Штурм", cx, maxY + 90, 0, cx, maxY + 45, 0, faction: 2, men: 600);
             return sc;
         }
