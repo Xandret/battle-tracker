@@ -794,3 +794,155 @@
     top: 14px;
     font-size: 8px;
 }
+
+/* ── сводка хода справа ── */
+.sum-box {
+    margin-top: 2px;
+}
+
+.sum-side {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.sum-stripe {
+    width: 4px;
+    height: 14px;
+    margin-right: 6px;
+}
+
+.sum-stripe.side-1 {
+    background-color: var(--side1);
+}
+
+.sum-stripe.side-2 {
+    background-color: var(--side2);
+}
+
+.sum-side-name {
+    flex-grow: 1;
+    font-size: 13px;
+    -unity-font-style: bold;
+}
+
+.sum-loss {
+    font-size: 13px;
+    -unity-font-style: bold;
+    color: #e0806a;
+}
+
+.sum-sub {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-left: 10px;
+    white-space: normal;
+}
+
+.sum-hint {
+    font-size: 12px;
+    color: var(--ink-dim);
+    white-space: normal;
+}
+
+.sum-event {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 5px;
+    padding: 3px 4px;
+    border-left-width: 3px;
+    border-color: var(--edge-dark);
+    border-radius: 2px;
+}
+
+.sum-event:hover {
+    background-color: #3d3223;
+}
+
+.sum-event.side-1 {
+    border-color: var(--side1);
+}
+
+.sum-event.side-2 {
+    border-color: var(--side2);
+}
+
+.sum-icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+    color: var(--gold-bright);
+}
+
+.sum-text {
+    flex-shrink: 1;
+    font-size: 12px;
+    white-space: normal;
+}
+
+.sum-toggle {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--gold);
+}
+
+.sum-toggle:hover {
+    color: var(--gold-bright);
+}
+
+.sum-details {
+    max-height: 260px;
+    margin-top: 4px;
+}
+
+/* ── лента событий слева во время хода ── */
+.feed {
+    position: absolute;
+    left: 10px;
+    top: 50px;
+    width: 330px;
+}
+
+.feed-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+    padding: 5px 10px 5px 6px;
+    background-color: var(--panel);
+    border-left-width: 4px;
+    border-color: var(--edge);
+    border-radius: 3px;
+}
+
+.feed-row.side-1 {
+    border-color: var(--side1);
+}
+
+.feed-row.side-2 {
+    border-color: var(--side2);
+}
+
+.feed-icon {
+    width: 18px;
+    height: 18px;
+    margin-right: 7px;
+    color: var(--gold-bright);
+}
+
+.feed-text {
+    font-size: 13px;
+    -unity-font-style: bold;
+    white-space: normal;
+    flex-shrink: 1;
+}
+
+.log-panel.is-collapsed > .sum-box,
+.log-panel.is-collapsed > .sum-toggle,
+.log-panel.is-collapsed > .sum-details {
+    display: none;
+}
+
+.sum-loss.is-none {
+    color: var(--ink-dim);
+    -unity-font-style: normal;
+}

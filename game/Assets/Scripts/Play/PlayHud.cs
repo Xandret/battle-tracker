@@ -1,7 +1,8 @@
 // ═══════════ PlayHud.cs — панели игры (И2, Г80): как в Total War, а не отладочные окошки ═══════════
 // Сверху — ход, фаза, «Ход!», скорость показа, силы сторон; снизу — панель приказов с клавишами, вкладки сторон
 // и карточки отрядов (род войск, бойцы, потери, БД, приказ, состояние); слева — выбранный отряд и что выйдет из
-// приказа; справа — журнал хода; над отрядом под мышью — подсказка; над каждым отрядом — табличка (сторона, род войск,
+// приказа; справа — сводка хода (потери сторон и главные события, сырой журнал — под «Подробно»); слева во время хода —
+// лента событий («бежит!», «натиск!», «сошлись») по мере показа; над отрядом под мышью — подсказка; над каждым отрядом — табличка (сторона, род войск,
 // бойцы, имя), как в Iron Kings. Камера кадрирует бой в часть экрана, свободную от панелей. Разметка — PlayHud.uxml, облик — PlayHud.uss.
 using System.Collections.Generic;
 using System.Linq;
@@ -32,6 +33,8 @@ namespace Journal.Play
         readonly Dictionary<string, VisualElement> orderBtn = new Dictionary<string, VisualElement>();
         readonly Dictionary<Mover, Card> cards = new Dictionary<Mover, Card>();
         int cardsSide = -1, cardsCount = -1, logShown = -1;
+        VisualElement feed, summaryBox, detailsBox; Label detailsToggle; ScrollView detailsScroll;
+        int feedFrame = -1; readonly Dictionary<long, float> pairShown = new Dictionary<long, float>();
 
         sealed class Tag { public VisualElement Root; public Label Men, Name; public Icon Kind, State; }
         sealed class Card
@@ -68,6 +71,15 @@ namespace Journal.Play
             menuClose.clicked += () => menu.AddToClassList("hidden");
             ShowMenu();   // в начале — выбор битвы (под меню уже стоит учебное поле)
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
+            feed = root.Q("feed");
+            summaryBox = new VisualElement(); summaryBox.AddToClassList("sum-box"); logPanel.Add(summaryBox);
+            detailsToggle = new Label("Подробно ▸"); detailsToggle.AddToClassList("sum-toggle"); logPanel.Add(detailsToggle);
+            detailsScroll = new ScrollView(ScrollViewMode.Vertical); detailsScroll.AddToClassList("sum-details"); detailsScroll.AddToClassList("hidden"); logPanel.Add(detailsScroll);
+            detailsToggle.RegisterCallback<ClickEvent>(_ =>
+            {
+                bool open = detailsScroll.ClassListContains("hidden");
+                detailsScroll.EnableInClassList("hidden", !open); detailsToggle.text = open ? "Подробно ▾" : "Подробно ▸";
+            });
             BuildOrders();
             pc.SetUiPicker(OverUi);
             viewer = FindAnyObjectByType<Journal.Viewer.BattleViewer>();
@@ -156,6 +168,7 @@ namespace Journal.Play
             if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
             {
                 shownGame = pc.Game; tags.Clear(); tagOf.Clear(); sideTabs.Clear(); cardsCount = -1; logShown = -1;
+                feed.Clear(); feedFrame = -1; pairShown.Clear();
                 fittedFor = null; dockStable = 0; lastDockH = -1;
             }
             Frame();
@@ -179,6 +192,7 @@ namespace Journal.Play
             Orders();
             Tip();
             Log(s);
+            Feed();
             toast.EnableInClassList("hidden", Time.time > pc.ToastUntil || string.IsNullOrEmpty(pc.Toast));
             toastText.text = pc.Toast;
             over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over || !menu.ClassListContains("hidden"));
@@ -458,17 +472,109 @@ namespace Journal.Play
             return t;
         }
 
+        // ── сводка хода справа: потери сторон, главные события (щелчок — камера к отряду), сырой журнал — под «Подробно» ──
         void Log(BattleSession s)
         {
-            if (logShown == s.Logs.Count) return;
-            logShown = s.Logs.Count;
-            foreach (var l in logPanel.Query<Label>(className: "log-line").ToList()) l.RemoveFromHierarchy();
-            if (s.Logs.Count == 0) { logTitle.text = "Журнал — пока пуст"; return; }
-            logTitle.text = $"Журнал · ход {s.Logs.Count}";
-            foreach (var line in s.Logs[s.Logs.Count - 1].Take(14))
+            int key = pc.Summaries.Count * 1000 + s.Logs.Count;
+            if (logShown == key) return;
+            logShown = key;
+            summaryBox.Clear(); detailsScroll.Clear();
+            var sum = pc.LastSummary;
+            detailsToggle.EnableInClassList("hidden", s.Logs.Count == 0);
+            if (sum == null) { logTitle.text = "Итогов пока нет"; summaryBox.Add(Line("Отдайте приказы и жмите «Ход!» — здесь будут потери и главные события хода.", "sum-hint")); return; }
+            logTitle.text = $"Итоги хода {sum.Turn}";
+            foreach (var side in s.Sides)
             {
-                var l = new Label(line); l.AddToClassList("log-line"); logPanel.Add(l);
+                if (!sum.Sides.TryGetValue(side, out var v)) continue;
+                var row = new VisualElement(); row.AddToClassList("sum-side");
+                var stripe = new VisualElement(); stripe.AddToClassList("sum-stripe"); stripe.AddToClassList("side-" + side); row.Add(stripe);
+                var name = new Label(s.Name(side)); name.AddToClassList("sum-side-name"); row.Add(name);
+                var loss = new Label(v.lost >= 1 ? $"−{v.lost:0}" : "без потерь"); loss.AddToClassList("sum-loss"); loss.EnableInClassList("is-none", v.lost < 1); row.Add(loss);
+                summaryBox.Add(row);
+                // убитых и раненых стол пишет, когда окно удара закрылось; схватка идёт дальше — часть выбывших ещё без итога
+                double open = v.lost - v.killed - v.wounded;
+                if (v.lost >= 1) summaryBox.Add(Line($"убито {v.killed:0} · ранено {v.wounded:0}" + (open >= 1 ? $" · {open:0} — итог после схватки" : "") + $" · в строю {v.now:0}", "sum-sub"));
+                else summaryBox.Add(Line($"в строю {v.now:0}", "sum-sub"));
             }
+            int shown = 0;
+            foreach (var e in sum.Events)
+            {
+                if (shown++ >= 6) break;
+                var row = new VisualElement(); row.AddToClassList("sum-event"); row.AddToClassList("side-" + e.Side);
+                var ic = new Icon(e.Icon); ic.AddToClassList("sum-icon"); row.Add(ic);
+                var t = new Label(e.Text); t.AddToClassList("sum-text"); row.Add(t);
+                var m = e.Unit;
+                if (m != null) { row.RegisterCallback<ClickEvent>(_ => { pc.FocusOn(m); pc.Select(m); }); row.tooltip = "Показать отряд"; }
+                summaryBox.Add(row);
+            }
+            if (sum.Events.Count == 0) summaryBox.Add(Line("Ход прошёл без боя: отряды шли и стояли.", "sum-hint"));
+            if (sum.Arrows > 0) summaryBox.Add(Line($"Стрел за ход: {sum.Arrows}, выбыло от них: {sum.ArrowHits}", "sum-sub"));
+            if (s.Logs.Count > 0) foreach (var line in s.Logs[s.Logs.Count - 1]) detailsScroll.Add(Line(line, "log-line"));
+        }
+        static Label Line(string text, string cls) { var l = new Label(text); l.AddToClassList(cls); return l; }
+
+        // ── лента событий во время хода: по мере показа — бегство, сплочение, уход, новые схватки и натиск ──
+        void Feed()
+        {
+            // отжившие — гаснут и уходят
+            foreach (var it in feed.Children().ToList())
+            {
+                float born = (float)it.userData, age = Time.time - born;
+                if (age > 6) it.RemoveFromHierarchy();
+                else it.style.opacity = Mathf.Clamp01((6 - age) / 1.2f);
+            }
+            var rec = viewer?.Rec;
+            if (rec == null || rec.Frames.Count == 0) return;
+            int frame = Mathf.Clamp((int)System.Math.Floor(viewer.T / rec.Dt), 0, rec.Frames.Count - 1);
+            if (feedFrame < 0 || pc.Phase != PlayPhase.Showing) { feedFrame = frame; return; }
+            var movers = pc.Battle.Movers;
+            for (int f = feedFrame + 1; f <= frame; f++)
+            {
+                for (int ui = 0; ui < rec.Units.Count && ui < movers.Count; ui++)
+                {
+                    var L = rec.States?[ui]; if (L == null) continue;
+                    for (int i = 0; i < L.Count; i += 2)
+                    {
+                        if (L[i] != f) continue;
+                        var m = movers[ui]; string n = $"«{m.P.U.Name}»";
+                        switch (L[i + 1])
+                        {
+                            case 1: Toast("flee", $"{n} бежит!", m); break;
+                            case 2: Toast("gone", $"{n} ушёл с поля", m); break;
+                            case 3: Toast("rally", $"{n}: сплачивают", m); break;
+                            case 4: Toast("rally", $"{n} сплотился!", m); break;
+                        }
+                    }
+                }
+                if (f < rec.Fights.Count)
+                {
+                    var now = rec.Fights[f]; var before = f > 0 ? rec.Fights[f - 1] : System.Array.Empty<int>();
+                    for (int q = 0; q + 1 < now.Length; q += 2)
+                    {
+                        int a = now[q], b = now[q + 1];
+                        bool was = false; for (int k = 0; k + 1 < before.Length && !was; k += 2) was = before[k] == a && before[k + 1] == b;
+                        long key = (long)Mathf.Min(a, b) << 32 | (uint)Mathf.Max(a, b);
+                        if (was || (pairShown.TryGetValue(key, out var tShown) && (float)viewer.T - tShown < 10)) continue;
+                        pairShown[key] = (float)viewer.T;
+                        if (a >= movers.Count || b >= movers.Count) continue;
+                        var A = movers[a]; var B = movers[b];
+                        var fight = pc.Battle.Fights.FirstOrDefault(x => x.A == A && x.B == B || x.A == B && x.B == A);
+                        bool charge = fight != null && fight.Notes.Any(x => x.StartsWith("натиск «"));
+                        Toast(charge ? "charge" : "fight", charge ? $"Натиск «{fight.A.P.U.Name}» на «{fight.B.P.U.Name}»!" : $"«{A.P.U.Name}» и «{B.P.U.Name}» сошлись", fight?.A ?? A);
+                    }
+                }
+            }
+            feedFrame = frame;
+        }
+        void Toast(string icon, string text, Mover m)
+        {
+            var row = new VisualElement(); row.AddToClassList("feed-row"); row.AddToClassList("side-" + PlayController.SideOf(m));
+            var ic = new Icon(icon); ic.AddToClassList("feed-icon"); row.Add(ic);
+            var t = new Label(text); t.AddToClassList("feed-text"); row.Add(t);
+            row.userData = Time.time;
+            row.RegisterCallback<ClickEvent>(_ => pc.FocusOn(m));
+            feed.Insert(0, row);
+            while (feed.childCount > 5) feed.RemoveAt(feed.childCount - 1);
         }
     }
 }

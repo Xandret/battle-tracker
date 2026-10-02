@@ -33,6 +33,8 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
+        <ui:VisualElement name="feed" class="feed" picking-mode="Ignore" />
+
         <ui:VisualElement name="logPanel" class="log-panel panel">
             <ui:Label name="logTitle" text="Журнал" class="log-title" />
         </ui:VisualElement>
