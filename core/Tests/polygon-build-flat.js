@@ -133,7 +133,8 @@ function bWalk(pts, step, start, cb){
 // боевой ход из плит ~3,8 м (7 бойцов в ряд); изнутри — низкий парапет 0,4 м. Бруствер и парапет бросают тень на ход,
 // если солнце с их стороны. Высота стены h (9 м) — в длинной мягкой тени. stairs: [{s, len, dir}] — марши во двор вдоль
 // внутренней стороны: с какого метра ломаной, длина, куда спуск (+1 — по ходу ломаной). outer = +1 — зубцы слева
-// по ходу ломаной, −1 — справа. Зубцы 0,8 м через 1,45 м: проём бойницы 0,65 м — в него ставят лестницу и через
+// по ходу ломаной, −1 — справа. o.flat — без теней (выгрузка ленты для Unity: там тени свои); o.slab — шаг плит хода.
+// Зубцы 0,8 м через 1,45 м: проём бойницы 0,65 м — в него ставят лестницу и через
 // него перелезают. Возвращает {crenels: [{x, y, tx, ty, nx, ny}]} — середины проёмов на наружном краю, n — наружу.
 const B_WALK = "#cdc5b4", B_SILL = "#8a8170";
 function bWall(g, pts, o = {}){
@@ -141,19 +142,20 @@ function bWall(g, pts, o = {}){
   const band = bBand(pts, w);
   const off = d => { if(Math.abs(d) < 1e-6) return pts.map(p => p.slice()); const b = bBand(pts, 2 * Math.abs(d)); return (d > 0) === (side > 0) ? b.L : b.R; };
   const strip = (d0, d1) => off(d0).concat(off(d1).reverse());
-  bShadow(g, () => bPoly(g, band.poly), h, 0.42);
+  if(!o.flat) bShadow(g, () => bPoly(g, band.poly), h, 0.42);
   for(const st of o.stairs || []) bStairs(g, pts, st, w, side, h, seed + 40);
   bPoly(g, band.poly); g.fillStyle = B_WALK; g.fill(); bGrain(g, 0.45);
   g.save(); bPoly(g, band.poly); g.clip();
   // плиты хода: продольные швы и поперечные вразбежку
   const ww = w - PAR - INN, rows = Math.max(2, Math.round(ww / 0.95)), rw = ww / rows, segs = [];
   for(let r = 1; r < rows; r++){ const L = off(a - PAR - r * rw); for(let i = 0; i + 1 < L.length; i++) segs.push([L[i][0], L[i][1], L[i + 1][0], L[i + 1][1]]); }
+  const slab = o.slab ?? 1.15;
   for(let r = 0; r < rows; r++){ const d0 = a - PAR - r * rw, d1 = d0 - rw;
-    bWalk(pts, 1.15, 0.35 + 0.55 * (r % 2), (x, y, tx, ty) => { const nx = -ty * side, ny = tx * side; segs.push([x + nx * d0, y + ny * d0, x + nx * d1, y + ny * d1]); }); }
+    bWalk(pts, slab, (0.35 + 0.55 * (r % 2)) * slab / 1.15, (x, y, tx, ty) => { const nx = -ty * side, ny = tx * side; segs.push([x + nx * d0, y + ny * d0, x + nx * d1, y + ny * d1]); }); }
   bLines(g, segs, "rgba(96,86,70,.38)", 0.4);
   // тень бруствера (1,8 м над ходом) и парапета (1 м) на ход — по отрезкам, где солнце с их стороны
   g.beginPath();
-  for(let i = 0; i + 1 < pts.length; i++){
+  for(let i = 0; i + 1 < (o.flat ? 0 : pts.length); i++){
     const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], L = Math.hypot(x1 - x0, y1 - y0); if(L < 1e-6) continue;
     const tx = (x1 - x0) / L, ty = (y1 - y0) / L, nx = -ty * side, ny = tx * side, k = B_SUN[0] * nx + B_SUN[1] * ny;   // k > 0 — тени наружу
     const q = (d0, d1) => bSub(g, [[x0 + nx * d0, y0 + ny * d0], [x1 + nx * d0, y1 + ny * d0], [x1 + nx * d1, y1 + ny * d1], [x0 + nx * d1, y0 + ny * d1]]);

@@ -43,6 +43,7 @@ namespace Journal.Viewer
         Color32[] unitCol, unitColRaw;   // цвет стороны: для плашек (в линейном пространстве) и для шейдера бойцов (как есть)
         Color32[] unitEdge;              // обводка плашки: тёмная у светлых цветов, светлая у тёмных — чтобы отряд читался на любой земле
         MenView menView;
+        FortView fortView;               // укрепления из клеток карты (В19): стены, башни, ворота, проломы
         Banners banners;                 // знамёна над отрядами (Г7, В11) — и издали, и вблизи
         const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — плашки
         readonly List<Rect> uiRects = new List<Rect>();
@@ -100,6 +101,7 @@ namespace Journal.Viewer
             units.AddComponent<MeshFilter>().sharedMesh = unitsMesh;
             var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
             menView = new MenView(transform);
+            fortView = new FortView(transform);
             banners = new Banners(transform);
             MiniatureLook.Setup(cam);   // облик «миниатюры на столе» (В15)
         }
@@ -254,6 +256,22 @@ namespace Journal.Viewer
             var m = rec.Map;
             var cells = new Texture2D(m.W, m.H, TextureFormat.RGBA32, false, true) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
             var px = new Color32[m.W * m.H];
+            // под укреплениями (стена, ворота, башня, частокол, пролом) и домами — земля соседних клеток: их рисует FortView поверх,
+            // а земля не должна обводить клетки укреплений своим контуром
+            bool forts = fortView != null && fortView.Ok;
+            bool Fort(int k) => k == 12 || k == 13 || k == 14 || k == 15 || k == 18 || k == 20;   // и дома: крыши тоже рисует FortView
+            int Under(int x, int y)
+            {
+                var cnt = new Dictionary<int, int>(); int best = 1, bn = 0;
+                for (int r = 1; r <= 3 && bn == 0; r++)
+                    for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++)
+                        {
+                            int xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= m.W || yy >= m.H) continue;
+                            int k = m.T[yy * m.W + xx]; if (k == 0) k = 1; if (Fort(k)) continue;
+                            cnt.TryGetValue(k, out int c0); cnt[k] = ++c0; if (c0 > bn) { bn = c0; best = k; }
+                        }
+                return best;
+            }
             for (int y = 0; y < m.H; y++)
                 for (int x = 0; x < m.W; x++)
                 {
@@ -265,6 +283,7 @@ namespace Journal.Viewer
                             if (xx >= 0 && yy >= 0 && xx < m.W && yy < m.H) { sum += m.Z[yy * m.W + xx]; n++; }
                         }
                     int kind = m.T[i] == 0 ? 1 : m.T[i];
+                    if (forts && Fort(kind)) kind = Under(x, y);
                     px[i] = new Color32((byte)kind, (byte)Mathf.Min(255, m.Z[i] * 16), (byte)Mathf.Min(255, Mathf.RoundToInt(16f * sum / n)), 255);
                 }
             cells.SetPixels32(px); cells.Apply(false, true);
@@ -327,6 +346,7 @@ namespace Journal.Viewer
                 unitEdge[i] = Lin(lum < 110 ? new Color32(232, 226, 210, 190) : new Color32(16, 13, 10, 170));
             }
             menView?.SetRecording(rec);
+            fortView?.SetMap(rec.Map);
         }
 
         // ── отряды: тело — плашка ширина × глубина, повёрнутая по курсу; павшие — пятна; стрелы в полёте — чёрточки ──

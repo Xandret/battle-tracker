@@ -28,7 +28,7 @@
   // ── список частей: [атлас, имя, рамка в метрах, рисование] ──
   function parts(){
     const P = [];
-    const add = (atlas, name, box, paint, res = 1) => P.push({atlas, name, box, paint, res});   // res — доля разрешения атласа
+    const add = (atlas, name, box, paint, res = 1, noShadow = false) => P.push({atlas, name, box, paint: noShadow ? g => withoutShadow(paint, g) : paint, res});   // res — доля разрешения атласа
     if(typeof fBody === "function"){
       // ── бойцы ──
       for(const [key, k] of layouts()) add("men", "body/" + key, [-0.34, -0.18, 0.34, 0.15], g => fBody(g, k));
@@ -110,12 +110,65 @@
       for(let s = 0; s < 6; s++) add("nature", "bush/" + s, [-1.2, -1.2, 1.2, 1.2], g => crownUnit(g, s * 571 + 5, BUSH, 5));
       for(let s = 0; s < 6; s++) add("nature", "boulder/" + s, [-1.25, -1.25, 1.25, 1.25], g => boulder(g, 0, 0, 1, s * 313 + 9, 0.06));
     }
+    // ── постройки (страница build-flat.html, В19): башни, вышка, ворота, обломки, мягкая тень; Unity ставит их по клеткам
+    // карты (FortMap.cs). Каменная башня — радиусом 5 м (Unity растягивает под свой), ворота — проём 4,4 м сквозь стену 5 м
+    // (частокол — 1,2 м), проход вдоль y, наружу — вверх (−y)
+    if(typeof bWall === "function"){
+      for(const roof of ["slate", "tile", "open"]) add("build", "tower/stone/" + roof, [-5.7, -5.7, 5.7, 5.7], g => bTowerRound(g, 0, 0, 5, {seed: 7, roof: roof === "open" ? "open" : null, roofCol: B_ROOF[roof]}), 1, true);
+      add("build", "tower/wood", [-2.7, -2.7, 2.7, 2.7], g => bWoodTower(g, 0, 0, 4.6, {seed: 81}), 1, true);
+      for(const st of ["closed", "open", "broken"]){
+        add("build", "gate/stone/" + st, [-2.6, -2.9, 2.6, 2.9], g => bGate(g, 0, 0, 0, 4.4, 5, st, 11, -1.8));
+        add("build", "gate/wood/" + st, [-2.6, -2.5, 2.6, 2.5], g => bGate(g, 0, 0, 0, 4.4, 1.2, st, 13));
+      }
+      for(let i = 0; i < 3; i++) add("build", "rubble/" + i, [-4.2, -4.2, 4.2, 4.2], g => bRubble(g, 0, 0, 3.2, 41 + i * 7));
+      add("build", "shadow/disc", [-1.6, -1.6, 1.6, 1.6], g => { const gr = g.createRadialGradient(0, 0, 0.6, 0, 0, 1.6); gr.addColorStop(0, "rgba(0,0,0,1)"); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(-1.6, -1.6, 3.2, 3.2); });
+    }
     return P;
+  }
+  // ленты построек (повтор вдоль u): стена 5 м — 4 зубца (5,8 м) на 60 px/м, наружу — вверх; частокол — 12 брёвен (5,76 м)
+  async function exportTiles(){
+    const tile = (len, ppm, y0, y1, paint) => { const c = document.createElement("canvas"); c.width = Math.round(len * ppm); c.height = Math.round((y1 - y0) * ppm);
+      const g = c.getContext("2d"); g.scale(ppm, ppm); g.translate(0, -y0); g.lineJoin = "round"; g.lineCap = "round"; paint(g); return c; };
+    const out = [];
+    for(const [name, c] of [
+      ["wall_tile", tile(5.8, 60, -2.85, 2.85, g => bWall(g, [[-11.6, 0], [17.4, 0]], {outer: -1, seed: 9, flat: true, slab: 1.16}))],
+      ["palisade_tile", tile(5.76, 62.5, -1.0, 1.0, g => bPalisade(g, [[-11.52, 0], [17.28, 0]], {seed: 71}))],
+      // фактура скатов — серая (Unity умножает на цвет ската), повтор по обеим осям: u — вдоль свеса, v — вверх по скату
+      ...["tile", "slate", "shingle", "thatch"].map(k => ["roof_" + k + "_tile", roofTile(k)]),
+    ]){
+      const png = await new Promise(r => c.toBlob(r, "image/png"));
+      await fetch(`/save?file=${name}.png`, {method: "POST", body: png});
+      out.push(`${name}: ${c.width}×${c.height}`);
+    }
+    return out;
+  }
+  // кусок фактуры кровли: ряды вдоль свеса (u) с шагом по скату (v), у черепицы и тёса — стыки вразбежку; солома —
+  // штрихи вдоль ската (с копиями через край — для повтора); белый фон с зерном, линии тёмные
+  function roofTile(kind){
+    const ppm = 64, [Lu, Lv] = {tile: [2.88, 2.7], slate: [3.0, 3.0], shingle: [2.8, 3.3], thatch: [3.0, 3.0]}[kind];
+    const c = document.createElement("canvas"); c.width = Math.round(Lu * ppm); c.height = Math.round(Lv * ppm);
+    const g = c.getContext("2d"); g.scale(ppm, ppm); g.lineCap = "round";
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, Lu, Lv); g.beginPath(); g.rect(0, 0, Lu, Lv); bGrain(g, 0.5);
+    const S = [];
+    if(kind === "thatch"){
+      for(let i = 0; i < 260; i++){ const x = hash(i, 501) * Lu, y = hash(i, 502) * Lv; for(const dx of [-Lu, 0, Lu]) for(const dy of [-Lv, 0, Lv]) S.push([x + dx, y + dy, x + dx + 0.06, y + dy + 0.35]); }
+      bLines(g, S, "rgba(110,84,32,.55)", 0.5);
+    } else {
+      const step = {tile: 0.45, slate: 0.5, shingle: 0.55}[kind];
+      for(let y = step; y <= Lv + 1e-6; y += step) S.push([0, y, Lu, y], [0, y - Lv, Lu, y - Lv]);
+      bLines(g, S, kind === "slate" ? "rgba(30,36,44,.55)" : "rgba(60,30,16,.5)", 0.5);
+      if(kind !== "slate"){ const T = [], t2 = kind === "tile" ? 0.32 : 0.7; let r = 0;
+        for(let y = 0; y < Lv - 1e-6; y += step, r++) for(let x = (r % 2) * t2 / 2; x < Lu + t2; x += t2) T.push([x, y, x, y + step], [x - Lu, y, x - Lu, y + step]);
+        bLines(g, T, "rgba(60,30,16,.38)", 0.42); }
+    }
+    return c;
   }
   // крона радиуса 1 м: та же функция полигона, крупно (детали — как вблизи)
   function crownUnit(g, s, pal, nb){ crown(g, 0, 0, 1, s, pal, 60, 0.07, nb); }
 
-  const PPM = {men: 128, horses: 96, dead: 72, nature: 64};
+  // тень постройки Unity кладёт сама (мягкий круг) — в частях её не рисуем
+  function withoutShadow(paint, g){ const keep = window.bShadow; window.bShadow = () => {}; try { paint(g); } finally { window.bShadow = keep; } }
+  const PPM = {men: 128, horses: 96, dead: 72, nature: 64, build: 48};
   const PAD = 4;
   // рисуем часть в свой холст, раскладываем полками по атласу ширины 2048
   async function build(atlas, list){
@@ -148,7 +201,7 @@
 
   window.exportAtlases = async function(only){
     const all = parts(), out = [];
-    for(const atlas of ["men", "horses", "dead", "nature"]){
+    for(const atlas of ["men", "horses", "dead", "nature", "build"]){
       if(only && !only.includes(atlas)) continue;
       const list = all.filter(p => p.atlas === atlas);
       if(!list.length){ out.push(`${atlas}: нет рисовальщиков на этой странице`); continue; }
@@ -156,6 +209,7 @@
       await fetch(`/save?file=${atlas}.png`, {method: "POST", body: r.png});
       await fetch(`/save?file=${atlas}.json`, {method: "POST", body: r.json});
       out.push(`${atlas}: ${r.count} частей, ${r.W}×${r.H}`);
+      if(atlas === "build") out.push(...await exportTiles());
     }
     return out;
   };

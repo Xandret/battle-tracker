@@ -75,6 +75,9 @@ namespace Journal.Viewer
             ("Облик: анимации", () => Anim()),
             ("Бойцы: рукопашная (Б2)", () => Anim(true)),
             ("Облик: стили", StylesShow),
+            ("Крепость: замок", () => Fort("castle", "Крепость: замок", 5, true)),
+            ("Крепость: два кольца", () => Fort("concentric", "Крепость: два кольца", 3, false)),
+            ("Крепость: острог", () => Fort("palisade", "Крепость: острог", 4, false)),
         };
 
         static SceneDef Shoot()
@@ -180,6 +183,32 @@ namespace Journal.Viewer
                 if (turn == 1) { sc.Order(r1, new MoveOrder { Kind = OrderKind.Hold }); sc.Order(r2, new MoveOrder { Kind = OrderKind.Hold }); }
                 if (rec1.Fleeing) sc.Battle.Order(rec1, new MoveOrder { Kind = OrderKind.Rally });
             };
+            return sc;
+        }
+        // Крепость (В19): карта из генератора — стены, башни, ворота из клеток рисует FortView; гарнизон во дворе, штурм
+        // подходит с юга. breach — пролом в восточной стене (2 клетки), чтобы видеть обломки
+        static SceneDef Fort(string id, string name, uint seed, bool breach)
+        {
+            var map = MapGen.Generate(id, null, seed);
+            byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"), gate = Terrain.Id("gate"), pal = Terrain.Id("palisade");
+            double sx = 0, sy = 0, n = 0, maxY = 0; int ex = -1;
+            for (int y = 0; y < map.H; y++)
+                for (int x = 0; x < map.W; x++)
+                {
+                    byte k = map.T[y * map.W + x];
+                    if (k != wall && k != tower && k != gate && k != pal) continue;
+                    sx += (x + 0.5) * map.Cell; sy += (y + 0.5) * map.Cell; n++; maxY = Math.Max(maxY, (y + 1) * map.Cell); if (k == wall) ex = Math.Max(ex, x);
+                }
+            double cx = n > 0 ? sx / n : Terrain.WidthM(map) / 2, cy = n > 0 ? sy / n : Terrain.HeightM(map) / 2;
+            if (breach && ex >= 0)
+            {
+                int cyc = (int)(cy / map.Cell), hit = 0;
+                for (int y = cyc; y < map.H && hit < 2; y++) if (map.T[y * map.W + ex] == wall) { map.T[y * map.W + ex] = Terrain.Id("breach"); hit++; }
+            }
+            var sc = new SceneDef { Name = name, Turns = 2, Geo = SceneDef.Of(map),
+                Note = "В19. Укрепления из клеток карты: стены лентой 5 м с зубцами наружу, башни, ворота, " + (breach ? "пролом, " : "") + "тени по высоте — рисунок пробы build-flat.html." };
+            sc.Add("infantry", 1, "Гарнизон", cx, cy, Math.PI, cx, cy, Math.PI, faction: 1, men: 300);
+            sc.Add("infantry", 2, "Штурм", cx, maxY + 90, 0, cx, maxY + 45, 0, faction: 2, men: 600);
             return sc;
         }
         static SceneDef River()

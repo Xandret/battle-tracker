@@ -1,6 +1,7 @@
 // ═══════════ ArtImport.cs — как Unity импортирует атласы рисунка из полигона (Assets/Resources/Art) ═══════════
 // Без сжатия и без перевода из sRGB: шейдер Men перекрашивает маркерный пурпурный цвет стороны по точным значениям
-// пикселей, сжатие сдвинуло бы их. Мипмапы — чтобы издали бойцы не рябили.
+// пикселей, сжатие сдвинуло бы их. Мипмапы — чтобы издали бойцы не рябили. Ленты построек (*_tile: стена, частокол)
+// повторяются вдоль u, фактура кровли (roof_*_tile) — по обеим осям.
 using UnityEditor;
 using UnityEngine;
 
@@ -19,6 +20,8 @@ public sealed class ArtImport : AssetPostprocessor
         ti.textureCompression = TextureImporterCompression.Uncompressed;
         ti.filterMode = FilterMode.Trilinear;
         ti.wrapMode = TextureWrapMode.Clamp;
+        if (assetPath.EndsWith("_tile.png"))   // ленты построек — повтор вдоль; фактура кровли (roof_*) — по обеим осям
+        { ti.wrapModeU = TextureWrapMode.Repeat; ti.wrapModeV = assetPath.Contains("/roof_") ? TextureWrapMode.Repeat : TextureWrapMode.Clamp; }
         ti.maxTextureSize = 2048;
         ti.npotScale = TextureImporterNPOTScale.None;
     }
