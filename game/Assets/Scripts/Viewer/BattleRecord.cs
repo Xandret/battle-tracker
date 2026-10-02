@@ -16,9 +16,11 @@ namespace Journal.Viewer
         public double Men, PerMan, RankDepth, Front, Depth;
         public readonly List<double[]> Figs = new List<double[]>();   // по номеру тела: [ширина, глубина, бойцов, ряд]
     }
-    public struct DeadRec { public float X, Y, Facing, Dir; public int Frame, Unit, Part, Man; }   // часть: 0 голова, 1 корпус, 2 ноги, 3 конь; Man — номер бойца (0 — неизвестен)
-    // бойцы отряда в кадре (Г75): по номеру бойца — x, y, курс°; NaN — нет (пал, ушёл, ещё не было); фигурка и ряд
-    public sealed class MenFrame { public float[] Xyh; public short[] Fig; public byte[] Row; }
+    // павший: часть 0 голова, 1 корпус, 2 ноги, 3 конь; Man — номер бойца (0 — неизвестен); Killed — убит (иначе ранен, Г39, В13)
+    public struct DeadRec { public float X, Y, Facing, Dir; public int Frame, Unit, Part, Man; public bool Killed; }
+    // бойцы отряда в кадре (Г75): по номеру бойца — x, y, курс°; NaN — нет (пал, ушёл, ещё не было); фигурка и ряд;
+    // Ph — фаза шага (В13): круги шага, набранные по пройденному пути — ноги не скользят при смене скорости
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
 
     public sealed class Recording
@@ -97,7 +99,9 @@ namespace Journal.Viewer
         readonly List<Mover> ms; readonly Battle battle;
         readonly Dictionary<int, int> idx = new Dictionary<int, int>();
         int seenDead, seenArrow;
-        readonly List<int> pending = new List<int>();   // стрелы, что ещё летят: номера в ArrowLog
+        readonly List<(int log, int rec)> pending = new List<(int, int)>();   // стрелы в полёте: номер в ArrowLog → в записи
+        // фаза шага бойцов (В13): где боец был в прошлом кадре и сколько кругов шага набрал
+        readonly Dictionary<Mover, (float[] xy, float[] ph)> gait = new Dictionary<Mover, (float[], float[])>();
 
         public Recorder(string name, string note, Geo geo, IList<Mover> movers, Func<Mover, string> tplOf, Battle battle, int turns, Func<Mover, string> colorOf = null)
         {
@@ -143,13 +147,34 @@ namespace Journal.Viewer
             rec.Men.Add(ms.Select(m =>
             {
                 int n = m.NextManId + 1;
-                var mf = new MenFrame { Xyh = new float[3 * n], Fig = new short[n], Row = new byte[n] };
+                var mf = new MenFrame { Xyh = new float[3 * n], Ph = new float[n], Fig = new short[n], Row = new byte[n] };
                 for (int k = 0; k < mf.Xyh.Length; k++) mf.Xyh[k] = float.NaN;
+                // фаза шага: путь с прошлого кадра ÷ длина круга — пеший 1,4 м шагом, 2,4 м бегом; конь — по аллюру
+                // (шаг 1,7, рысь 2,8, галоп 5 м); начальная — своя у каждого бойца (как в полигоне)
+                if (!gait.TryGetValue(m, out var g) || g.xy.Length < 2 * n)
+                {
+                    var nx = new float[2 * n]; var nph = new float[n];
+                    for (int k = 0; k < nx.Length; k++) nx[k] = float.NaN;
+                    if (g.xy != null) { Array.Copy(g.xy, nx, g.xy.Length); Array.Copy(g.ph, nph, g.ph.Length); }
+                    gait[m] = g = (nx, nph);
+                }
+                bool horse = m.P.U.Type == "cavalry";
                 foreach (var man in m.Men)
                 {
                     if (!man.Alive || man.Id >= n) continue;
-                    mf.Xyh[3 * man.Id] = (float)man.X; mf.Xyh[3 * man.Id + 1] = (float)man.Y; mf.Xyh[3 * man.Id + 2] = (float)man.Facing;
-                    mf.Fig[man.Id] = (short)(man.Fig?.Id ?? 0); mf.Row[man.Id] = (byte)Math.Min(255, man.Row);
+                    int id = man.Id;
+                    mf.Xyh[3 * id] = (float)man.X; mf.Xyh[3 * id + 1] = (float)man.Y; mf.Xyh[3 * id + 2] = (float)man.Facing;
+                    mf.Fig[id] = (short)(man.Fig?.Id ?? 0); mf.Row[id] = (byte)Math.Min(255, man.Row);
+                    float px = g.xy[2 * id], py = g.xy[2 * id + 1];
+                    if (float.IsNaN(px)) g.ph[id] = (float)Journal.Art.Kits.Hash(m.P.U.Id * 7919 + id, 5);
+                    else
+                    {
+                        float d = (float)Math.Sqrt((man.X - px) * (man.X - px) + (man.Y - py) * (man.Y - py)), v = d / (float)rec.Dt;
+                        float stride = horse ? (v < 2.3f ? 1.7f : v < 4.8f ? 2.8f : 5.0f) : v > 2.6f ? 2.4f : 1.4f;
+                        g.ph[id] += d / stride;
+                    }
+                    g.xy[2 * id] = (float)man.X; g.xy[2 * id + 1] = (float)man.Y;
+                    mf.Ph[id] = g.ph[id];
                 }
                 return mf;
             }).ToArray());
@@ -160,18 +185,27 @@ namespace Journal.Viewer
             {
                 var d = battle.Deaths[seenDead];
                 int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
-                rec.Dead.Add(new DeadRec { X = (float)d.X, Y = (float)d.Y, Frame = fr, Unit = idx[d.UnitId], Facing = (float)d.Facing, Dir = (float)d.Dir, Part = part, Man = d.ManId });
+                rec.Dead.Add(new DeadRec { X = (float)d.X, Y = (float)d.Y, Frame = fr, Unit = idx[d.UnitId], Facing = (float)d.Facing, Dir = (float)d.Dir, Part = part, Man = d.ManId, Killed = d.Killed });
             }
             for (int i = 0; i < ms.Count; i++) if (rec.States[i][rec.States[i].Count - 1] != State(ms[i])) { rec.States[i].Add(fr); rec.States[i].Add(State(ms[i])); }
-            // стрелы: новые — в ожидание, долетевшие — в запись
+            // стрелы — в запись сразу на вылете (конец ещё не известен: T1 = ∞, смотрелка ведёт её по броску), долетела —
+            // запись дополняется концом. Иначе в живой записи стрела видна только последние доли секунды полёта
             var log = battle.ArrowLog;
-            for (; seenArrow < log.Count; seenArrow++) pending.Add(seenArrow);
+            for (; seenArrow < log.Count; seenArrow++)
+            {
+                var a = log[seenArrow];
+                pending.Add((seenArrow, rec.Arrows.Count));
+                rec.Arrows.Add(new ArrowRec { T0 = (float)a.T0, X0 = (float)a.X0, Y0 = (float)a.Y0, Z0 = (float)a.Z0, VX = (float)a.VX, VY = (float)a.VY, VZ = (float)a.VZ,
+                    T1 = float.PositiveInfinity, X1 = float.NaN, Y1 = float.NaN, Z1 = float.NaN, Unit = idx[a.UnitId], End = 255 });
+            }
             for (int q = pending.Count - 1; q >= 0; q--)
             {
-                var a = log[pending[q]];
+                var (li, ri) = pending[q];
+                var a = log[li];
                 if (!(a.T1 > a.T0)) continue;
-                rec.Arrows.Add(new ArrowRec { T0 = (float)a.T0, X0 = (float)a.X0, Y0 = (float)a.Y0, Z0 = (float)a.Z0, VX = (float)a.VX, VY = (float)a.VY, VZ = (float)a.VZ,
-                    T1 = (float)a.T1, X1 = (float)a.X1, Y1 = (float)a.Y1, Z1 = (float)a.Z1, Unit = idx[a.UnitId], End = a.End });
+                var r = rec.Arrows[ri];
+                r.T1 = (float)a.T1; r.X1 = (float)a.X1; r.Y1 = (float)a.Y1; r.Z1 = (float)a.Z1; r.End = a.End;
+                rec.Arrows[ri] = r;
                 pending.RemoveAt(q);
             }
         }

@@ -372,15 +372,12 @@ namespace Journal.Viewer
                         Quad(x, y, (float)fig[0] + e, (float)fig[1] + e, head, pass == 0 ? ec : col);
                     }
             }
-            // стрелы в полёте — по прямой между вылетом и концом (дуга и тень — на шаге облика)
+            // стрелы в полёте — чёрточки по ходу (полёт — как у бойцов вблизи: MenView.ArrowAt, конец может быть ещё не известен)
             var ink = Lin(new Color32(30, 24, 18, 255));
             foreach (var ar in rec.Arrows)
             {
-                if (ar.T0 > t || ar.T1 <= t) continue;
-                float uu = (float)((t - ar.T0) / Math.Max(1e-3, ar.T1 - ar.T0));
-                float x = ar.X0 + (ar.X1 - ar.X0) * uu, y = ar.Y0 + (ar.Y1 - ar.Y0) * uu;
-                float head = Mathf.Atan2(ar.X1 - ar.X0, -(ar.Y1 - ar.Y0)) * Mathf.Rad2Deg;
-                Quad(x, y, 0.12f, 1.2f, head, ink);
+                if (ar.T0 > t || ar.T1 <= t || !MenView.ArrowAt(ar, (float)t, out var x, out var y, out _, out var ang, out _)) continue;
+                Quad(x, y, 0.12f, 1.2f, ang * Mathf.Rad2Deg + 90, ink);
             }
             unitsMesh.Clear();
             unitsMesh.SetVertices(V); unitsMesh.SetColors(C); unitsMesh.SetTriangles(I, 0);

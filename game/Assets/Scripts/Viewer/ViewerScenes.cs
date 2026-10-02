@@ -70,6 +70,7 @@ namespace Journal.Viewer
             ("Бой: сплотить", Rally),
             ("Река: брод и мост", River),
             ("Рода войск", Parade),
+            ("Облик: анимации", Anim),
         };
 
         static SceneDef Shoot()
@@ -186,6 +187,27 @@ namespace Journal.Viewer
             sc.Add("knights", 2, "Конница", 850, 830, 0, 850, 60, 0);
             return sc;
         }
+        // Облик (В13): анимации пачки 1 — как сцена «Облик: анимации» полигона (core/Tests/Polygon.cs)
+        static SceneDef Anim()
+        {
+            var sc = new SceneDef { Name = "Облик: анимации", Turns = 3, Geo = SceneDef.Open(1300, 800),
+                Note = "В13. Пикинёры опускают пики в 30 м от врага; арбалетчики взводят через стремя; пехота рубит ополчение — " +
+                       "удары сбоку и сверху, щит навстречу, вспышки; рыцари шагом и рысью выходят на 40 м и встают; раненые ползут." };
+            sc.Battle = NewBattle(sc.Geo, 13);
+            sc.Fighter("infantry", 2, "Враг: пехота", 190, 420, 0, faction: 2, men: 400);
+            var pk = sc.Fighter("pikemen", 1, "Пикинёры", 190, 420 - 170, 180, men: 400);
+            sc.Fighter("infantry", 4, "Враг: пехота Б", 520, 420, 0, faction: 2, men: 400);
+            var xb = sc.Fighter("crossbowmen", 3, "Арбалетчики", 520, 420 - 115, 180, men: 300);
+            sc.Fighter("militia", 6, "Враг: ополчение", 850, 420, 0, faction: 2, men: 400);
+            var inf = sc.Fighter("infantry", 5, "Пехота", 850, 420 - (4 + 0.5 + 4), 180, men: 400);
+            var kn = sc.Fighter("knights", 7, "Рыцари", 1150, 640, 0, men: 200);
+            sc.Order(pk, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            sc.Order(xb, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
+            sc.Order(inf, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
+            sc.Order(kn, new MoveOrder { X = 1150, Y = 600, Facing = 0 });
+            return sc;
+        }
+
         static SceneDef Parade()
         {
             var sc = new SceneDef { Name = "Рода войск", Turns = 3, Geo = SceneDef.Open(1100, 600),
