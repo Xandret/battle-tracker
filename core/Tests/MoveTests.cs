@@ -99,6 +99,54 @@ static class MoveTests
             True(tr.Cost <= f.Cost[f.CellOf(300, 500)] + 1e-6, "не дороже пути по клеткам");
         });
 
+        yield return ("движение: карта направлений по мере спроса — те же цены и шаги, что полный обход; карта изменилась — местность заново", () =>
+        {
+            var map = MapGen.Generate("river", new Dictionary<string, object>(), 3);
+            var geo = new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) };
+            int n = map.W * map.H;
+            var none = new bool[n];   // «в обход — ничего»: свой поиск, не общий с такой же картой направлений
+            foreach (var (horse, half) in new[] { (false, 0.0), (true, 62.5) })
+            {
+                double tx = geo.W * 0.3, ty = geo.H * 0.6;
+                var lazy = FlowField.Build(geo, R, horse, tx, ty, half);
+                var full = FlowField.Build(geo, R, horse, tx, ty, half, none);
+                var cost = full.Cost;   // весь массив — поиск до конца карты
+                // путь из дальнего угла: поиск идёт сам, пока не дойдёт до отряда
+                var r1 = lazy.Route(geo.W * 0.9, geo.H * 0.1, tx, ty); var r2 = full.Route(geo.W * 0.9, geo.H * 0.1, tx, ty);
+                True(r1 != null && r1.SequenceEqual(r2), "путь тот же");
+                var rnd = new Random(5);
+                for (int q = 0; q < 3000; q++)
+                {
+                    int i = rnd.Next(n);
+                    Eq(lazy.Next(i), full.Next(i), $"шаг из клетки {i}");
+                    Eq(BitConverter.DoubleToInt64Bits(lazy.CostAt(i)), BitConverter.DoubleToInt64Bits(cost[i]), $"цена клетки {i}");
+                }
+                if (half > 0) continue;
+                // дейкстра: цена клетки — ровно наименьшая через соседей (Pen = 1 без полуширины)
+                for (int i = 0; i < n; i++)
+                {
+                    if (i == full.Target || double.IsInfinity(cost[i])) continue;
+                    double best = double.PositiveInfinity;
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int x = i % full.W + dx, y = i / full.W + dy;
+                            if ((dx == 0 && dy == 0) || x < 0 || y < 0 || x >= full.W || y >= full.H) continue;
+                            var s = full.Step(i, y * full.W + x);
+                            if (s != null) best = Math.Min(best, cost[y * full.W + x] + s.Value);
+                        }
+                    Eq(best, cost[i], $"цена клетки {i} через соседей");
+                }
+            }
+            // вода посреди поля после постройки: новая карта направлений её видит, прежняя — нет (снимок на момент постройки)
+            var before = FlowField.Build(geo, R, false, 10, 10);
+            int c = before.NearestPassable(before.CellOf(geo.W / 2, geo.H / 2));
+            Terrain.PaintDisc(map, "t", c % map.W + 0.5, c / map.W + 0.5, 3, Terrain.Id("water"));
+            var after = FlowField.Build(geo, R, false, 10, 10);
+            True(before.Passable(c) && !after.Passable(c), "вода после постройки");
+            Eq(after.Cost[c], double.PositiveInfinity, "в воду пути нет");
+        });
+
         yield return ("движение (Г53): пехота с места по полю — ровно 100 м за ход и стоит у цели", () =>
         {
             var geo = Open(600, 600);

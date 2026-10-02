@@ -4,6 +4,7 @@
 // dotnet run --project Tests -- calibrate [ходов рукопашной] [ходов стрельбы] — сверка модели со столом: shared/calibration/*
 // (или calibrate-melee / calibrate-ranged по отдельности)
 // dotnet run --project Tests -- polygon — полигон движения (Г55): core/polygon/polygon.html
+// dotnet run -c Release --project Tests -- bench-paths [зазор между линиями, м] — замер путей (FlowField) на карте 4000 × 3000 м
 using System.Text.Json;
 using BattleCore;
 
@@ -277,6 +278,7 @@ Test("баллистика сверх стола: вблизи смертоно�
 });
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
+if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400); return 0; }
 if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "b1-cross") { MenBodyProbe.Cross(); return 0; }
 if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0; }
@@ -558,6 +560,89 @@ void CalibrateRanged(int RUNS)
     File.WriteAllText(Path.Combine(dir, "ranged.md"), md.ToString());
     File.WriteAllText(Path.Combine(dir, "ranged.json"), JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
     Console.WriteLine($"стрельба: опорных в допуске {ok} из {total} → {dir}");
+}
+
+// Замер путей (dotnet run -c Release --project Tests -- bench-paths [зазор, м]): синтетический бой на карте 4000 × 3000 м
+// (река с бродами и мостом, рощи, кусты), 20 отрядов по 1500 — 30 тыс. бойцов, две стороны в линию в gap м друг от друга.
+// Перед каждым ходом каждому, кто в строю и не в схватке, — «атаковать ближайшего врага» (как сцена из сохранения). 2 хода.
+void BenchPaths(double gap)
+{
+    var R = Rules.Base;
+    var setup = System.Diagnostics.Stopwatch.StartNew();
+    var map = MapGen.Generate("river", new Dictionary<string, object>
+    {
+        ["widthM"] = 4000.0, ["depthM"] = 3000.0, ["width"] = "mid", ["direction"] = "along", ["fords"] = 2.0, ["bridges"] = 1.0,
+    }, 11);
+    var geo = new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) };
+    var bt = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(16).Next });
+    string[] tpl = { "infantry", "militia", "pikemen", "knights", "archers", "guard", "militia", "infantry", "elite_cavalry", "foot_knights" };
+    // строй целиком на суше (с запасом 5 м) — иначе фигурки стоят в воде
+    bool Dry(Unit u, double x, double y)
+    {
+        var fp = Formation.Of(u, R);
+        for (double py = y - fp.Depth / 2 - 5; py <= y + fp.Depth / 2 + 5; py += 2.5)
+            for (double px = x - fp.Front / 2 - 5; px <= x + fp.Front / 2 + 5; px += 2.5)
+            {
+                if (px < 0 || py < 0 || px >= geo.W || py >= geo.H) return false;
+                int c = (int)(py / Terrain.CellM) * map.W + (int)(px / Terrain.CellM);
+                if (BattleMap.MoveMult(map, c, BattleMap.IsHorse(u), R) == null) return false;
+            }
+        return true;
+    }
+    int id = 0;
+    for (int side = 1; side <= 2; side++)
+    {
+        double line = geo.H / 2 + (side == 1 ? -gap / 2 : gap / 2), cursor = 100;
+        for (int k = 0; k < 10; k++)
+        {
+            var T = Templates.Get(tpl[(k + 3 * side) % tpl.Length]);
+            var u = T.Make(++id, $"{T.Name} {id}", 1500, side);
+            double front = Formation.Of(u, R).Front, x = cursor + front / 2;
+            while (x + front / 2 < geo.W - 100 && !Dry(u, x, line)) x += 10;
+            if (x + front / 2 >= geo.W - 100) { line += side == 1 ? -150 : 150; cursor = 100; x = cursor + front / 2; while (!Dry(u, x, line)) x += 10; }
+            bt.Add(u, x, line, side == 1 ? 180 : 0);
+            cursor = x + front / 2 + 40;
+        }
+    }
+    double men = bt.Movers.Sum(m => m.P.U.Soldiers);
+    Console.WriteLine($"карта {geo.W:0} × {geo.H:0} м, {map.W * map.H} клеток; отрядов {bt.Movers.Count}, бойцов {men:0}; между линиями {gap:0} м; подготовка {setup.Elapsed.TotalSeconds:0.0} с");
+
+    void OrderNearest()
+    {
+        bool Up(Mover m) => !m.Gone && !m.Fleeing && m.P.U.Status == "active" && m.P.U.Soldiers > 0;
+        var busy = new HashSet<Mover>(bt.Fights.Where(f => !f.Over).SelectMany(f => new[] { f.A, f.B }));
+        foreach (var m in bt.Movers)
+        {
+            if (!Up(m) || busy.Contains(m)) continue;
+            Mover best = null; double bd = double.MaxValue;
+            foreach (var e in bt.Movers)
+            {
+                if (!Up(e) || e.P.U.FactionId == m.P.U.FactionId) continue;
+                double d = (e.P.X - m.P.X) * (e.P.X - m.P.X) + (e.P.Y - m.P.Y) * (e.P.Y - m.P.Y);
+                if (d < bd) { bd = d; best = e; }
+            }
+            if (best != null && (m.Order == null || m.Order.Kind != OrderKind.Attack || m.Order.TargetId != best.P.U.Id))
+                bt.Order(m, new MoveOrder { Kind = OrderKind.Attack, TargetId = best.P.U.Id });
+        }
+    }
+
+    FlowField.StatBuilds = FlowField.StatBuildTicks = FlowField.StatSearchTicks = FlowField.StatSettled = FlowField.StatShared = FlowField.StatGrounds = 0;
+    int gc2 = GC.CollectionCount(2);
+    var total = System.Diagnostics.Stopwatch.StartNew();
+    for (int turn = 1; turn <= 2; turn++)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        OrderNearest();
+        bt.Turn();
+        Console.WriteLine($"ход {turn}: {sw.Elapsed.TotalSeconds:0.00} с; схваток {bt.Fights.Count(f => !f.Over)}, бежит {bt.Movers.Count(m => m.Fleeing)}, бойцов {bt.Movers.Sum(m => m.P.U.Soldiers):0}");
+    }
+    double tf = System.Diagnostics.Stopwatch.Frequency;
+    Console.WriteLine($"всего счёта: {total.Elapsed.TotalSeconds:0.00} с");
+    long nb = Math.Max(1, FlowField.StatBuilds);
+    Console.WriteLine($"FlowField.Build: {FlowField.StatBuilds} вызовов, {FlowField.StatBuildTicks / tf:0.00} с, {FlowField.StatBuildTicks / tf * 1000 / nb:0.0} мс на вызов");
+    // поиск цен ленивый — идёт и после Build, когда спрашивают цену клетки: его время — тоже в счёт путей
+    Console.WriteLine($"поиск цен после Build: {FlowField.StatSearchTicks / tf:0.00} с; клеток осело {FlowField.StatSettled} — в среднем {FlowField.StatSettled / nb} на карту из {map.W * map.H}");
+    Console.WriteLine($"пути всего (Build + поиск): {(FlowField.StatBuildTicks + FlowField.StatSearchTicks) / tf:0.00} с; поиск взят готовым {FlowField.StatShared} раз; местность считалась {FlowField.StatGrounds} раз; сборок мусора gen2 {GC.CollectionCount(2) - gc2}");
 }
 
 // ── прогон ──
