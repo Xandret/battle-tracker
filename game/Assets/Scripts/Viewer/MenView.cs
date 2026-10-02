@@ -479,8 +479,7 @@ namespace Journal.Viewer
                 {
                     if (!m.Vis) continue;
                     if (!horse) { menB.Quad(soft, Aff.At(m.X - 0.34f, m.Y + 0.24f).R(0.93f).S(0.62f, 1.15f), shadow, new Vector4(0, 0, 1, 0)); continue; }   // В17: тень стоящего
-                    var sm = Aff.At(m.X - 0.6f * so, m.Y + 0.8f * so).R(m.Face);
-                    horseB.Quad(soft, sm.T(0, 0.12f).S(0.66f, 2.0f), shadow, new Vector4(0, 0, 1, 0));
+                    menB.Quad(soft, Aff.At(m.X - 0.55f, m.Y + 0.4f).R(m.Face).S(0.95f, 2.4f), shadow, new Vector4(0, 0, 1, 0));   // В17: конь стоймя
                 }
             }
             for (int i = 0; i < M.Count; i++)
@@ -558,22 +557,15 @@ namespace Journal.Viewer
             {
                 bool run = walking || m.Atk;
                 HorsePose(m.Sp, m.Ph, t, s, out var nod, out var tail, out var bob);
-                var leg = horses.Get("hrig/leg/" + kit.Coat);
-                for (int i = 0; i < 4; i++) horseB.Quad(leg, bas.T(HLeg[i, 0], HLeg[i, 1] + legs[i]), col, neutral);
-                horseB.Quad(horses.Get("hrig/tail/" + kit.Coat), bas.T(0, 0.84f).R(tail), col, neutral);
-                horseB.Quad(horses.Get("hrig/body/" + kit.Coat), bas, col, neutral);
-                horseB.Quad(horses.Get("hrig/head/" + kit.Coat + (kit.Bard == "full" ? "/full" : "")), bas.T(0, -0.5f + nod), col, neutral);
-                horseB.Quad(horses.Get(kit.Bard == "full" ? "hrig/cover/full/" + kit.C2 : "hrig/cover/" + (kit.Bard == "cloth" ? "cloth" : "none")), bas, col, neutral);
-                var Mr = bas.T(ox, 0.02f + bob).R(rot * 0.35f);
+                var Mr = bas.T(ox, 0.02f).R(rot * 0.35f);
                 var W = PW;
                 if (kit.Weapon == "lance") { if (run) W = new[] { 0.2f, 0.25f + (m.Atk ? ThrustOff(ap) : 0), -0.04f, 1, 1 }; }
                 else if (m.Atk) { var (r2, sy2) = SwingAng(ap); W = new[] { 0.22f, -0.08f, r2, 1, sy2 }; }
-                var (rr, rl, rShowL) = HandsOf(kit.Weapon, W, PSh);
-                Arms(kit, Mr, rr, rl, col, prm);
-                BodyHead(kit, Mr, col, prm);
-                if (PSh != null) menB.Quad(men.Get(kit.Shield), Pose(Mr, PSh), col, neutral);
-                if (W != null) menB.Quad(men.Get("weapon/" + kit.Weapon), Pose(Mr, W), col, neutral);
-                Hands(kit, Mr, rr, rShowL ? rl : null, col);
+                // В17: конь стоймя и всадник в седле — одна фигурка
+                int hs = prims.Count;
+                Figure.Horse(prims, figParts, kit, m.X, m.Y, m.Face, legs, nod, tail, bob, col, detail);
+                Figure.Build(prims, figParts, kit, Mr.e, Mr.f, m.Face + rot * 0.35f, new FigPose { Weapon = kit.Weapon, W = W, Sh = PSh, Step = 0 }, col, kit.Tone, detail, true, 0.69f + bob);
+                figs.Add((m.Y, hs, prims.Count - hs));
                 if (m.Atk && ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kit.Weapon == "lance" ? -2.6f : -0.9f, ap));
                 return;
             }

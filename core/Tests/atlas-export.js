@@ -57,6 +57,11 @@
     for(const shape of ["round", "oval", "heater", "buckler"]) add("men", "shieldback/" + shape, [-0.25, -0.3, 0.25, 0.31], g => paintShieldBack(g, shape));
     add("men", "capev", [-0.26, -0.44, 0.26, 0.47], g => paintCapeV(g, KEY));
     add("men", "legs2", [-0.16, -0.45, 0.16, 0.45], g => paintLegs2(g));
+    // конь стоймя (В17): срезы туловища (масть — умножением), попона с гербом, сёдла с чепраком
+    const HSL_BOX = [-HSL_RX - 0.03, -HSL_RY - 0.03, HSL_RX + 0.03, HSL_RY + 0.03];
+    add("men", "hslice/coat", HSL_BOX, g => paintHSlice(g, "coat"));
+    C2.forEach((c2, i) => add("men", "hslice/bard/" + i, HSL_BOX, g => paintHSlice(g, "bard", KEY, c2)));
+    for(const kind of ["none", "cloth"]) add("men", "saddle/" + kind, [-0.3, -0.33, 0.3, 0.35], g => paintSaddle(g, kind, KEY));
     C2.forEach((c2, i) => add("men", "pavisev/" + i, [-0.3, -0.47, 0.3, 0.47], g => paintPaviseV(g, KEY, c2)));
     // щиты: лицом, цвет поля — сторона, второй цвет — герб
     for(const shape of ["round", "oval", "heater"])

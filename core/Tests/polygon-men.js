@@ -698,6 +698,22 @@ function paintLegs2(g, col = "#ffffff"){
     g.beginPath(); g.rect(x - 0.06, -0.43, 0.12, 0.86); g.strokeStyle = INK; g.lineWidth = 0.02; g.stroke();
   }
 }
+// конь стоймя (В17): срез туловища — вытянутый эллипс 0,25 × 0,85 (вперёд — −y); coat — белый (Unity умножает на масть),
+// bard — попона цвета стороны с полосой герба вдоль хребта и каймой
+const HSL_RX = 0.25, HSL_RY = 0.85;
+function paintHSlice(g, kind, col = "#ffffff", c2 = DEVICE[0]){
+  const path = () => { g.beginPath(); g.ellipse(0, 0, HSL_RX, HSL_RY, 0, 0, 6.283); };
+  path(); g.fillStyle = vol(g, col, 0, 0, HSL_RY * 0.6, 0.6); g.fill();
+  if(kind === "bard"){ g.save(); path(); g.clip(); g.fillStyle = c2; g.fillRect(-0.05, -1, 0.1, 2); g.strokeStyle = c2; g.lineWidth = 0.04; path(); g.stroke(); g.restore(); }
+  else { path(); g.strokeStyle = shade(col, -0.3); g.lineWidth = 0.01; g.stroke(); }
+}
+// седло сверху: чепрак (цвет стороны или своё сукно у полной барды), кожаное седло с высокой лукой
+function paintSaddle(g, kind, col){
+  if(kind !== "none"){ g.beginPath(); g.rect(-0.27, -0.3, 0.54, 0.62); g.fillStyle = vol(g, col, 0, 0, 0.4, 0.6); g.fill(); edge(g, 0.025); }
+  g.beginPath(); g.ellipse(0, 0, 0.17, 0.26, 0, 0, 6.283); g.fillStyle = vol(g, "#6a4a2e", 0, -0.04, 0.26, 0.9); g.fill(); edge(g, 0.025);
+  g.beginPath(); g.ellipse(0, 0.17, 0.15, 0.06, 0, 0, 6.283); g.fillStyle = "#4e3520"; g.fill(); edge(g, 0.02);   // задняя лука
+  g.beginPath(); g.ellipse(0, -0.2, 0.1, 0.05, 0, 0, 6.283); g.fillStyle = "#4e3520"; g.fill(); edge(g, 0.02);     // передняя
+}
 // изнанка щита: доски и ремни (лицом от зрителя)
 function paintShieldBack(g, shape){
   const wood = shape === "buckler" ? STEEL : "#7a5a36";

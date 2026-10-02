@@ -26,7 +26,8 @@ namespace Journal.Viewer
         public readonly ArtAtlas A;
         public readonly Part[] Cyl = new Part[4], Ball = new Part[3], Bow = new Part[5], Xbow = new Part[4], Pavise = new Part[3];
         public readonly Part[,,] Tab = new Part[6, 2, 3];
-        public Part SlCloth, SlBrig, SlMail, SlPlate, SlBelt, Boot, Cape, Legs2, FaceOpen, FaceGreat, FaceBasc;
+        public Part SlCloth, SlBrig, SlMail, SlPlate, SlBelt, Boot, Cape, Legs2, FaceOpen, FaceGreat, FaceBasc, HCoat, SaddleNone, SaddleCloth;
+        public readonly Part[] HBard = new Part[3];
         public readonly Dictionary<string, Part> Weapon = new Dictionary<string, Part>(), ShieldBack = new Dictionary<string, Part>();
         public static readonly string[] CylKinds = { "cloth", "leather", "mail", "plate" }, BallKinds = { "cloth", "mail", "steel" },
             Paints = { "plain", "halves", "quarters", "stripe", "cross", "chevron" };
@@ -40,6 +41,8 @@ namespace Journal.Viewer
             for (int p = 0; p < 6; p++) for (int b = 0; b < 2; b++) for (int c = 0; c < 3; c++) Tab[p, b, c] = a.Get($"slice/tab/{Paints[p]}/{(b == 0 ? "u" : "l")}/{c}");
             SlCloth = a.Get("slice/cloth"); SlBrig = a.Get("slice/brig"); SlMail = a.Get("slice/mail"); SlPlate = a.Get("slice/plate"); SlBelt = a.Get("slice/belt");
             Boot = a.Get("boot"); Cape = a.Get("capev"); Legs2 = a.Get("legs2");
+            HCoat = a.Get("hslice/coat"); SaddleNone = a.Get("saddle/none"); SaddleCloth = a.Get("saddle/cloth");
+            for (int i = 0; i < 3; i++) HBard[i] = a.Get("hslice/bard/" + i);
             FaceOpen = a.Get("face/open"); FaceGreat = a.Get("face/great"); FaceBasc = a.Get("face/bascinet");
             foreach (var w in new[] { "spear", "fork", "pike", "lance", "sword", "falchion", "axe", "mace", "club" }) Weapon[w] = a.Get("weapon/" + w);
             foreach (var s in new[] { "round", "oval", "heater", "buckler" }) ShieldBack[s] = a.Get("shieldback/" + s);
@@ -86,8 +89,8 @@ namespace Journal.Viewer
         static readonly float[] T1 = { 0, 0, 0, 1, 1 }, Top = { 0, 0, 0, 0.92f, 0.92f };
 
         // состояние сборки одной фигурки (без замыканий — в кадре ничего не создаётся)
-        static List<Prim> F; static float X, Y, Face, cf, sf;
-        static Vector3 W3(Vector3 p) => new Vector3(X + p.x * cf - p.y * sf, Y + p.x * sf + p.y * cf, p.z);
+        static List<Prim> F; static float X, Y, Face, cf, sf, Zo;   // Zo — подъём всей фигурки (всадник в седле, конь на скаку)
+        static Vector3 W3(Vector3 p) => new Vector3(X + p.x * cf - p.y * sf, Y + p.x * sf + p.y * cf, p.z + Zo);
         static float Dk(Vector3 P) => P.y * K + P.z;
         static void Push(in Part p, in Aff M, Color32 c, Vector4 prm, float key) { if (p.Ok) F.Add(new Prim { P = p, M = M, C = c, Prm = prm, Key = key }); }
         static void Cyl(in Part p, Vector3 a, Vector3 b, float r, Color32 col, float bias = 0)
@@ -115,17 +118,27 @@ namespace Journal.Viewer
             Push(p, Aff.At(G.x, G.y - K * G.z).R(Mathf.Atan2(px, -py)).S(1, Mathf.Sqrt(px * px + py * py)), col, prm, Dk(G) + bias);
         }
 
-        public static void Build(List<Prim> list, FigParts P, Kit k, float x, float y, float face, FigPose o, Color32 side, float tone, int detail)
+        // mounted — всадник: сидит на высоте seat (бёдра в седле), ноги по бокам коня, щит на левом боку
+        public static void Build(List<Prim> list, FigParts P, Kit k, float x, float y, float face, FigPose o, Color32 side, float tone, int detail, bool mounted = false, float seat = 0)
         {
             var fk = k.Fig as FigKit; if (fk == null) k.Fig = fk = new FigKit(k, P);
-            F = list; X = x; Y = y; Face = face; cf = Mathf.Cos(face); sf = Mathf.Sin(face);
+            F = list; X = x; Y = y; Face = face; cf = Mathf.Cos(face); sf = Mathf.Sin(face); Zo = mounted ? seat : 0;
             var keyPrm = new Vector4(fk.OwnCloth < 0 ? tone : 0, 0, 0, 0);
             Color32 cloth = fk.OwnCloth < 0 ? Toned(side, tone) : Cloths[fk.OwnCloth];
             Color32 sleeveC = fk.SleeveCyl == 1 ? Leathers[fk.Leather] : cloth, legC = Color32.Lerp(cloth, Dark, 0.55f);
             Part sleeveCyl = P.Cyl[fk.SleeveCyl], legCyl = P.Cyl[fk.LegCyl];
 
-            // ноги: издали — пара ног одной частью (стоймя, к зрителю); иначе ступни, сапоги, голени, колени, бёдра; на ходу — шаг
-            if (detail == 0 && P.Legs2.Ok) Vert(new Vector3(0, 0, 0.45f), cf, -sf, P.Legs2, legC, Tint, 1, -0.2f);   // u — вдоль экрана при любом курсе
+            // ноги: у всадника — по бокам коня, носок в стремени; издали — пара ног одной частью (стоймя, к зрителю); иначе ступни,
+            // сапоги, голени, колени, бёдра; на ходу — шаг
+            if (mounted)
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    var hip = new Vector3(s * 0.12f, 0.05f, 0.86f); var knee = new Vector3(s * 0.29f, -0.12f, 0.62f); var ank = new Vector3(s * 0.28f, 0.02f, 0.26f);
+                    Cyl(legCyl, hip, knee, 0.07f, legC);
+                    if (detail > 0) Cyl(legCyl, knee, ank, 0.058f, legC);
+                    if (detail == 2) Ball(P.Ball[0], ank, 0.06f, BootC);
+                }
+            else if (detail == 0 && P.Legs2.Ok) Vert(new Vector3(0, 0, 0.45f), cf, -sf, P.Legs2, legC, Tint, 1, -0.2f);   // u — вдоль экрана при любом курсе
             else
                 for (int s = -1; s <= 1; s += 2)
                 {
@@ -140,7 +153,7 @@ namespace Journal.Viewer
                     Cyl(legCyl, knee, hip, 0.07f, legC);
                 }
             // корпус: срезы от низа полы (у сюрко длиннее) до плеч, пояс; сверху — плечи вида сверху и сюрко
-            float z0 = fk.Tab ? 0.62f : 0.76f, dz = detail == 2 ? 0.055f : detail == 1 ? 0.12f : 0.3f;
+            float z0 = mounted ? 0.8f : fk.Tab ? 0.62f : 0.76f, dz = detail == 2 ? 0.055f : detail == 1 ? 0.12f : 0.3f;
             for (float z = z0; z <= 1.385f; z += dz)
             {
                 float w = z < 0.95f ? 0.17f + (0.95f - z) * 0.12f : z < 1.2f ? 0.165f + (z - 0.95f) * 0.14f : 0.2f + (z - 1.2f) * 0.06f, d = w * 0.6f;
@@ -202,13 +215,56 @@ namespace Journal.Viewer
                 if (o.Raise) Flat(1.95f, new[] { sh[0], sh[1], sh[2], 1, 1 }, fk.Shield, side, Vector4.zero, 0.5f);
                 else if (H3l != null)
                 {
-                    float ux = Mathf.Cos(sh[2]), uy = Mathf.Sin(sh[2]), nx = Mathf.Sin(sh[2]), ny0 = -Mathf.Cos(sh[2]);
+                    float sr = mounted ? -Mathf.PI / 2 : sh[2];   // всадник: щит вдоль коня, лицом влево
+                    float ux = Mathf.Cos(sr), uy = Mathf.Sin(sr), nx = Mathf.Sin(sr), ny0 = -Mathf.Cos(sr);
                     float ny = nx * sf + ny0 * cf;   // нормаль в осях карты: к зрителю — y > 0
                     var c = H3l.Value + new Vector3(nx * 0.05f, ny0 * 0.05f, 0.02f);
                     Vert(c, ux, uy, ny > 0 ? fk.Shield : fk.ShieldBack, side, Vector4.zero, Mathf.Abs(sh[3]), 0.06f);
                 }
             }
-            F = null;
+            F = null; Zo = 0;
+        }
+
+        // ── конь стоймя (В17): ноги (копыта по походке — вперёд-назад), туловище срезами, шея с гривой, голова, уши, хвост,
+        // седло с чепраком; у полной барды — попона с гербом, сукно на шее, стальной налобник ──
+        static readonly Color32[] Coats = Hexes("#e4dfd3", "#3b332d", "#7b4b2c", "#985c30", "#8f8a84", "#b9955f", "#5a3a26");
+        static readonly Color32 HoofC = Hex("#2a2420"), HairInk = Hex("#2b2621");
+        static readonly float[,] HLegs = { { -0.14f, -0.5f }, { 0.14f, -0.5f }, { -0.14f, 0.62f }, { 0.14f, 0.62f } };   // ЛП, ПП, ЛЗ, ПЗ
+        public static void Horse(List<Prim> list, FigParts P, Kit k, float x, float y, float face, float[] legOff, float nod, float tail, float bob, Color32 side, int detail)
+        {
+            F = list; X = x; Y = y; Face = face; cf = Mathf.Cos(face); sf = Mathf.Sin(face); Zo = bob;
+            Color32 coat = Coats[k.Coat], dark = Color32.Lerp(coat, HoofC, 0.45f), hair = Color32.Lerp(coat, HairInk, 0.65f);
+            bool full = k.Bard == "full", cloth = k.Bard == "cloth";
+            for (int i = 0; i < 4; i++)
+            {
+                float lx = HLegs[i, 0], ly = HLegs[i, 1], off = legOff != null ? legOff[i] : 0;
+                var hoof = new Vector3(lx, ly + off, 0.05f - bob); var top = new Vector3(lx, ly, 1.02f);
+                if (detail == 0) { Cyl(P.Cyl[0], hoof, top, 0.065f, coat); continue; }
+                var knee = new Vector3(lx, ly + off * 0.6f, 0.5f - bob * 0.5f);
+                if (detail == 2) Ball(P.Ball[0], hoof, 0.052f, HoofC);
+                Cyl(P.Cyl[0], hoof, knee, 0.042f, dark);
+                Cyl(P.Cyl[0], knee, top, 0.072f, coat);
+            }
+            // туловище: срезы от брюха до спины — округлые к низу и к верху
+            float dz = detail == 2 ? 0.07f : detail == 1 ? 0.13f : 0.26f;
+            for (float z = 0.95f; z <= 1.475f; z += dz)
+            {
+                float t = (z - 0.95f) / 0.52f, bulge = Mathf.Sin(Mathf.PI * Mathf.Clamp01(t * 0.9f + 0.1f));
+                float rx = 0.19f + 0.08f * bulge, ry = 0.7f + 0.15f * bulge;
+                var T = new[] { 0, 0.1f, 0, rx / 0.25f, ry / 0.85f };
+                if (full) Flat(z, T, P.HBard[k.C2], side, Vector4.zero); else Flat(z, T, P.HCoat, coat, Tint);
+            }
+            Flat(1.49f, T1, cloth || full ? P.SaddleCloth : P.SaddleNone, side, Vector4.zero, 0.02f);
+            // шея и грива, голова (кивает на ходу), уши, морда; хвост машет
+            if (!full && detail > 0) Cyl(P.Cyl[0], new Vector3(0, -0.4f, 1.52f), new Vector3(0, -0.84f, 1.92f + nod), 0.05f, hair, 0.02f);
+            if (full) Cyl(P.Cyl[0], new Vector3(0, -0.48f, 1.3f), new Vector3(0, -0.82f, 1.78f + nod), 0.145f, Toned(side, -0.1f));
+            else Cyl(P.Cyl[0], new Vector3(0, -0.48f, 1.3f), new Vector3(0, -0.82f, 1.78f + nod), 0.14f, coat);
+            Cyl(P.Cyl[full ? 3 : 0], new Vector3(0, -0.86f, 1.86f + nod), new Vector3(0, -1.24f, 1.58f + nod), 0.1f, full ? White : coat);
+            Ball(P.Ball[0], new Vector3(0, -1.27f, 1.55f + nod), 0.085f, dark);
+            if (detail == 2)
+                for (int s = -1; s <= 1; s += 2) Cyl(P.Cyl[0], new Vector3(s * 0.045f, -0.86f, 1.92f + nod), new Vector3(s * 0.055f, -0.83f, 2.05f + nod), 0.025f, coat, 0.03f);
+            Cyl(P.Cyl[0], new Vector3(0, 0.92f, 1.38f), new Vector3(Mathf.Sin(tail) * 0.25f, 1.14f, 0.78f), 0.055f, hair, -0.02f);
+            F = null; Zo = 0;
         }
     }
 }
