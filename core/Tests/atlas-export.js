@@ -118,20 +118,8 @@
   // крона радиуса 1 м: та же функция полигона, крупно (детали — как вблизи)
   function crownUnit(g, s, pal, nb){ crown(g, 0, 0, 1, s, pal, 60, 0.07, nb); }
   // тело павшего без головы, оружия и щита (их Unity кладёт рядом сам) — как paintCorpse полигона
-  function corpseBody(g, cloth, armour, leather, v){
-    const r = j => hash(v * 131 + 7, j), pants = mix(cloth, "#3e3328", 0.55), boot = "#3a2c20";
-    const sleeve = armour === "mail" ? "#8e9296" : armour === "leather" ? leather : armour === "plate" ? STEEL : cloth;
-    const sp = 0.05 + 0.12 * r(1);
-    stick(g, -0.07, 0.1, -0.07 - sp, 0.78, 0.1, pants); ell(g, -0.07 - sp * 1.06, 0.83, 0.05, 0.07, boot);
-    stick(g, 0.07, 0.1, 0.07 + sp * 0.7, 0.8, 0.1, pants); ell(g, 0.07 + sp * 0.74, 0.85, 0.05, 0.07, boot);
-    const la = -0.3 - 1.2 * r(2), ra = 0.3 + 1.2 * r(3);
-    for(const [sx, a] of [[-0.19, la], [0.19, ra]]){
-      const hx = sx + Math.sin(a) * 0.46, hy = -0.3 + Math.cos(a) * 0.46;
-      stick(g, sx, -0.3, hx, hy, 0.09, sleeve); ell(g, hx, hy, 0.035, 0.035, "#c49a74");
-    }
-    g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.22, -0.44, -0.12, -0.44); g.lineTo(0.12, -0.44); g.quadraticCurveTo(0.22, -0.44, 0.21, -0.36);
-    g.lineTo(0.17, 0.14); g.lineTo(-0.17, 0.14); g.closePath(); g.fillStyle = cloth; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
-  }
+  function corpseBody(g, cloth, armour, leather, v){ paintLying(g, cloth, armour, leather, corpsePose(v)); }
+
 
   const PPM = {men: 128, horses: 72, dead: 72, nature: 64};
   const PAD = 4;

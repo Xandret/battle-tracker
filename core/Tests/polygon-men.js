@@ -449,6 +449,47 @@ function paintHorse(g, k, f){
   at(HNECK[0], HNECK[1] + P.nod, 0, () => paintHorseHead(g, k));
   paintHorseCover(g, k);
 }
+// Лежащий (павший, раненый — В8, Г39; облик В17): руки и ноги — трубки с объёмом, кисти и сапоги, корпус по доспеху
+// (простёжка, бригантина, кольчуга, латы) с поясом. Лежащий виден сверху во весь рост — вид сверху для него верен.
+// P.legs — ломаные от бедра к ступне, P.arms — от плеча к кисти; голова — отдельно (Unity кладёт шлем)
+function paintLying(g, cloth, armour, leather, P){
+  const pants = mix(cloth, "#3e3328", 0.55), boot = "#3a2c20", sleeve = sleeveOf({armour, leather, cloth});
+  const tube = (pts, w, col) => {
+    g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+    g.strokeStyle = INK; g.lineWidth = w + 0.025; g.stroke();
+    g.strokeStyle = shade(col, -0.3); g.lineWidth = w; g.stroke();
+    g.strokeStyle = col; g.lineWidth = w * 0.62; g.stroke();
+    g.strokeStyle = shade(col, 0.15); g.lineWidth = w * 0.22; g.stroke();
+  };
+  for(const L of P.legs){
+    tube(L, 0.11, pants);
+    const [fx, fy] = L[L.length - 1]; g.beginPath(); g.ellipse(fx, fy + 0.04, 0.055, 0.08, 0, 0, 6.283); g.fillStyle = vol(g, boot, fx, fy + 0.03, 0.09); g.fill(); edge(g, 0.02);
+  }
+  for(const A of P.arms){
+    tube(A, 0.095, sleeve);
+    const [hx, hy] = A[A.length - 1]; g.beginPath(); g.arc(hx, hy, 0.04, 0, 6.283); g.fillStyle = vol(g, SKIN, hx, hy, 0.05); g.fill(); edge(g, 0.018);
+  }
+  const torso = () => { g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.23, -0.45, -0.12, -0.45); g.lineTo(0.12, -0.45); g.quadraticCurveTo(0.23, -0.45, 0.21, -0.36);
+    g.lineTo(0.18, 0.12); g.quadraticCurveTo(0, 0.17, -0.18, 0.12); g.closePath(); };
+  const base = armour === "mail" ? MAIL : armour === "plate" ? STEEL : cloth;
+  torso(); g.fillStyle = vol(g, base, 0, -0.15, 0.35, armour === "plate" ? 1.2 : 0.8); g.fill();
+  g.save(); torso(); g.clip();
+  if(armour === "mail") rings(g, -0.25, -0.5, 0.25, 0.2, MAIL_D);
+  else if(armour === "plate"){ g.strokeStyle = SHINE; g.lineWidth = 0.02; g.beginPath(); g.moveTo(0, -0.42); g.lineTo(0, 0.1); g.stroke(); }
+  else if(armour === "leather"){ for(let y = -0.38; y < 0.12; y += 0.08) for(let x = -0.15; x <= 0.15; x += 0.06) ell(g, x, y, 0.01, 0.01, "#c9c3b4", 0, false); }
+  else { g.strokeStyle = shade(base, -0.3); g.lineWidth = 0.009; g.beginPath(); for(let d = -0.7; d <= 0.7; d += 0.08){ g.moveTo(d - 0.3, -0.5); g.lineTo(d + 0.3, 0.2); g.moveTo(d + 0.3, -0.5); g.lineTo(d - 0.3, 0.2); } g.stroke(); }
+  g.fillStyle = "#5a4028"; g.fillRect(-0.2, 0.0, 0.4, 0.045);
+  g.restore(); torso(); edge(g, 0.03);
+}
+// поза павшего: на спине, ноги чуть врозь, руки раскинуты (v — вариант)
+function corpsePose(v){
+  const r = j => hash(v * 131 + 7, j), sp = 0.05 + 0.12 * r(1), la = -0.3 - 1.2 * r(2), ra = 0.3 + 1.2 * r(3);
+  const arm = (sx, a) => [[sx, -0.3], [sx + Math.sin(a) * 0.46, -0.3 + Math.cos(a) * 0.46]];
+  return {legs: [[[-0.07, 0.1], [-0.07 - sp, 0.78]], [[0.07, 0.1], [0.07 + sp * 0.7, 0.8]]], arms: [arm(-0.19, la), arm(0.19, ra)]};
+}
+// поза раненого: лицом вниз, правая рука вперёд, левая согнута, правая нога подтянута
+const CRAWL_POSE = {legs: [[[-0.08, 0.1], [-0.12, 0.8]], [[0.08, 0.1], [0.3, 0.42], [0.22, 0.76]]],
+  arms: [[[0.19, -0.3], [0.27, -0.95]], [[-0.19, -0.3], [-0.4, -0.46], [-0.27, -0.76]]]};
 // павший: лежит на спине, голова — к −y, ноги у начала; рядом — оружие и щит; краски приглушены (В8)
 function paintCorpse(g, k, v){
   const r = j => hash(v * 131 + 7, j), pants = mix(k.cloth, "#3e3328", 0.55), boot = "#3a2c20";
@@ -459,33 +500,14 @@ function paintCorpse(g, k, v){
     g.save(); g.translate(0.45 + 0.15 * r(5), -0.25 + 0.5 * r(6)); g.rotate(r(7) * 6.283);
     const sc = w === "pike" || w === "lance" ? 0.4 : w === "spear" || w === "fork" ? 0.7 : 0.9; g.scale(sc, sc); paintWeapon(g, w, k.col); g.restore();
   } else if(k.weapon === "bow"){ g.save(); g.translate(0.5, 0.1); g.rotate(r(7) * 6.283); paintBow(g, 0); g.restore(); }
-  const sp = 0.05 + 0.12 * r(1);
-  stick(g, -0.07, 0.1, -0.07 - sp, 0.78, 0.1, pants); ell(g, -0.07 - sp * 1.06, 0.83, 0.05, 0.07, boot);
-  stick(g, 0.07, 0.1, 0.07 + sp * 0.7, 0.8, 0.1, pants); ell(g, 0.07 + sp * 0.74, 0.85, 0.05, 0.07, boot);
-  const la = -0.3 - 1.2 * r(2), ra = 0.3 + 1.2 * r(3);
-  for(const [sx, a] of [[-0.19, la], [0.19, ra]]){
-    const hx = sx + Math.sin(a) * 0.46, hy = -0.3 + Math.cos(a) * 0.46;
-    stick(g, sx, -0.3, hx, hy, 0.09, sleeve); ell(g, hx, hy, 0.035, 0.035, "#c49a74");
-  }
-  g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.22, -0.44, -0.12, -0.44); g.lineTo(0.12, -0.44); g.quadraticCurveTo(0.22, -0.44, 0.21, -0.36);
-  g.lineTo(0.17, 0.14); g.lineTo(-0.17, 0.14); g.closePath(); g.fillStyle = k.cloth; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
+  paintLying(g, k.cloth, k.armour, k.leather, corpsePose(v));
   g.save(); g.translate(0, -0.56); paintHead(g, k); g.restore();
   g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(112,106,96,.38)"; g.fillRect(-2, -2, 4, 4); g.globalCompositeOperation = "source-over";
 }
 // раненый (Г39, В13): лежит лицом вниз, голова к −y, правая рука вытянута вперёд, левая согнута в локте, правая нога
 // подтянута — так он ползёт; следующий рывок — тот же рисунок, отражённый слева направо. Краски живые, не приглушены
 function sleeveOf(k){ return k.armour === "mail" ? "#8e9296" : k.armour === "leather" ? k.leather : k.armour === "plate" ? STEEL : k.cloth; }
-function paintCrawlBody(g, cloth, armour, leather){
-  const pants = mix(cloth, "#3e3328", 0.55), boot = "#3a2c20", sleeve = sleeveOf({armour, leather, cloth});
-  stick(g, -0.08, 0.1, -0.12, 0.8, 0.1, pants); ell(g, -0.125, 0.85, 0.05, 0.07, boot);
-  stick(g, 0.08, 0.1, 0.3, 0.42, 0.1, pants); stick(g, 0.3, 0.42, 0.22, 0.76, 0.095, pants); ell(g, 0.21, 0.8, 0.05, 0.07, boot);
-  stick(g, 0.19, -0.3, 0.27, -0.95, 0.09, sleeve); ell(g, 0.28, -0.99, 0.035, 0.035, "#c49a74");
-  stick(g, -0.19, -0.3, -0.4, -0.46, 0.09, sleeve); stick(g, -0.4, -0.46, -0.27, -0.76, 0.085, sleeve); ell(g, -0.26, -0.79, 0.035, 0.035, "#c49a74");
-  g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.22, -0.44, -0.12, -0.44); g.lineTo(0.12, -0.44); g.quadraticCurveTo(0.22, -0.44, 0.21, -0.36);
-  g.lineTo(0.17, 0.14); g.lineTo(-0.17, 0.14); g.closePath(); g.fillStyle = cloth; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
-  if(armour === "mail" || armour === "plate"){ ell(g, 0, -0.15, 0.15, 0.2, armour === "mail" ? "#9a9ea2" : STEEL); if(armour === "plate") ell(g, -0.04, -0.22, 0.04, 0.06, SHINE, 0, false); }
-  else if(armour === "leather") ell(g, 0, -0.15, 0.15, 0.2, leather);
-}
+function paintCrawlBody(g, cloth, armour, leather){ paintLying(g, cloth, armour, leather, CRAWL_POSE); }
 function paintCrawl(g, k){ paintCrawlBody(g, k.cloth, k.armour, k.leather); g.save(); g.translate(0, -0.56); paintHead(g, k); g.restore(); }
 // павший конь лежит на боку: ноги в сторону
 function paintDeadHorse(g, k){

@@ -346,6 +346,7 @@ namespace Journal.Viewer
         readonly List<ManP> M = new List<ManP>();
         readonly Dictionary<int, float> figTop = new Dictionary<int, float>();
         readonly HashSet<long> fallenNow = new HashSet<long>();
+        int frameDetail = 2;   // подробность фигурок в этом кадре (В17) — для тех, кто рисуется вне DrawMan
         // стоящие бойцы (В17): части всех фигурок кадра; рисуются в конце — фигурки от дальних к ближним (по y земли), части
         // внутри фигурки — по своей глубине
         readonly List<Prim> prims = new List<Prim>();
@@ -370,6 +371,7 @@ namespace Journal.Viewer
             decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear(); prims.Clear(); figs.Clear();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             float t32 = (float)t;
+            frameDetail = ppm >= 30 ? 2 : ppm >= 14 ? 1 : 0;
             bool In(float x, float y, float pad) => x > view.xMin - pad && x < view.xMax + pad && y > view.yMin - pad && y < view.yMax + pad;
             IndexArrows();
             PrepFrame(f0, t32, In);
@@ -696,14 +698,12 @@ namespace Journal.Viewer
                 if (age < 0.15f && !rider)
                 {
                     float k2 = age / 0.15f, d = dd.Dir * Mathf.Deg2Rad;
-                    var sm = Aff.At(dd.X + Mathf.Cos(d) * 0.12f * k2, dd.Y + Mathf.Sin(d) * 0.12f * k2).R(dd.Facing * Mathf.Deg2Rad + (H(seed, 55) - 0.5f) * 0.6f * k2);
+                    float sx = dd.X + Mathf.Cos(d) * 0.12f * k2, sy = dd.Y + Mathf.Sin(d) * 0.12f * k2;
                     var (W, Sh) = Rest(kit, 0, 0);
-                    if (kit.Back != null) menB.Quad(men.Get(kit.Back), sm, col, Vector4.zero);
-                    BodyHead(kit, sm, col, live);
-                    if (Sh != null) menB.Quad(men.Get(kit.Shield), Pose(sm, Sh), col, Vector4.zero);
-                    if (kit.Weapon == "bow") menB.Quad(men.Get("bow/0"), sm, col, Vector4.zero);
-                    else if (kit.Weapon == "crossbow") menB.Quad(men.Get("xbow/0"), sm, col, Vector4.zero);
-                    else if (W != null) menB.Quad(men.Get("weapon/" + kit.Weapon), Pose(sm, W), col, Vector4.zero);
+                    // В17: стоящая фигурка, которую качнуло от удара
+                    int fs = prims.Count;
+                    Figure.Build(prims, figParts, kit, sx, sy, dd.Facing * Mathf.Deg2Rad + (H(seed, 55) - 0.5f) * 0.6f * k2, new FigPose { Weapon = kit.Weapon, W = W, Sh = Sh }, col, kit.Tone, frameDetail);
+                    figs.Add((sy, fs, prims.Count - fs));
                     continue;
                 }
                 int v = (int)(H(seed, 51) * 2);
