@@ -353,6 +353,7 @@ static class Polygon
             // 3 бежит с приказом «сплотить» (ждёт, пока враг дальше 150 м), 4 сплотился
             int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
             var states = ms.Select(m => new List<int> { 0, State(m) }).ToList();
+            var menLog = new List<byte[][]> { MenFrame(ms) };   // бойцы (Г75) — раз в MenEvery кадров
             for (int turn = 0; turn < sc.Turns; turn++)
             {
                 sc.Before?.Invoke(turn);
@@ -363,6 +364,7 @@ static class Polygon
                     if (++k % 4 != 0) return;
                     frames.Add(Snap(ms));
                     heads.Add(Heads(ms));
+                    if ((frames.Count - 1) % MenEvery == 0) menLog.Add(MenFrame(ms));
                     for (int i = 0; i < ms.Count; i++) if (states[i][states[i].Count - 1] != State(ms[i])) { states[i].Add(frames.Count - 1); states[i].Add(State(ms[i])); }
                     soldiers.Add(ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray());
                     if (sc.Battle != null)
@@ -372,7 +374,7 @@ static class Polygon
                         {
                             var d = sc.Battle.Deaths[seenDead];
                             int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
-                            dead.Add(new[] { Math.Round(d.X, 2), Math.Round(d.Y, 2), frames.Count - 1, idx[d.UnitId], Math.Round(d.Facing), Math.Round(d.Dir), part });
+                            dead.Add(new[] { Math.Round(d.X, 2), Math.Round(d.Y, 2), frames.Count - 1, idx[d.UnitId], Math.Round(d.Facing), Math.Round(d.Dir), part, d.ManId });
                         }
                     for (int i = 0; i < ms.Count; i++)
                         while (fallen[i].Count < ms[i].Fallen.Count)
@@ -413,6 +415,7 @@ static class Polygon
                     Math.Round(a.T1, 2), Math.Round(a.X1, 1), Math.Round(a.Y1, 1), Math.Round(a.Z1, 1), idx[a.UnitId], a.End,
                 }).ToList(),
                 states = sc.Battle != null ? states : null,
+                men = PackMen(menLog),
             });
         }
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },
@@ -441,6 +444,53 @@ static class Polygon
         foreach (var s in m.Figs) { a[4 + 2 * s.Id] = Math.Round(s.X, 1); a[5 + 2 * s.Id] = Math.Round(s.Y, 1); }
         return a;
     }).ToArray();
+
+    // Бойцы (Г75) по кадрам: каждый MenEvery-й кадр, по отряду, по номеру бойца 1…n — 5 байт: номер тела (uint16 LE,
+    // 65535 — бойца нет: пал, ушёл или ещё не было), смещение от тела в его осях dx (вправо вдоль фронта), dy (назад)
+    // — int8 по 0,1 м, курс бойца минус курс тела — int8 по 2°. Всё подряд (кадр → отряд → боец); каждый кадр, кроме
+    // первого, — разница с прошлым побайтно (b − b_прошл) mod 256: стоящие бойцы дают нули, gzip их почти не хранит.
+    // Сжато gzip, base64. n — сколько номеров у отряда; курс тела — как у фигурки на рисунке (по строю или из heads)
+    const int MenEvery = 2;
+    static byte[][] MenFrame(List<Mover> ms) => ms.Select(m =>
+    {
+        var a = new byte[5 * m.NextManId];
+        for (int i = 0; i < m.NextManId; i++) { a[5 * i] = 0xFF; a[5 * i + 1] = 0xFF; }
+        foreach (var man in m.Men)
+        {
+            if (!man.Alive || man.Fig == null || man.Id < 1 || man.Id > m.NextManId) continue;
+            var s = man.Fig; double h = Soldiers.FigHeading(m, s), hr = h * Math.PI / 180;
+            double wx = man.X - s.X, wy = man.Y - s.Y;
+            double lx = wx * Math.Cos(hr) + wy * Math.Sin(hr), ly = -(wx * Math.Sin(hr) - wy * Math.Cos(hr));
+            sbyte Q(double v) => (sbyte)Math.Max(-127, Math.Min(127, Math.Round(v)));
+            int o = 5 * (man.Id - 1);
+            a[o] = (byte)(s.Id & 0xFF); a[o + 1] = (byte)((s.Id >> 8) & 0xFF);
+            a[o + 2] = (byte)Q(lx * 10); a[o + 3] = (byte)Q(ly * 10);
+            a[o + 4] = (byte)Q(MoveSim.AngleDiff(h, man.Facing) / 2);
+        }
+        return a;
+    }).ToArray();
+    static object PackMen(List<byte[][]> men)
+    {
+        if (men.Count == 0 || men[0].Length == 0) return null;
+        int units = men[0].Length;
+        var n = Enumerable.Range(0, units).Select(u => men.Max(f => f[u].Length / 5)).ToArray();
+        if (n.All(v => v == 0)) return null;
+        using var raw = new MemoryStream();
+        var prev = Enumerable.Range(0, units).Select(u => new byte[5 * n[u]]).ToArray();
+        using (var gz = new System.IO.Compression.GZipStream(raw, System.IO.Compression.CompressionLevel.Optimal, true))
+            for (int fi = 0; fi < men.Count; fi++)
+                for (int u = 0; u < units; u++)
+                {
+                    var cur = new byte[5 * n[u]];
+                    Array.Copy(men[fi][u], cur, men[fi][u].Length);
+                    for (int i = men[fi][u].Length / 5; i < n[u]; i++) { cur[5 * i] = 0xFF; cur[5 * i + 1] = 0xFF; }
+                    var outb = new byte[cur.Length];
+                    for (int b = 0; b < cur.Length; b++) outb[b] = fi == 0 ? cur[b] : (byte)(cur[b] - prev[u][b]);
+                    gz.Write(outb, 0, outb.Length);
+                    prev[u] = cur;
+                }
+        return new { every = MenEvery, n, frames = men.Count, delta = true, z = Convert.ToBase64String(raw.ToArray()) };
+    }
 
     // Курсы фигурок, развёрнутых не по строю (охват, Г68; бегство своим курсом, Г70): [отряд, номер тела, курс°] —
     // ось тела, повёрнутая в ту сторону, куда фигурка смотрит (к врагу в охвате, своим курсом в бегстве, по строю — когда возвращается)
