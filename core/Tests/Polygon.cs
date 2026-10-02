@@ -299,6 +299,38 @@ static class Polygon
         anim.Order(ain, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
         anim.Order(akn, new MoveOrder { X = 1150, Y = 600, Facing = 0 });
         list.Add(anim);
+
+        // Б1 (Г82, Г85, Г92): бойцы — тела, фигурка — колонна во всю глубину строя за якорем (переключатель MenBodies)
+        var RB = MenBodyTests.RB;
+        var b1 = new Scene { Name = "Б1: бойцы — тела", Turns = 4, Geo = MoveTests.Open(1300, 900),
+            Note = "Б1, новый режим за переключателем (Г92). Каждый боец — тело: толкается, уступает, упирается сам; фигурка — колонна во всю глубину " +
+                   "строя (Г85), её ведёт якорь, а для боя она — середина своих бойцов (Г91). Слева вверху свои идут встречным курсом — пропускают по " +
+                   "очереди (Г57). Справа вверху пехота сходится с пехотой — стена о стену, сквозь врага не проходят (Г89). Слева внизу стрелки проходят " +
+                   "сквозь свою пехоту (Г56). Справа внизу рыцари с разбега бьют пехоту." };
+        b1.Battle = new Battle(b1.Geo, RB, new EngineContext { Rng = new Mulberry32(17).Next });
+        var ba = b1.Fighter("infantry", 1, "Свои: на восток", 150, 220, 90, men: 400);
+        var bb = b1.Fighter("infantry", 2, "Свои: на запад", 560, 220, 270, men: 400);
+        b1.Order(ba, new MoveOrder { X = 560, Y = 220, Facing = 90 }); b1.Order(bb, new MoveOrder { X = 150, Y = 220, Facing = 270 });
+        b1.Fighter("infantry", 4, "Враг: пехота", 950, 340, 0, faction: 2, men: 600);
+        var bc = b1.Fighter("infantry", 3, "Пехота", 950, 140, 180, men: 600);
+        b1.Order(bc, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
+        b1.Fighter("infantry", 5, "Пехота стоит", 300, 640, 0, men: 600);
+        var bd = b1.Fighter("archers", 6, "Стрелки сквозь своих", 300, 730, 0, men: 300);
+        b1.Order(bd, new MoveOrder { X = 300, Y = 560, Facing = 0 });
+        b1.Fighter("infantry", 8, "Враг: под натиск", 1000, 760, 180, faction: 2, men: 500);
+        var be = b1.Fighter("knights", 7, "Рыцари", 1000, 760 - (4 + 150 + 7.5), 180, men: 200);
+        b1.Order(be, new MoveOrder { Kind = OrderKind.Attack, TargetId = 8, Charge = true });
+        list.Add(b1);
+
+        var rmap = MapGen.Generate("river", new Dictionary<string, object> { ["widthM"] = 1200.0, ["depthM"] = 900.0, ["fords"] = 1.0, ["bridges"] = 1.0 }, 7);
+        var b1r = new Scene { Name = "Б1: переправа", Turns = 8, Geo = new Geo { Map = rmap, W = Terrain.WidthM(rmap), H = Terrain.HeightM(rmap) },
+            Note = "Б1, новый режим: та же карта, что «Река: брод и мост». Строй складывается в колонну перед мостом и бродом (Г59), бойцы, которым " +
+                   "к месту напрямик мешает вода, идут по карте направлений отряда; колонна не дёргается между шириной в 6 и 7 рядов." };
+        b1r.Battle = new Battle(b1r.Geo, RB, new EngineContext { Rng = new Mulberry32(19).Next });
+        var ri = b1r.Fighter("infantry", 1, "Пехота", 350, 820, 0);
+        var rk = b1r.Fighter("knights", 2, "Конница", 850, 830, 0, men: 300);
+        b1r.Order(ri, new MoveOrder { X = 350, Y = 80, Facing = 0 }); b1r.Order(rk, new MoveOrder { X = 850, Y = 60, Facing = 0 });
+        list.Add(b1r);
         return list;
     }
     static readonly Rules R0 = Rules.Base;

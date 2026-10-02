@@ -278,6 +278,11 @@ Test("баллистика сверх стола: вблизи смертоно�
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
 if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
+if (args.Length > 0 && args[0] == "b1-cross") { MenBodyProbe.Cross(); return 0; }
+if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0; }
+if (args.Length > 0 && args[0] == "b1-bench") { MenBodyBench.Run(); return 0; }
+if (args.Length > 0 && args[0] == "b1-ov") { MenBodyProbe3.Overlaps(); return 0; }
+if (args.Length > 0 && args[0] == "b1") { foreach (var (n, r) in MenBodyTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
 if (args.Length > 0 && args[0] == "men") { foreach (var (n, r) in MenTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "jumps") { var all = Polygon.Jumps(); Console.WriteLine($"прыжков {all.Count}"); foreach (var l in all.Take(20)) Console.WriteLine("  " + l); return 0; }
 foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Test(name, run);
@@ -291,6 +296,7 @@ foreach (var (name, run) in BattleTests.All()) Test(name, run);
 foreach (var (name, run) in LookTests.All()) Test(name, run);
 // ── живые бойцы (Г75–Г78), см. MenTests.cs ──
 foreach (var (name, run) in MenTests.All()) Test(name, run);
+foreach (var (name, run) in MenBodyTests.All()) Test(name, run);   // Б1: бойцы — тела (Г82, Г92)
 // ── приказы и ход (И2, Г79–Г81), см. OrdersTests.cs ──
 foreach (var (name, run) in OrdersTests.All()) Test(name, run);
 Test("тела не прыгают: ни тело, ни фигурка в кадре полигона не сдвигается за шаг дальше 45 м/с (мост, давка, бой с потерями)", () =>
