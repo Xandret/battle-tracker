@@ -9,6 +9,8 @@ namespace Journal.Art
     {
         public string Look; public bool Horse;
         public string Body, Head, Back, Shield, Weapon, Side, Bard;   // имена частей атласа; null — нет
+        public string Tabard, Arm, Hand;                               // сюрко (у кольчуги и лат), предплечье, кисть (В15)
+        public string Armour;                                          // cloth, mail, leather, plate
         public string ClothKey, ArmourKey;                            // для павшего: corpse/<ткань>/<броня>/<поза>
         public string HorseKey;                                        // horse/<масть>/<попона>[/<герб>]
         public string ShieldShape;
@@ -66,6 +68,8 @@ namespace Journal.Art
             ["barded"] = new K { Helm = W(("great", 100)), Weapon = W(("lance", 100)), Shield = W(("heater", 100)), Paint = W(("quarters", 50), ("chevron", 50)), Back = W(("none", 100)),
                 Armour = W(("plate", 100)), Bard = W(("full", 100)), Own = 0, Uniform = true },
         };
+        // сюрко (В15): у кольчуги и лат — всегда; герб — как на щите, иначе без герба
+        static readonly HashSet<string> Tabards = new HashSet<string> { "plain", "halves", "quarters", "cross", "chevron", "stripe" };
         static string Pick((string, int)[] list, double r)
         {
             double sum = 0; foreach (var (_, w) in list) sum += w;
@@ -111,7 +115,10 @@ namespace Journal.Art
                     Look = look, Horse = horse, ClothKey = cloth, ArmourKey = armourKey, Tone = tone, Coat = coat, C2 = c2,
                     Body = $"body/{cloth}/{armourKey}", Head = head, Shield = shield, ShieldShape = shape,
                     Back = back == "none" ? null : back == "pavise" ? "back/pavise/" + c2 : "back/" + back,
-                    Weapon = weapon, Side = side, Bard = bard,
+                    Weapon = weapon, Side = side, Bard = bard, Armour = armour,
+                    Tabard = armour == "mail" || armour == "plate" ? $"tabard/{(Tabards.Contains(paint) ? paint : "plain")}/{c2}" : null,
+                    Arm = "arm/" + (armour == "cloth" ? cloth : armourKey),
+                    Hand = armour == "plate" ? "hand/plate" : armour == "mail" ? "hand/glove" : "hand/skin",
                     HorseKey = $"horse/{coat}/{bard}" + (bard == "full" ? "/" + c2 : ""),
                 };
             }

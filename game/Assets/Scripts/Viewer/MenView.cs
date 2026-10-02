@@ -507,12 +507,15 @@ namespace Journal.Viewer
                 horseB.Quad(horses.Get("hrig/head/" + kit.Coat + (kit.Bard == "full" ? "/full" : "")), bas.T(0, -0.5f + nod), col, neutral);
                 horseB.Quad(horses.Get(kit.Bard == "full" ? "hrig/cover/full/" + kit.C2 : "hrig/cover/" + (kit.Bard == "cloth" ? "cloth" : "none")), bas, col, neutral);
                 var Mr = bas.T(ox, 0.02f + bob).R(rot * 0.35f);
-                BodyHead(kit, Mr, col, prm);
-                if (PSh != null) menB.Quad(men.Get(kit.Shield), Pose(Mr, PSh), col, neutral);
                 var W = PW;
                 if (kit.Weapon == "lance") { if (run) W = new[] { 0.2f, 0.25f + (m.Atk ? ThrustOff(ap) : 0), -0.04f, 1, 1 }; }
                 else if (m.Atk) { var (r2, sy2) = SwingAng(ap); W = new[] { 0.22f, -0.08f, r2, 1, sy2 }; }
+                var (rr, rl, rShowL) = HandsOf(kit.Weapon, W, PSh);
+                Arms(kit, Mr, rr, rl, col, prm);
+                BodyHead(kit, Mr, col, prm);
+                if (PSh != null) menB.Quad(men.Get(kit.Shield), Pose(Mr, PSh), col, neutral);
                 if (W != null) menB.Quad(men.Get("weapon/" + kit.Weapon), Pose(Mr, W), col, neutral);
+                Hands(kit, Mr, rr, rShowL ? rl : null, col);
                 if (m.Atk && ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kit.Weapon == "lance" ? -2.6f : -0.9f, ap));
                 return;
             }
@@ -542,16 +545,13 @@ namespace Journal.Viewer
             var Mm = bas.T(ox, oy - lean).R(rot);
             float st = step != 0 ? step : m.Atk ? Mathf.Sin(ap * 6.283f) * 0.6f : 0;   // ноги: на ходу и в бою шагают
             if (st != 0 && boots) { menB.Quad(bootP, Mm.T(-0.09f, 0.03f + 0.12f * st), col, neutral); menB.Quad(bootP, Mm.T(0.09f, 0.03f - 0.12f * st), col, neutral); }
-            if (kit.Back != null) menB.Quad(men.Get(kit.Back), Mm, col, neutral);
-            BodyHead(kit, Mm, col, prm);
             // щит: под стрелами — над головой; в рукопашной — вперёд, навстречу удару врага (прикрывается между своими ударами)
             bool raise = fireHere && !m.Atk && PSh != null && kit.ShieldShape != "buckler" && H(s, 13) < 0.85f;
-            if (PSh != null)
+            var Sh = PSh;
+            if (Sh != null)
             {
-                var Sh = PSh;
                 if (raise) Sh = new[] { -0.03f, -0.05f, -0.1f, 1, 0.9f };
                 else if (m.Atk) { float c = Mathf.Max(0, Mathf.Sin((ap + 0.5f) * 6.283f)); Sh = new[] { Sh[0] + 0.04f + 0.05f * c, Sh[1] - 0.06f - 0.09f * c, Sh[2] + 0.15f + 0.2f * c, Sh[3], Sh[4] }; }
-                menB.Quad(men.Get(kit.Shield), Pose(Mm, Sh), col, neutral);
             }
             // оружие
             string wpn = wk; var W2 = PW;
@@ -565,11 +565,63 @@ namespace Journal.Viewer
             }
             else if (cheer && W2 != null) W2 = new[] { W2[0], W2[1] - 0.05f, W2[2] * 0.3f - 0.1f, 1, Mathf.Min(W2[4], 0.3f) + 0.08f * Mathf.Sin(t * 9 + ph0 * 6.283f) };   // вскинули оружие
             else if (W2 != null && step != 0) W2 = new[] { W2[0], W2[1], W2[2] + 0.03f * step, W2[3], W2[4] };
+            // руки (В15): предплечья под телом, кисти поверх оружия; стрелок в рукопашной держит запасное оружие одной рукой
+            var (hr, hl, showL) = HandsOf(m.Atk && shoot ? wpn ?? "none" : kit.Weapon, wpn != null ? W2 : null, Sh, bowSt, xb);
+            if (kit.Back != null) menB.Quad(men.Get(kit.Back), Mm, col, neutral);
+            Arms(kit, Mm, hr, hl, col, prm);
+            BodyHead(kit, Mm, col, prm);
+            if (Sh != null) menB.Quad(men.Get(kit.Shield), Pose(Mm, Sh), col, neutral);
             if (wpn == "bow" && !m.Atk) menB.Quad(men.Get("bow/" + bowSt), Mm, col, neutral);
             else if (wpn == "crossbow" && !m.Atk) menB.Quad(men.Get("xbow/" + xb), Mm, col, neutral);
             else if (W2 != null && wpn != null) menB.Quad(men.Get("weapon/" + wpn), Pose(Mm, W2), col, neutral);
+            Hands(kit, Mm, hr, showL ? hl : null, col);
         }
-        void BodyHead(Kit kit, Aff m, Color32 col, Vector4 prm) { menB.Quad(men.Get(kit.Body), m, col, prm); menB.Quad(men.Get(kit.Head), m, col, prm); }
+        // тело, сюрко (В15: у кольчуги и лат; цвет стороны без сдвига тона) и голова
+        void BodyHead(Kit kit, Aff m, Color32 col, Vector4 prm)
+        {
+            menB.Quad(men.Get(kit.Body), m, col, prm);
+            if (kit.Tabard != null) menB.Quad(men.Get(kit.Tabard), m, col, new Vector4(0, prm.y, prm.z, prm.w));
+            menB.Quad(men.Get(kit.Head), m, col, prm);
+        }
+
+        // ── руки (В15), как handsOf полигона: правая — на рукояти; копьё, пика, вилы без щита — двумя руками (левая впереди
+        // по древку); левая — за щитом (не видна), на луке или ложе арбалета; без всего — у бедра ──
+        static readonly float[] BowD = { 0, 0.15f, 0.55f, 1, 0 };
+        const float ElbX = 0.215f, ElbY = 0, FaLen = 0.3f;
+        static Vector2 OnPose(float[] T, float x, float y)
+        {
+            float c = Mathf.Cos(T[2]), sn = Mathf.Sin(T[2]), px = x * T[3], py = y * T[4];
+            return new Vector2(T[0] + px * c - py * sn, T[1] + px * sn + py * c);
+        }
+        static (Vector2? r, Vector2? l, bool showL) HandsOf(string weapon, float[] W, float[] Sh, int bowSt = 0, int xb = 0)
+        {
+            if (weapon == "bow")
+            {
+                float d = BowD[bowSt], ty = -0.2f - 0.02f * d, cy = -0.56f - 0.1f * d;
+                return (new Vector2(0.02f, Mathf.Min(0.05f, ty + 0.36f * d + 0.03f)), new Vector2(0, (ty + cy) / 2), true);
+            }
+            if (weapon == "crossbow") return (xb >= 2 ? new Vector2(0.05f, xb == 2 ? -0.4f : -0.2f) : new Vector2(0.05f, -0.02f), new Vector2(0.05f, xb >= 2 ? -0.46f : -0.3f), true);
+            Vector2? r = W != null ? new Vector2(W[0], W[1]) : (Vector2?)null;
+            if (W != null && Sh == null && (weapon == "pike" || weapon == "spear" || weapon == "fork")) return (r, OnPose(W, 0, -0.4f), true);
+            return (r, Sh != null ? new Vector2(Sh[0], Sh[1]) : new Vector2(-0.235f, -0.07f), Sh == null);
+        }
+        // предплечье — от локтя к кисти, растянуто по длине (в атласе — длиной FaLen)
+        void Arms(Kit kit, Aff m, Vector2? r, Vector2? l, Color32 col, Vector4 prm)
+        {
+            var arm = men.Get(kit.Arm);
+            for (int side = 1; side >= -1; side -= 2)
+            {
+                var h = side > 0 ? r : l; if (h == null) continue;
+                float ex = side * ElbX, dx = h.Value.x - ex, dy = h.Value.y - ElbY, L = Mathf.Sqrt(dx * dx + dy * dy);
+                if (L >= 0.02f) menB.Quad(arm, m.T(ex, ElbY).R(Mathf.Atan2(dx, -dy)).S(1, L / FaLen), col, prm);
+            }
+        }
+        void Hands(Kit kit, Aff m, Vector2? r, Vector2? l, Color32 col)
+        {
+            var hand = men.Get(kit.Hand);
+            if (r != null) menB.Quad(hand, m.T(r.Value.x, r.Value.y), col, Vector4.zero);
+            if (l != null) menB.Quad(hand, m.T(l.Value.x, l.Value.y), col, Vector4.zero);
+        }
 
         // ── павшие и кровь (В8, В13) ──
         static readonly Color32 Blood = new Color32(123, 18, 18, 255);

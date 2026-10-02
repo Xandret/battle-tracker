@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Галерея бойцов</title>
+<!-- Галерея бойцов (В15): все наборы снаряжения теми же функциями, что полигон и атласы Unity (polygon-men.js) —
+     вблизи, в среднем плане и издали. Смотреть: node game/Tools/art-server.mjs → http://localhost:8790/men-gallery.html
+     ?side=#b0302a — цвет стороны; ?s=44 — приближение ближнего плана, px на метр; ?kit=spear,sword — только эти наборы;
+     ?near — только ближний план (для крупного: ?near&s=100&kit=sword); ?k=3 — пикселей на точку экрана (чётче);
+     ?before — рисунок из polygon-men-before.js (временная копия прошлой версии, для сравнения «до/после»);
+     ?shot=имя — сохранить снимок в полный размер в game/Assets/_Shots/имя.png (через art-server) -->
+<style>
+  body { margin: 0; background: #23201b; color: #e8e0cc; font: 13px system-ui, sans-serif; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script>document.write(`<script src="${new URLSearchParams(location.search).has("before") ? "polygon-men-before.js" : "polygon-men.js"}"><\/script>`);</script>
+<script>
+const Q = new URLSearchParams(location.search);
+// чёткость: спрайты рисуются под devicePixelRatio — подменяем его, чтобы снимок был крупнее экрана
+if(Q.get("k")) Object.defineProperty(window, "devicePixelRatio", {get: () => +Q.get("k")});
+const view = {s: +Q.get("s") || 44};
+let ctx;
+const SIDE = Q.get("side") || "#b0302a";
+const ALL = [["militia", "militia", "Ополчение"], ["spear", "infantry", "Копейщики"], ["sword", "guard", "Мечники"],
+              ["pike", "pikemen", "Пикинёры"], ["bow", "archers", "Лучники"], ["crossbow", "crossbowmen", "Арбалетчики"],
+              ["lance", "knights", "Рыцари"], ["barded", "elite_cavalry", "Тяжёлые рыцари"]];
+const KITS = Q.get("kit") ? ALL.filter(k => Q.get("kit").split(",").includes(k[0])) : ALL;
+// планы: [px на метр, бойцов в ряду, шаг, м]
+const PLANS = Q.has("near") ? [[view.s, 6, 0.95]] : [[view.s, 6, 0.95], [14, 8, 0.85], [6, 10, 0.8]];
+const LABEL = 120;
+// высота ряда — по самому длинному в нём: пика, копьё, конь
+const TOP = look => look === "lance" || look === "barded" ? 3.0 : look === "pike" ? 4.1 : look === "spear" || look === "militia" ? 1.5 : 1.15;
+const BOTTOM = look => look === "lance" || look === "barded" ? 1.45 : look === "pike" ? 0.85 : 0.62;
+const ROWH = look => 45 + (TOP(look) + BOTTOM(look)) * view.s;
+
+function draw(){
+  const near = PLANS[0][0], c = document.getElementById("c"), dpr = window.devicePixelRatio || 1;
+  const W = Math.max(innerWidth, LABEL + PLANS.reduce((a, [s, n, st]) => a + n * st * s * 1.25 + 30, 0)), H = KITS.reduce((a, k) => a + ROWH(k[0]), 0) + 20;
+  c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
+  ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // земля — ровная трава, как на столе
+  ctx.fillStyle = "#6f7a45"; ctx.fillRect(0, 0, W, H);
+  for(let i = 0; i < 2500; i++){ const x = hash(i, 1) * W, y = hash(i, 2) * H; ctx.fillStyle = hash(i, 3) < 0.5 ? "rgba(60,70,30,.25)" : "rgba(150,150,90,.18)"; ctx.fillRect(x, y, 2, 2); }
+  let yAt = 10;
+  KITS.forEach(([look, tpl, name]) => {
+    const r = ALL.findIndex(k => k[0] === look), y0 = yAt, u = {id: 300 + r * 17, col: SIDE, tpl};
+    view.s = near; yAt += ROWH(look);
+    const kits = kitsOf(u);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "rgba(20,16,10,.75)"; ctx.fillRect(0, y0, LABEL - 10, 22);
+    ctx.fillStyle = "#f0e6c8"; ctx.font = "bold 13px system-ui"; ctx.fillText(name, 8, y0 + 15);
+    let x = LABEL;
+    PLANS.forEach(([s, n, step], p) => {
+      view.s = s; setZoom();
+      const horse = look === "lance" || look === "barded";
+      const cy = y0 + 25 + TOP(look) * near;
+      for(let i = 0; i < n; i++){
+        const k = kits[i % kits.length], px = x + (i + 0.5) * step * s * (horse ? 1.25 : 1);
+        const m = [s * dpr, 0, 0, s * dpr, px * dpr, cy * dpr];
+        // тень и боец, как в полигоне: издали — один спрайт
+        ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+        ctx.drawImage(SHADOW, -0.42, -0.42 + 0.05, 0.84, 0.84);
+        put(compSpr(k, p === 0 ? 0 : i % 3), m);
+      }
+      x += n * step * s * (horse ? 1.25 : 1) + 30;
+    });
+  });
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+draw();
+if(Q.get("shot")) document.getElementById("c").toBlob(b => fetch("/shot?file=" + encodeURIComponent(Q.get("shot")) + ".png", {method: "POST", body: b})
+  .then(r => r.text()).then(t => document.title = "снимок: " + t));
+</script>

@@ -36,6 +36,15 @@
     for(const h of ["kettle", "capSteel", "nasal", "great", "bascinet", "morion"])
       add("men", "head/" + h, [-0.2, -0.24, 0.2, 0.24], g => paintHead(g, {helm: h}));
     add("men", "head/great/crest", [-0.2, -0.24, 0.2, 0.24], g => paintHead(g, {helm: "great", crest: KEY}));
+    // сюрко поверх тела (В15): поле — сторона, герб — второй цвет; Unity кладёт между телом и головой
+    for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron"])
+      C2.forEach((c2, i) => add("men", `tabard/${paint}/${i}`, [-0.22, -0.15, 0.22, 0.2], g => paintTabard(g, paint, KEY, c2)));
+    // руки (В15): предплечье — от локтя (0, 0) к кисти (0, −FA_LEN), Unity растягивает по длине; рукав — по доспеху
+    for(const key of CLOTH_KEYS.concat(["mail", "plate", "leather0", "leather1", "leather2"])){
+      const k = key === "mail" || key === "plate" ? {armour: key} : key.startsWith("leather") ? {armour: "leather", leather: LEATHER[+key.slice(7)]} : {armour: "cloth", cloth: clothOf(key)};
+      add("men", "arm/" + key, [-0.06, -FA_LEN - 0.06, 0.06, 0.06], g => paintForearm(g, k));
+    }
+    for(const kind of ["skin", "glove", "plate"]) add("men", "hand/" + kind, [-0.05, -0.055, 0.05, 0.055], g => paintHand(g, kind));
     // щиты: лицом, цвет поля — сторона, второй цвет — герб
     for(const shape of ["round", "oval", "heater"])
       for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron", "boss", "wood"])
