@@ -22,7 +22,7 @@ namespace Journal.Viewer
         public readonly Dictionary<Mover, string> Style = new Dictionary<Mover, string>();   // стиль облика (В16); нет — западный
         public readonly Dictionary<int, string> SideNames = new Dictionary<int, string>();   // сторона → имя (сохранение — фракции через запятую)
 
-        static Rules R => Rules.Base;
+        static Rules R => GameRules.Game;   // бойцы-тела (MenBodies) — GameRules
         public static Geo Open(double w, double h, string fill = "field")
         {
             var m = Terrain.Create(w, h, Terrain.Id(fill));
@@ -56,7 +56,7 @@ namespace Journal.Viewer
 
     public static class ViewerScenes
     {
-        static Rules R => Rules.Base;
+        static Rules R => GameRules.Game;   // бойцы-тела (MenBodies) — GameRules
         static Battle NewBattle(Geo geo, uint seed, Rules r = null) => new Battle(geo, r ?? R, new EngineContext { Rng = new Mulberry32(seed).Next });
 
         // Имена — для списка в смотрелке; сцена строится заново при каждом выборе (в фоне, не в кадре)

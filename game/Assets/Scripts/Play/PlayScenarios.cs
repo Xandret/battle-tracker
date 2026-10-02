@@ -26,7 +26,7 @@ namespace Journal.Play
 
     public static class PlayScenarios
     {
-        static readonly Rules R = Rules.Base;
+        static readonly Rules R = GameRules.Game;   // бойцы-тела (MenBodies) — GameRules
 
         // меню битв: имя, подпись, как построить
         public static List<(string Name, string Note, Func<PlayBattle> Make)> All()

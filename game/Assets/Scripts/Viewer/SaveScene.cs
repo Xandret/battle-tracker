@@ -137,7 +137,7 @@ namespace Journal.Viewer
 
         public static SceneDef Make(string path, int turns = 4, uint seed = 16, double widthM = 0)
         {
-            var R = Rules.Base;
+            var R = GameRules.Game;
             var s = Read(path, widthM: widthM);
             var geo = SceneDef.Open(s.W, s.H);
             var sc = new SceneDef { Name = $"Сохранение: ход {s.Turn}", Turns = turns, Geo = geo, Image = s.Image };
