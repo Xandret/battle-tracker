@@ -195,6 +195,7 @@ namespace BattleCore
             }
             // тела — за фигурками; сетка — только пока что-то летит или вылетает
             bool busy = flying.Count > 0 || nextShot < queue.Count && queue[nextShot].LaunchT < t + dt;
+            long ps = Prof.Now();
             if (busy)
             {
                 grid.Clear();
@@ -206,6 +207,7 @@ namespace BattleCore
                     foreach (var b in tr.Bodies) if (b.Alive) grid.Add(b);
                 }
             }
+            Prof.Add(16, ref ps);
             int sub = Math.Max(1, (int)Math.Ceiling(dt / RR.Dt - 1e-9));
             double subDt = dt / sub;
             for (int k = 0; k < sub; k++)
@@ -223,6 +225,7 @@ namespace BattleCore
                 flying.RemoveAll(x => x.Done);
             }
             if (nextShot > 4096) { queue.RemoveRange(0, nextShot); nextShot = 0; }
+            Prof.Add(17, ref ps);
             foreach (var v in Volleys)
                 foreach (var w in v.Wins)
                     if (w.Open && !w.Closed && w.T1 <= t + dt + 1e-9 && w.Launched >= w.Planned && w.Landed >= w.Planned) CloseVolleyWin(w, t + dt);
@@ -363,7 +366,7 @@ namespace BattleCore
 
         void Fly(Shot ar, double subDt)
         {
-            var RR = R.Ranged;
+            var RR = R.Ranged; Prof.N[0]++;
             double x0 = ar.X, y0 = ar.Y, z0 = ar.Z;
             var bow = RR.Bows[ar.W.Bow];
             Ballistics.Step(ref ar.X, ref ar.Y, ref ar.Z, ref ar.VX, ref ar.VY, ref ar.VZ, Ballistics.DragK(bow, RR), RR.Gravity, subDt);
@@ -388,6 +391,7 @@ namespace BattleCore
             {
                 var near = new List<Body>();
                 grid.Near(x0, y0, x1, y1, RR.HorseLength / 2 + 0.2, near);
+                Prof.N[1]++; Prof.N[2] += near.Count;
                 Body best = null; string bestPart = null; double bestT = tEnd + 1e-9;
                 foreach (var body in near)
                 {
