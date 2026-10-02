@@ -50,6 +50,7 @@ namespace Journal.Viewer
         // Слои рисунка: земля 0, кровь 4, павшие 5–6, кони 9, бойцы и плашки 10, стрелы в полёте 20; 21–39 — за смотрелкой
         // (знамёна, дым, подсветка), 50+ — подсказки приказов игры.
         public bool ShowGui = true;                       // false — без OnGUI (кнопок сцен и нижней полосы)
+        public bool PlayInput;                            // управление игры: ЛКМ/ПКМ — игре, камера — средней кнопкой и клавишами (SetLive включает)
         public Func<Vector2, bool> OverExternalUi;        // экранная точка над интерфейсом игры — колесо и сдвиг камеры её не трогают
         public bool Live => live;
         public Recording Rec => rec;
@@ -64,7 +65,7 @@ namespace Journal.Viewer
             Init();
             // сцена смотрелки ещё считается в фоне — дождаться: два боя разом движок пока не считает (Soldiers.Jostle)
             if (job != null) { try { job.Wait(); } catch (AggregateException) { } job = null; }
-            live = true; pendingScene = -1; scene = -1;
+            live = true; PlayInput = true; pendingScene = -1; scene = -1;
             rec = r; t = 0; playing = false;
             BuildGround(); FitView();
         }
@@ -137,7 +138,7 @@ namespace Journal.Viewer
         void HandleInput()
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
-            if (live) { GameInput(mouse, kb); return; }
+            if (PlayInput) { GameInput(mouse, kb); return; }
             if (kb != null)
             {
                 if (kb.spaceKey.wasPressedThisFrame && rec != null) { if (t >= rec.Seconds) t = 0; playing = !playing; }
