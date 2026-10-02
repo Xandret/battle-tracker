@@ -43,6 +43,7 @@ namespace Journal.Viewer
 
         // для проверки из CLI: бой посчитан и показан; что сейчас на экране
         public bool Ready => rec != null && job == null;
+        public int SceneIndex => scene;
         public string Status => job != null ? "считаю: " + jobNote : rec == null ? "пусто" : $"{rec.Name}: {t:0.0} из {rec.Seconds:0.0} с, кадров {rec.Frames.Count}, павших {rec.Dead.Count}, стрел {rec.Arrows.Count}";
         public void Show(int i, double at = 0) { Load(i); t = at; }
         public void Seek(double at) { if (rec != null) { t = Math.Max(0, Math.Min(rec.Seconds, at)); playing = false; } }
@@ -135,22 +136,43 @@ namespace Journal.Viewer
             cam.orthographicSize = Mathf.Max(h / 2, w / 2 / aspect) * 1.08f;
         }
 
-        // ── земля: клетка 5 м — пиксель, между клетками — плавно; высота чуть светлее ──
+        // неровность края по виду земли (0 — край ровно по клеткам), как в полигоне; постройки — ровно
+        static readonly Dictionary<int, float> Amp = new Dictionary<int, float>
+        {
+            [1] = .28f, [2] = .16f, [3] = .3f, [4] = .3f, [5] = .34f, [6] = .3f, [7] = .2f, [8] = .14f, [10] = .3f, [11] = .3f, [16] = .06f, [17] = .05f,
+        };
+
+        // ── земля (В1): шейдер Ground — попиксельный проход полигона на видеокарте ──
+        // Клетки карты — в текстуру (R вид, G высота·16, B высота, сглаженная 3 × 3, ·16), цвета видов — в палитру 32 × 1
         void BuildGround()
         {
             if (groundGo) Destroy(groundGo);
             var m = rec.Map;
-            var tex = new Texture2D(m.W, m.H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var cells = new Texture2D(m.W, m.H, TextureFormat.RGBA32, false, true) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
             var px = new Color32[m.W * m.H];
             for (int y = 0; y < m.H; y++)
                 for (int x = 0; x < m.W; x++)
                 {
-                    int i = y * m.W + x;
-                    var c = Hex(Ground.TryGetValue(m.T[i], out var s) ? s : Ground[1]);
-                    float f = 1 + m.Z[i] * 0.05f;
-                    px[(m.H - 1 - y) * m.W + x] = new Color32((byte)Mathf.Min(255, c.r * f), (byte)Mathf.Min(255, c.g * f), (byte)Mathf.Min(255, c.b * f), 255);
+                    int i = y * m.W + x, sum = 0, n = 0;
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int xx = x + dx, yy = y + dy;
+                            if (xx >= 0 && yy >= 0 && xx < m.W && yy < m.H) { sum += m.Z[yy * m.W + xx]; n++; }
+                        }
+                    int kind = m.T[i] == 0 ? 1 : m.T[i];
+                    px[i] = new Color32((byte)kind, (byte)Mathf.Min(255, m.Z[i] * 16), (byte)Mathf.Min(255, Mathf.RoundToInt(16f * sum / n)), 255);
                 }
-            tex.SetPixels32(px); tex.Apply();
+            cells.SetPixels32(px); cells.Apply(false, true);
+            var palTex = new Texture2D(32, 1, TextureFormat.RGBA32, false, true) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+            var pc = new Color32[32];
+            for (int k = 0; k < 32; k++)
+            {
+                var c = Hex(Ground.TryGetValue(k, out var s) ? s : Ground[1]);
+                c.a = (byte)Mathf.RoundToInt((Amp.TryGetValue(k, out var a) ? a : 0) / 0.5f * 255);
+                pc[k] = c;
+            }
+            palTex.SetPixels32(pc); palTex.Apply(false, true);
             groundGo = new GameObject("Земля");
             float W = (float)rec.W, H = (float)rec.H;
             var mesh = new Mesh
@@ -160,7 +182,9 @@ namespace Journal.Viewer
                 triangles = new[] { 0, 2, 1, 0, 3, 2 },
             };
             groundGo.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var gm = new Material(mat) { mainTexture = tex };
+            var gm = new Material(Shader.Find("Journal/Ground"));
+            gm.SetTexture("_Cells", cells); gm.SetTexture("_Pal", palTex);
+            gm.SetVector("_Info", new Vector4(m.W, m.H, (float)(rec.W / m.W), 1));
             var r = groundGo.AddComponent<MeshRenderer>(); r.sharedMaterial = gm; r.sortingOrder = 0;
             // цвет отряда: оттенок стороны по порядку внутри фракции
             unitCol = new Color32[rec.Units.Count];
@@ -169,7 +193,7 @@ namespace Journal.Viewer
             {
                 int f = rec.Units[i].Faction; seen.TryGetValue(f, out int k); seen[f] = k + 1;
                 var pal = Side.TryGetValue(f, out var p) ? p : Side[1];
-                unitCol[i] = Hex(pal[k % pal.Length]);
+                unitCol[i] = Lin(Hex(pal[k % pal.Length]));
             }
         }
 
@@ -192,7 +216,7 @@ namespace Journal.Viewer
             V.Clear(); C.Clear(); I.Clear();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             // павшие — под отрядами
-            var blood = new Color32(110, 22, 18, 255);
+            var blood = Lin(new Color32(110, 22, 18, 255));
             foreach (var dd in rec.Dead) if (dd.Frame <= f0) Quad(dd.X, dd.Y, 0.9f, 1.6f, dd.Dir + 90, blood);   // удар (угол на карте) → курс: +90°
             var A = rec.Frames[f0]; var B = rec.Frames[f1];
             for (int u = 0; u < A.Length; u++)
@@ -212,7 +236,7 @@ namespace Journal.Viewer
                 }
             }
             // стрелы в полёте — по прямой между вылетом и концом (дуга и тень — на шаге облика)
-            var ink = new Color32(30, 24, 18, 255);
+            var ink = Lin(new Color32(30, 24, 18, 255));
             foreach (var ar in rec.Arrows)
             {
                 if (ar.T0 > t) break;
@@ -270,5 +294,7 @@ namespace Journal.Viewer
         }
 
         static Color32 Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+        // цвет вершин сетки Unity не переводит из sRGB — в линейном проекте переводим сами
+        static Color32 Lin(Color32 c) => QualitySettings.activeColorSpace == ColorSpace.Linear ? (Color32)((Color)c).linear : c;
     }
 }
