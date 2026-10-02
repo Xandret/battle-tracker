@@ -1,4 +1,4 @@
-// ═══════════ Battle.cs — бой в движении (И1, БД1, БД3; Г62–Г64, Г68–Г69, Г44, Г29, Г30) — ЧЕРНОВИК ДО ГМа ═══════════
+// ═══════════ Battle.cs — бой в движении (И1, БД1, БД3, БД4; Г62–Г64, Г68–Г74, Г44, Г29, Г30) — ЧЕРНОВИК ДО ГМа ═══════════
 // Один ход боя — то же движение (MoveSim.Step), а между его шагами — рукопашная. Схватка (Fight) — пара
 // врагов, чьи фигурки коснулись (не дальше MeleeGap): обмены ударами по кругу в 15 с от касания (Г62) —
 // сначала атаки того, кто начал (Г44), на каждую — ответ, если удар пришёл во фронт; потом атаки второго.
@@ -8,6 +8,8 @@
 // чистому (К29); пики во фронт его гасят. Павшие фигурки выпадают из строя, строй смыкается с краёв (Г30).
 // Атакованный во фланг сам не поворачивается — ждёт приказа (Г63). Свисающие колонны огибают врага перед
 // фронтом — во фланг и в тыл (Г68); колонны делятся между врагами, ответы — общие на круг (Г69).
+// БД и бегство в ходу (БД4, Г70–Г74): после каждого удара с потерями — проверки, как подсказывает журнал стола;
+// провал — толпа бежит прочь от врага на норме, свои рядом бросают проверку (каскадная паника); «сплотить» — бросок.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -47,6 +49,9 @@ namespace BattleCore
         public double MenPerFigure = 10;
         public double BurstSec = 2, ContactEverySec = 0.5, FightEndSec = 2, ReplanSec = 1, ReplanMoveM = 5;
         public List<string> Details = new List<string>();   // окна ударов этого хода: «8,2 с · A → B (натиск): −40»
+        public bool MoraleChecks = true;     // БД4: проверки БД и на побег в ходу; сверка обмена ударами со столом — без них
+        public bool PanicMoraleLoss;         // переключатель трекера «−100 БД вместе с проверкой» (по умолчанию выключен)
+        readonly List<string> events = new List<string>();   // проверки, бегство, паника, «сплотить» — в журнал хода
         readonly Dictionary<Mover, int> chargesLeft = new Dictionary<Mover, int>();
         readonly Dictionary<Mover, (double x, double y)> aimed = new Dictionary<Mover, (double x, double y)>();
 
@@ -61,6 +66,8 @@ namespace BattleCore
         public Mover ById(int id) => Movers.FirstOrDefault(m => m.P.U.Id == id);
         static bool Enemies(Unit a, Unit b) => !(a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId);
         static bool Alive(Mover m) => m.P.U.Status == "active" && m.P.U.Soldiers > 0 && m.P.Figs.Count > 0;
+        // на поле: в строю или бежит — бегущего можно догнать и рубить, он не отвечает (Г70, как преследование за столом)
+        static bool OnField(Mover m) => (m.P.U.Status == "active" || m.P.U.Status == "fled") && m.P.U.Soldiers > 0 && m.P.Figs.Count > 0 && !m.Gone;
         // начинает обмен (Г44) тот, у кого приказ «атаковать» или кто идёт; «держать позицию» и стоящий — отвечают
         static bool Attacking(Mover m) => m.Order != null && (m.Order.Kind == OrderKind.Attack || m.Order.Kind == OrderKind.Move && !m.Done);
         Fight FightOf(Mover x, Mover y) => Fights.FirstOrDefault(f => !f.Over && (f.A == x && f.B == y || f.A == y && f.B == x));
@@ -68,6 +75,8 @@ namespace BattleCore
         // ── приказы (Г15) ──
         public void Order(Mover m, MoveOrder o)
         {
+            if (m.Fleeing) { if (o.Kind == OrderKind.Rally) m.RallyPending = true; return; }   // бегущий слышит только «сплотить» (Г72)
+            if (o.Kind == OrderKind.Rally) return;
             aimed.Remove(m);
             if (o.Kind == OrderKind.Hold) { m.Order = o; m.Track = null; m.Done = true; m.Vs = 0; return; }
             if (o.Kind == OrderKind.Attack)
@@ -90,10 +99,10 @@ namespace BattleCore
         {
             if (m.Order == null || m.Order.Kind != OrderKind.Attack || !Alive(m)) return;
             var t = ById(m.Order.TargetId);
-            if (t == null || !Alive(t)) { m.Done = true; m.Vs = 0; return; }
+            if (t == null || !OnField(t)) { m.Done = true; m.Vs = 0; return; }   // бегущего — преследует
             if (Shooter(m)) { ReplanShoot(m, t); return; }
             var f = FightOf(m, t);
-            if (f != null && f.Of(m).Engaged > 0) return;
+            if (f != null && f.Of(m).Engaged > 0 && !t.Fleeing) return;   // бегущего — догоняет (Г70)
             if (aimed.TryGetValue(m, out var a) && JsMath.Hypot(a.x - t.P.X, a.y - t.P.Y) < ReplanMoveM) return;
             Aim(m, m.Order, t);
         }
@@ -106,7 +115,7 @@ namespace BattleCore
             int contactEvery = Math.Max(1, (int)Math.Round(ContactEverySec / dt)), replanEvery = Math.Max(1, (int)Math.Round(ReplanSec / dt));
             double turnStart = Clock;
             MoveSim.BeginTurn(Movers);
-            Details.Clear();
+            Details.Clear(); events.Clear();
             foreach (var f in Fights) { f.LossA = f.LossB = 0; f.Notes.Clear(); }
             foreach (var v in Volleys) { v.LossA = v.LossB = v.Friendly = 0; v.Arrows = 0; }
             Shots = new ShotStats();
@@ -119,13 +128,15 @@ namespace BattleCore
                 var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
                 MoveSim.Step(Movers, Geo, R, k);
                 for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
-                if (k % contactEvery == 0) { Contacts(t); Envelop(); }
+                foreach (var m in Movers) if (m.Fleeing) EdgeCheck(m, t + dt);
+                if (k % contactEvery == 0) { Contacts(t); Envelop(); TryRally(t); foreach (var m in Movers) if (m.Fleeing) OwnFleeCourses(m); }
                 Strike(t, dt);
                 Shoot(t, dt);
                 foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
                 if ((k + 1) % contactEvery == 0) foreach (var m in Movers) Relayout(m);
                 frame?.Invoke((k + 1) * dt);
             }
+            EndOfTurnTable(turnStart + M.TurnSec);
             Clock = turnStart + M.TurnSec;
             var L = MoveSim.EndTurn(Movers, R);
             foreach (var f in Fights)
@@ -144,6 +155,9 @@ namespace BattleCore
                 if (v.Friendly > 0) parts.Add($"по своим −{Js.Num(v.Friendly)}");
                 L.Add($"Стрельба «{v.A.P.U.Name}» по «{v.B.P.U.Name}»: {string.Join("; ", parts)}");
             }
+            L.AddRange(events);
+            foreach (var m in Movers)
+                if (m.Fleeing && OnField(m)) L.Add($"«{m.P.U.Name}» бежит: прошёл {Js.Num(Js.R1(m.Moved))} м{(m.RallyPending ? ", ждёт, чтобы сплотиться (враг ближе " + Js.Num(R.Rally.FreeM) + " м)" : "")}");
             Fights.RemoveAll(f => f.Over);
             return L;
         }
@@ -217,7 +231,7 @@ namespace BattleCore
                 for (int j = i + 1; j < Movers.Count; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
-                    if (!(Alive(x) && Alive(y) && Enemies(x.P.U, y.P.U))) continue;
+                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U))) continue;
                     double reach = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10 + WrapReach(x) + WrapReach(y);
                     if (JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) > reach) continue;
                     touches[(x, y)] = Bodies.Touch(x, y, R.Map.MeleeGap);
@@ -241,7 +255,7 @@ namespace BattleCore
                 {
                     Mover x = Movers[i], y = Movers[j];
                     var f = FightOf(x, y);
-                    bool can = Alive(x) && Alive(y) && Enemies(x.P.U, y.P.U);
+                    bool can = OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U);
                     var sx = can ? SideOf(x, y) : new Fight.Side();
                     var sy = can ? SideOf(y, x) : new Fight.Side();
                     bool touch = sx.Engaged > 0 || sy.Engaged > 0;
@@ -333,13 +347,13 @@ namespace BattleCore
                     if (w.Open || w.Skipped || w.T0 >= t1 - 1e-9) continue;
                     if (w.Att.P.U.Status != "active" || w.Def.P.U.Status == "destroyed" || w.Def.P.U.Soldiers <= 0) { w.Skipped = true; continue; }
                     if (w.Counter && w.Att.P.U.Morale < R.Morale.ShakenBelow) { w.Skipped = true; continue; }   // дрогнувший не отвечает
-                    w.Open = true;
+                    w.Open = true; w.Att.P.U.Acted = true;   // «походил» — для усталости в конце хода (стол)
                     w.U = MeleeSim.Fortune(w.Att.P.U, ModeAt(w.Def), Ctx);
                     w.N0 = w.Att.P.U.Soldiers;
                     if (!w.Counter && !w.Charge)
                     {
                         var sa = f.Of(w.Att);
-                        if (f.Of(w.Def).Engaged > 0 && sa.Front > 0 && TakeCounter(w.Def))
+                        if (w.Def.P.U.Status == "active" && f.Of(w.Def).Engaged > 0 && sa.Front > 0 && TakeCounter(w.Def))
                         {
                             bool pikeStop = Units.IsCav(w.Att.P.U) && Units.IsPike(w.Def.P.U);
                             var c = new Fight.Win
@@ -410,6 +424,246 @@ namespace BattleCore
             double whole = Math.Round(def.Soldiers);
             if (Math.Abs(def.Soldiers - whole) < 1e-6) def.Soldiers = whole;
             Details.Add($"{Js.Num(Js.R1(t - (Clock)))} с · {w.Att.P.U.Name} → {def.Name}{(w.Charge ? " (натиск)" : w.Counter ? " (ответ)" : "")}: −{Js.Num(cas)}");
+            if (cas > 0) AfterLoss(w.Def, t);
+        }
+
+        // ── БД и бегство в ходу (БД4, Г70–Г74) — ЧЕРНОВИК ДО ГМа ──
+        string At(double t) => Js.Num(Js.R1(t - Clock));
+        // Г74: после каждого удара с потерями — проверки, как подсказывает журнал стола: БД ≤ 40 — проверка БД
+        // (провал роняет БД до нуля); БД на нуле — проверка на побег («стоять насмерть» гасит первый бросок)
+        internal void AfterLoss(Mover m, double t)
+        {
+            var u = m.P.U;
+            if (u.Soldiers <= 0) { m.Fleeing = false; m.RallyPending = false; return; }
+            if (!MoraleChecks || u.Status != "active" || u.Soldiers <= 0 || m.Gone) return;
+            if (u.Morale > 0 && u.Morale <= R.Morale.CheckAt) Check(t, MoraleRules.MoraleCheck(u, Ctx), u);
+            if (u.Morale > 0 || u.Status != "active") return;
+            Check(t, MoraleRules.FleeCheck(u, Ctx), u);
+            if (u.Status == "fled") { Flee(m, t, "провалил проверку на побег"); PanicFrom(m, t); }
+        }
+        void Check(double t, ActionResult r, Unit u)
+        {
+            r.Patch.ApplyTo(u);
+            events.Add($"{At(t)} с · {r.Title}: {string.Join("; ", r.Lines.Where(l => !l.Contains("требуется")))}");
+        }
+
+        // Г70, Г71: побежал — толпой прочь от врага (от тех, кто ближе FleeLookM: чем ближе, тем сильнее; никого —
+        // назад от своего фронта) к краю карты, на норме; строй рассыпается, приказов не слушает, свои пропускают
+        void Flee(Mover m, double t, string why)
+        {
+            if (m.Fleeing || m.Gone) return;
+            var u = m.P.U; u.Status = "fled";
+            double vx = 0, vy = 0;
+            foreach (var e in Movers)
+            {
+                if (e == m || !OnField(e) || !Enemies(u, e.P.U)) continue;
+                double dx = m.P.X - e.P.X, dy = m.P.Y - e.P.Y, d = JsMath.Hypot(dx, dy);
+                if (d > R.Move.FleeLookM || d < 1e-9) continue;
+                double w = 1 / Math.Max(d, 10);
+                vx += dx / d * w; vy += dy / d * w;
+            }
+            double head = JsMath.Hypot(vx, vy) > 1e-12 ? MoveSim.HeadingOf(vx, vy) : MoveSim.Norm(m.P.Facing + 180);
+            double hx = Math.Sin(head * Math.PI / 180), hy = -Math.Cos(head * Math.PI / 180), inset = 1, run = 1e9;
+            if (hx > 1e-9) run = Math.Min(run, (Geo.W - inset - m.P.X) / hx); else if (hx < -1e-9) run = Math.Min(run, (inset - m.P.X) / hx);
+            if (hy > 1e-9) run = Math.Min(run, (Geo.H - inset - m.P.Y) / hy); else if (hy < -1e-9) run = Math.Min(run, (inset - m.P.Y) / hy);
+            run = Math.Max(0, run);
+            m.FleeX = Math.Max(inset, Math.Min(Geo.W - inset, m.P.X + hx * run));
+            m.FleeY = Math.Max(inset, Math.Min(Geo.H - inset, m.P.Y + hy * run));
+            m.FleeHeading = head; m.Fleeing = true; m.FleeSince = t; m.RallyPending = false; m.Rallied = false;
+            m.Order = null; m.Track = null; m.Done = false; m.Held = false; m.HoldLeft = 0; m.Vs = 0; aimed.Remove(m);
+            m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), m.FleeX, m.FleeY);
+            foreach (var s in m.Figs)
+            {
+                if (!s.Turned) { s.Turned = true; s.Axis = m.P.Facing; }
+                s.Wrap = false; s.WFoe = null; s.Returning = false; s.FleeH = double.NaN;
+            }
+            m.P.Facing = head;
+            OwnFleeCourses(m);
+            events.Add($"{At(t)} с · 🏃 «{u.Name}» бежит ({why}) — толпой прочь от врага, к краю карты");
+        }
+
+        // Г73: каскадная паника — волна целиком в миг бегства, как за столом (Panic.Wave трекера): свои и союзники
+        // в 150 м от края до края, первое кольцо — только кто видел; побежавший тянет соседей; каждый — раз за волну
+        void PanicFrom(Mover src, double t)
+        {
+            var live = Movers.Where(m => m == src || OnField(m)).ToList();
+            foreach (var m in live) { var u = m.P.U; u.OnMap = true; u.MapX = m.P.X / Geo.W * 100; u.MapY = m.P.Y / Geo.H * 100; u.Facing = m.P.Facing; }
+            var r = Panic.Wave(live.Select(m => m.P.U).ToList(), src.P.U.Id, Geo, Ctx, PanicMoraleLoss);
+            foreach (var p in r.Patches) { var m = ById(p.Id); if (m != null) p.Patch.ApplyTo(m.P.U); }
+            if (r.Lines.Count > 0) events.Add($"{At(t)} с · 🏳 каскадная паника от «{src.P.U.Name}»: {string.Join("; ", r.Lines)}");
+            foreach (int id in r.Fled) { var m = ById(id); if (m != null) Flee(m, t, $"паника — бежал «{src.P.U.Name}»"); }
+        }
+
+        // Г70: толпа дошла до края карты — отряд ушёл с поля боя (жив, но в этой битве его нет; вернуть — ГМ после боя)
+        void EdgeCheck(Mover m, double t)
+        {
+            if (!m.Fleeing || m.Gone) return;
+            double e = R.Move.FleeEdgeM; int left = 0;
+            for (int k = m.Figs.Count - 1; k >= 0; k--)
+            {
+                var s = m.Figs[k];
+                if (!(s.X < e || s.Y < e || s.X > Geo.W - e || s.Y > Geo.H - e)) continue;
+                m.LeftMen += (int)m.P.Figs[k].Men; m.LaidMen -= (int)m.P.Figs[k].Men; left++;
+                m.Figs.RemoveAt(k); m.P.Figs.RemoveAt(k);
+            }
+            if (m.Figs.Count > 0) return;
+            if (left == 0) { m.Fleeing = false; m.RallyPending = false; return; }   // никто не ушёл за край — вымерли на бегу
+            m.Gone = true; m.Fleeing = false; m.RallyPending = false; m.Field = null; m.Vs = 0;
+            events.Add($"{At(t)} с · «{m.P.U.Name}» бежал с поля боя ({Js.Num(Js.Round(m.P.U.Soldiers))} бойцов)");
+        }
+        // Потери бегущей толпы: строй заново не собирается — падают фигурки, что ближе всех к врагу (их и рубят)
+        void RelayoutCrowd(Mover m)
+        {
+            int n = (int)Math.Max(0, Js.Round(m.P.U.Soldiers)) - m.LeftMen;
+            if (n >= m.LaidMen) return;
+            int melee = Math.Max(0, m.LaidMen - n - m.ShotDown);
+            m.ShotDown = 0;
+            if (melee > 0) MeleeDeaths(m, melee);
+            m.LaidMen = n;
+            int keep = n <= 0 ? 0 : (int)Math.Ceiling(n / MenPerFigure);
+            var foes = Movers.Where(e => e != m && OnField(e) && Enemies(m.P.U, e.P.U)).ToList();
+            double Danger(FigState s) => foes.Count == 0 ? 0 : -foes.Min(e => JsMath.Hypot(e.P.X - s.X, e.P.Y - s.Y));
+            while (m.Figs.Count > keep)
+            {
+                int k = Enumerable.Range(0, m.Figs.Count).OrderByDescending(i => Danger(m.Figs[i])).ThenBy(i => m.Figs[i].Id).First();
+                m.Fallen.Add((m.Figs[k].X, m.Figs[k].Y));
+                m.Figs.RemoveAt(k); m.P.Figs.RemoveAt(k);
+            }
+        }
+
+        // Окружённые (Г70): фигурка, которой общий путь толпы перекрывает враг (ближе FleeBlockM, в пределах
+        // ±FleeBlockDeg от курса), обходит его сбоку — к тому краю вражеского строя, что ближе к ней (курс толпы ± 90°);
+        // путь чист — снова в общем потоке. Раз в ContactEverySec
+        void OwnFleeCourses(Mover m)
+        {
+            var M = R.Move;
+            double hx = Math.Sin(m.FleeHeading * Math.PI / 180), hy = -Math.Cos(m.FleeHeading * Math.PI / 180);
+            foreach (var s in m.Figs)
+            {
+                Mover by = null; double wd = double.MaxValue;
+                foreach (var e in Movers)
+                {
+                    if (e == m || !OnField(e) || !Enemies(m.P.U, e.P.U)) continue;
+                    if (JsMath.Hypot(e.P.X - s.X, e.P.Y - s.Y) > M.FleeBlockM + e.P.Fp.Front) continue;
+                    foreach (var q in e.Figs)
+                    {
+                        double d = JsMath.Hypot(q.X - s.X, q.Y - s.Y);
+                        if (d > M.FleeBlockM || d >= wd) continue;
+                        if (Math.Abs(MoveSim.AngleDiff(m.FleeHeading, MoveSim.HeadingOf(q.X - s.X, q.Y - s.Y))) > M.FleeBlockDeg) continue;
+                        wd = d; by = e;
+                    }
+                }
+                if (by == null) { s.FleeH = double.NaN; continue; }
+                if (!double.IsNaN(s.FleeH)) continue;   // уже обходит — в ту же сторону, не мечется
+                double side = (s.X - by.P.X) * hy - (s.Y - by.P.Y) * hx;   // справа (+) или слева (−) от середины врага по ходу бегства
+                s.FleeH = MoveSim.Norm(m.FleeHeading + (side >= 0 ? -90 : 90));
+                if (!s.Turned) { s.Turned = true; s.Axis = m.P.Facing; }   // тело разворачивается к своему курсу постепенно
+            }
+        }
+
+        // Г72: «сплотить» — бегущий с этим приказом, у которого врага нет ближе Rally.FreeM (от края до края), бросает
+        // d100 ≤ дисциплина, один раз на приказ: успех — БД не ниже Rally.Morale, снова в строю лицом к ближайшему врагу
+        // (как «воспрял духом» за столом); провал — бежит дальше. Враг рядом — приказ ждёт
+        void TryRally(double t)
+        {
+            foreach (var m in Movers)
+            {
+                if (!m.Fleeing || m.Gone || !m.RallyPending || m.Figs.Count == 0) continue;
+                Mover near = null; double gap = double.MaxValue, far = double.MaxValue;
+                foreach (var e in Movers)
+                {
+                    if (e == m || !Alive(e) || !Enemies(m.P.U, e.P.U)) continue;
+                    double g = Bodies.MinGap(m, e);
+                    if (g < gap) gap = g;
+                    double c = JsMath.Hypot(e.P.X - m.P.X, e.P.Y - m.P.Y);
+                    if (c < far) { far = c; near = e; }
+                }
+                if (gap <= R.Rally.FreeM) continue;
+                m.RallyPending = false;
+                var u = m.P.U; double roll = Dice.Roll(Ctx.Rng, 100);
+                if (roll > u.Discipline) { events.Add($"{At(t)} с · «{u.Name}» сплотить не вышло: d100 = {Js.Num(roll)} > {Js.Num(u.Discipline)} (дисциплина) — бежит дальше"); continue; }
+                u.Status = "active"; u.Broken = false; u.BreakGrace = 0; u.Morale = Math.Max(u.Morale, R.Rally.Morale);
+                m.Fleeing = false; m.Rallied = true;
+                if (m.LeftMen > 0) { events.Add($"{At(t)} с · «{u.Name}»: {m.LeftMen} бойцов ушли за край карты — в этой битве их нет"); u.Soldiers -= m.LeftMen; m.LeftMen = 0; }
+                m.LaidMen = -1; Relayout(m);
+                Reform(m, near != null ? MoveSim.HeadingOf(near.P.X - m.P.X, near.P.Y - m.P.Y) : MoveSim.Norm(m.FleeHeading + 180));
+                events.Add($"{At(t)} с · ✦ «{u.Name}» сплотили: d100 = {Js.Num(roll)} ≤ {Js.Num(u.Discipline)} — БД {Js.Num(u.Morale)}, снова в строю");
+            }
+        }
+        // Сплотились: строй заново там, где основная толпа (отбившиеся своим курсом — подходят), лицом к face;
+        // места — ближайшим фигуркам спереди назад
+        void Reform(Mover m, double face)
+        {
+            var P = m.P;
+            if (m.Cols != m.NominalCols && m.NominalCols > 0) MoveSim.SetCols(m, m.NominalCols);
+            var main = m.Figs.Where(s => double.IsNaN(s.FleeH)).ToList();
+            if (main.Count == 0) main = m.Figs;
+            P.X = main.Average(s => s.X); P.Y = main.Average(s => s.Y);
+            foreach (var s in m.Figs) s.FleeH = double.NaN;
+            foreach (var s in m.Figs) if (!s.Turned) { s.Turned = true; s.Axis = P.Facing; }
+            P.Facing = MoveSim.Norm(face);
+            var free = Enumerable.Range(0, m.Figs.Count).ToList();
+            var bodies = new FigState[P.Figs.Count];
+            foreach (int k in Enumerable.Range(0, P.Figs.Count).OrderBy(i => P.Figs[i].Y).ThenBy(i => P.Figs[i].X))
+            {
+                P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var wx, out var wy);
+                int best = -1; double bd = double.MaxValue;
+                for (int q = 0; q < free.Count; q++)
+                {
+                    var s = m.Figs[free[q]];
+                    double d = (s.X - wx) * (s.X - wx) + (s.Y - wy) * (s.Y - wy);
+                    if (d < bd) { bd = d; best = q; }
+                }
+                if (best >= 0) { bodies[k] = m.Figs[free[best]]; free.RemoveAt(best); }
+                else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy };
+            }
+            m.Figs = bodies.ToList();
+            // отбившиеся подходят к строю в обход врага: карта направлений к месту сбора, клетки под вражескими строями закрыты
+            var F0 = m.Field;
+            m.Field = F0 == null ? null : FlowField.Build(Geo, R, BattleMap.IsHorse(P.U), P.X, P.Y, 0, EnemyCells(m, F0));
+            m.Track = null; m.Vs = 0;
+            m.Order = new MoveOrder { Kind = OrderKind.Hold, X = P.X, Y = P.Y, Facing = P.Facing }; m.Done = true;
+        }
+        // Клетки под строями врагов (с запасом в полклетки) — для пути в обход них
+        bool[] EnemyCells(Mover m, FlowField F)
+        {
+            var extra = new bool[F.W * F.H];
+            foreach (var e in Movers)
+            {
+                if (e == m || !OnField(e) || !Enemies(m.P.U, e.P.U)) continue;
+                var B = e.P;
+                double hx = B.Fp.Front / 2 + F.CellW / 2, hy = B.Fp.Depth / 2 + F.CellH / 2, reach = JsMath.Hypot(hx, hy);
+                int x0 = (int)Math.Floor((B.X - reach) / F.CellW), x1 = (int)Math.Floor((B.X + reach) / F.CellW);
+                int y0 = (int)Math.Floor((B.Y - reach) / F.CellH), y1 = (int)Math.Floor((B.Y + reach) / F.CellH);
+                for (int y = Math.Max(0, y0); y <= Math.Min(F.H - 1, y1); y++)
+                    for (int x = Math.Max(0, x0); x <= Math.Min(F.W - 1, x1); x++)
+                    {
+                        var (cx, cy) = F.CenterOf(y * F.W + x);
+                        B.ToLocal(cx, cy, out var lx, out var ly);
+                        if (Math.Abs(lx) <= hx && Math.Abs(ly) <= hy) extra[y * F.W + x] = true;
+                    }
+            }
+            return extra;
+        }
+
+        // Конец хода стола (turn.js): усталость у тех, кто бился 4 хода подряд (элита — 8); сломленный (БД 0) теряет
+        // дисциплину, иссякла — бежит без броска (и тянет соседей паникой)
+        void EndOfTurnTable(double t)
+        {
+            var units = Movers.Select(m => m.P.U).ToList();
+            var res = BattleCore.Turn.EndTurn(units, Ctx);
+            for (int i = 0; i < units.Count; i++)
+            {
+                Unit u = units[i], n = res.Units[i];
+                u.AttacksMade = n.AttacksMade; u.CountersMade = n.CountersMade; u.Acted = n.Acted; u.TurnsActive = n.TurnsActive; u.Fatigue = n.Fatigue;
+                u.BreakPenalty = n.BreakPenalty; u.BreakGrace = n.BreakGrace; u.Discipline = n.Discipline;
+                if (n.Status == "fled" && u.Status == "active")
+                {
+                    u.Status = "fled";
+                    if (MoraleChecks) { Flee(Movers[i], t, "дисциплина иссякла"); PanicFrom(Movers[i], t); }
+                }
+            }
+            foreach (var l in res.Lines) events.Add($"конец хода · {l}");
         }
 
         // Павшие в рукопашной (Г67): точного места нет — падают у переднего края схватки, в случайной точке
@@ -458,21 +712,26 @@ namespace BattleCore
             foreach (var x in Movers)
             {
                 var foes = Fights.Where(f => !f.Over && f.Touching && (f.A == x || f.B == x)).Select(f => f.Other(x)).ToList();
-                if (foes.Count == 0 || x.P.Figs.Count == 0)
+                if (foes.Count == 0 || x.P.Figs.Count == 0 || !Alive(x))   // бегущий никого не охватывает (Г70)
                 {
                     foreach (var s in x.Figs) { s.Wrap = false; s.WFoe = null; }
                     continue;
                 }
                 var engaged = colFoe.TryGetValue(x, out var cf) ? cf : new Dictionary<int, (Mover foe, double d)>();
                 // огибают только того, кто перед фронтом: атакованный во фланг или в тыл сам не поворачивается (Г63)
-                var ahead = foes.Where(q => Math.Abs(MoveSim.AngleDiff(x.P.Facing, MoveSim.HeadingOf(q.P.X - x.P.X, q.P.Y - x.P.Y))) <= R.Sectors.FrontMax).ToList();
+                var ahead = foes.Where(q => Alive(q) && Math.Abs(MoveSim.AngleDiff(x.P.Facing, MoveSim.HeadingOf(q.P.X - x.P.X, q.P.Y - x.P.Y))) <= R.Sectors.FrontMax).ToList();
                 foreach (var g in Enumerable.Range(0, x.P.Figs.Count).GroupBy(k => x.P.Figs[k].File))
                 {
                     var col = g.ToList();
                     var head = x.Figs[col[0]];
                     if (engaged.ContainsKey(g.Key))
                     {
-                        if (col.Any(k => x.Figs[k].Wrap) && head.WFoe != null && foes.Contains(head.WFoe)) { Plan(x, head.WFoe).kept.Add(col); continue; }
+                        if (col.Any(k => x.Figs[k].Wrap) && head.WFoe != null && foes.Contains(head.WFoe))
+                        {
+                            // враг побежал — колонна стоит, где стояла, и держит кольцо, пока касается (окружённым не уйти)
+                            if (Alive(head.WFoe)) Plan(x, head.WFoe).kept.Add(col);
+                            continue;
+                        }
                         foreach (int k in col) { x.Figs[k].Wrap = false; x.Figs[k].WFoe = null; }
                         continue;
                     }
@@ -642,6 +901,8 @@ namespace BattleCore
         // (и всё в походной колонне) — ближайшим фигуркам спереди назад ──
         public void Relayout(Mover m)
         {
+            if (m.Gone) return;   // ушёл с поля — раскладывать некого
+            if (m.Fleeing) { RelayoutCrowd(m); return; }
             var P = m.P;
             int n = (int)Math.Max(0, Js.Round(P.U.Soldiers));
             if (n == m.LaidMen) return;

@@ -22,7 +22,7 @@ namespace BattleCore
 {
     // Приказ (Г15): двигаться в точку (X, Y, Facing — центр строя, м, и куда смотреть), атаковать отряд TargetId
     // (идти на него, преследуя; Charge — с натиском, Г29) или держать позицию (стоять, отвечать — Г44)
-    public enum OrderKind { Move, Attack, Hold }
+    public enum OrderKind { Move, Attack, Hold, Rally }   // Rally — «сплотить» бегущих (Г72)
     public sealed class MoveOrder
     {
         public double X, Y, Facing;
@@ -46,6 +46,8 @@ namespace BattleCore
         public bool Turned; public double Axis;
         // отпущена из охвата и идёт на своё место — свои её пропускают (на половине скорости, как Г56)
         public bool Returning;
+        // бегство (Г70): свой курс, если общий путь толпы перекрыт врагом (окружённые разбегаются в открытую сторону)
+        public double FleeH = double.NaN;
     }
 
     public sealed class Mover
@@ -82,6 +84,10 @@ namespace BattleCore
         // Бой в движении (БД1): сколько бойцов разложено на фигурки сейчас; где упали выбывшие фигурки (Г30)
         public int LaidMen = -1;
         public int NextFigId;                    // номер для следующего нового тела (FigState.Id)
+        // Бегство (БД4, Г70–Г72): толпа без строя — каждая фигурка бежит сама к FleeX, FleeY (край карты прочь от врага)
+        public bool Fleeing, Gone, RallyPending, Rallied;
+        public int LeftMen;                      // ушли за край карты (живы, но в этой битве их нет); LaidMen — только те, кто на поле
+        public double FleeHeading, FleeX, FleeY, FleeSince;
         public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
         public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 
@@ -201,13 +207,14 @@ namespace BattleCore
             foreach (var m in ms)
             {
                 prev.Add(Slots(m.P));
-                if (m.Order != null && m.Track != null && !m.Done) Lead(m, t, M.Dt, r);
+                if (m.Order != null && m.Track != null && !m.Done && !m.Fleeing) Lead(m, t, M.Dt, r);
                 m.Steps++;
             }
             for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
             Bodies.Step(ms, M.Dt, r);
-            foreach (var m in ms) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
-            if ((k + 1) % every == 0) foreach (var m in ms) Reassign(m, r);
+            foreach (var m in ms) if (m.Fleeing) FollowCrowd(m, M.Dt);
+            foreach (var m in ms) if (!m.Fleeing) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
+            if ((k + 1) % every == 0) foreach (var m in ms) if (!m.Fleeing) Reassign(m, r);
         }
         // Журнал хода: сколько прошёл, сколько нормы, повороты, узости, обходы, пробки
         public static List<string> EndTurn(IList<Mover> ms, Rules r)
@@ -217,7 +224,7 @@ namespace BattleCore
             {
                 if (m.Order == null) continue;
                 string name = $"«{m.P.U.Name}»";
-                if (m.Track == null) { L.Add($"{name}: {m.Note}"); continue; }
+                if (m.Track == null) { if (!string.IsNullOrEmpty(m.Note)) L.Add($"{name}: {m.Note}"); continue; }
                 double norm = BattleMap.UnitSpeed(m.P.U, r);
                 var parts = new List<string> { $"прошёл {Js.Num(Js.R1(m.Moved))} м по земле, нормы {Js.Num(Js.R1(m.Spent))} из {Js.Num(norm)}" };
                 if (m.WheelSec > 0) parts.Add($"поворот колесом {Js.Num(Js.R1(m.WheelSec))} с");
@@ -366,8 +373,53 @@ namespace BattleCore
         // Место в воде или в стене — фигурка встаёт у ближайшего проходимого. Путь к месту закрыт (строй обходит
         // озеро, а фигурка на другом берегу) — идёт по карте направлений отряда, пока не увидит своё место.
         // Здесь — только «куда хочет» (Dvx, Dvy, Vmax); шаг и тела — Bodies.Step.
+        // Бегущая толпа (Г70): центр отряда — середина фигурок, курс — прочь от врага; пройденное — в норму хода
+        static void FollowCrowd(Mover m, double dt)
+        {
+            if (m.Figs.Count == 0) return;
+            var main = m.Figs.Where(s => double.IsNaN(s.FleeH)).ToList();   // центр — по основной толпе, отбившиеся не в счёт
+            if (main.Count == 0) main = m.Figs;
+            double cx = main.Average(s => s.X), cy = main.Average(s => s.Y);
+            double v = m.Figs.Average(s => JsMath.Hypot(s.Vx, s.Vy));   // путь — по скорости фигурок: центр прыгает, когда уходят за край
+            m.Moved += v * dt; m.Spent += v * dt; m.Vs = v;
+            m.P.X = cx; m.P.Y = cy; m.P.Facing = m.FleeHeading;
+        }
+        // Бегущая фигурка (Г70, Г71): сама по себе, по карте направлений к краю карты, на норме отряда — каждая
+        // чуть со своим курсом и скоростью (толпа расходится веером и растягивается); строя и мест нет
+        static void FleeDesire(Mover m, Rules r)
+        {
+            var M = r.Move; var u = m.P.U; var F = m.Field;
+            double top = BattleMap.UnitSpeed(u, r) / M.TurnSec;   // ровно норма за ход (Г71); толпа — вокруг неё
+            foreach (var s in m.Figs)
+            {
+                double h1 = Hash01(u.Id, s.Id, 1), h2 = Hash01(u.Id, s.Id, 2);
+                double rho = F != null && F.Inside(s.X, s.Y) ? F.Mult(F.CellOf(s.X, s.Y)) ?? 1 : 1;
+                double vmax = top * (1 + M.FleeSpeedJitter * (0.5 - h1)) / rho;
+                double own = double.IsNaN(s.FleeH) ? m.FleeHeading : s.FleeH;
+                double hx = Math.Sin(own * Math.PI / 180), hy = -Math.Cos(own * Math.PI / 180);
+                if (double.IsNaN(s.FleeH) && F != null && F.Inside(s.X, s.Y) && Free(F, s.X, s.Y))
+                {
+                    int next = F.Next(F.CellOf(s.X, s.Y));
+                    if (next >= 0) { var c = F.CenterOf(next); double ex = c.x - s.X, ey = c.y - s.Y, el = JsMath.Hypot(ex, ey); if (el > 1e-9) { hx = ex / el; hy = ey / el; } }
+                }
+                double a = (h2 * 2 - 1) * M.FleeSpreadDeg * Math.PI / 180, ca = Math.Cos(a), sa = Math.Sin(a);
+                s.Dvx = (hx * ca - hy * sa) * vmax; s.Dvy = (hx * sa + hy * ca) * vmax; s.Vmax = vmax;
+            }
+        }
+        // Детерминированная «случайность» для вида толпы: не трогает генератор боя (исход не зависит от рисунка)
+        public static double Hash01(int a, int b, int c)
+        {
+            unchecked
+            {
+                uint h = (uint)a * 0x9E3779B1u ^ (uint)b * 0x85EBCA77u ^ (uint)c * 0xC2B2AE3Du;
+                h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+                return (h & 0xFFFFFF) / (double)0x1000000;
+            }
+        }
+
         static void Desire(Mover m, (double x, double y)[] prev, double dt, Rules r)
         {
+            if (m.Fleeing) { FleeDesire(m, r); return; }
             var M = r.Move; var P = m.P; var u = P.U;
             double vmax0 = M.FigureCatchUp * TopSpeed(u, r);
             var F = m.Field;
