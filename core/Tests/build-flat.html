@@ -18,7 +18,7 @@ const Q = new URLSearchParams(location.search);
 if(Q.get("k")) Object.defineProperty(window, "devicePixelRatio", {get: () => +Q.get("k")});
 const view = {s: 10};
 let ctx;
-const RED = "#c8463a", BLUE = "#3f78c0", PAPER = Q.get("bg") === "paper", W = Math.max(innerWidth, 1400), H = 3520;
+const RED = "#c8463a", BLUE = "#3f78c0", PAPER = Q.get("bg") === "paper", W = Math.max(innerWidth, 1400), H = 4600;
 const c = document.getElementById("c"), dpr = window.devicePixelRatio || 1;
 c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
 ctx = c.getContext("2d");
@@ -42,29 +42,31 @@ const UNITS = new Map();
 function kitsFor(tpl, col, style = "west", id = 1){ const key = tpl + col + style + id; if(!UNITS.has(key)) UNITS.set(key, {id, col, tpl, style}); return kitsF(UNITS.get(key)); }
 // циклы машин: доля 0…1 → угол рычага, выстрел и т. п.
 const cyc = (t, per, off = 0) => frac(t / per + off);
+// боец на высоте z (на стене, на лестнице, на мосту башни): крупнее, как всё, что ближе к камере (bUp)
+function fManUp(B, x, y, z, face, k, o = {}){ const q = bUp(z); fMan(mS(B, q, q), x / q, y / q, face, k, o); }
 
 function frame(t){
   ground();
   let y = 30;
   // ── 1. Крепость ──
-  label("Крепость (9 px/м): каменный замок — стены с зубцами, башни, надвратная башня, донжон, ров, мост, пролом; справа — острог", 20, y); y += 14;
+  label("Крепость (9 px/м): стены во всю клетку карты (5 м) — боевой ход с зубцами и лестницы во двор; башни, надвратная башня, донжон, ров, мост, пролом; справа — острог", 20, y); y += 14;
   {
     const ox = 40, oy = y + 50; world(ox, oy, 9);
-    bMoat(g, [[1, 1], [85, 1], [85, 65], [1, 65], [1, 1]], 5.5);
-    patch(bRect(6, 6, 80, 60), "#b6a98a");
+    bMoat(g, [[-1, -1], [87, -1], [87, 67], [-1, 67], [-1, -1]], 5.5);
+    patch(bRect(4, 4, 82, 62), "#b6a98a");
     // мост через ров к воротам
-    bShadow(g, () => bPoly(g, bRect(40.5, 60, 45.5, 69)), 1.2);
-    bShape(g, bRect(40.6, 60, 45.4, 69), B_WOOD, 9001, 1.0, 0.4); g.save(); bPoly(g, bRect(40.6, 60, 45.4, 69)); g.clip(); const S = []; for(let u = 60.4; u < 69; u += 0.55) S.push([40.6, u, 45.4, u]); bLines(g, S, "rgba(70,48,26,.5)", 0.4); g.restore();
-    for(const [x0, y0, x1, y1, k, s] of [[13, 13, 24, 19, "tile", 1], [13, 22, 20, 30, "slate", 2], [62, 13, 73, 20, "tile", 3], [64, 40, 73, 52, "shingle", 4], [13, 44, 22, 52, "thatch", 5]]) bHouse(g, x0, y0, x1, y1, {roof: k, seed: 9100 + s});
+    bShadow(g, () => bPoly(g, bRect(40.8, 61, 45.2, 70.5)), 1.2);
+    bShape(g, bRect(40.8, 61, 45.2, 70.5), B_WOOD, 9001, 1.0, 0.4); g.save(); bPoly(g, bRect(40.8, 61, 45.2, 70.5)); g.clip(); const S = []; for(let u = 61.4; u < 70.5; u += 0.55) S.push([40.8, u, 45.2, u]); bLines(g, S, "rgba(70,48,26,.5)", 0.4); g.restore();
+    for(const [x0, y0, x1, y1, k, s] of [[13, 13, 24, 19, "tile", 1], [14, 22, 21, 30, "slate", 2], [62, 13, 73, 20, "tile", 3], [64, 40, 73, 52, "shingle", 4], [14, 44, 22, 52, "thatch", 5]]) bHouse(g, x0, y0, x1, y1, {roof: k, seed: 9100 + s});
     bWell(g, 30, 46);
     bKeep(g, 43, 30, 15, {flag: RED, c2: "#ece6d6", t, seed: 9200});
-    bWall(g, [[40.5, 58], [8, 58], [8, 8], [78, 8], [78, 30]], {outer: -1, seed: 9301});
-    bWall(g, [[78, 36], [78, 58], [45.5, 58]], {outer: -1, seed: 9302});
-    bRubble(g, 78, 33, 3.2, 9303);
-    for(const [tx, ty, s] of [[8, 8, 1], [78, 8, 2], [78, 58, 3], [8, 58, 4]]) bTowerRound(g, tx, ty, 4.2, {seed: 9400 + s, flag: s === 1 ? RED : null, t});
-    bTowerSquare(g, 43, 8, 7, {seed: 9410});
-    bTowerRound(g, 8, 33, 3.4, {seed: 9420, roof: "open"});
-    bGatehouse(g, 43, 58.4, Math.PI, {seed: 9430, state: "open", flag: RED, t});
+    bWall(g, [[40.5, 58], [8, 58], [8, 8], [78, 8], [78, 29.5]], {outer: -1, seed: 9301, stairs: [{s: 13, len: 7, dir: 1}, {s: 45, len: 7, dir: 1}, {s: 104, len: 7, dir: 1}]});
+    bWall(g, [[78, 36.5], [78, 58], [45.5, 58]], {outer: -1, seed: 9302, stairs: [{s: 6, len: 7, dir: 1}]});
+    bRubble(g, 78, 33, 4.2, 9303);
+    for(const [tx, ty, s] of [[8, 8, 1], [78, 8, 2], [78, 58, 3], [8, 58, 4]]) bTowerRound(g, tx, ty, 5.4, {seed: 9400 + s, flag: s === 1 ? RED : null, t});
+    bTowerSquare(g, 43, 8, 8, {seed: 9410});
+    bTowerRound(g, 8, 33, 4.4, {seed: 9420, roof: "open"});
+    bGatehouse(g, 43, 58, Math.PI, {seed: 9430, state: "open", flag: RED, t});
     // острог: частокол, вышки, ворота, внутри — избы под соломой и тёсом
     const P0 = [[104, 8], [146, 8], [146, 50], [104, 50], [104, 8]];
     patch(bRect(104, 8, 146, 50), "#a3946e");
@@ -74,32 +76,31 @@ function frame(t){
     bGate(g, 124.5, 50, 0, 4.4, 1.2, "closed", 9521);
     for(const [tx, ty, s] of [[104, 8, 1], [146, 8, 2], [146, 50, 3], [104, 50, 4]]) bWoodTower(g, tx, ty, 4.6, {seed: 9530 + s, flag: s === 2 ? BLUE : null, t});
     bRampart(g, [[96, 2], [96, 56]], 4, 9540);
-    y += 75 * 9 + 20;
+    y += 74 * 9 + 20;
   }
   // ── 2. Осадный парк ──
   label("Осадные машины (22 px/м): требушет, онагр, баллиста, бомбарда, пушка, мортира, рибодекин, маг-пушка; таран, осадная башня, лестницы, щиты, припасы", 20, y); y += 14;
   {
-    const ox = 30, oy = y + 20, s = 22; world(ox, oy, s);
-    const tr = cyc(t, 5), ta = tr < 0.35 ? 0 : tr < 0.5 ? Math.PI * ease((tr - 0.35) / 0.15) : tr < 0.75 ? Math.PI : Math.PI * (1 - ease((tr - 0.75) / 0.25));
-    bTrebuchet(g, 5, 9, 0, ta, {flag: RED, t});
-    bOnager(g, 14.5, 7, 0, cyc(t, 3.2) > 0.6 ? 1 : 0);
-    bBallista(g, 21.5, 7, 0, cyc(t, 2.6) > 0.7 ? 1 : 0);
+    const ox = 30, oy = y + 20, s = 22, R1 = 20; world(ox, oy, s);
+    bTrebuchet(g, 5, R1, 0, cyc(t, 6), {flag: RED, t, per: 6});
+    bOnager(g, 14.5, R1 - 2, 0, cyc(t, 3.2) > 0.6 ? 1 : 0);
+    bBallista(g, 21.5, R1 - 2, 0, cyc(t, 2.6) > 0.7 ? 1 : 0);
     const fire = (per, off) => { const u = cyc(t, per, off); return u < 0.4 ? u / 0.4 : 0; };
-    bBombard(g, 29, 7.5, 0, fire(4.5, 0.1)); bAmmo(g, 29, 11.2, "stones", 9601);
-    bCannon(g, 36, 7.5, 0, fire(3.5, 0.4)); bAmmo(g, 36, 11.2, "balls", 9602);
-    bMortar(g, 42.5, 7.5, 0, fire(3.8, 0.7)); bAmmo(g, 41.7, 10.4, "powder", 9603);
-    bRibauldequin(g, 49, 7.5, 0, RED, fire(3, 0.2));
-    bMagic(g, 56, 7.5, 0, "#7a5ad0", t);
-    const L2 = 21;
+    bBombard(g, 29, R1 - 2, 0, fire(4.5, 0.1)); bAmmo(g, 32.1, R1 + 1.4, "stones", 9601);
+    bCannon(g, 36.5, R1 - 1.5, 0, fire(3.5, 0.4)); bAmmo(g, 36.5, R1 + 3.6, "balls", 9602);
+    bMortar(g, 43, R1 - 1.5, 0, fire(3.8, 0.7), {fuse: cyc(t, 3.8, 0.7) > 0.72, t}); bAmmo(g, 42.2, R1 + 0.9, "powder", 9603);
+    bRibauldequin(g, 49.5, R1 - 1.5, 0, RED, fire(3, 0.2));
+    bMagic(g, 56.5, R1 - 1.5, 0, "#7a5ad0", cyc(t, 3.4, 0.5));
+    const L2 = R1 + 12;
     bRam(g, 5, L2 + 3, 0, Math.max(0, Math.sin(t * 2.4)));
     bSiegeTower(g, 16, L2 + 3, 0, 0.5 + 0.5 * Math.sin(t * 0.9), RED, t);
     bLadder(g, 24.5, L2 + 3, 0.15, 6.5); bLadder(g, 26.5, L2 + 3, 0.1, 5);
     bMantlet(g, 32, L2 + 1, 0, RED); bMantlet(g, 36, L2 + 1.3, 0.1, null);
     bAmmo(g, 41, L2 + 2, "stones", 9611); bAmmo(g, 45, L2 + 2, "balls", 9612); bAmmo(g, 48.5, L2 + 2, "powder", 9613); bAmmo(g, 55, L2 + 2, "bolts", 9614);
-    const names = [[5, "требушет"], [14.5, "онагр"], [21.5, "баллиста"], [29, "бомбарда"], [36, "пушка"], [42.5, "мортира"], [49, "рибодекин"], [56, "маг-пушка"]];
-    for(const [x, n] of names) label(n, ox + (x - 1.4) * s, oy + 14.2 * s, true);
+    const names = [[5, "требушет"], [14.5, "онагр"], [21.5, "баллиста"], [29, "бомбарда"], [36.5, "пушка"], [43, "мортира"], [49.5, "рибодекин"], [56.5, "маг-пушка"]];
+    for(const [x, n] of names) label(n, ox + (x - 1.4) * s, oy + (R1 + 5.6) * s, true);
     for(const [x, n] of [[5, "таран"], [16, "осадная башня"], [25, "лестницы"], [34, "щиты"], [47, "камни, ядра, порох, болты"]]) label(n, ox + (x - 1.6) * s, oy + (L2 + 8.4) * s, true);
-    y += 31 * s;
+    y += (L2 + 10) * s;
   }
   // ── 3. Лагерь ──
   label("Лагерь (16 px/м): шатры и палатки, ставка с знаменем, костры, повозки, припасы, коновязь, часовые", 20, y); y += 14;
@@ -137,8 +138,8 @@ function frame(t){
     patch(bRect(66, 2, 74, 74), "#b5ab98", true);          // поперечная
     patch(bRect(76, 40, 104, 62), "#c2b8a2", true);        // площадь
     // стена с надвратной башней слева
-    bWall(g, [[10, 0], [10, 29]], {outer: 1, seed: 9801}); bWall(g, [[10, 39], [10, 76]], {outer: 1, seed: 9802});
-    bGatehouse(g, 10, 34, Math.PI / 2, {seed: 9803, state: "open", flag: BLUE, t});
+    bWall(g, [[10, 0], [10, 29]], {outer: 1, seed: 9801, stairs: [{s: 14, len: 7, dir: -1}]}); bWall(g, [[10, 39], [10, 76]], {outer: 1, seed: 9802, stairs: [{s: 22, len: 7, dir: 1}]});
+    bGatehouse(g, 10, 34, -Math.PI / 2, {seed: 9803, state: "open", flag: BLUE, t});
     const kinds = ["tile", "tile", "slate", "thatch", "shingle", "tile", "slate"];
     let n = 0;
     for(let x = 16; x < 64; x += 8.5) for(const [y0, y1] of [[20, 29], [39, 48]]){ const w = 6.5 + 1.5 * hash(n, 1), d = 6 + 2.5 * hash(n, 2), yy0 = y0 === 20 ? y1 - d : y0; bHouse(g, x, yy0, x + w, yy0 + d, {roof: kinds[n % kinds.length], seed: 9810 + n}); n++; }
@@ -152,20 +153,57 @@ function frame(t){
     bWindmill(g, 124, 66, t, 9950);
     y += 78 * s;
   }
-  // ── 5. Вблизи ──
-  label("Вблизи (40 px/м): угол стены с башней и воротами, кровли четырёх видов, шатёр и палатка", 20, y); y += 14;
+  // ── 5. Штурм стены вблизи ──
+  label("Штурм стены (40 px/м): на ходу стены 7 бойцов в ряд; снизу приставлены лестницы, по ним лезут; осадная башня опустила мост; кто наверху — крупнее, тень стены падает вниз", 20, y); y += 14;
+  {
+    const ox = 20, oy = y + 10, s = 40, B = world(ox, oy, s), SW = 34, SH = 23, WZ = 9;
+    g.save(); bPoly(g, bRect(0, 0, SW, SH)); g.clip();
+    patch(bRect(-1, -1, SW + 1, 6), "#b6a98a", true);
+    bHouse(g, 24.5, -4, 33.5, 3.3, {roof: "tile", seed: 9990});
+    bWall(g, [[4, 8], [SW + 2, 8]], {outer: 1, seed: 9961, stairs: [{s: 17, len: 7, dir: -1}]});
+    bTowerRound(g, 4, 8, 5.4, {seed: 9962, roof: "open", flag: RED, t});
+    const red = [61, 62, 63].map(id => kitsFor("infantry", RED, "west", id)).flat(), blue = [71, 72, 73, 74].map(id => kitsFor("guard", BLUE, "west", id)).flat(), bk = i => blue[i % blue.length], rk = i => red[i % red.length];
+    const xbow = kitsFor("crossbowmen", RED, "west", 64), fight = (k, q) => ({ap: frac(t * 0.9 + q), kind: fKind(k, Math.floor(t * 0.9 + q), Math.round(q * 10))});
+    view.s = s; setZoom();
+    // внизу: отряд штурмующих ждёт очереди к лестницам; один сорвался
+    let n = 0;
+    for(let r = 0; r < 3; r++) for(let i = 0; i < 12; i++){ const x = 8.6 + i * 0.86 + (r % 2) * 0.43, yy = 16.6 + r * 0.95; fMan(B, x, yy, 0, blue[n++ % blue.length], {low: 0, step: Math.sin(t * 4 + i + r) * 0.3}); }
+    fFall(B, 13.4, 13.4, 0.4, bk(5), 1, 1);
+    // лестницы и кто на них
+    const lad = [[11.6, 14.6, 11.6, 10.45], [15.6, 14.4, 15.4, 10.45]];
+    world(ox, oy, s);   // бойцы рисуются в своих осях — вернуть метры сцены
+    for(const [fx, fy, tx, ty] of lad) bLadderUp(g, fx, fy, tx, ty, WZ);
+    view.s = s; setZoom();
+    [[0, 0.32], [0, 0.72], [1, 0.55]].forEach(([li, f], i) => { const [fx, fy, tx, ty] = lad[li]; fManUp(B, fx + (tx - fx) * f, fy + (ty - fy) * f, WZ * f, 0, bk(10 + i), {low: 0, step: Math.sin(t * 6 + i * 2)}); });
+    // осадная башня у стены, мост лёг на ход
+    world(ox, oy, s);
+    bSiegeTower(g, 27.5, 14.4, 0, 1, BLUE, t, 10);
+    view.s = s; setZoom();
+    // на ходу: защитники в два ряда; у верха лестниц и у моста — схватка
+    for(let i = 0; i < 18; i++){ const x = 8.6 + i * 0.95; if(Math.abs(x - 27.5) < 2.2) continue; const k = red[i % red.length], att = Math.abs(x - 11.6) < 0.8 || Math.abs(x - 15.5) < 0.8;
+      fManUp(B, x, 9.25, WZ, Math.PI, k, att ? fight(k, i * 0.37) : {low: 0}); }
+    for(let i = 0; i < 12; i++){ const x = 9.0 + i * 1.3; if(Math.abs(x - 27.5) < 2.2) continue; fManUp(B, x, 8.2, WZ, Math.PI, red[(i + 7) % red.length], {low: 0}); }
+    [[11.6, 10.0], [15.45, 10.05]].forEach(([x, yy], i) => fManUp(B, x, yy, WZ, 0, bk(20 + i), fight(bk(20 + i), i * 0.5 + 0.2)));
+    [[26.7, 9.7], [28.3, 9.6], [27.5, 10.9]].forEach(([x, yy], i) => fManUp(B, x, yy, WZ + 0.5, 0, bk(23 + i), i < 2 ? fight(bk(23 + i), i * 0.4) : {low: 0}));
+    [[26.7, 8.4], [28.3, 8.3]].forEach(([x, yy], i) => fManUp(B, x, yy, WZ, Math.PI, rk(3 + i), fight(rk(3 + i), i * 0.4 + 0.15)));
+    // на открытой площадке башни — арбалетчики
+    [[2.6, 9.6, 2.6], [5.4, 10.2, 3.3], [4.0, 6.0, 0.9]].forEach(([x, yy, f], i) => fManUp(B, x, yy, 12, f, xbow[i], {low: 0, xb: Math.floor(t * 0.7 + i * 0.6) % 4}));
+    // во дворе — подмога бежит к лестнице
+    for(let i = 0; i < 4; i++) fMan(B, 13.6 + i * 0.7, 3.2 - (i % 2) * 0.8, 1.9, red[(i + 11) % red.length], {low: 0, step: Math.sin(t * 9 + i)});
+    world(ox, oy, s);
+    g.restore();
+    y += (SH + 1) * s;
+  }
+  // ── 6. Кровли и шатры вблизи ──
+  label("Вблизи (40 px/м): кровли четырёх видов, шатёр и палатка, костёр", 20, y); y += 14;
   {
     const ox = 20, oy = y + 10, s = 40; world(ox, oy, s);
-    patch(bRect(0, 0, 13, 13), "#b6a98a");
-    bWall(g, [[12, 3.2], [3.2, 3.2], [3.2, 12]], {outer: 1, seed: 9961});
-    bTowerRound(g, 3.2, 3.2, 3.2, {seed: 9962, flag: RED, t});
-    bGate(g, 9.2, 3.2, 0, 3.4, 2.6, "closed", 9963);
     const kinds = ["tile", "slate", "thatch", "shingle"];
-    kinds.forEach((k, i) => bHouse(g, 15 + i * 4.6, 1.5, 15 + i * 4.6 + 3.8, 6.5, {roof: k, seed: 9970 + i, chimney: i !== 2}));
-    bBellTent(g, 18.5, 10.5, 2.4, RED, {door: 1.2, seed: 9980});
-    bRidgeTent(g, 25, 10.5, 0, 2.4, 3.4, {col: RED, seed: 9981});
-    bFire(g, 29.5, 10.5, t, 9982);
-    y += 14 * s;
+    kinds.forEach((k, i) => bHouse(g, 1 + i * 4.6, 1.5, 1 + i * 4.6 + 3.8, 6.5, {roof: k, seed: 9970 + i, chimney: i !== 2}));
+    bBellTent(g, 22, 4, 2.4, RED, {door: 1.2, seed: 9980});
+    bRidgeTent(g, 28.5, 4, 0, 2.4, 3.4, {col: RED, seed: 9981});
+    bFire(g, 32.5, 4, t, 9982);
+    y += 9 * s;
   }
 }
 

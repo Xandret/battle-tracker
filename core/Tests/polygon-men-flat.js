@@ -371,9 +371,10 @@ function fShield(g, sh){
 // в руке (В18): держат перед собой стоймя — сверху видно ребро: узкая линза цвета поля, герб — полосами поперёк,
 // у круглых — умбон вперёд; адарга — две линзы рядом
 function fShieldTop(g, sh){
-  const w = sh.shape === "buckler" ? 0.13 : sh.shape === "round" ? 0.24 : sh.shape === "oval" ? 0.19 : sh.shape === "kite" ? 0.18 : sh.shape === "adarga" ? 0.12 : 0.2, d = 0.055;
+  const w = sh.shape === "buckler" ? 0.13 : sh.shape === "round" ? 0.24 : sh.shape === "oval" ? 0.19 : sh.shape === "kite" ? 0.18 : sh.shape === "adarga" ? 0.23 : 0.2, d = 0.055;
   const field = sh.paint === "wood" ? "#a8865a" : sh.paint === "steel" ? F_STEEL : sh.c1;
-  const lens = () => { g.beginPath(); if(sh.shape === "adarga"){ g.ellipse(-0.1, 0, w, d, 0, 0, 6.283); g.moveTo(0.1 + w, 0); g.ellipse(0.1, 0, w, d, 0, 0, 6.283); } else g.ellipse(0, 0, w, d, 0, 0, 6.283); };
+  // ребром сверху виден только верхний край: у адарги две лопасти лежат в одной плоскости — тоже одна линза
+  const lens = () => { g.beginPath(); g.ellipse(0, 0, w, d, 0, 0, 6.283); };
   if(sh.shape === "round" || sh.shape === "oval" || sh.shape === "buckler") fDisc(g, 0, -d, 0.04, F_STEEL, 0.55);   // умбон
   lens(); g.fillStyle = field; g.fill();
   g.save(); lens(); g.clip(); g.fillStyle = sh.c2;
