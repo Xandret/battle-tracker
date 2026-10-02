@@ -33,6 +33,28 @@ namespace BattleCore
         double[] mgUx = new double[0], mgUy = new double[0];
         static long CellKey(int cx, int cy) => ((long)cx << 32) ^ (uint)cy;
 
+        // Г90: натиск готов — кони с разбега пешему врагу не уступают. Те же условия, что у натиска стола (Г29, К29): приказ
+        // «натиск», конница, натиск в этом ходу не тратился, разбег ≥ 50 м по чистому, под целью местность с натиском, не пики во
+        // фронт. Идёт окно всплеска — готов до его конца; сцепились без натиска — нет
+        bool ChargeReadyOf(Mover m)
+        {
+            if (!Alive(m) || m.Fleeing || m.Order == null || !m.Order.Charge || m.Order.Kind != OrderKind.Attack || !Units.IsCav(m.P.U)) return false;
+            foreach (var f in Fights)
+                if (!f.Over && (f.A == m || f.B == m))
+                {
+                    foreach (var w in f.Wins) if (w.Charge && w.Att == m && !w.Closed) return true;
+                    if (f.Other(m).P.U.Id == m.Order.TargetId) return false;
+                }
+            if (chargesLeft.TryGetValue(m, out var left) && left <= 0) return false;
+            if (BattleMap.RunUpBlock(m.P.U, R) != null) return false;
+            var t = ById(m.Order.TargetId);
+            if (t == null || !OnField(t)) return false;
+            var g = GroundOf(t.P.X, t.P.Y);
+            if (g != null && g.NoCharge) return false;
+            if (Units.IsPike(t.P.U) && Math.Abs(MoveSim.AngleDiff(t.P.Facing, MoveSim.HeadingOf(m.P.X - t.P.X, m.P.Y - t.P.Y))) <= R.Sectors.FrontMax) return false;
+            return true;
+        }
+
         // Касания бойцов: заполняет touches (по фигуркам, как Bodies.Touch) и menSec, ставит каждому бойцу противника
         void MenTouches()
         {
@@ -84,7 +106,7 @@ namespace BattleCore
                 foreach (var man in m.Men)
                 {
                     if (!man.Alive || man.Fig == null || !idx.TryGetValue(man.Fig, out int k)) { man.Foe = null; continue; }
-                    double h = man.Facing * Math.PI / 180;
+                    double h = man.Facing * Math.PI / 180;   // курс тела (Г94) — куда смотрит пика
                     mgMan[c] = man; mgMover[c] = mi; mgFig[c] = k; mgUx[c] = Math.Sin(h); mgUy[c] = -Math.Cos(h);
                     long key = CellKey((int)Math.Floor(man.X / cell), (int)Math.Floor(man.Y / cell));
                     mgNext[c] = mgHead.TryGetValue(key, out int head) ? head : -1;
@@ -93,11 +115,16 @@ namespace BattleCore
                 }
             }
             // 3) каждому бойцу — противник: прежний, если ещё в досягаемости, иначе ближний
+            // пики (Г90): острия на PikeTipM впереди первой шеренги, задние шеренги достают через головы своих
+            double pikeMax = 0;
+            for (int mi = 0; mi < nm; mi++) if (any[mi] && pike[mi]) pikeMax = Math.Max(pikeMax, MR.PikeTipM + (MR.PikeRanks - 1) * rankD[mi]);
+            double cosFront = Math.Cos(R.Sectors.FrontMax * Math.PI / 180);
             for (int i = 0; i < c; i++)
             {
                 var man = mgMan[i]; int xi = mgMover[i]; var x = Movers[xi];
-                double extra = pike[xi] && man.Row < MR.PikeRanks ? man.Row * rankD[xi] : 0;
-                int ring = (int)Math.Ceiling((2 * maxBody + reach + extra) / cell);
+                if (man.DownLeft > 0) { man.Foe = null; continue; }   // сбит с ног (Г90) — не бьётся
+                double extra = pike[xi] && man.Row < MR.PikeRanks ? MR.PikeTipM + man.Row * rankD[xi] : 0;
+                int ring = (int)Math.Ceiling((2 * maxBody + reach + Math.Max(extra, pikeMax)) / cell);
                 int cx = (int)Math.Floor(man.X / cell), cy = (int)Math.Floor(man.Y / cell);
                 int best = -1; double bestGap = double.MaxValue; bool keep = false;
                 for (int gy = cy - ring; gy <= cy + ring && !keep; gy++)
@@ -109,16 +136,16 @@ namespace BattleCore
                             int yj = mgMover[j];
                             if (!near[xi, yj]) continue;
                             // отсев по квадрату расстояния — точный зазор только для тех, кто может достать
-                            double ex = mgMan[j].X - man.X, ey = mgMan[j].Y - man.Y, lim = rad[xi] + half[xi] + rad[yj] + half[yj] + reach + extra;
+                            var oj = mgMan[j];
+                            double extraJ = pike[yj] && oj.Row < MR.PikeRanks && oj.DownLeft <= 0 ? MR.PikeTipM + oj.Row * rankD[yj] : 0;
+                            double ex = oj.X - man.X, ey = oj.Y - man.Y, lim = rad[xi] + half[xi] + rad[yj] + half[yj] + reach + Math.Max(extra, extraJ);
                             if (ex * ex + ey * ey > lim * lim) continue;
                             double gap = Gap(i, rad[xi], half[xi], j, rad[yj], half[yj], out double dx, out double dy);
                             bool can = gap <= reach;
-                            // пика — из задних шеренг, только вперёд: враг в пределах FrontMax от курса бойца
-                            if (!can && extra > 0 && gap <= reach + extra)
-                            {
-                                double dl = Math.Sqrt(dx * dx + dy * dy);
-                                can = dl > 1e-9 && (dx * mgUx[i] + dy * mgUy[i]) / dl >= Math.Cos(R.Sectors.FrontMax * Math.PI / 180);
-                            }
+                            double dl = Math.Sqrt(dx * dx + dy * dy);
+                            // пика — только вперёд: враг в пределах FrontMax от курса пикинёра; чья пика достаёт — с тем и бьётся (у острия)
+                            if (!can && extra > 0 && gap <= reach + extra) can = dl > 1e-9 && (dx * mgUx[i] + dy * mgUy[i]) / dl >= cosFront;
+                            if (!can && extraJ > 0 && gap <= reach + extraJ) can = dl > 1e-9 && (-dx * mgUx[j] - dy * mgUy[j]) / dl >= cosFront;
                             if (!can) continue;
                             if (mgMan[j] == man.Foe) { best = j; bestGap = gap; keep = true; break; }   // держится за своего
                             if (gap < bestGap || gap == bestGap && j < best) { best = j; bestGap = gap; }
@@ -166,7 +193,7 @@ namespace BattleCore
             {
                 var (am, a, dm) = strikers[n];
                 var d = a.Foe;
-                if (d == null || !a.Alive || !d.Alive || !Alive(am) || dm.Gone) continue;
+                if (d == null || !a.Alive || !d.Alive || !Alive(am) || dm.Gone || a.DownLeft > 0) continue;
                 // новый противник после передышки — замах: первый удар не сразу
                 if (double.IsNaN(a.NextSwing) || a.NextSwing < t - MR.SwingSec) a.NextSwing = t + MR.SwingSec * 0.5 * MoveSim.Hash01(am.P.U.Id, a.Id, 18);
                 if (a.NextSwing < t + dt) due.Add((Math.Max(t, a.NextSwing), n));
@@ -183,7 +210,8 @@ namespace BattleCore
                 // противник назначен на касании (раз в ContactEverySec) — с тех пор мог отойти: дальше досягаемости — мимо
                 if (bodyOf.TryGetValue(am, out var ba) && bodyOf.TryGetValue(dm, out var bd))
                 {
-                    double reach = MR.ReachM + (ba.pike && a.Row < MR.PikeRanks ? a.Row * ba.rankD : 0);
+                    double reach = MR.ReachM + (ba.pike && a.Row < MR.PikeRanks ? MR.PikeTipM + a.Row * ba.rankD : 0);
+                    if (bd.pike && d.Row < MR.PikeRanks) reach = Math.Max(reach, MR.ReachM + MR.PikeTipM + d.Row * bd.rankD);   // бьётся с остриём
                     if (dl - ba.rad - ba.half - bd.rad - bd.half > reach + 0.5) continue;
                 }
                 if (Owed(dm) >= 1) { Fell(dm, d, at, ux, uy); dm.StruckDown++; MenMelee.Hits++; }

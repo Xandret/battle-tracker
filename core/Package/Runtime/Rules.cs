@@ -250,7 +250,13 @@ namespace BattleCore
             public double FootTurnDegPerSec = 360, HorseTurnDegPerSec = 120;
             public double FootSideMps = 1.5, FootBackMps = 1.0, HorseSideMps = 0.5, HorseBackMps = 0.3;
             public double FaceMoveM = 1.5, FaceMoveMps = 1.5;
-            public double PushMaxMps = 6;   // Г94: толкотня двигает бойца не быстрее этого — без рывков
+            public double PushMaxMps = 6;
+            // Г90 (Б3): натиск телами. Конь с разбега (натиск готов —
+            // Mover.ChargeReady) пешему врагу не уступает: тот сбит с ног на DownSecMin…DownSecMax с и отброшен, конь теряет ChargeLoss
+            // своего хода на каждом сбитом; медленнее ChargeMinMps — натиск его кончился, дальше стена (Г89). Убивает только стол (К29).
+            // Пики во фронт: острия на PikeTipM впереди первой шеренги — конь встаёт у острия, пики достают из PikeRanks шеренг
+            public double ChargeMinMps = 3, ChargeLoss = 0.3, DownSecMin = 1, DownSecMax = 2, PikeTipM = 2.5;
+            public int ChargeKnocks = 2;   // конь за натиск сбивает не больше стольких — вламывается на 1–2 шеренги   // Г94: толкотня двигает бойца не быстрее этого — без рывков
         }
         public MenR Men = new MenR();
 

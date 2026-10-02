@@ -104,6 +104,8 @@ namespace BattleCore
         public double FleeHeading, FleeX, FleeY, FleeSince;
         public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
         public int StruckDown;                   // Б2: пало от ударов бойцов с последней раскладки — тоже уже не стоят (Г83)
+        public bool ChargeReady;                 // Г90: натиск готов (ставит бой) — кони с разбега пешему врагу не уступают
+        public double Now;                       // часы боя на этом шаге (ставит бой) — для рисунка: когда сбит с ног
         public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
