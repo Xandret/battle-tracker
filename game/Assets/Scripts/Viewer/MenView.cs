@@ -582,7 +582,8 @@ namespace Journal.Viewer
             string wk = m.Atk && shoot ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
             string kind = !m.Atk || wk == null ? null : Thrust(wk) ? "thrust"
                 : wk == "sword" || wk == "falchion" ? (H(s * 7 + blow, 41) < 0.35f ? "thrust" : "swing") : H(s * 7 + blow, 42) < 0.5f ? "chop" : "swing";
-            if (m.Atk && ap >= 0) { oy -= ap > 0.3f && ap < 0.55f ? 0.06f : 0; rot += kind == "swing" ? 0.18f * Mathf.Sin(ap * 6.283f) : kind == "chop" ? -0.08f * Mathf.Sin(ap * 6.283f) : 0; }
+            if (m.Atk && ap >= 0) { oy -= m.Ap < 0 && ap > 0.3f && ap < 0.55f ? 0.06f : 0;   // Б2: выпад к противнику уже в X/Y движка (Г78) — свой не добавляем
+                 rot += kind == "swing" ? 0.18f * Mathf.Sin(ap * 6.283f) : kind == "chop" ? -0.08f * Mathf.Sin(ap * 6.283f) : 0; }
             if (cheer && !m.Atk) oy -= 0.05f * Mathf.Max(0, Mathf.Sin(t * 9 + ph0 * 6.283f));   // ликуют — подпрыгивают
             var Mm = bas.T(ox, oy - lean).R(rot);
             float st = step != 0 ? step : m.Atk ? Mathf.Sin(ap * 6.283f) * 0.6f : 0;   // ноги: на ходу и в бою шагают
