@@ -267,6 +267,7 @@ namespace BattleCore
             var opts = new BattleRequest { Mode = mode, FatigueMode = "percent" };
             double dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, A, new EffStats(), opts, null, Ctx, false, 1, "", "front", null, w.U * w.N0);
             w.Planned = (int)Js.Round(Math.Max(0, dmg) * RR.Bows[w.Bow].VolleyK * RR.LiveRanksK);
+            w.Def.UnderFireUntil = Math.Max(w.Def.UnderFireUntil, w.T1 + R.Men.UnderFireSec);   // Г86: под стрелами — колонны поштучно
             var fresh = new List<Shot>();
             for (int i = 0; i < w.Planned; i++)
                 fresh.Add(new Shot { W = w, Index = i, LaunchT = w.T0 + (i + 0.5) / w.Planned * (w.T1 - w.T0) });

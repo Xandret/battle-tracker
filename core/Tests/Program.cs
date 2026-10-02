@@ -4,7 +4,7 @@
 // dotnet run --project Tests -- calibrate [ходов рукопашной] [ходов стрельбы] — сверка модели со столом: shared/calibration/*
 // (или calibrate-melee / calibrate-ranged по отдельности)
 // dotnet run --project Tests -- polygon — полигон движения (Г55): core/polygon/polygon.html
-// dotnet run -c Release --project Tests -- bench-paths [зазор между линиями, м] — замер путей (FlowField) на карте 4000 × 3000 м
+// dotnet run -c Release --project Tests -- bench-paths [зазор между линиями, м] [men] — замер путей (FlowField) на карте 4000 × 3000 м; men — бойцы-тела
 using System.Text.Json;
 using BattleCore;
 
@@ -278,7 +278,7 @@ Test("баллистика сверх стола: вблизи смертоно�
 });
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
-if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400); return 0; }
+if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400, args.Contains("men"), args.Contains("reserve")); return 0; }
 if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "b1-cross") { MenBodyProbe.Cross(); return 0; }
 if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0; }
@@ -292,12 +292,13 @@ if (args.Length > 0 && args[0] == "g94b") { MenTurnBattleProbe.Run(); return 0; 
 if (args.Length > 0 && args[0] == "g90-pike") { MenPikeFrontProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g90-depth") { MenChargeDepthProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g90") { MenChargeProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "g86") { MenRigidProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "g94") { MenTurnProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b3-flee") { MenFleeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-mix") { MenMeleeMix.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-knights") { MenMeleeKnights.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-flank") { MenMeleeFlank.Run(); return 0; }
-if (args.Length > 0 && args[0] == "b1-ov") { MenBodyProbe3.Overlaps(); return 0; }
+if (args.Length > 0 && args[0] == "b1-ov") { MenBodyProbe3.Overlaps(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "b1") { foreach (var (n, r) in MenBodyTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
 if (args.Length > 0 && args[0] == "men") { foreach (var (n, r) in MenTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "jumps") { var all = Polygon.Jumps(); Console.WriteLine($"прыжков {all.Count}"); foreach (var l in all.Take(20)) Console.WriteLine("  " + l); return 0; }
@@ -583,9 +584,11 @@ void CalibrateRanged(int RUNS)
 // Замер путей (dotnet run -c Release --project Tests -- bench-paths [зазор, м]): синтетический бой на карте 4000 × 3000 м
 // (река с бродами и мостом, рощи, кусты), 20 отрядов по 1500 — 30 тыс. бойцов, две стороны в линию в gap м друг от друга.
 // Перед каждым ходом каждому, кто в строю и не в схватке, — «атаковать ближайшего врага» (как сцена из сохранения). 2 хода.
-void BenchPaths(double gap)
+// dotnet run -c Release --project Tests -- bench-paths [зазор] [men] [reserve] — men: бойцы-тела (MenBodies), иначе фигурки;
+// reserve: за каждой линией ещё 10 отрядов в 400 м — резерв на марше вдали от врага (замер Г86)
+void BenchPaths(double gap, bool menBodies = false, bool reserve = false)
 {
-    var R = Rules.Base;
+    var R = menBodies ? MenBodyTests.RB : Rules.Base;
     var setup = System.Diagnostics.Stopwatch.StartNew();
     var map = MapGen.Generate("river", new Dictionary<string, object>
     {
@@ -609,8 +612,9 @@ void BenchPaths(double gap)
     }
     int id = 0;
     for (int side = 1; side <= 2; side++)
+    for (int row = 0; row < (reserve ? 2 : 1); row++)
     {
-        double line = geo.H / 2 + (side == 1 ? -gap / 2 : gap / 2), cursor = 100;
+        double line = geo.H / 2 + (side == 1 ? -gap / 2 - row * 400 : gap / 2 + row * 400), cursor = 100;
         for (int k = 0; k < 10; k++)
         {
             var T = Templates.Get(tpl[(k + 3 * side) % tpl.Length]);
@@ -623,6 +627,13 @@ void BenchPaths(double gap)
         }
     }
     double men = bt.Movers.Sum(m => m.P.U.Soldiers);
+    Prof.Reset();
+    double rigSum = 0; int rigN = 0, rigU = 0, rigK = 0;
+    void PrintProf()
+    {
+        Console.WriteLine($"   фазы: движение {Prof.Sec(0):0.00} (бойцы: смыкание и курсы {Prof.Sec(10):0.00}, якоря {Prof.Sec(11):0.00}, желания {Prof.Sec(12):0.00}, взгляд {Prof.Sec(13):0.00}, шаг {Prof.Sec(14):0.00}, расталкивание и итог {Prof.Sec(15):0.00}), касания {Prof.Sec(1):0.00}, охват и пр. {Prof.Sec(2):0.00}, удары {Prof.Sec(3):0.00}, стрельба {Prof.Sec(4):0.00}, раскладка {Prof.Sec(5):0.00}");
+        Prof.Reset();
+    }
     Console.WriteLine($"карта {geo.W:0} × {geo.H:0} м, {map.W * map.H} клеток; отрядов {bt.Movers.Count}, бойцов {men:0}; между линиями {gap:0} м; подготовка {setup.Elapsed.TotalSeconds:0.0} с");
 
     void OrderNearest()
@@ -651,8 +662,10 @@ void BenchPaths(double gap)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         OrderNearest();
-        bt.Turn();
-        Console.WriteLine($"ход {turn}: {sw.Elapsed.TotalSeconds:0.00} с; схваток {bt.Fights.Count(f => !f.Over)}, бежит {bt.Movers.Count(m => m.Fleeing)}, бойцов {bt.Movers.Sum(m => m.P.U.Soldiers):0}");
+        bt.Turn(_ => { if (++rigK % 30 == 0) { rigSum += MenBodies.RigidMen; rigU += MenBodies.RigidUnits; rigN++; } });
+        Console.WriteLine($"ход {turn}: {sw.Elapsed.TotalSeconds:0.00} с; схваток {bt.Fights.Count(f => !f.Over)}, бежит {bt.Movers.Count(m => m.Fleeing)}, бойцов {bt.Movers.Sum(m => m.P.U.Soldiers):0}; жёстких бойцов в среднем {(rigN > 0 ? rigSum / rigN : 0):0} из {bt.Movers.Sum(m => m.Men.Count(x => x.Alive))}, отрядов вдали {(rigN > 0 ? rigU / (double)rigN : 0):0.0} из {bt.Movers.Count}");
+        rigSum = 0; rigN = 0; rigU = 0;
+        PrintProf();
     }
     double tf = System.Diagnostics.Stopwatch.Frequency;
     Console.WriteLine($"всего счёта: {total.Elapsed.TotalSeconds:0.00} с");
