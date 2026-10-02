@@ -224,8 +224,9 @@ namespace BattleCore
         // Г77: толкотня — любые два бойца ближе суммы радиусов расходятся (поровну); радиус — доля шага в строю.
         // Сетка клеток 2 м по рамке всех бойцов: голова списка в клетке и «следующий» у бойца; пары — своя клетка и
         // четыре соседние (каждая пара — один раз)
-        static Man[] gMen = new Man[0]; static Mover[] gOwn = new Mover[0]; static double[] gRad = new double[0];
-        static int[] gNext = new int[0], gHead = new int[0];
+        // свои у каждого потока: смотрелка считает бой в фоне, пока игра считает свой ход в главном потоке
+        [ThreadStatic] static Man[] gMen; [ThreadStatic] static Mover[] gOwn; [ThreadStatic] static double[] gRad;
+        [ThreadStatic] static int[] gNext, gHead;
         static void Jostle(IList<Mover> ms, Rules r)
         {
             var M = r.Men;
@@ -233,7 +234,7 @@ namespace BattleCore
             int n = 0;
             foreach (var m in ms) n += m.Men.Count;
             if (n < 2) return;
-            if (gMen.Length < n) { gMen = new Man[n * 2]; gOwn = new Mover[n * 2]; gRad = new double[n * 2]; gNext = new int[n * 2]; }
+            if (gMen == null || gMen.Length < n) { gMen = new Man[n * 2]; gOwn = new Mover[n * 2]; gRad = new double[n * 2]; gNext = new int[n * 2]; }
             double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
             int c = 0;
             foreach (var m in ms)
@@ -252,7 +253,7 @@ namespace BattleCore
             if (c < 2) return;
             int W = (int)((x1 - x0) / cell) + 1, H = (int)((y1 - y0) / cell) + 1;
             if ((long)W * H > 4_000_000) return;   // бойцы разбросаны на десятки километров — толкаться некому
-            if (gHead.Length < W * H) gHead = new int[W * H];
+            if (gHead == null || gHead.Length < W * H) gHead = new int[W * H];
             Array.Fill(gHead, -1, 0, W * H);
             for (int i = 0; i < c; i++)
             {

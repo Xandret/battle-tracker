@@ -1,0 +1,76 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:play="Journal.Play">
+    <ui:Style src="PlayHud.uss" />
+    <ui:VisualElement name="hud" class="hud" picking-mode="Ignore">
+        <ui:VisualElement name="topBar" class="top-bar" picking-mode="Ignore">
+            <ui:VisualElement name="topBox" class="top-box panel">
+                <ui:VisualElement class="turn-block">
+                    <ui:Label text="ХОД" class="turn-caption" />
+                    <ui:Label name="turnNumber" text="1" class="turn-number" />
+                </ui:VisualElement>
+                <ui:VisualElement class="phase-block">
+                    <ui:Label name="phaseText" text="Приказы" class="phase-text" />
+                    <ui:Label name="phaseSub" text="" class="phase-sub" />
+                    <ui:VisualElement class="progress">
+                        <ui:VisualElement name="progressFill" class="progress-fill" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:Button name="goButton" text="ХОД!" class="go-button" />
+                <ui:VisualElement name="speedGroup" class="speed-group hidden">
+                    <ui:Button name="pauseButton" text="❚❚" class="speed-btn" />
+                    <ui:Button name="speed1" text="×1" class="speed-btn" />
+                    <ui:Button name="speed2" text="×2" class="speed-btn" />
+                    <ui:Button name="speed4" text="×4" class="speed-btn" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="power" class="power panel">
+                <ui:Label name="powerName1" text="" class="power-name" />
+                <ui:VisualElement class="power-bar">
+                    <ui:VisualElement name="powerSeg1" class="power-seg side-1" />
+                    <ui:VisualElement name="powerSeg2" class="power-seg side-2" />
+                </ui:VisualElement>
+                <ui:Label name="powerName2" text="" class="power-name right" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="logPanel" class="log-panel panel">
+            <ui:Label name="logTitle" text="Журнал" class="log-title" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="detail" class="detail panel hidden">
+            <ui:VisualElement class="detail-head">
+                <play:Icon name="detailIcon" kind="infantry" class="detail-icon" />
+                <ui:VisualElement>
+                    <ui:Label name="detailName" text="" class="detail-name" />
+                    <ui:Label name="detailType" text="" class="detail-type" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="detailRows" />
+            <ui:Label name="detailOrder" text="" class="detail-order" />
+            <ui:Label name="detailPlan" text="" class="detail-plan" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="bottomDock" class="bottom-dock" picking-mode="Ignore">
+            <ui:VisualElement name="ordersBar" class="orders-bar panel" />
+            <ui:VisualElement name="sideTabs" class="side-tabs" />
+            <ui:VisualElement name="cardsRow" class="cards-row panel" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="tip" class="tip panel hidden" picking-mode="Ignore">
+            <ui:Label name="tipName" text="" class="tip-name" />
+            <ui:Label name="tipLine1" text="" class="tip-line" />
+            <ui:Label name="tipLine2" text="" class="tip-line" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="toast" class="toast hidden" picking-mode="Ignore">
+            <ui:Label name="toastText" text="" class="toast-text panel" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="over" class="over hidden">
+            <ui:VisualElement class="over-box panel">
+                <ui:Label name="overTitle" text="" class="over-title" />
+                <ui:Label name="overSub" text="" class="over-sub" />
+                <ui:Button name="againButton" text="НОВАЯ БИТВА" class="go-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
