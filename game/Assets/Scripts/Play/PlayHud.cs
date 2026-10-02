@@ -28,6 +28,7 @@ namespace Journal.Play
         Label turnNumber, phaseText, phaseSub, detailName, detailType, detailOrder, detailPlan, tipName, tipLine1, tipLine2, toastText, overTitle, overSub, logTitle, powerName1, powerName2;
         Button goButton, pauseButton, speed1, speed2, speed4, againButton, menuButton, menuClose;
         VisualElement menu, menuList; Label menuStatus;
+        ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
         bool menuBusy;
         Icon detailIcon;
         readonly Dictionary<string, VisualElement> orderBtn = new Dictionary<string, VisualElement>();
@@ -69,6 +70,7 @@ namespace Journal.Play
             againButton.clicked += ShowMenu;
             menuButton.clicked += ShowMenu;
             menuClose.clicked += () => menu.AddToClassList("hidden");
+            armies = new ArmyEditor(hud);
             ShowMenu();   // в начале — выбор битвы (под меню уже стоит учебное поле)
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
             feed = root.Q("feed");
@@ -110,6 +112,12 @@ namespace Journal.Play
                 });
                 menuList.Add(item);
             }
+            // редактор армий: фракции, полководцы, отряды — в файле сохранения трекера
+            var army = new VisualElement(); army.AddToClassList("menu-item"); army.AddToClassList("menu-armies");
+            var an = new Label("⚑ Армии"); an.AddToClassList("menu-item-name"); army.Add(an);
+            var ad = new Label("Фракции, полководцы и отряды: создать, править, клонировать; стиль и снаряжение. Файлы — те же, что у трекера."); ad.AddToClassList("menu-item-note"); army.Add(ad);
+            army.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); armies.Show(); });
+            menuList.Add(army);
             menuClose.EnableInClassList("hidden", pc.Game == null || pc.Phase == PlayPhase.Over);
             menu.RemoveFromClassList("hidden");
         }
@@ -163,7 +171,8 @@ namespace Journal.Play
         void LateUpdate()
         {
             if (pc?.Session == null || turnNumber == null) return;
-            pc.Blocked = !menu.ClassListContains("hidden");
+            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible;
+            if (viewer != null) viewer.InputBlocked = pc.Blocked;   // набор текста в окнах не двигает камеру
             var s = pc.Session; var bt = pc.Battle;
             if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
             {

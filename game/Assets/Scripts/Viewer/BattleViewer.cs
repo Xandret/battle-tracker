@@ -52,6 +52,7 @@ namespace Journal.Viewer
         // Слои рисунка: земля 0, кровь 4, павшие 5–6, кони 9, бойцы и плашки 10, стрелы в полёте 20; 21–39 — за смотрелкой
         // (знамёна, дым, подсветка), 50+ — подсказки приказов игры.
         public bool ShowGui = true;                       // false — без OnGUI (кнопок сцен и нижней полосы)
+        public bool InputBlocked;                         // окно игры поверх (меню, редактор армий) — камера клавиш и мыши не слушает
         public bool PlayInput;                            // управление игры: ЛКМ/ПКМ — игре, камера — средней кнопкой и клавишами (SetLive включает)
         public Func<Vector2, bool> OverExternalUi;        // экранная точка над интерфейсом игры — колесо и сдвиг камеры её не трогают
         public Vector4 Insets;                            // px экрана под панелями игры: слева, сверху, справа, снизу — кадр (F) в остаток
@@ -146,7 +147,7 @@ namespace Journal.Viewer
         void HandleInput()
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
-            if (!Application.isFocused) { dragging = false; return; }
+            if (!Application.isFocused || InputBlocked) { dragging = false; return; }
             // облик (В15): F7 — свет на бойцах, F8 — эффект миниатюр; сравнить с плоским рисунком
             if (kb != null && kb.f7Key.wasPressedThisFrame) MenView.Light = !MenView.Light;
             if (kb != null && kb.f8Key.wasPressedThisFrame) MiniatureLook.On = !MiniatureLook.On;
