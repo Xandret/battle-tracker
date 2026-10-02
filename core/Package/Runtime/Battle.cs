@@ -152,15 +152,21 @@ namespace BattleCore
             if (k % replanEvery == 0) foreach (var m in Movers) Replan(m);
             var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
             foreach (var m in Movers) { m.Now = t; m.ChargeReady = MenMode && ChargeReadyOf(m); }   // Г90: натиск телами
+            long pb = Prof.Now();
             MoveSim.Step(Movers, Geo, R, k);
+            Prof.Add(0, ref pb);
             for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
             foreach (var m in Movers) if (m.Fleeing) EdgeCheck(m, t + dt);
-            if (k % contactEvery == 0) { Contacts(t); Envelop(); TryRally(t); foreach (var m in Movers) if (m.Fleeing) OwnFleeCourses(m); }
+            if (k % contactEvery == 0) { Contacts(t); Prof.Add(1, ref pb); Envelop(); TryRally(t); foreach (var m in Movers) if (m.Fleeing) OwnFleeCourses(m); }
+            Prof.Add(2, ref pb);
             Strike(t, dt);
             if (MenMode) MenSwings(t, dt);   // Б2: павшие — от ударов бойцов
+            Prof.Add(3, ref pb);
             Shoot(t, dt);
+            Prof.Add(4, ref pb);
             foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
             if ((k + 1) % contactEvery == 0) foreach (var m in Movers) Relayout(m);
+            Prof.Add(5, ref pb);
             stepK = k + 1;
             frame?.Invoke(stepK * dt);
             return stepK < stepsInTurn;

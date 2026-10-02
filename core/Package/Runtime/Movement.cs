@@ -106,6 +106,7 @@ namespace BattleCore
         public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
         public int StruckDown;                   // Б2: пало от ударов бойцов с последней раскладки — тоже уже не стоят (Г83)
         public bool ChargeReady;                 // Г90: натиск готов (ставит бой) — кони с разбега пешему врагу не уступают
+        public double UnderFireUntil = double.NegativeInfinity;   // Г86: под стрелами до этого времени (ставит стрельба)
         public double Now;                       // часы боя на этом шаге (ставит бой) — для рисунка: когда сбит с ног
         public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 

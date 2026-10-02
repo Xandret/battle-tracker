@@ -589,3 +589,45 @@ static class MenChargeDepthProbe
         }
     }
 }
+
+// Г86: марш одинокого отряда — сколько бойцов у мест (ближе RigidSnapM), сколько жёстких, отставание от места
+static class MenRigidProbe
+{
+    public static void Run(string[] opts)
+    {
+        var RB = MenBodyTests.RB;
+        foreach (var o in opts)
+        {
+            if (o == "nowave") RB.Men.WaveRowSec = 0;
+            else if (o.StartsWith("snap")) RB.Men.RigidSnapM = double.Parse(o.Substring(4), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        Console.WriteLine($"  правила: WaveRowSec {RB.Men.WaveRowSec}, RigidSnapM {RB.Men.RigidSnapM}");
+        var geo = MoveTests.Open(1200, 1200);
+        var t = Templates.Get("infantry");
+        var m = Mover.Place(t.Make(1, t.Name, 1000, 1), 600, 1100, 0, RB);
+        MoveSim.Give(m, new MoveOrder { X = 600, Y = 100, Facing = 0 }, geo, RB);
+        int k = 0;
+        var tr8 = new List<string>();
+        for (int turn = 0; turn < 2; turn++)
+            MoveSim.Turn(new[] { m }, geo, RB, _ =>
+            {
+                k++;
+                if (k >= 100 && k < 124) { var q = m.Men.First(z => z.Id == 8); var hq = Soldiers.HomeOf(m, q); double ax = -(q.Y - hq.y); tr8.Add($"{(q.WasRigid ? "Ж" : "о")} {ax:+0.00;-0.00} V{JsMath.Hypot(q.Vx, q.Vy):0.0}"); }
+                if (k == 124) Console.WriteLine("   боец 8 по шагам (Ж — жёсткий; впереди места +, позади −; м): " + string.Join(" | ", tr8));
+                if (k % 60 != 0) return;
+                var far = m.Men.Where(x => x.Alive).Select(x => { var h = Soldiers.HomeOf(m, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); }).OrderBy(v => v).ToList();
+                Console.WriteLine($"  {k * RB.Move.Dt:0.0} с: жёстких {MenBodies.RigidMen}, отрядов вдали {MenBodies.RigidUnits}; от места: медиана {far[far.Count / 2]:0.00}, 90% {far[far.Count * 9 / 10]:0.00}, макс {far[far.Count - 1]:0.00}; ближе 1 м — {far.Count(v => v < 1) * 100 / far.Count}%; центр y {m.P.Y:0}, Vs {m.Vs:0.0}, якорь 0-й колонны идёт {JsMath.Hypot(m.Figs[0].AVx, m.Figs[0].AVy):0.0}");
+                var al = m.Men.Where(x => x.Alive).ToList();
+                if (k == 180)
+                    foreach (var x in al.Where(q => !q.WasRigid).Take(5))
+                    {
+                        var h = Soldiers.HomeOf(m, x); var sg = x.Fig; var f = RB.Map.Formation["infantry"];
+                        double alv = Math.Max(1e-9, Math.Sqrt(sg.AVx * sg.AVx + sg.AVy * sg.AVy));
+                        double ahead = ((x.Lx * sg.Hc - x.Ly * sg.Hs) * sg.AVx + (x.Lx * sg.Hs + x.Ly * sg.Hc) * sg.AVy) / alv;
+                        double wave = Math.Max(0, (f.Ranks * f.RankDepth / 2 - ahead) / f.RankDepth) * RB.Men.WaveRowSec;
+                        Console.WriteLine($"       нежёсткий {x.Id} ряд {x.Row}: от места {JsMath.Hypot(h.x - x.X, h.y - x.Y):0.00}, время−StartT {m.Steps * RB.Move.Dt - sg.StartT:0.00} (StartT {sg.StartT:0.00}, StopT {sg.StopT:0.00}), волна {wave:0.00}, Moving {sg.Moving}, место свободно {MoveSim.Free(m.Field, h.x, h.y)}, сам на суше {MoveSim.Free(m.Field, x.X, x.Y)}, V {JsMath.Hypot(x.Vx, x.Vy):0.0}, якорь идёт {alv:0.0}");
+                    }
+                Console.WriteLine($"     WasRigid {al.Count(x => x.WasRigid)}, reseat {al.Count(x => x.Reseat)}, thaw {al.Count(x => x.Thaw)}, бьются {al.Count(x => x.Fig.Fighting)}, охват {al.Count(x => x.Fig.Wrap)}, возврат {al.Count(x => x.Fig.Returning)}, лежат {al.Count(x => x.DownLeft > 0)}, via {al.Count(x => !double.IsNaN(x.ViaX))}; колонн {m.Figs.Count}, Moving {m.Figs.Count(f => f.Moving)}, StartT>−∞ {m.Figs.Count(f => !double.IsNegativeInfinity(f.StartT))}");
+            });
+    }
+}

@@ -104,12 +104,13 @@ namespace BattleCore
         }
 
         // Угол возвышения, чтобы пройти через точку (d, dz) над вылетом: настильно или навесом; null — не достать
-        public static double? Aim(double v0, double k, double g, double d, double dz, double dt, bool high = false)
+        public static double? Aim(double v0, double k, double g, double d, double dz, double dt, bool high = false, double? peakKnown = null)
         {
-            double peak = PeakAngle(v0, k, g, d, dt);
+            double peak = peakKnown ?? PeakAngle(v0, k, g, d, dt);
             if (HeightAt(v0, peak, k, g, d, dt) < dz) return null;
             double lo = high ? peak : -0.2, hi = high ? 1.45 : peak;
-            for (int i = 0; i < 50; i++)
+            // 20 делений: 1,65 рад / 2^20 ≈ 1,6·10⁻⁶ рад — на 300 м это полмиллиметра; каждое деление — прогон полёта
+            for (int i = 0; i < 20; i++)
             {
                 double mid = (lo + hi) / 2;
                 bool above = HeightAt(v0, mid, k, g, d, dt) > dz;
@@ -125,27 +126,51 @@ namespace BattleCore
         // стрела выше роста + 15 см. Сначала полная сила, потом ослабленные выстрелы (круче дуга), потом навес.
         static readonly Dictionary<(Rules.BowR, int, int, int, int), (double theta, double speed, bool high)?> aimCache =
             new Dictionary<(Rules.BowR, int, int, int, int), (double, double, bool)?>();
+        static readonly Dictionary<(Rules.BowR, int, int), double> peakCache = new Dictionary<(Rules.BowR, int, int), double>();
+        // Физический предел дальности лука (с полной силы, с высоты вылета на землю), м: до него стрела может долететь, дальше —
+        // нет; считается раз на лук перебором дальности по 10 м. Для отсева отрядов, которых стрела этого лука не достанет
+        static readonly Dictionary<Rules.BowR, double> maxRange = new Dictionary<Rules.BowR, double>();
+        public static double MaxRange(Rules.BowR bow, Rules.RangedR r, double launchH)
+        {
+            lock (maxRange) if (maxRange.TryGetValue(bow, out var m)) return m;
+            double v0 = V0(bow), k = DragK(bow, r), d = 50;
+            while (d < 2000 && Aim(v0, k, r.Gravity, d, -launchH, r.Dt) != null) d += 10;
+            lock (maxRange) maxRange[bow] = d;
+            return d;
+        }
         public static (double theta, double speed, bool high)? AimCached(Rules.BowR bow, Rules.RangedR r, double d, double dz,
                                                                          double front, double rankDepth, double launchH)
         {
-            var key = (bow, (int)Math.Round(d * 2), (int)Math.Round(dz * 4), (int)Math.Round(front * 2), (int)Math.Round(rankDepth * 2));
+            // дальность — по 2 м, перепад — по полметра: ниже разброса залпа (ошибка упреждения, Г66), а ключей в разы меньше —
+            // подбор по ключу стоит сотни прогонов полёта (на большой карте первый ход платил 6 с за 1500 подборов)
+            var key = (bow, (int)Math.Round(d / 2), (int)Math.Round(dz * 2), (int)Math.Round(front * 2), (int)Math.Round(rankDepth * 2));
             lock (aimCache)
                 if (aimCache.TryGetValue(key, out var hit)) return hit;
-            double dq = key.Item2 / 2.0, dzq = key.Item3 / 4.0, fq = key.Item4 / 2.0, rq = key.Item5 / 2.0;
+            Prof.N[3]++;   // промах кэша прицела — численный подбор
+            double dq = key.Item2 * 2.0, dzq = key.Item3 / 2.0, fq = key.Item4 / 2.0, rq = key.Item5 / 2.0;
             double v0 = V0(bow), k = DragK(bow, r);
+            // угол наибольшей дальности зависит только от лука, доли силы и дистанции — свой кэш (иначе 60 прогонов на каждый подбор)
+            double Peak(double v)
+            {
+                var pk = (bow, (int)Math.Round(v * 100), key.Item2);
+                lock (peakCache) if (peakCache.TryGetValue(pk, out var p)) return p;
+                double res0 = PeakAngle(v, k, r.Gravity, dq, r.Dt);
+                lock (peakCache) peakCache[pk] = res0;
+                return res0;
+            }
             double clearDz = r.BodyHeight + 0.15 - launchH;
             bool Clears(double v, double th) =>
                 fq < 0.6 || HeightAt(v, th, k, r.Gravity, Math.Min(fq, rq), r.Dt) >= clearDz && HeightAt(v, th, k, r.Gravity, fq + 0.5, r.Dt) >= clearDz;
             (double, double, bool)? res = null;
             foreach (var sf in r.SpeedSteps)
             {
-                var th = Aim(v0 * sf, k, r.Gravity, dq, dzq, r.Dt);
+                var th = Aim(v0 * sf, k, r.Gravity, dq, dzq, r.Dt, peakKnown: Peak(v0 * sf));
                 if (th == null) break;
                 if (Clears(v0 * sf, th.Value)) { res = (th.Value, sf, false); break; }
             }
             if (res == null)
             {
-                var th = Aim(v0, k, r.Gravity, dq, dzq, r.Dt, high: true);
+                var th = Aim(v0, k, r.Gravity, dq, dzq, r.Dt, high: true, peakKnown: Peak(v0));
                 if (th != null) res = (th.Value, 1.0, true);
             }
             lock (aimCache) aimCache[key] = res;

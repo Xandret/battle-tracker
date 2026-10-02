@@ -32,6 +32,8 @@ namespace BattleCore
         [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through),
                                                      // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь, 128 — ждёт своей очереди (старт волной, Г84)
         [ThreadStatic] static Rules.MenR tMR;
+        [ThreadStatic] static bool[] tRigid;         // Г86: боец на жёстком месте — в сетку, взгляд вперёд и толкотню не входит
+        public static int RigidMen, RigidUnits;      // Г86: сколько бойцов на жёстких местах и отрядов «вдали» на последнем шаге (для тестов и замеров)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
         [ThreadStatic] static int[] gNext, gHead;
@@ -59,6 +61,7 @@ namespace BattleCore
         public static void Step(IList<Mover> ms, double dt, Rules r)
         {
             var M = r.Move; var MR = r.Men; tMR = MR;
+            long pt = Prof.Now();
             Bodies.TurnAxes(ms, dt, r);   // колонна в охвате разворачивается лицом к врагу постепенно (Г68), как фигурка
             int every = Math.Max(1, (int)Math.Round(MR.BalanceSec / dt));
             int n = 0;
@@ -69,6 +72,7 @@ namespace BattleCore
                 foreach (var man in m.Men) if (man.Alive && man.Fig != null) n++;
             }
 
+            Prof.Add(10, ref pt);
             // 1) якоря колонн
             foreach (var m in ms)
             {
@@ -116,8 +120,28 @@ namespace BattleCore
                     s.Moving = mv;
                 }
             }
+            Prof.Add(11, ref pt);
             if (n == 0) { Finish(ms, dt, r, 0); return; }
 
+            // Г86: отряд вдали от врага и от других своих, не под стрелами, не бежит — его бойцы у своих мест идут одним телом
+            var unitRigid = new bool[ms.Count];
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var a = ms[i];
+                if (a.Fleeing || a.Men.Count == 0 || a.Now < a.UnderFireUntil) continue;
+                double ra = JsMath.Hypot(a.P.Fp.Front, a.P.Fp.Depth) / 2; bool ok = true;
+                for (int j = 0; j < ms.Count && ok; j++)
+                {
+                    if (j == i) continue;
+                    var b = ms[j];
+                    if (b.Figs.Count == 0) continue;
+                    double d = JsMath.Hypot(a.P.X - b.P.X, a.P.Y - b.P.Y) - ra - JsMath.Hypot(b.P.Fp.Front, b.P.Fp.Depth) / 2;
+                    if (d < (SameSide(a.P.U, b.P.U) ? MR.FarFriendM : MR.FarEnemyM)) ok = false;
+                }
+                unitRigid[i] = ok;
+            }
+            RigidUnits = 0; foreach (var ok in unitRigid) if (ok) RigidUnits++;
+            RigidMen = 0;
             // 2) тела и желание каждого бойца
             if (tMan == null || tMan.Length < n)
             {
@@ -126,7 +150,7 @@ namespace BattleCore
                 tUx = new double[cap]; tUy = new double[cap]; tHalf = new double[cap]; tRad = new double[cap]; tX0 = new double[cap]; tY0 = new double[cap];
                 tDvx = new double[cap]; tDvy = new double[cap]; tVmax = new double[cap]; tCap = new double[cap]; tReach = new double[cap];
                 tFlag = new byte[cap]; tBlocked = new int[cap]; tBlockedEnemy = new bool[cap]; gNext = new int[cap];
-                tX = new double[cap]; tY = new double[cap]; tLx = new double[cap]; tLy = new double[cap];
+                tX = new double[cap]; tY = new double[cap]; tLx = new double[cap]; tLy = new double[cap]; tRigid = new bool[cap];
             }
             int c = 0; double maxBody = 0;
             double laF = M.LookAheadSec;
@@ -142,6 +166,7 @@ namespace BattleCore
                 bool backing = !horse && m.Order != null && m.Order.Kind == OrderKind.Retreat && !m.Done;
                 double turn = (horse ? MR.HorseTurnDegPerSec : MR.FootTurnDegPerSec) * dt;
                 double backMax = horse ? MR.HorseBackMps : MR.FootBackMps, sideMax = horse ? MR.HorseSideMps : MR.FootSideMps;
+                bool uRigid = unitRigid[mi];
                 foreach (var man in m.Men)
                 {
                     if (!man.Alive || man.Fig == null) continue;
@@ -221,6 +246,20 @@ namespace BattleCore
                             if (cc > lim) { cx *= lim / cc; cy *= lim / cc; }
                         }
                     }
+                    // Г86: одним телом с колонной — замораживается там, где стоит (сдвиг от якоря в осях колонны), без прыжка на место;
+                    // место догонит, когда оттает. Курс — по Г94, как у всех
+                    bool atHome = far < MR.RigidSnapM && (F == null || MoveSim.Free(F, hx, hy));
+                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw;
+                    man.Thaw = false;
+                    if (rigid)
+                    {
+                        // сдвиг — от якоря до его хода в этом шаге (якорь уже сдвинут на AV·dt): иначе боец на шаг застывал бы на месте
+                        if (!man.WasRigid) { double dx = man.X - (s.AX - s.AVx * dt), dy = man.Y - (s.AY - s.AVy * dt); man.RLx = dx * s.Hc + dy * s.Hs; man.RLy = -dx * s.Hs + dy * s.Hc; }
+                        // замороженная точка должна быть на суше (место — рядом, но не то же)
+                        if (F != null && !MoveSim.Free(F, s.AX + man.RLx * s.Hc - man.RLy * s.Hs, s.AY + man.RLx * s.Hs + man.RLy * s.Hc)) rigid = false;
+                        else { lx = man.RLx; ly = man.RLy; cx = 0; cy = 0; }
+                    }
+                    man.WasRigid = rigid;
                     double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * MR.SpeedK, v = JsMath.Hypot(vx, vy);
                     if (v > vmax) { vx *= vmax / v; vy *= vmax / v; v = vmax; }
                     if (waiting) { vx = 0; vy = 0; v = 0; }
@@ -254,7 +293,7 @@ namespace BattleCore
                     if (side > sideLim) side = sideLim; else if (side < -sideLim) side = -sideLim;
                     vx = ufx * fwd - ufy * side; vy = ufy * fwd + ufx * side;
                     if (down) { vx = 0; vy = 0; }   // лежит: не идёт (Г90)
-                    tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly;
+                    tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly; tRigid[c] = rigid; if (rigid) RigidMen++;
                     // капсула коня для толкотни лежит вдоль колонны (бегущего — по курсу): развернуть разом длинные тела в плотном
                     // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
                     double ph = m.Fleeing ? fh : s.Hd * Math.PI / 180;
@@ -275,14 +314,17 @@ namespace BattleCore
                 }
             }
 
+            Prof.Add(12, ref pt);
             // 3) взгляд вперёд — с бойцами чужих отрядов: каждый смотрит на свой ход вперёд (кто быстрее — увидит сам).
             // Клетки, где только свои, пропускаются целиком — в глубине строя взгляд вперёд ничего не стоит
             Grid(c, Cell);
             Coarse(c);
             for (int i = 0; i < c; i++)
             {
+                if (tRigid[i]) continue;   // Г86: на жёстком месте — ни на кого не смотрит
                 double reach = tReach[i] + maxBody, xi = tX[i], yi = tY[i]; int own = tMi[i];
                 if (OnlyOwn(xi, yi, reach, own)) continue;   // в округе — только свои: взгляд вперёд не нужен
+                Prof.N[5]++; long seen = 0;
                 int cx0 = Math.Max(0, (int)((xi - reach - gx0) / gCell)), cx1 = Math.Min(gW - 1, (int)((xi + reach - gx0) / gCell));
                 int cy0 = Math.Max(0, (int)((yi - reach - gy0) / gCell)), cy1 = Math.Min(gH - 1, (int)((yi + reach - gy0) / gCell));
                 for (int cy = cy0; cy <= cy1; cy++)
@@ -293,6 +335,10 @@ namespace BattleCore
                         for (int j = gHead[k]; j >= 0; j = gNext[j])
                         {
                             if (tMi[j] == own) continue;
+                            // сблизиться за взгляд могут лишь те, кто сейчас не дальше суммы досягаемостей (тела + ход за взгляд + зазор)
+                            double ddx = tX[j] - xi, ddy = tY[j] - yi, rr = tReach[i] + tReach[j];
+                            if (ddx * ddx + ddy * ddy > rr * rr) continue;
+                            seen++;
                             var rel = RelOf(i, j);
                             if (rel == Rel.Ghost)
                             {
@@ -317,14 +363,25 @@ namespace BattleCore
                             if (enemy || !First(ms, i, j, ax, ay, bx, by, dt, M)) Yield(i, nx, ny, j, enemy);
                         }
                     }
+                Prof.N[6] += seen;
             }
 
+            Prof.Add(13, ref pt);
             // 4) шаг: предел скорости (сквозь своих — медленнее) и разгона, непроходимое
             var amaxOf = new double[ms.Count];
             for (int mi = 0; mi < ms.Count; mi++) amaxOf[mi] = MR.AccelK * MoveSim.FigAccel(ms[mi], r) * dt;
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i];
+                if (tRigid[i])
+                {
+                    // Г86: ровно на своём месте у якоря, ход якоря
+                    var s0 = man.Fig;
+                    man.Vx = s0.AVx; man.Vy = s0.AVy;
+                    man.X = s0.AX + tLx[i] * s0.Hc - tLy[i] * s0.Hs; man.Y = s0.AY + tLx[i] * s0.Hs + tLy[i] * s0.Hc;
+                    tX[i] = man.X; tY[i] = man.Y;
+                    continue;
+                }
                 double vmax = tVmax[i] * ((tFlag[i] & 2) != 0 ? M.PassThroughSpeed : 1), dvx = tDvx[i], dvy = tDvy[i], dv = JsMath.Hypot(dvx, dvy);
                 if (dv > vmax) { dvx *= vmax / dv; dvy *= vmax / dv; }
                 double ax = dvx - man.Vx, ay = dvy - man.Vy, a = JsMath.Hypot(ax, ay), amax = amaxOf[tMi[i]];
@@ -339,25 +396,33 @@ namespace BattleCore
                 tX[i] = man.X; tY[i] = man.Y;
             }
 
+            Prof.Add(14, ref pt);
             // 5) расталкивание перекрывшихся — два прохода; пары — клетка с собой и с четырьмя соседними впереди (каждая
-            // пара — один раз), только занятые клетки; клетка — не меньше двух самых больших тел
+            // пара — один раз), только занятые клетки; клетка — не меньше двух самых больших тел. (Клетка по пешему телу с
+            // кольцами соседей у коней давала столько же проверок пар — 230 млн за ход на 60 тыс.: выигрыш внутри клетки съедали
+            // кольца; рычаг — тела, отсортированные по клеткам в сплошном массиве, не размер клетки.)
+            long pp = Prof.Now();
             Grid(c, Math.Max(Cell, 2 * maxBody + M.BodyTol));
+            Prof.Add(18, ref pp);
             for (int iter = 0; iter < 2; iter++)
                 foreach (int k in gUsed)
                 {
-                    int cx = k % gW, cy = k / gW;
-                    for (int i = gHead[k]; i >= 0; i = gNext[i])
-                        for (int j = gNext[i]; j >= 0; j = gNext[j]) Pair(ms, i, j, dt, M);
+                    int cx = k % gW, cy = k / gW; bool soft = gSoft[k];
+                    if (iter == 0 && soft) { long n0 = 0; for (int i = gHead[k]; i >= 0; i = gNext[i]) n0++; Prof.N[7] += n0 * (n0 - 1) / 2; }
+                    if (soft)   // Г86: клетка из одних жёстких — толкаться некому
+                        for (int i = gHead[k]; i >= 0; i = gNext[i])
+                            for (int j = gNext[i]; j >= 0; j = gNext[j]) Pair(ms, i, j, dt, M);
                     for (int q = 0; q < 4; q++)
                     {
                         int nx = cx + NX[q], ny = cy + NY[q];
                         if (nx < 0 || ny < 0 || nx >= gW || ny >= gH) continue;
-                        int h = gHead[ny * gW + nx];
-                        if (h < 0) continue;
+                        int nk = ny * gW + nx, h = gHead[nk];
+                        if (h < 0 || !(soft || gSoft[nk])) continue;
                         for (int i = gHead[k]; i >= 0; i = gNext[i])
                             for (int j = h; j >= 0; j = gNext[j]) Pair(ms, i, j, dt, M);
                     }
                 }
+            Prof.Add(19, ref pp);
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i];
@@ -365,7 +430,9 @@ namespace BattleCore
                 if ((tFlag[i] & 4) != 0) { man.Vx = (man.X - tX0[i]) / dt; man.Vy = (man.Y - tY0[i]) / dt; }
                 // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает
             }
+            Prof.Add(20, ref pp);
             Finish(ms, dt, r, c);
+            Prof.Add(15, ref pt);
         }
 
         // 6) колонны — середина и скорость живых бойцов; пробка — по доле упёршихся бойцов
@@ -435,6 +502,7 @@ namespace BattleCore
         // ── сетка соседей: голова списка в клетке и «следующий» у тела; хозяин клетки — отряд всех её бойцов
         // (−1 — пусто, −2 — разные отряды) ──
         [ThreadStatic] static double gx0, gy0, gCell; [ThreadStatic] static int gW, gH; [ThreadStatic] static int[] gOwner;
+        [ThreadStatic] static bool[] gSoft;   // в клетке есть обычный (не жёсткий) боец — только такие клетки толкаются (Г86)
         static void Grid(int c, double cell)
         {
             double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
@@ -450,10 +518,10 @@ namespace BattleCore
             if (gUsed == null) gUsed = new List<int>();
             if (gHead == null || gHead.Length < cells)
             {
-                gHead = new int[Math.Max(cells, 1024)]; gOwner = new int[gHead.Length];
+                gHead = new int[Math.Max(cells, 1024)]; gOwner = new int[gHead.Length]; gSoft = new bool[gHead.Length];
                 for (int k = 0; k < gHead.Length; k++) { gHead[k] = -1; gOwner[k] = -1; }
             }
-            else foreach (int k in gUsed) { gHead[k] = -1; gOwner[k] = -1; }
+            else foreach (int k in gUsed) { gHead[k] = -1; gOwner[k] = -1; gSoft[k] = false; }
             gUsed.Clear();
             for (int i = c - 1; i >= 0; i--)   // с конца — в клетке по возрастанию номера
             {
@@ -461,10 +529,11 @@ namespace BattleCore
                 if (gHead[k] < 0) gUsed.Add(k);
                 gNext[i] = gHead[k]; gHead[k] = i;
                 gOwner[k] = gOwner[k] == -1 || gOwner[k] == tMi[i] ? tMi[i] : -2;
+                if (!tRigid[i]) gSoft[k] = true;
             }
         }
 
-        static readonly int[] NX = { 1, -1, 0, 1 }, NY = { 0, 1, 1, 1 };
+        static readonly int[] NX = { 1, -1, 0, 1 }, NY = { 0, 1, 1, 1 };   // соседние клетки «впереди» — каждая пара клеток один раз
         // Грубая сетка хозяев клеток (CoarseCell м): чей отряд в клетке, −2 — разные отряды. Боец, вокруг которого только
         // свой отряд, на чужих не смотрит — в глубине строя и на марше вдали от всех это почти весь отряд
         const double CoarseCell = 6;
@@ -493,13 +562,17 @@ namespace BattleCore
         // Пара бойцов перекрылась — развести: свой отряд — пополам, свой чужой — уступающего, враг — того, кто шёл на другого
         static void Pair(IList<Mover> ms, int i, int j, double dt, Rules.MoveR M)
         {
+            Prof.N[8]++;
             double ex = tX[i] - tX[j], ey = tY[i] - tY[j], lim = tHalf[i] + tRad[i] + tHalf[j] + tRad[j] + M.BodyTol;
             if (ex * ex + ey * ey >= lim * lim) return;
             var rel = RelOf(i, j);
             if (rel == Rel.Ghost) return;
+            bool ri = tRigid[i], rj = tRigid[j];
+            if (ri && rj) return;   // Г86: два жёстких не толкаются
             double d = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double nx, out double ny);
             double pen = -d;
             if (pen <= M.BodyTol) return;
+            Prof.N[9]++;
             double wa;
             // свои: пополам; кто упёрся во врага — того свои не двигают, сдвигается напирающий: давка сзади не продавливает
             // передних во врага (Г89, Г90: в строй вламывается только натиск, а не задние ряды на полном ходу)
@@ -516,6 +589,8 @@ namespace BattleCore
                 double pa = Math.Max(0, -(tMan[i].Vx * nx + tMan[i].Vy * ny)), pb = Math.Max(0, tMan[j].Vx * nx + tMan[j].Vy * ny);
                 wa = pa + pb < 0.05 ? 0.5 : pa / (pa + pb);
             }
+            if (ri) wa = 0; else if (rj) wa = 1;   // жёсткий — неподвижное тело: сдвигается другой
+            if (rel != Rel.Same) { if (ri) tMan[i].Thaw = true; else if (rj) tMan[j].Thaw = true; }   // чужой налез — жёсткий оттаивает
             Push(i, nx * pen * wa, ny * pen * wa, rel != Rel.Same ? j : -1, rel == Rel.Enemy);
             Push(j, -nx * pen * (1 - wa), -ny * pen * (1 - wa), rel != Rel.Same ? i : -1, rel == Rel.Enemy);
         }

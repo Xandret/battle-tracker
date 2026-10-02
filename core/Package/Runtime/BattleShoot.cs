@@ -57,6 +57,7 @@ namespace BattleCore
         int nextShot;
         readonly Dictionary<Mover, Troop> troops = new Dictionary<Mover, Troop>();
         readonly BodyGrid grid = new BodyGrid();
+        readonly HashSet<Mover> hot = new HashSet<Mover>();   // отряды в досягаемости стреляющих на этом шаге
         readonly Dictionary<(Rules.BowR, int, int, int), double> flightCache = new Dictionary<(Rules.BowR, int, int, int), double>();
         readonly Func<double> look = new Mulberry32(20261001u).Next;   // случайность только для рисунка (Г67)
 
@@ -195,17 +196,30 @@ namespace BattleCore
             }
             // тела — за фигурками; сетка — только пока что-то летит или вылетает
             bool busy = flying.Count > 0 || nextShot < queue.Count && queue[nextShot].LaunchT < t + dt;
+            long ps = Prof.Now();
             if (busy)
             {
+                // в сетку — только тела отрядов, которых стрела может достать: в физическом пределе дальности лука от стреляющего
+                // (с запасом в полдиагонали обоих строёв); остальные 50 тысяч на большой карте расставлять незачем
+                hot.Clear();
+                foreach (var v in Volleys)
+                    foreach (var w in v.Wins)
+                    {
+                        if (!w.Open || w.Closed) continue;
+                        var s = w.Att;
+                        double reach = Ballistics.MaxRange(RR.Bows[w.Bow], RR, RR.LaunchHeight) + JsMath.Hypot(s.P.Fp.Front, s.P.Fp.Depth) / 2 + 20;
+                        foreach (var m in Movers)
+                            if (!hot.Contains(m) && OnField(m) && JsMath.Hypot(m.P.X - s.P.X, m.P.Y - s.P.Y) <= reach + JsMath.Hypot(m.P.Fp.Front, m.P.Fp.Depth) / 2) hot.Add(m);
+                    }
                 grid.Clear();
-                foreach (var m in Movers)
+                foreach (var m in hot)   // бегущих стрела тоже находит (Г70) — OnField
                 {
-                    if (!OnField(m)) continue;   // бегущих стрела тоже находит (Г70)
                     var tr = TroopOf(m);
                     PlaceBodies(m, tr);
-                    foreach (var b in tr.Bodies) if (b.Alive) grid.Add(b);
+                    foreach (var b in tr.Bodies) if (b.Alive) { grid.Add(b); Prof.N[4]++; }
                 }
             }
+            Prof.Add(16, ref ps);
             int sub = Math.Max(1, (int)Math.Ceiling(dt / RR.Dt - 1e-9));
             double subDt = dt / sub;
             for (int k = 0; k < sub; k++)
@@ -223,6 +237,7 @@ namespace BattleCore
                 flying.RemoveAll(x => x.Done);
             }
             if (nextShot > 4096) { queue.RemoveRange(0, nextShot); nextShot = 0; }
+            Prof.Add(17, ref ps);
             foreach (var v in Volleys)
                 foreach (var w in v.Wins)
                     if (w.Open && !w.Closed && w.T1 <= t + dt + 1e-9 && w.Launched >= w.Planned && w.Landed >= w.Planned) CloseVolleyWin(w, t + dt);
@@ -267,6 +282,7 @@ namespace BattleCore
             var opts = new BattleRequest { Mode = mode, FatigueMode = "percent" };
             double dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, A, new EffStats(), opts, null, Ctx, false, 1, "", "front", null, w.U * w.N0);
             w.Planned = (int)Js.Round(Math.Max(0, dmg) * RR.Bows[w.Bow].VolleyK * RR.LiveRanksK);
+            w.Def.UnderFireUntil = Math.Max(w.Def.UnderFireUntil, w.T1 + R.Men.UnderFireSec);   // Г86: под стрелами — колонны поштучно
             var fresh = new List<Shot>();
             for (int i = 0; i < w.Planned; i++)
                 fresh.Add(new Shot { W = w, Index = i, LaunchT = w.T0 + (i + 0.5) / w.Planned * (w.T1 - w.T0) });
@@ -362,7 +378,7 @@ namespace BattleCore
 
         void Fly(Shot ar, double subDt)
         {
-            var RR = R.Ranged;
+            var RR = R.Ranged; Prof.N[0]++;
             double x0 = ar.X, y0 = ar.Y, z0 = ar.Z;
             var bow = RR.Bows[ar.W.Bow];
             Ballistics.Step(ref ar.X, ref ar.Y, ref ar.Z, ref ar.VX, ref ar.VY, ref ar.VZ, Ballistics.DragK(bow, RR), RR.Gravity, subDt);
@@ -387,6 +403,7 @@ namespace BattleCore
             {
                 var near = new List<Body>();
                 grid.Near(x0, y0, x1, y1, RR.HorseLength / 2 + 0.2, near);
+                Prof.N[1]++; Prof.N[2] += near.Count;
                 Body best = null; string bestPart = null; double bestT = tEnd + 1e-9;
                 foreach (var body in near)
                 {

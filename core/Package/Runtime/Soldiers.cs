@@ -32,6 +32,9 @@ namespace BattleCore
         public int SwingN;
         // Г90: сбит с ног натиском — лежит ещё DownLeft с (не идёт, не бьёт, его перешагивают); DownAt — когда сбит (часы боя)
         public double DownLeft, DownAt = double.NaN;
+        // Г86: заморожен на своём сдвиге от якоря (оси колонны) — идёт одним телом с колонной; WasRigid — был заморожен на прошлом шаге
+        public double RLx, RLy; public bool WasRigid;
+        public bool Thaw;   // Г86: на жёсткого налез чужой боец — на следующем шаге оттаивает (иначе, как стена, уносит застрявшего с собой)
         public int Knocks;   // Г90: скольких сбил конь за этот натиск (больше ChargeKnocks — натиск его кончился)
     }
 

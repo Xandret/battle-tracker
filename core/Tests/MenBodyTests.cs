@@ -428,6 +428,34 @@ static class MenBodyTests
             True(slowestAt5 > 4, $"через 5 с толпа бежит в среднем {slowestAt5:0.0} м/с");
         });
 
+        // ── Г86 (Б4): колонна вдали от врага — одним телом ──
+        yield return ("Г86: на марше вдали от всех бойцы идут одним телом — жёсткие почти все, норма та же; у своих, у врага и под стрелами — поштучно", () =>
+        {
+            var geo = MoveTests.Open(1200, 1200);
+            var m = Unit("infantry", 1, 600, 1100, 0);
+            Order(m, geo, 600, 100, 0);
+            int rigidAt2 = -1, alive = m.Men.Count, k = 0;
+            MoveSim.Turn(new[] { m }, geo, RB, _ => { if (++k == 60) rigidAt2 = MenBodies.RigidMen; });   // на 3 с: после старта волной задние ряды догоняют около 2 с
+            True(rigidAt2 >= 0.95 * alive, $"на марше жёстких {rigidAt2} из {alive}");
+            True(Math.Abs(m.Spent - BattleMap.UnitSpeed(m.P.U, RB)) < 1.5, $"нормы {m.Spent:0.0} из {BattleMap.UnitSpeed(m.P.U, RB)}");
+            // свои встречным курсом: вдали — жёсткие, рядом — поштучно
+            var a = Unit("infantry", 1, 300, 400, 90, men: 400); var b = Unit("infantry", 2, 700, 400, 270, men: 400);
+            Order(a, geo, 750, 400, 90); Order(b, geo, 250, 400, 270);
+            int minRigid = int.MaxValue, maxRigid = 0; k = 0;
+            for (int t = 0; t < 3; t++) MoveSim.Turn(new[] { a, b }, geo, RB, _ => { if (++k % 20 == 0) { minRigid = Math.Min(minRigid, MenBodies.RigidMen); maxRigid = Math.Max(maxRigid, MenBodies.RigidMen); } });
+            True(maxRigid > 500 && minRigid == 0, $"встречные свои: жёстких от {minRigid} до {maxRigid}");
+            // под стрелами со 100 м (враг дальше 60 м) — цель поштучно
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(5).Next });
+            var inf = Templates.Get("infantry"); var arc = Templates.Get("archers");
+            var tgt = bt.Add(inf.Make(2, "Цель", 1000, 2), 500, 500, 0);
+            var sh = bt.Add(arc.Make(1, "Лучники", 1000, 1), 500, 500 - (tgt.P.Fp.Depth / 2 + 100 + 10), 180);
+            bt.Order(sh, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            int tgtRigid = 0; k = 0;
+            bt.Turn(_ => { if (++k >= 100) tgtRigid += tgt.Men.Count(x => x.WasRigid); });
+            True(bt.Volleys.Count > 0, "лучники стреляют");
+            True(tgtRigid == 0, $"цель под стрелами — жёстких (сумма по шагам) {tgtRigid}");
+        });
+
         yield return ("Б3 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме удара пехоты во фланг пехоте", () =>
         {
             // пехота во фланг: колонны атакующего огибают врага дольше фигурок (касание бойцов, а не на 5 м) — за ход атакованный
@@ -545,26 +573,36 @@ static class MenBodyBench
 
 static class MenBodyProbe3
 {
-    public static void Overlaps()
+    public static void Overlaps(string[] opts)
     {
         var RB = MenBodyTests.RB;
+        foreach (var o in opts)
+        {
+            if (o == "off") { RB.Men.FarEnemyM = double.MaxValue; RB.Men.FarFriendM = double.MaxValue; }   // Г86 выключен: все поштучно
+            else if (o.StartsWith("j")) RB.Men.Jitter = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture);
+            else if (o.StartsWith("f")) RB.Men.FarFriendM = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        Console.WriteLine($"  правила: Jitter {RB.Men.Jitter}, FarFriendM {RB.Men.FarFriendM}, FarEnemyM {RB.Men.FarEnemyM}");
         var geo = MoveTests.Open(1000, 800);
         Mover U(int id, double x, double f) { var t = Templates.Get("infantry"); return Mover.Place(t.Make(id, t.Name, 400, 1), x, 400, f, RB); }
         var a = U(1, 300, 90); var b = U(2, 700, 270);
         MoveSim.Give(a, new MoveOrder { X = 750, Y = 400, Facing = 90 }, geo, RB); MoveSim.Give(b, new MoveOrder { X = 250, Y = 400, Facing = 270 }, geo, RB);
         var ms = new[] { a, b };
-        double worst = 0; string info = ""; double clock = 0; int step = 0, bad = 0, badPairs = 0;
+        double worst = 0; string info = ""; double clock = 0; int step = 0, bad = 0, badPairs = 0; int late = 0;
         for (int t = 0; t < 6; t++)
             MoveSim.Turn(ms, geo, RB, tt =>
             {
                 step++; bool any = false;
+                if (step % 100 == 0) Console.WriteLine($"  шаг {step}: жёстких {MenBodies.RigidMen}, отрядов вдали {MenBodies.RigidUnits}; центры A {a.P.X:0} B {b.P.X:0}; перекрытий > 0,5 м пока {bad}");
                 foreach (var x in a.Men) foreach (var y in b.Men)
                 {
                     if (!x.Alive || !y.Alive) continue;
                     double d = JsMath.Hypot(x.X - y.X, x.Y - y.Y); if (d > 1) continue;
                     double pen = 0.9 - d;
                     if (pen > 0.5) { any = true; badPairs++; }
-                    if (pen > worst) { worst = pen; info = $"шаг {step} ({clock + tt:0.0} с): A№{x.Id} ({x.X:0.0},{x.Y:0.0}) v={JsMath.Hypot(x.Vx, x.Vy):0.0} reseat={x.Reseat} via={!double.IsNaN(x.ViaX)}; B№{y.Id} ({y.X:0.0},{y.Y:0.0}) v={JsMath.Hypot(y.Vx, y.Vy):0.0}; A held={a.Held} B held={b.Held}"; }
+                    if (step >= 1700 && pen > 0.5 && late++ < 6) { var hx0 = Soldiers.HomeOf(a, x); var hy0 = Soldiers.HomeOf(b, y); Console.WriteLine($"  поздняя пара, шаг {step}: A№{x.Id} колонна {x.Fig.Id} в ({x.X:0.0},{x.Y:0.0}), место ({hx0.x:0.0},{hx0.y:0.0}), якорь ({x.Fig.AX:0.0},{x.Fig.AY:0.0}), колонна в m.Figs {a.Figs.Contains(x.Fig)}; B№{y.Id} колонна {y.Fig.Id} в ({y.X:0.0},{y.Y:0.0}), место ({hy0.x:0.0},{hy0.y:0.0}), якорь ({y.Fig.AX:0.0},{y.Fig.AY:0.0}), в m.Figs {b.Figs.Contains(y.Fig)}"); }
+                    if (pen > worst) { worst = pen; info = $"шаг {step} ({clock + tt:0.0} с): A№{x.Id} ({x.X:0.0},{x.Y:0.0}) v={JsMath.Hypot(x.Vx, x.Vy):0.0} reseat={x.Reseat} via={!double.IsNaN(x.ViaX)}; B№{y.Id} ({y.X:0.0},{y.Y:0.0}) v={JsMath.Hypot(y.Vx, y.Vy):0.0}; A held={a.Held} B held={b.Held}; жёстких бойцов {MenBodies.RigidMen}, отрядов вдали {MenBodies.RigidUnits}; центры A {a.P.X:0},{a.P.Y:0} B {b.P.X:0},{b.P.Y:0}"; }
+
                 }
                 if (any) bad++;
             });
