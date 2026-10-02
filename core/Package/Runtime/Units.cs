@@ -1,6 +1,8 @@
 // ═══════════ Units.cs — справочники и свойства отрядов (копия units.js) ═══════════
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace BattleCore
 {
@@ -27,8 +29,55 @@ namespace BattleCore
         public MoraleStageInfo(string label, string note, string color, double mult) { Label = label; Note = note; Color = color; Mult = mult; }
     }
 
+    // Тип войск, угаданный по названию отряда (guessUnitType): Why — почему так решили, для предпросмотра
+    public sealed class UnitGuess
+    {
+        public readonly string Type, Weapon, Why;
+        public UnitGuess(string type, string weapon, string why) { Type = type; Weapon = weapon; Why = why; }
+    }
+
     public static class Units
     {
+        // ── Тип войск по названию отряда (guessUnitType) ──
+        // Слова сравниваются как подстроки названия в нижнем регистре, «ё» читается как «е».
+        public static readonly Dictionary<string, string[]> TypeKeywords = new Dictionary<string, string[]>
+        {
+            ["archer"] = new[] { "лучник", "лучниц", "стрелк", "стрелец", "стрельц", "арбалетчик", "арбалетч", "арбалетр",
+                                 "пращник", "пращ", "застрельщик", "застрельщ", "охотник", "егер", "мушкетёр", "мушкетер",
+                                 "аркебуз", "снайпер", "метател", "дротикомет", "самура", "самурай", "йомен", "лонгбоу" },
+            ["cavalry"] = new[] { "кавалер", "конниц", "конн", "всадник", "наездник", "рыцар", "драгун", "гусар", "улан",
+                                  "кирасир", "катафракт", "жандарм", "ездов", "верхов", "витяз", "паладин", "сипах", "мамлюк",
+                                  "роххирим", "рохирим", "рохиррим", "роханц", "степняк", "орда" },
+            ["pike"] = new[] { "пикинёр", "пикинер", "пикейщ", "копейщ", "копьеносц", "копьенос", "сарисс", "фаланг",
+                               "алебард", "бердыш", "протазан", "гвардейц с пиками" },
+            ["infantry"] = new[] { "пехот", "ополчен", "ополчение", "мечник", "дружин", "стража", "стражник", "гвард", "воин",
+                                   "латник", "секирщ", "топорщ", "щитоносц", "легионер", "берсерк", "наёмник", "наемник", "солдат",
+                                   "крестьян", "горц" },
+        };
+        public static readonly string[] HorseArchers = { "роххирим", "рохирим", "рохиррим", "конные лучник", "конных лучник", "степняк", "орда", "всадники-лучник" };
+        // «Пешие рыцари», «пешие солдаты»: слово «пеш…» отменяет кавалерию, которую подсказал бы «рыцарь».
+        // Только с начала слова — иначе «Рыцари Цепешей» стали бы пехотой.
+        static readonly Regex FootRe = new Regex("(^|[^а-яa-z])пеш", RegexOptions.CultureInvariant);
+
+        // Название в виде для поиска по словам: нижний регистр, «ё» → «е»
+        public static string NameKey(string name) => (name ?? "").ToLowerInvariant().Replace('ё', 'е');
+
+        // null — название ничего не подсказало
+        public static UnitGuess GuessType(string name)
+        {
+            string n = NameKey(name);
+            if (HorseArchers.Any(n.Contains)) return new UnitGuess("cavalry", "ranged", "конные лучники");
+            bool Hit(string key) => TypeKeywords[key].Any(w => n.Contains(w.Replace('ё', 'е')));
+            bool isFoot = FootRe.IsMatch(n);
+            bool isArcher = Hit("archer"), isCav = !isFoot && Hit("cavalry"), isPike = Hit("pike");
+            if (isCav && isArcher) return new UnitGuess("cavalry", "ranged", "конные стрелки");
+            if (isCav) return new UnitGuess("cavalry", "melee", "кавалерия");
+            if (isPike) return new UnitGuess("pike", "melee", "пикинёры");
+            if (isArcher) return new UnitGuess("archer", "ranged", "лучники");
+            if (isFoot || Hit("infantry")) return new UnitGuess("infantry", "melee", isFoot ? "пешие" : "пехота");
+            return null;
+        }
+
         public static double AttackLimit(Unit u, Rules r) => u.Discipline >= r.Actions.EliteDisc ? 2 : 1;
         public static double CounterLimit(Unit u, Rules r) => u.Discipline >= r.Actions.EliteDisc ? 2 : 1;
 

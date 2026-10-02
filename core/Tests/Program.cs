@@ -289,6 +289,10 @@ if (args.Length > 0 && args[0] == "men") { foreach (var (n, r) in MenTests.All()
 if (args.Length > 0 && args[0] == "jumps") { var all = Polygon.Jumps(); Console.WriteLine($"прыжков {all.Count}"); foreach (var l in all.Take(20)) Console.WriteLine("  " + l); return 0; }
 foreach (var (name, run) in MapCases.All(ReadJson("shared/golden/map.json"))) Test(name, run);
 
+// ── шаблоны отрядов: общие сценарии с трекером (правило 7) — shared/golden/templates.json, см. TemplateCases.cs ──
+if (args.Length > 0 && args[0] == "templates") { foreach (var (n, r) in TemplateCases.All(ReadJson("shared/golden/templates.json"))) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
+foreach (var (name, run) in TemplateCases.All(ReadJson("shared/golden/templates.json"))) Test(name, run);
+
 // ── И1: движение строя фигурками (Г31 шаг 1; Г52–Г54), см. MoveTests.cs ──
 foreach (var (name, run) in MoveTests.All()) Test(name, run);
 

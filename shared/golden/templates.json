@@ -1,0 +1,4825 @@
+{
+ "base": [
+  {
+   "id": "militia",
+   "name": "Ополчение",
+   "type": "infantry",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 40,
+   "morale": 70,
+   "eqAtk": 40,
+   "eqDef": 40,
+   "exp": 0,
+   "mastery": 0
+  },
+  {
+   "id": "infantry",
+   "name": "Пехота",
+   "type": "infantry",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 50,
+   "morale": 70,
+   "eqAtk": 60,
+   "eqDef": 60,
+   "exp": 20,
+   "mastery": 10
+  },
+  {
+   "id": "guard",
+   "name": "Гвардия",
+   "type": "infantry",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 80,
+   "morale": 120,
+   "eqAtk": 90,
+   "eqDef": 90,
+   "exp": 70,
+   "mastery": 60
+  },
+  {
+   "id": "militia_archers",
+   "name": "Лучники ополчения",
+   "type": "archer",
+   "weapon": "ranged",
+   "size": 1000,
+   "discipline": 30,
+   "morale": 70,
+   "eqAtk": 30,
+   "eqDef": 30,
+   "exp": 0,
+   "mastery": 0
+  },
+  {
+   "id": "archers",
+   "name": "Лучники",
+   "type": "archer",
+   "weapon": "ranged",
+   "size": 1000,
+   "discipline": 70,
+   "morale": 80,
+   "eqAtk": 70,
+   "eqDef": 30,
+   "exp": 20,
+   "mastery": 40
+  },
+  {
+   "id": "crossbowmen",
+   "name": "Арбалетчики",
+   "type": "archer",
+   "weapon": "ranged",
+   "size": 1000,
+   "discipline": 60,
+   "morale": 70,
+   "eqAtk": 60,
+   "eqDef": 60,
+   "exp": 30,
+   "mastery": 20
+  },
+  {
+   "id": "pikemen",
+   "name": "Пикинёры",
+   "type": "pike",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 60,
+   "morale": 80,
+   "eqAtk": 30,
+   "eqDef": 70,
+   "exp": 20,
+   "mastery": 0
+  },
+  {
+   "id": "foot_knights",
+   "name": "Пешие рыцари",
+   "type": "infantry",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 60,
+   "morale": 60,
+   "eqAtk": 60,
+   "eqDef": 60,
+   "exp": 10,
+   "mastery": 20
+  },
+  {
+   "id": "knights",
+   "name": "Конные рыцари",
+   "type": "cavalry",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 40,
+   "morale": 80,
+   "eqAtk": 80,
+   "eqDef": 80,
+   "exp": 20,
+   "mastery": 20
+  },
+  {
+   "id": "elite_cavalry",
+   "name": "Элитная конница",
+   "type": "cavalry",
+   "weapon": "melee",
+   "size": 1000,
+   "discipline": 80,
+   "morale": 100,
+   "eqAtk": 80,
+   "eqDef": 80,
+   "exp": 60,
+   "mastery": 40
+  }
+ ],
+ "names": [
+  {
+   "name": "Ополчение Вестгейта",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Наёмные арбалетчики",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лоутайдское ополчение с мечами",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лоутайдское ополчение",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лоутайдские лучники",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Лоутайда",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари серого Ордена",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "elite_cavalry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Миствелла",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение Миствелла",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лучники Миствуда",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Охотники Королевского леса",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Лэйкмура",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Пикинёры Лэйкмура",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение Гринпорта с Алебардами",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение Гринпорта",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лучники ополченцы Гринпорта",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "militia_archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лучники ополченцы Миствелла",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "militia_archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Артедайна",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Саммерхолла",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение Саммерхола",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лучники ополченцы Саммерхола",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "militia_archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение демонитов",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Аринфура",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Самураи",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лучники Сокола",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Арбалетчики",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Роххирим",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "ranged",
+    "why": "конные лучники"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Пикинёры Вестстейра",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Арбалетчики Вестстейра",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Королевская стража Данмира",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "guard",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Арбалетчики Данмира",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Данмирское ополчение",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Элитные всадники Бладколла",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "elite_cavalry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Всадники Бладколла",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Серого Ордена",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "elite_cavalry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение Эштауна",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Пикинёры Эштауна",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Эштаунские рыцари",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Всадники Грейфельдов",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лучники Эштауна",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Самураи 2",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение Эштауна №14",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Пешие рыцари",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пешие"
+   },
+   "match": {
+    "id": "foot_knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "пешая стража",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пешие"
+   },
+   "match": {
+    "id": "guard",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари Цепешей",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Спешенные рыцари",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари-пешие",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пешие"
+   },
+   "match": {
+    "id": "foot_knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "ПЕШИЕ солдаты",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пешие"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Конные лучники",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "ranged",
+    "why": "конные лучники"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Всадники-лучники",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "ranged",
+    "why": "конные лучники"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари с арбалетами",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Конные арбалетчики",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "ranged",
+    "why": "конные стрелки"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Роханцы",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Орда степи",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "ranged",
+    "why": "конные лучники"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Степняки",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "ranged",
+    "why": "конные лучники"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Конная гвардия",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "elite_cavalry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Гвардейская конница Ордена",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "elite_cavalry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Лейб-гвардия",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "guard",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Телохранители князя",
+   "guess": null,
+   "match": {
+    "id": "guard",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Стражники ворот",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "guard",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Наемники",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Наёмники",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "НАЁМНЫЕ МЕЧНИКИ",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Горцы",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Дружина",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Легионеры",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Берсерки",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Латники",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Секирщики",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Топорщики",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Щитоносцы",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Воины света",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "infantry",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Солдаты",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Пехота",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Крестьяне",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Крестьяне-лучники",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "militia_archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополченцы с луками",
+   "guess": {
+    "type": "infantry",
+    "weapon": "melee",
+    "why": "пехота"
+   },
+   "match": {
+    "id": "militia",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Копейщики",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Алебардщики",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Бердышники",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Фаланга",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Стражники с алебардами",
+   "guess": {
+    "type": "pike",
+    "weapon": "melee",
+    "why": "пикинёры"
+   },
+   "match": {
+    "id": "pikemen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Пращники",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Мушкетёры",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Егеря",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Йомены",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Застрельщики",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Метатели дротиков",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Драгуны",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Гусары",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Уланы",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Кирасиры",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Катафракты",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Паладины",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Витязи",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Мамлюки",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Сипахи",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Жандармы",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Отряд №5",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "Банда Хрюка",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "Pikemen",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "Knights",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "   ",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "ЁЖИКИ",
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  },
+  {
+   "name": "Самурай",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Рыцари-ополченцы",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Ополчение рыцарей",
+   "guess": {
+    "type": "cavalry",
+    "weapon": "melee",
+    "why": "кавалерия"
+   },
+   "match": {
+    "id": "knights",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Гвардия арбалетчиков",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "crossbowmen",
+    "fallback": false
+   }
+  },
+  {
+   "name": "Королевские лучники-гвардейцы",
+   "guess": {
+    "type": "archer",
+    "weapon": "ranged",
+    "why": "лучники"
+   },
+   "match": {
+    "id": "archers",
+    "fallback": false
+   }
+  },
+  {
+   "name": null,
+   "guess": null,
+   "match": {
+    "id": "militia",
+    "fallback": true
+   }
+  }
+ ],
+ "overrides": [
+  {
+   "input": null,
+   "normalized": {
+    "base": {},
+    "factions": {}
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": "строка",
+   "normalized": {
+    "base": {},
+    "factions": {}
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": [
+    1,
+    2,
+    3
+   ],
+   "normalized": {
+    "base": {},
+    "factions": {}
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": {},
+   "normalized": {
+    "base": {},
+    "factions": {}
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": {
+    "base": null,
+    "factions": null
+   },
+   "normalized": {
+    "base": {},
+    "factions": {}
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": {
+    "base": {
+     "militia": {
+      "discipline": 55.5,
+      "morale": "90",
+      "eqAtk": "",
+      "exp": null,
+      "mastery": "abc",
+      "size": 1000000000,
+      "foo": 5
+     },
+     "archers": {
+      "eqDef": -0.4,
+      "eqAtk": 2.5,
+      "morale": -2.5,
+      "mastery": 1000.4999
+     },
+     "unknown": {
+      "discipline": 10
+     },
+     "guard": {},
+     "pikemen": {
+      "foo": 1,
+      "bar": 2
+     },
+     "knights": [
+      70,
+      80
+     ],
+     "crossbowmen": "60",
+     "infantry": null
+    },
+    "factions": {
+     " Гринпорт ": {
+      "archers": {
+       "eqAtk": 99.5,
+       "eqDef": -3
+      },
+      "militia": {
+       "morale": 151
+      }
+     },
+     "": {
+      "militia": {
+       "morale": 1
+      }
+     },
+     "   ": {
+      "militia": {
+       "morale": 2
+      }
+     },
+     "Пусто": {
+      "militia": {
+       "bar": 1
+      }
+     },
+     "Данмир": {
+      "knights": {
+       "discipline": true,
+       "morale": [
+        70
+       ],
+       "eqAtk": [
+        1,
+        2
+       ],
+       "eqDef": {},
+       "exp": " 0x10 ",
+       "mastery": "1e2"
+      },
+      "guard": {
+       "discipline": false,
+       "morale": "Infinity",
+       "eqAtk": "-0x10",
+       "eqDef": "  12.6\n",
+       "exp": ".5",
+       "mastery": "5."
+      }
+     },
+     "Лоутайд": {
+      "foot_knights": {
+       "size": 0.4,
+       "exp": 101
+      }
+     },
+     "лоутайд": {
+      "foot_knights": {
+       "size": 7
+      }
+     },
+     "ВЕСТСТЕЙР": {
+      "pikemen": {
+       "size": "1 000",
+       "discipline": "+7",
+       "morale": "-7",
+       "eqAtk": "1_0",
+       "eqDef": "0b11",
+       "exp": "0o7"
+      }
+     }
+    }
+   },
+   "normalized": {
+    "base": {
+     "militia": {
+      "discipline": 56,
+      "morale": 90,
+      "eqAtk": 0,
+      "exp": 0,
+      "size": 100000
+     },
+     "archers": {
+      "eqDef": 0,
+      "eqAtk": 3,
+      "morale": 0,
+      "mastery": 1000
+     }
+    },
+    "factions": {
+     "Гринпорт": {
+      "archers": {
+       "eqAtk": 100,
+       "eqDef": 0
+      },
+      "militia": {
+       "morale": 150
+      }
+     },
+     "Данмир": {
+      "knights": {
+       "discipline": 1,
+       "morale": 70,
+       "exp": 16,
+       "mastery": 100
+      },
+      "guard": {
+       "discipline": 1,
+       "eqDef": 13,
+       "exp": 1,
+       "mastery": 5
+      }
+     },
+     "Лоутайд": {
+      "foot_knights": {
+       "size": 1,
+       "exp": 100
+      }
+     },
+     "лоутайд": {
+      "foot_knights": {
+       "size": 7
+      }
+     },
+     "ВЕСТСТЕЙР": {
+      "pikemen": {
+       "discipline": 7,
+       "morale": 0,
+       "eqDef": 3,
+       "exp": 7
+      }
+     }
+    }
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 100000,
+      "discipline": 56,
+      "morale": 90,
+      "eqAtk": 0,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 100000,
+      "discipline": 56,
+      "morale": 90,
+      "eqAtk": 0,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 100000,
+      "discipline": 56,
+      "morale": 150,
+      "eqAtk": 0,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 0,
+      "eqAtk": 100,
+      "eqDef": 0,
+      "exp": 20,
+      "mastery": 1000
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 0,
+      "eqAtk": 100,
+      "eqDef": 0,
+      "exp": 20,
+      "mastery": 1000
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 1,
+      "morale": 70,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 16,
+      "mastery": 100
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 1,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 13,
+      "exp": 1,
+      "mastery": 5
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 100,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 100,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 7,
+      "morale": 0,
+      "eqAtk": 30,
+      "eqDef": 3,
+      "exp": 7,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 100000,
+      "discipline": 56,
+      "morale": 90,
+      "eqAtk": 0,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 100000,
+      "discipline": 56,
+      "morale": 90,
+      "eqAtk": 0,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 100000,
+      "discipline": 56,
+      "morale": 90,
+      "eqAtk": 0,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": {
+    "base": {
+     "elite_cavalry": {
+      "size": 2000,
+      "morale": 110
+     }
+    }
+   },
+   "normalized": {
+    "base": {
+     "elite_cavalry": {
+      "size": 2000,
+      "morale": 110
+     }
+    },
+    "factions": {}
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 2000,
+      "discipline": 80,
+      "morale": 110,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 2000,
+      "discipline": 80,
+      "morale": 110,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 2000,
+      "discipline": 80,
+      "morale": 110,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": {
+    "factions": {
+     "Эштаун": {
+      "militia": {
+       "size": 1500,
+       "discipline": 45
+      }
+     },
+     "Бладколл": {
+      "elite_cavalry": {
+       "eqAtk": 95
+      }
+     }
+    }
+   },
+   "normalized": {
+    "base": {},
+    "factions": {
+     "Эштаун": {
+      "militia": {
+       "size": 1500,
+       "discipline": 45
+      }
+     },
+     "Бладколл": {
+      "elite_cavalry": {
+       "eqAtk": 95
+      }
+     }
+    }
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1500,
+      "discipline": 45,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 95,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  },
+  {
+   "input": {
+    "base": [
+     {
+      "discipline": 5
+     }
+    ],
+    "factions": [
+     {
+      "militia": {
+       "morale": 99
+      }
+     },
+     "лучники"
+    ]
+   },
+   "normalized": {
+    "base": {},
+    "factions": {
+     "0": {
+      "militia": {
+       "morale": 99
+      }
+     }
+    }
+   },
+   "resolve": [
+    {
+     "id": "militia",
+     "faction": "",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": null,
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "гринпорт",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "ГРИНПОРТ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "archers",
+     "faction": "  Гринпорт  ",
+     "out": {
+      "id": "archers",
+      "name": "Лучники",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 70,
+      "morale": 80,
+      "eqAtk": 70,
+      "eqDef": 30,
+      "exp": 20,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "knights",
+     "faction": "Данмир",
+     "out": {
+      "id": "knights",
+      "name": "Конные рыцари",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 80,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 20,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "guard",
+     "faction": "данмир",
+     "out": {
+      "id": "guard",
+      "name": "Гвардия",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 120,
+      "eqAtk": 90,
+      "eqDef": 90,
+      "exp": 70,
+      "mastery": 60
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Данмир",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "Лоутайд",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "foot_knights",
+     "faction": "ЛОУТАЙД ",
+     "out": {
+      "id": "foot_knights",
+      "name": "Пешие рыцари",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 60,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 10,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "pikemen",
+     "faction": "Вестстейр",
+     "out": {
+      "id": "pikemen",
+      "name": "Пикинёры",
+      "type": "pike",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 80,
+      "eqAtk": 30,
+      "eqDef": 70,
+      "exp": 20,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "Эштаун",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Бладколл",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "elite_cavalry",
+     "faction": "Чужая",
+     "out": {
+      "id": "elite_cavalry",
+      "name": "Элитная конница",
+      "type": "cavalry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 80,
+      "morale": 100,
+      "eqAtk": 80,
+      "eqDef": 80,
+      "exp": 60,
+      "mastery": 40
+     }
+    },
+    {
+     "id": "no_such_id",
+     "faction": "Данмир",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 70,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    },
+    {
+     "id": "infantry",
+     "faction": "Пусто",
+     "out": {
+      "id": "infantry",
+      "name": "Пехота",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 50,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 20,
+      "mastery": 10
+     }
+    },
+    {
+     "id": "crossbowmen",
+     "faction": "",
+     "out": {
+      "id": "crossbowmen",
+      "name": "Арбалетчики",
+      "type": "archer",
+      "weapon": "ranged",
+      "size": 1000,
+      "discipline": 60,
+      "morale": 70,
+      "eqAtk": 60,
+      "eqDef": 60,
+      "exp": 30,
+      "mastery": 20
+     }
+    },
+    {
+     "id": "militia",
+     "faction": "0",
+     "out": {
+      "id": "militia",
+      "name": "Ополчение",
+      "type": "infantry",
+      "weapon": "melee",
+      "size": 1000,
+      "discipline": 40,
+      "morale": 99,
+      "eqAtk": 40,
+      "eqDef": 40,
+      "exp": 0,
+      "mastery": 0
+     }
+    }
+   ]
+  }
+ ],
+ "clamp": [
+  {
+   "k": "size",
+   "v": -1000000000,
+   "out": 1
+  },
+  {
+   "k": "size",
+   "v": -0.5,
+   "out": 1
+  },
+  {
+   "k": "size",
+   "v": 0,
+   "out": 1
+  },
+  {
+   "k": "size",
+   "v": 0.49,
+   "out": 1
+  },
+  {
+   "k": "size",
+   "v": 0.5,
+   "out": 1
+  },
+  {
+   "k": "size",
+   "v": 1.5,
+   "out": 2
+  },
+  {
+   "k": "size",
+   "v": 2.5,
+   "out": 3
+  },
+  {
+   "k": "size",
+   "v": 99.5,
+   "out": 100
+  },
+  {
+   "k": "size",
+   "v": 100.5,
+   "out": 101
+  },
+  {
+   "k": "size",
+   "v": 1000.5,
+   "out": 1001
+  },
+  {
+   "k": "size",
+   "v": 1000000000,
+   "out": 100000
+  },
+  {
+   "k": "discipline",
+   "v": -1000000000,
+   "out": 1
+  },
+  {
+   "k": "discipline",
+   "v": -0.5,
+   "out": 1
+  },
+  {
+   "k": "discipline",
+   "v": 0,
+   "out": 1
+  },
+  {
+   "k": "discipline",
+   "v": 0.49,
+   "out": 1
+  },
+  {
+   "k": "discipline",
+   "v": 0.5,
+   "out": 1
+  },
+  {
+   "k": "discipline",
+   "v": 1.5,
+   "out": 2
+  },
+  {
+   "k": "discipline",
+   "v": 2.5,
+   "out": 3
+  },
+  {
+   "k": "discipline",
+   "v": 99.5,
+   "out": 100
+  },
+  {
+   "k": "discipline",
+   "v": 100.5,
+   "out": 100
+  },
+  {
+   "k": "discipline",
+   "v": 1000.5,
+   "out": 100
+  },
+  {
+   "k": "discipline",
+   "v": 1000000000,
+   "out": 100
+  },
+  {
+   "k": "morale",
+   "v": -1000000000,
+   "out": 0
+  },
+  {
+   "k": "morale",
+   "v": -0.5,
+   "out": 0
+  },
+  {
+   "k": "morale",
+   "v": 0,
+   "out": 0
+  },
+  {
+   "k": "morale",
+   "v": 0.49,
+   "out": 0
+  },
+  {
+   "k": "morale",
+   "v": 0.5,
+   "out": 1
+  },
+  {
+   "k": "morale",
+   "v": 1.5,
+   "out": 2
+  },
+  {
+   "k": "morale",
+   "v": 2.5,
+   "out": 3
+  },
+  {
+   "k": "morale",
+   "v": 99.5,
+   "out": 100
+  },
+  {
+   "k": "morale",
+   "v": 100.5,
+   "out": 101
+  },
+  {
+   "k": "morale",
+   "v": 1000.5,
+   "out": 150
+  },
+  {
+   "k": "morale",
+   "v": 1000000000,
+   "out": 150
+  },
+  {
+   "k": "eqAtk",
+   "v": -1000000000,
+   "out": 0
+  },
+  {
+   "k": "eqAtk",
+   "v": -0.5,
+   "out": 0
+  },
+  {
+   "k": "eqAtk",
+   "v": 0,
+   "out": 0
+  },
+  {
+   "k": "eqAtk",
+   "v": 0.49,
+   "out": 0
+  },
+  {
+   "k": "eqAtk",
+   "v": 0.5,
+   "out": 1
+  },
+  {
+   "k": "eqAtk",
+   "v": 1.5,
+   "out": 2
+  },
+  {
+   "k": "eqAtk",
+   "v": 2.5,
+   "out": 3
+  },
+  {
+   "k": "eqAtk",
+   "v": 99.5,
+   "out": 100
+  },
+  {
+   "k": "eqAtk",
+   "v": 100.5,
+   "out": 101
+  },
+  {
+   "k": "eqAtk",
+   "v": 1000.5,
+   "out": 1000
+  },
+  {
+   "k": "eqAtk",
+   "v": 1000000000,
+   "out": 1000
+  },
+  {
+   "k": "exp",
+   "v": -1000000000,
+   "out": 0
+  },
+  {
+   "k": "exp",
+   "v": -0.5,
+   "out": 0
+  },
+  {
+   "k": "exp",
+   "v": 0,
+   "out": 0
+  },
+  {
+   "k": "exp",
+   "v": 0.49,
+   "out": 0
+  },
+  {
+   "k": "exp",
+   "v": 0.5,
+   "out": 1
+  },
+  {
+   "k": "exp",
+   "v": 1.5,
+   "out": 2
+  },
+  {
+   "k": "exp",
+   "v": 2.5,
+   "out": 3
+  },
+  {
+   "k": "exp",
+   "v": 99.5,
+   "out": 100
+  },
+  {
+   "k": "exp",
+   "v": 100.5,
+   "out": 100
+  },
+  {
+   "k": "exp",
+   "v": 1000.5,
+   "out": 100
+  },
+  {
+   "k": "exp",
+   "v": 1000000000,
+   "out": 100
+  },
+  {
+   "k": "nope",
+   "v": -1000000000,
+   "out": -1000000000
+  },
+  {
+   "k": "nope",
+   "v": -0.5,
+   "out": 0
+  },
+  {
+   "k": "nope",
+   "v": 0,
+   "out": 0
+  },
+  {
+   "k": "nope",
+   "v": 0.49,
+   "out": 0
+  },
+  {
+   "k": "nope",
+   "v": 0.5,
+   "out": 1
+  },
+  {
+   "k": "nope",
+   "v": 1.5,
+   "out": 2
+  },
+  {
+   "k": "nope",
+   "v": 2.5,
+   "out": 3
+  },
+  {
+   "k": "nope",
+   "v": 99.5,
+   "out": 100
+  },
+  {
+   "k": "nope",
+   "v": 100.5,
+   "out": 101
+  },
+  {
+   "k": "nope",
+   "v": 1000.5,
+   "out": 1001
+  },
+  {
+   "k": "nope",
+   "v": 1000000000,
+   "out": 1000000000
+  }
+ ]
+}

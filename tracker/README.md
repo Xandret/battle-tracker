@@ -42,6 +42,8 @@ tests/
   assault.test.mjs приступ: кто у стены, лестницы и высота, башня, пролом, ограничение фронта, отказы, занятие участка
   mapcases.mjs     общие сценарии карты для движка на C#: генераторы, слои, кисти, строй, путь, паника, участки стен, орудия
   mapgolden.test.mjs  сценарии карты совпадают с замороженными в ../shared/golden/map.json
+  templatecases.mjs   общие сценарии шаблонов отрядов для движка на C#: тип и шаблон по названию, правки партии, итоговый профиль
+  templategolden.test.mjs  сценарии шаблонов совпадают с замороженными в ../shared/golden/templates.json
   (отчёты о битвах из «Кодекса Альтера» — в ../shared/battles/)
 tools/
   build.mjs        сборка в один HTML
@@ -52,6 +54,7 @@ tools/
   make-golden.mjs  пересоздание эталона из v29 (нужен jsdom)
   export-scenarios.mjs  заморозка сценариев эталона для движка на C#
   export-map-golden.mjs заморозка сценариев карты (mapcases.mjs) — только при намеренной правке карты, вместе с core/
+  export-template-golden.mjs заморозка сценариев шаблонов (templatecases.mjs) — только при намеренной правке units.js / templates.js, вместе с core/
   siege-report.mjs каталог осадных орудий для ГМа: числа из rules.js и что они дают → ../shared/siege/catalog.md
   split_v29.py     разовая миграция v29 → проект (для истории)
 PATCHNOTES.md      патчноуты в формате Discord
