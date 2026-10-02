@@ -285,6 +285,10 @@ if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0;
 if (args.Length > 0 && args[0] == "b1-bench") { MenBodyBench.Run(); return 0; }
 if (args.Length > 0 && args[0] == "battle-men") { BattleTests.Use = MenBodyTests.RB; foreach (var (n, r) in BattleTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
 if (args.Length > 0 && args[0] == "b2") { MenMeleeProbe.Run(args.Length > 1 ? args[1] : null); return 0; }
+if (args.Length > 0 && args[0] == "b3-rally") { MenRallyProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "b3-unwrap") { MenUnwrapProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "b3-g44") { MenG44Probe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "b3-flee") { MenFleeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-mix") { MenMeleeMix.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-knights") { MenMeleeKnights.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-flank") { MenMeleeFlank.Run(); return 0; }

@@ -38,7 +38,7 @@ namespace BattleCore
         // Ось тела фигурки в охвате (Г68) поворачивается к WH постепенно, а не рывком: капсула 15 м шириной,
         // развёрнутая разом на 90°, расшвыривает соседей. Капсула симметрична — разворот на 180° мгновенный.
         // Вернулась в строй и ось совпала со строем — снова идёт по строю (Turned = false)
-        static void TurnAxes(IList<Mover> ms, double dt, Rules r)
+        internal static void TurnAxes(IList<Mover> ms, double dt, Rules r)
         {
             double step = r.Move.FigTurnDegPerSec * dt;
             foreach (var m in ms)

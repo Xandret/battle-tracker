@@ -27,6 +27,7 @@ namespace BattleCore
         [ThreadStatic] static Man[] tMan; [ThreadStatic] static int[] tMi; [ThreadStatic] static Mover[] tM;
         [ThreadStatic] static double[] tUx, tUy, tHalf, tRad, tX0, tY0, tDvx, tDvy, tVmax, tCap, tReach;
         [ThreadStatic] static double[] tX, tY;       // где боец сейчас — плотным массивом (сетка и расталкивание)
+        [ThreadStatic] static double[] tLx, tLy;     // сдвиг места бойца от якоря на этом шаге (с растяжкой бегущей толпы) — для RefX, RefY
         [ThreadStatic] static List<int> gUsed;       // занятые клетки сетки
         [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
@@ -37,10 +38,12 @@ namespace BattleCore
 
         enum Rel { Same, Ghost, Friend, Enemy }
         // Сквозь свой строй (Г68): колонна, что возвращается из охвата или идёт в охват к своему месту у врага (дальше
-        // WrapSolidM от него и ещё не бьётся). Иначе колонны охвата сбиваются в давку у углов строя врага — бойцов в десять раз
-        // больше, чем было фигурок
-        const double WrapSolidM = 3;
-        static bool Through(FigState s) => s.Returning || s.Wrap && !s.Fighting && JsMath.Hypot(s.WX - s.AX, s.WY - s.AY) > WrapSolidM;
+        // WrapSolidM от него и ещё не бьётся), и колонна, чьё место в строю дальше ReformThroughM (после «сплотить» место
+        // может оказаться на другом краю строя). Иначе такие колонны продираются сквозь свои же ряды — бойцов в десять раз
+        // больше, чем было фигурок, и колонна ползёт по полметра в секунду
+        const double WrapSolidM = 3, WrapLeadM = 6, ReformThroughM = 2;
+        const double LagRefM = 3;   // боец дальше этого от своего места якорь не держит (догоняет, а не упёрся)
+        static bool Through(FigState s) => s.Returning || (s.Wrap ? !s.Fighting && s.GoalM > WrapSolidM : !s.Fighting && s.GoalM > ReformThroughM);
         static bool SameSide(Unit a, Unit b) => a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId;
         static Rel RelOf(int i, int j)
         {
@@ -53,6 +56,7 @@ namespace BattleCore
         public static void Step(IList<Mover> ms, double dt, Rules r)
         {
             var M = r.Move; var MR = r.Men;
+            Bodies.TurnAxes(ms, dt, r);   // колонна в охвате разворачивается лицом к врагу постепенно (Г68), как фигурка
             int every = Math.Max(1, (int)Math.Round(MR.BalanceSec / dt));
             int n = 0;
             foreach (var m in ms)
@@ -80,13 +84,16 @@ namespace BattleCore
                         else { nx = s.AX; ny = s.AY; }
                     }
                     bool held = false;
-                    if (s.MenN > 0)
+                    if (s.RefN > 0)
                     {
-                        // где был бы якорь при этих бойцах на их местах: середина бойцов минус средний сдвиг их мест — иначе
-                        // колонна с бойцами только спереди (потери) или с лишними рядами сзади (перебор) сама себя тащит
-                        double bx = s.X - (s.MLx * s.Hc - s.MLy * s.Hs), by = s.Y - (s.MLx * s.Hs + s.MLy * s.Hc);
+                        // где был бы якорь по бойцам на их местах (а не середина бойцов) — иначе колонна с бойцами только спереди
+                        // (потери) или с лишними рядами сзади (перебор) сама себя тащит, а пересаживающиеся шагом держат её на месте
+                        double bx = s.RefX, by = s.RefY;
+                        // колонна на пути в охват или из него (сквозь свой строй) — манёвр, а не стена: якорь отрывается дальше,
+                        // иначе колонна ползёт со скоростью, с какой бойцы догоняют якорь
+                        double lead = Through(s) ? WrapLeadM : M.AnchorLeadM;
                         double ex = nx - bx, ey = ny - by, el = JsMath.Hypot(ex, ey);
-                        if (el > M.AnchorLeadM) { nx = bx + ex * M.AnchorLeadM / el; ny = by + ey * M.AnchorLeadM / el; held = true; }
+                        if (el > lead) { nx = bx + ex * lead / el; ny = by + ey * lead / el; held = true; }
                     }
                     double avx = (nx - s.AX) / dt, avy = (ny - s.AY) / dt;
                     if (held)
@@ -110,7 +117,7 @@ namespace BattleCore
                 tUx = new double[cap]; tUy = new double[cap]; tHalf = new double[cap]; tRad = new double[cap]; tX0 = new double[cap]; tY0 = new double[cap];
                 tDvx = new double[cap]; tDvy = new double[cap]; tVmax = new double[cap]; tCap = new double[cap]; tReach = new double[cap];
                 tFlag = new byte[cap]; tBlocked = new int[cap]; tBlockedEnemy = new bool[cap]; gNext = new int[cap];
-                tX = new double[cap]; tY = new double[cap];
+                tX = new double[cap]; tY = new double[cap]; tLx = new double[cap]; tLy = new double[cap];
             }
             int c = 0; double maxBody = 0;
             double laF = M.LookAheadSec;
@@ -184,7 +191,7 @@ namespace BattleCore
                     double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * MR.SpeedK, v = JsMath.Hypot(vx, vy);
                     if (v > vmax) { vx *= vmax / v; vy *= vmax / v; }
                     double fh = man.Facing * Math.PI / 180;
-                    tMan[c] = man; tMi[c] = mi; tM[c] = m;
+                    tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly;
                     tUx[c] = Math.Sin(fh); tUy[c] = -Math.Cos(fh); tHalf[c] = half; tRad[c] = rad;
                     tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax;
                     tCap[c] = Math.Max(vmax, 1) * dt * M.PushSpeedK;
@@ -282,18 +289,24 @@ namespace BattleCore
         static void Finish(IList<Mover> ms, double dt, Rules r, int c)
         {
             var M = r.Move;
-            foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.MLx = 0; s.MLy = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
+            foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.RefX = 0; s.RefY = 0; s.RefN = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i]; var s = man.Fig;
-                s.X += man.X; s.Y += man.Y; s.Vx += man.Vx; s.Vy += man.Vy; s.MenN++; s.MLx += man.Lx; s.MLy += man.Ly;
+                s.X += man.X; s.Y += man.Y; s.Vx += man.Vx; s.Vy += man.Vy; s.MenN++;
+                // где был бы якорь по этому бойцу; пересаживающийся (В14) и отставший дальше LagRefM якорь не тянут — они не упёрлись,
+                // а догоняют: «стоят» за нынешнее место якоря (один отставший на сотню метров иначе держал бы всю колонну)
+                double ix = man.X - (tLx[i] * s.Hc - tLy[i] * s.Hs), iy = man.Y - (tLx[i] * s.Hs + tLy[i] * s.Hc);
+                if (man.Reseat || (ix - s.AX) * (ix - s.AX) + (iy - s.AY) * (iy - s.AY) > LagRefM * LagRefM) { ix = s.AX; iy = s.AY; }
+                s.RefX += ix; s.RefY += iy; s.RefN++;
                 if (tBlocked[i] != 0) { s.BlockedBy = tBlocked[i]; s.BlockedByEnemy = tBlockedEnemy[i]; }
                 if ((tFlag[i] & 2) != 0) s.Slowed = true;
             }
             foreach (var m in ms)
                 foreach (var s in m.Figs)
                 {
-                    if (s.MenN > 0) { s.X /= s.MenN; s.Y /= s.MenN; s.Vx /= s.MenN; s.Vy /= s.MenN; s.MLx /= s.MenN; s.MLy /= s.MenN; }
+                    if (s.MenN > 0) { s.X /= s.MenN; s.Y /= s.MenN; s.Vx /= s.MenN; s.Vy /= s.MenN; }
+                    if (s.RefN > 0) { s.RefX /= s.RefN; s.RefY /= s.RefN; }
                     else { s.X = s.AX; s.Y = s.AY; s.Vx = s.AVx; s.Vy = s.AVy; }
                 }
             // пробка: как у фигурок (Bodies, шаг 4) — доля упёршихся колонн. Колонна упёрлась, если упёрся хоть один её боец

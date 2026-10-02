@@ -77,7 +77,13 @@ static class MenMeleeFlank
                     double gap = double.MaxValue;
                     foreach (var x in a.Men) if (x.Alive) foreach (var y in b.Men) if (y.Alive && Math.Abs(x.X - y.X) < 6 && Math.Abs(x.Y - y.Y) < 6) gap = Math.Min(gap, JsMath.Hypot(x.X - y.X, x.Y - y.Y));
                     int foes = a.Men.Count(x => x.Alive && x.Foe != null), wrap = a.Figs.Count(s => s.Wrap);
-                    if (r.Move.MenBodies && (k == 120 || k == 270))
+                    if (r.Move.MenBodies && k == 240)
+                        foreach (var s in a.Figs.Where(q => q.Wrap && !q.Fighting).Take(12))
+                        {
+                            b.P.ToLocal(s.AX, s.AY, out var lx, out var ly);
+                            Console.WriteLine($"     охват {s.Id}: якорь у B {lx:0.0},{ly:0.0} → место {s.WSlotX:0.0},{s.WSlotY:0.0}; до точки пути {s.GoalM:0.0} м; якорь идёт {JsMath.Hypot(s.AVx, s.AVy):0.0}, бойцы {JsMath.Hypot(s.Vx, s.Vy):0.0}, хочет {JsMath.Hypot(s.Dvx, s.Dvy):0.0}; бойцы от опоры {JsMath.Hypot(s.RefX - s.AX, s.RefY - s.AY):0.0}; упёрлась в {s.BlockedBy}");
+                        }
+                    if (r.Move.MenBodies && (k == 120 || k == 270) && false)
                         foreach (var s in a.Figs.Where(q => q.Wrap).Take(6))
                             Console.WriteLine($"     колонна {s.Id}: якорь {s.AX:0.0},{s.AY:0.0} → цель {s.WX:0.0},{s.WY:0.0} место {s.WSlotX:0.0},{s.WSlotY:0.0}; бойцы {s.X:0.0},{s.Y:0.0} (живых {s.MenN}); хочет {JsMath.Hypot(s.Dvx, s.Dvy):0.00} предел {s.Vmax:0.00}; упёрлась в {s.BlockedBy} бьётся {s.Fighting}");
                     Console.WriteLine($"  {t * 15 + k * r.Move.Dt:0.0} с: A центр {a.P.X:0.0},{a.P.Y:0.0} Held {a.Held} done {a.Done} · бойцов A с противником {foes}, колонн в охвате {wrap}/{a.Figs.Count} · мин. между центрами {(gap > 1e9 ? -1 : gap):0.00} · Spent {a.Spent:0} · схватка {(f == null ? "-" : $"касаются {f.Touching}, A в деле {f.Of(a).Engaged:0.00} фланг {f.Of(a).Flank:0.00}")} · потери A {1000 - a.P.U.Soldiers:0} B {1000 - b.P.U.Soldiers:0}");
@@ -108,13 +114,13 @@ static class MenMeleeKnights
                     if (++k % 30 != 0) return;
                     var f = bt.Fights.FirstOrDefault();
                     int foesA = a.Men.Count(x => x.Alive && x.Foe != null), foesB = b.Men.Count(x => x.Alive && x.Foe != null), wrap = a.Figs.Count(s => s.Wrap), fight = a.Figs.Count(s => s.Fighting);
-                    if (r.Move.MenBodies && (k == 150) && t == 1)
+                    if (r.Move.MenBodies && (k == 120) && t == 0)
                     {
                         foreach (var s in a.Figs.Where(q => q.Wrap && !q.Fighting && JsMath.Hypot(q.WX - q.AX, q.WY - q.AY) > 100))
                         {
                             var F = a.Field;
                             var mm = a.Men.Where(x => x.Alive && x.Fig == s).ToList();
-                            Console.WriteLine($"     !! колонна {s.Id}: бойцов {mm.Count}, якорь {s.AX:0.0},{s.AY:0.0}, цель {s.WX:0.0},{s.WY:0.0}, карта {(F == null ? "нет" : $"{F.W}x{F.H}")}, via у {mm.Count(x => !double.IsNaN(x.ViaX))}; якорь идёт {s.AVx:0.0},{s.AVy:0.0} хочет {s.Dvx:0.0},{s.Dvy:0.0}; бойцы {s.X:0.0},{s.Y:0.0} сдвиг мест {s.MLx:0.0},{s.MLy:0.0}; рамка {a.P.X:0.0},{a.P.Y:0.0} курс {a.P.Facing:0}; путь от якоря к цели {(F == null ? 0 : F.SegmentCost(s.AX, s.AY, s.WX, s.WY)):0.0}");
+                            Console.WriteLine($"     !! колонна {s.Id}: бойцов {mm.Count}, якорь {s.AX:0.0},{s.AY:0.0}, цель {s.WX:0.0},{s.WY:0.0}, карта {(F == null ? "нет" : $"{F.W}x{F.H}")}, via у {mm.Count(x => !double.IsNaN(x.ViaX))}; якорь идёт {s.AVx:0.0},{s.AVy:0.0} хочет {s.Dvx:0.0},{s.Dvy:0.0}; бойцы {s.X:0.0},{s.Y:0.0} опора якоря {s.RefX:0.0},{s.RefY:0.0} ({s.RefN}); рамка {a.P.X:0.0},{a.P.Y:0.0} курс {a.P.Facing:0}; путь от якоря к цели {(F == null ? 0 : F.SegmentCost(s.AX, s.AY, s.WX, s.WY)):0.0}");
                             foreach (var x in mm.Take(3))
                             {
                                 var h = Soldiers.HomeOf(a, x);
@@ -201,5 +207,145 @@ static class MenMeleeMix
                     Console.WriteLine($"  {k * r.Move.Dt:0.0} с: линия y {line:0.0}; A за линией глубже 1 м: {aIn.Count} (макс {(aIn.Count > 0 ? aIn.Max() : 0):0.0} м), B за линией: {bIn.Count} (макс {(bIn.Count > 0 ? bIn.Max() : 0):0.0} м); потери A {400 - a.P.U.Soldiers:0} B {400 - b.P.U.Soldiers:0}");
                 });
         }
+    }
+}
+
+// Б3: бегство бойцами — куда идут рамка, якоря колонн и бойцы (как тест «сплотить»)
+static class MenFleeProbe
+{
+    public static void Run()
+    {
+        foreach (var r in new[] { Rules.Base, MenBodyTests.RB })
+        {
+            var bt = new Battle(MoveTests.Open(1200, 1600), r, new EngineContext { Rng = new Mulberry32(6).Next });
+            var ub = Templates.Get("infantry").Make(2, "Пехота", 1000, 2); ub.Morale = 30; ub.Discipline = 1;
+            var b = bt.Add(ub, 600, 400, 0);
+            var fa = Formation.Of(Templates.Get("infantry").Make(1, "Враг", 300, 1), r);
+            var a = bt.Add(Templates.Get("infantry").Make(1, "Враг", 300, 1), 600, 400 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            Console.WriteLine(r.Move.MenBodies ? "— бойцы —" : "— фигурки —");
+            for (int t = 0; t < 5; t++)
+            {
+                if (t == 1) { bt.Order(a, new MoveOrder { Kind = OrderKind.Hold }); b.P.U.Discipline = 100; bt.Order(b, new MoveOrder { Kind = OrderKind.Rally }); }
+                int k = 0;
+                bt.Turn(_ =>
+                {
+                    if (++k % 60 != 0) return;
+                    var men = b.Men.Where(x => x.Alive).ToList();
+                    double mx = men.Count > 0 ? men.Average(x => x.X) : 0, my = men.Count > 0 ? men.Average(x => x.Y) : 0;
+                    double fx = b.Figs.Count > 0 ? b.Figs.Average(s => s.X) : 0, fy = b.Figs.Count > 0 ? b.Figs.Average(s => s.Y) : 0;
+                    double ax = b.Figs.Count > 0 ? b.Figs.Average(s => s.AX) : 0, ay = b.Figs.Count > 0 ? b.Figs.Average(s => s.AY) : 0;
+                    double vm = men.Count > 0 ? men.Average(x => JsMath.Hypot(x.Vx, x.Vy)) : 0, dv = b.Figs.Count > 0 ? b.Figs.Average(s => JsMath.Hypot(s.Dvx, s.Dvy)) : 0;
+                    if (r.Move.MenBodies && t == 3 && k == 300)
+                        foreach (var s in b.Figs.OrderBy(q => q.Y).Take(5))
+                            Console.WriteLine($"     ближняя к врагу колонна {s.Id}: середина {s.X:0.0},{s.Y:0.0} якорь {s.AX:0.0},{s.AY:0.0} бойцов {s.MenN}; FleeH {s.FleeH:0}; хочет {s.Dvx:0.0},{s.Dvy:0.0} (предел {s.Vmax:0.0}); идёт {s.AVx:0.0},{s.AVy:0.0}; упёрлась в {s.BlockedBy}");
+                    if (r.Move.MenBodies && t == 2 && k == 300)
+                    {
+                        var stuck = men.Where(x => x.Y < 450).ToList();
+                        Console.WriteLine($"   отставшие (y < 450): {stuck.Count}");
+                        foreach (var g in stuck.GroupBy(x => x.Fig).Take(8))
+                        {
+                            var s = g.Key; var x0 = g.First();
+                            var h = Soldiers.HomeOf(b, x0);
+                            Console.WriteLine($"     колонна {s.Id}: бойцов здесь {g.Count()}, всего в ней {s.MenN}; якорь {s.AX:0.0},{s.AY:0.0}, середина {s.X:0.0},{s.Y:0.0}; FleeH {s.FleeH:0}; хочет {s.Dvx:0.0},{s.Dvy:0.0}; боец {x0.X:0.0},{x0.Y:0.0} v {x0.Vx:0.0},{x0.Vy:0.0} место {h.x:0.0},{h.y:0.0} Lx {x0.Lx:0.0} Ly {x0.Ly:0.0} via {x0.ViaX:0} reseat {x0.Reseat} foe {(x0.Foe != null)}");
+                        }
+                    }
+                    Console.WriteLine($"  ход {t + 1}, {k * r.Move.Dt:0} с: бежит {b.Fleeing}, к {b.FleeX:0},{b.FleeY:0}; рамка {b.P.X:0},{b.P.Y:0}; колонны {fx:0},{fy:0}; якоря {ax:0},{ay:0}; бойцы {mx:0},{my:0} ({men.Count}, скорость {vm:0.0}, колонны хотят {dv:0.0}); зазор до врага {Bodies.MinGap(a, b):0}; сплотить ждёт {b.RallyPending}, статус {b.P.U.Status}; потери B {1000 - b.P.U.Soldiers:0}; прошёл {b.Moved:0}");
+                });
+            }
+        }
+    }
+}
+
+// Б3: после «сплотить» колонны идут к местам — какая застряла и почему (как тест «сплотить»)
+static class MenRallyProbe
+{
+    public static void Run()
+    {
+        var R = MenBodyTests.RB;
+        var bt = new Battle(MoveTests.Open(1200, 1600), R, new EngineContext { Rng = new Mulberry32(6).Next });
+        var ub = Templates.Get("infantry").Make(2, "Пехота", 1000, 2); ub.Morale = 30; ub.Discipline = 1;
+        var b = bt.Add(ub, 600, 400, 0);
+        var fa = Formation.Of(Templates.Get("infantry").Make(1, "Враг", 300, 1), R);
+        var a = bt.Add(Templates.Get("infantry").Make(1, "Враг", 300, 1), 600, 400 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        bt.Turn();
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+        b.P.U.Discipline = 100;
+        bt.Order(b, new MoveOrder { Kind = OrderKind.Rally });
+        for (int i = 0; i < 4 && b.Fleeing; i++) bt.Turn();
+        Console.WriteLine($"сплотились: {!b.Fleeing}, рамка {b.P.X:0},{b.P.Y:0}, враг {a.P.X:0},{a.P.Y:0}");
+        for (int i = 0; i < 8; i++)
+        {
+            bt.Turn();
+            double far = 0; int fk = -1;
+            for (int k = 0; k < b.Figs.Count; k++) { b.P.ToWorld(b.P.Figs[k].X, b.P.Figs[k].Y, out var sx, out var sy); double d = JsMath.Hypot(b.Figs[k].AX - sx, b.Figs[k].AY - sy); if (d > far) { far = d; fk = k; } }
+            var s = b.Figs[fk]; b.P.ToWorld(b.P.Figs[fk].X, b.P.Figs[fk].Y, out var px, out var py);
+            Console.WriteLine($"  ход +{i + 1}: дальше всех колонна {s.Id} — {far:0.0} м; якорь {s.AX:0.0},{s.AY:0.0} → место {px:0.0},{py:0.0}; середина {s.X:0.0},{s.Y:0.0} бойцов {s.MenN}; хочет {s.Dvx:0.0},{s.Dvy:0.0} (предел {s.Vmax:0.0}); идёт {s.AVx:0.0},{s.AVy:0.0}; упёрлась в {s.BlockedBy}; Wrap {s.Wrap} Returning {s.Returning}");
+        }
+    }
+}
+
+// Б3: враг разбит — сняли ли колонны охват, разворот, возврат (как тест «враг разбит»)
+static class MenUnwrapProbe
+{
+    public static void Run()
+    {
+        var R = MenBodyTests.RB;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(31).Next });
+        var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+        var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+        var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), R);
+        var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        bt.Turn();
+        Console.WriteLine($"в охвате {a.Figs.Count(s => s.Wrap)}");
+        b.P.U.Status = "destroyed"; b.P.U.Soldiers = 0;
+        int k = 0;
+        var track = a.Figs.FirstOrDefault(q => q.Id == 42);
+        bt.Turn(_ =>
+        {
+            if (track != null && k % 10 == 0)
+            {
+                int q = a.Figs.IndexOf(track);
+                if (q >= 0) { a.P.ToWorld(a.P.Figs[q].X, a.P.Figs[q].Y, out var sx, out var sy); Console.WriteLine($"    {k * R.Move.Dt:0.0} с: колонна 42 — №{q} (ряд {a.P.Figs[q].Rank}, колонна строя {a.P.Figs[q].File}), место {sx:0.0},{sy:0.0}, якорь {track.AX:0.0},{track.AY:0.0}, GoalM {track.GoalM:0.0}; солдат {a.P.U.Soldiers:0.0}, разложено {a.LaidMen}, колонн {a.Cols}/{a.NominalCols}, рамка {a.P.X:0.0},{a.P.Y:0.0} курс {a.P.Facing:0}"); }
+            }
+            if (++k % 50 != 0) return;
+            double far = 0, farA = 0;
+            for (int q = 0; q < a.Figs.Count; q++) { a.P.ToWorld(a.P.Figs[q].X, a.P.Figs[q].Y, out var sx, out var sy); far = Math.Max(far, JsMath.Hypot(a.Figs[q].X - sx, a.Figs[q].Y - sy)); farA = Math.Max(farA, JsMath.Hypot(a.Figs[q].AX - sx, a.Figs[q].AY - sy)); }
+            if (k % 100 == 0)
+                foreach (var q in Enumerable.Range(0, a.Figs.Count).OrderByDescending(q => { a.P.ToWorld(a.P.Figs[q].X, a.P.Figs[q].Y, out var sx, out var sy); return JsMath.Hypot(a.Figs[q].AX - sx, a.Figs[q].AY - sy); }).Take(4))
+                {
+                    var s = a.Figs[q]; a.P.ToWorld(a.P.Figs[q].X, a.P.Figs[q].Y, out var sx, out var sy);
+                    if (k == 300) foreach (var x in a.Men.Where(x => x.Alive && x.Fig == s).Take(6)) { var h = Soldiers.HomeOf(a, x); Console.WriteLine($"        боец {x.Id}: {x.X:0.0},{x.Y:0.0} v {x.Vx:0.0},{x.Vy:0.0} место {h.x:0.0},{h.y:0.0} (Lx {x.Lx:0.0} Ly {x.Ly:0.0} ряд {x.Row}) reseat {x.Reseat} via {x.ViaX:0.0} foe {(x.Foe != null)}"); }
+                    Console.WriteLine($"     колонна {s.Id}: якорь {s.AX:0.0},{s.AY:0.0} → место {sx:0.0},{sy:0.0} ({JsMath.Hypot(s.AX - sx, s.AY - sy):0.0} м); бойцов {s.MenN}, середина {s.X:0.0},{s.Y:0.0}; хочет {s.Dvx:0.0},{s.Dvy:0.0} (предел {s.Vmax:0.0}); идёт {s.AVx:0.0},{s.AVy:0.0}; упёрлась в {s.BlockedBy}; GoalM {s.GoalM:0.0}");
+                }
+            Console.WriteLine($"  {k * R.Move.Dt:0.0} с: Wrap {a.Figs.Count(s => s.Wrap)}, Turned {a.Figs.Count(s => s.Turned)}, Returning {a.Figs.Count(s => s.Returning)}; дальше всех от места: середина {far:0.0} м, якорь {farA:0.0} м; приказ {a.Order?.Kind} done {a.Done}");
+        });
+    }
+}
+
+// Б3: ополчение идёт на гвардию с 40 м (тест Г44) — сошлись ли за ход
+static class MenG44Probe
+{
+    public static void Run()
+    {
+        var R = MenBodyTests.RB;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(9).Next });
+        var TA = Templates.Get("militia"); var TB = Templates.Get("guard");
+        var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+        var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), R);
+        var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 40 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        bt.Order(b, new MoveOrder { Kind = OrderKind.Hold });
+        int k = 0;
+        bt.Turn(_ =>
+        {
+            if (++k % 30 != 0) return;
+            double gap = double.MaxValue;
+            foreach (var x in a.Men) if (x.Alive) foreach (var y in b.Men) if (y.Alive && Math.Abs(x.Y - y.Y) < 4 && Math.Abs(x.X - y.X) < 4) gap = Math.Min(gap, JsMath.Hypot(x.X - y.X, x.Y - y.Y));
+            double ay = a.Men.Where(x => x.Alive).Max(x => x.Y), by = b.Men.Where(x => x.Alive).Min(x => x.Y);
+            Console.WriteLine($"  {k * R.Move.Dt:0.0} с: рамка A {a.P.X:0},{a.P.Y:0.0} done {a.Done} held {a.Held}; передний край A {ay:0.0}, B {by:0.0}; мин. между бойцами {(gap > 1e9 ? -1 : gap):0.00}; колонн развёрнуто {a.Figs.Count(s => s.Turned)}, в охвате {a.Figs.Count(s => s.Wrap)}; схваток {bt.Fights.Count}");
+        });
     }
 }
