@@ -29,7 +29,9 @@ namespace BattleCore
         [ThreadStatic] static double[] tX, tY;       // где боец сейчас — плотным массивом (сетка и расталкивание)
         [ThreadStatic] static double[] tLx, tLy;     // сдвиг места бойца от якоря на этом шаге (с растяжкой бегущей толпы) — для RefX, RefY
         [ThreadStatic] static List<int> gUsed;       // занятые клетки сетки
-        [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through)
+        [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through),
+                                                     // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь
+        [ThreadStatic] static Rules.MenR tMR;
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
         [ThreadStatic] static int[] gNext, gHead;
@@ -48,6 +50,7 @@ namespace BattleCore
         static Rel RelOf(int i, int j)
         {
             Mover a = tM[i], b = tM[j];
+            if (((tFlag[i] | tFlag[j]) & 32) != 0) return Rel.Ghost;   // лежачего перешагивают (Г90)
             if (a == b) return (tFlag[i] & 8) != 0 || (tFlag[j] & 8) != 0 ? Rel.Ghost : Rel.Same;
             if (!SameSide(a.P.U, b.P.U)) return Rel.Enemy;
             return (tFlag[i] & 1) != 0 || (tFlag[j] & 1) != 0 || a.Fleeing || b.Fleeing ? Rel.Ghost : Rel.Friend;
@@ -55,7 +58,7 @@ namespace BattleCore
 
         public static void Step(IList<Mover> ms, double dt, Rules r)
         {
-            var M = r.Move; var MR = r.Men;
+            var M = r.Move; var MR = r.Men; tMR = MR;
             Bodies.TurnAxes(ms, dt, r);   // колонна в охвате разворачивается лицом к врагу постепенно (Г68), как фигурка
             int every = Math.Max(1, (int)Math.Round(MR.BalanceSec / dt));
             int n = 0;
@@ -137,6 +140,8 @@ namespace BattleCore
                 {
                     if (!man.Alive || man.Fig == null) continue;
                     var s = man.Fig;
+                    bool down = man.DownLeft > 0;
+                    if (down) man.DownLeft = Math.Max(0, man.DownLeft - dt);
                     double lx = man.Lx, ly = man.Ly, hu = man.Hu;
                     if (m.Fleeing)
                     {
@@ -214,6 +219,7 @@ namespace BattleCore
                     if (fwd < -back) fwd = -back;
                     if (side > sideMax) side = sideMax; else if (side < -sideMax) side = -sideMax;
                     vx = ufx * fwd - ufy * side; vy = ufy * fwd + ufx * side;
+                    if (down) { vx = 0; vy = 0; }   // лежит: не идёт (Г90)
                     tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly;
                     // капсула коня для толкотни лежит вдоль колонны (бегущего — по курсу): развернуть разом длинные тела в плотном
                     // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
@@ -223,8 +229,13 @@ namespace BattleCore
                     // расталкивание — не быстрее PushMaxMps, как бы ни был скор сам боец: иначе конь на полном ходу, врезавшись,
                     // отлетал на 2,8 м за шаг — рывок
                     tCap[c] = Math.Min(Math.Max(vmax, 1), MR.PushMaxMps) * dt * M.PushSpeedK;
-                    tFlag[c] = (byte)((archer ? 1 : 0) | (Through(s) ? 8 : 0)); tBlocked[c] = 0; tBlockedEnemy[c] = false;
-                    tReach[c] = half + rad + Math.Max(JsMath.Hypot(vx, vy), JsMath.Hypot(man.Vx, man.Vy)) * laF + M.MenYieldM;
+                    if (!m.ChargeReady) man.Knocks = 0;   // натиска нет — счёт сбитых заново
+                    // вламывается передний ряд колонны (Г90: на 1–2 шеренги — колонной, а не каждый конь по своей паре: иначе задние
+                    // ряды брали бы шеренгу за шеренгой и прошли строй насквозь); задние — за ним, у стены
+                    bool charge = horse && m.ChargeReady && !m.Fleeing && man.Row == 0 && man.Knocks < MR.ChargeKnocks && man.Vx * man.Vx + man.Vy * man.Vy >= MR.ChargeMinMps * MR.ChargeMinMps;
+                    tFlag[c] = (byte)((archer ? 1 : 0) | (Through(s) ? 8 : 0) | (charge ? 16 : 0) | (down ? 32 : 0) | (horse ? 64 : 0)); tBlocked[c] = 0; tBlockedEnemy[c] = false;
+                    // конь смотрит дальше на длину острия пики — иначе медленно подходя, острий не видел бы (Г90)
+                    tReach[c] = half + rad + Math.Max(JsMath.Hypot(vx, vy), JsMath.Hypot(man.Vx, man.Vy)) * laF + M.MenYieldM + (horse ? MR.PikeTipM : 0);
                     if (half + rad > maxBody) maxBody = half + rad;
                     c++;
                 }
@@ -255,10 +266,20 @@ namespace BattleCore
                                 continue;
                             }
                             bool enemy = rel == Rel.Enemy;
+                            if (enemy && (tFlag[i] & 16) != 0 && (tFlag[j] & 64) == 0) continue;   // натиск (Г90): пешему не уступает
                             double la = enemy ? M.EnemyLookAheadSec : laF;
                             double ax = xi + tDvx[i] * la, ay = yi + tDvy[i] * la, bx = tX[j] + tDvx[j] * la, by = tY[j] + tDvy[j] * la;
                             double d = Dist(i, ax, ay, j, bx, by, out double nx, out double ny);   // n — от j к i
-                            if (d >= M.MenYieldM) continue;
+                            double yieldM = M.MenYieldM;
+                            if (enemy && (tFlag[i] & 64) != 0 && PikeAt(j, i))
+                            {
+                                // пики во фронт — конь встаёт у острия (Г90): у острия гасит свой ход к пикинёру разом, а не тормозит
+                                yieldM += MR.PikeTipM;
+                                double d0 = Dist(i, xi, yi, j, tX[j], tY[j], out double qx, out double qy);
+                                var hm = tMan[i]; double ap = hm.Vx * qx + hm.Vy * qy;   // q — от пикинёра к коню
+                                if (d0 < MR.PikeTipM + M.MenYieldM && ap < 0) { hm.Vx -= ap * qx; hm.Vy -= ap * qy; }
+                            }
+                            if (d >= yieldM) continue;
                             if (enemy || !First(ms, i, j, ax, ay, bx, by, dt, M)) Yield(i, nx, ny, j, enemy);
                         }
                     }
@@ -446,18 +467,44 @@ namespace BattleCore
             double pen = -d;
             if (pen <= M.BodyTol) return;
             double wa;
-            if (rel == Rel.Same) wa = 0.5;
+            // свои: пополам; кто упёрся во врага — того свои не двигают, сдвигается напирающий: давка сзади не продавливает
+            // передних во врага (Г89, Г90: в строй вламывается только натиск, а не задние ряды на полном ходу)
+            if (rel == Rel.Same) wa = tBlockedEnemy[i] == tBlockedEnemy[j] ? 0.5 : tBlockedEnemy[i] ? 0 : 1;
             // свой чужой отряд: уступающий сдвигается на FriendYieldShare, идущий первым — на остаток: сквозь плотный строй
             // своих не продавливаются насквозь, а пробираются, замедляясь
             else if (rel == Rel.Friend) wa = First(ms, i, j, tX[i], tY[i], tX[j], tY[j], dt, M) ? 1 - M.FriendYieldShare : M.FriendYieldShare;
+            else if ((tFlag[i] & 16) != 0 && (tFlag[j] & 64) == 0) { Knock(j, i); wa = 0; }   // натиск (Г90): пеший отброшен и сбит
+            else if ((tFlag[j] & 16) != 0 && (tFlag[i] & 64) == 0) { Knock(i, j); wa = 1; }
             else
             {
-                // враг: сдвигается тот, кто шёл на другого; оба стоят — пополам (Г58)
+                // враг: сдвигается тот, кто шёл на другого; оба стоят — пополам (Г58: в контакте никто никого не теснит — по массе
+                // разводить нельзя, конь отжимал бы пехоту; ломится только натиск)
                 double pa = Math.Max(0, -(tMan[i].Vx * nx + tMan[i].Vy * ny)), pb = Math.Max(0, tMan[j].Vx * nx + tMan[j].Vy * ny);
                 wa = pa + pb < 0.05 ? 0.5 : pa / (pa + pb);
             }
             Push(i, nx * pen * wa, ny * pen * wa, rel != Rel.Same ? j : -1, rel == Rel.Enemy);
             Push(j, -nx * pen * (1 - wa), -ny * pen * (1 - wa), rel != Rel.Same ? i : -1, rel == Rel.Enemy);
+        }
+
+        // Г90: конь j в натиске сбил пешего i — лежит DownSecMin…DownSecMax с (свой ритм по хешу), конь теряет ChargeLoss хода
+        static void Knock(int i, int j)
+        {
+            var man = tMan[i]; var horse = tMan[j];
+            if ((tFlag[i] & 32) != 0) return;
+            man.DownLeft = tMR.DownSecMin + (tMR.DownSecMax - tMR.DownSecMin) * MoveSim.Hash01(tM[i].P.U.Id, man.Id, 21);
+            man.DownAt = tM[i].Now; man.Foe = null;
+            tFlag[i] |= 32;
+            horse.Vx *= 1 - tMR.ChargeLoss; horse.Vy *= 1 - tMR.ChargeLoss; horse.Knocks++;
+            // встал или сбил своё — натиск этого коня кончился, дальше стена (Г89)
+            if (horse.Knocks >= tMR.ChargeKnocks || horse.Vx * horse.Vx + horse.Vy * horse.Vy < tMR.ChargeMinMps * tMR.ChargeMinMps) tFlag[j] = (byte)(tFlag[j] & ~16);
+        }
+        // Пикинёр j (первые PikeRanks рядов, не бегущий, не лежит) смотрит на i — тот перед остриями
+        static bool PikeAt(int j, int i)
+        {
+            var m = tM[j]; var p = tMan[j];
+            if (m.Fleeing || (tFlag[j] & 32) != 0 || !Units.IsPike(m.P.U) || p.Row >= tMR.PikeRanks) return false;
+            double h = p.Facing * Math.PI / 180, dx = tX[i] - tX[j], dy = tY[i] - tY[j], dl = Math.Sqrt(dx * dx + dy * dy);
+            return dl > 1e-9 && (dx * Math.Sin(h) - dy * Math.Cos(h)) / dl >= 0.7;   // в пределах ~45° от его курса
         }
 
         // Уступить: убрать из желаемой скорости шаг навстречу (n — от другого к себе)

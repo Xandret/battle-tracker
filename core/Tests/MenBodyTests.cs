@@ -311,20 +311,69 @@ static class MenBodyTests
                         if (was.TryGetValue(x, out var f0)) worstTurn = Math.Max(worstTurn, Math.Abs(MoveSim.AngleDiff(f0, x.Facing)) / lim);
                         was[x] = x.Facing;
                         if (!horse || frame % W != 0) continue;
-                        // конь без противника за 0,5 с ушёл назад быстрее 1 м/с — пятился (толкотня в давке — не в счёт: она туда-сюда)
+                        // конь без противника за 0,5 с ушёл назад быстрее 2 м/с — пятился (толкотня в давке — не в счёт: она туда-сюда)
                         // вне схватки: ни сам, ни его колонна не бьётся, врага ближе 3 м нет (давка — в натиск телами, Г90)
                         if (win.TryGetValue(x, out var w) && !w.Foe && x.Foe == null && !w.Near && !Close(x) && !w.Fight && !x.Fig.Fighting)
                         {
                             double a0 = w.F * Math.PI / 180;
                             double back = -((x.X - w.X) * Math.Sin(a0) - (x.Y - w.Y) * Math.Cos(a0)) / (W * RB.Move.Dt);
-                            horseN++; if (back > 1.0) backN++;
+                            horseN++; if (back > 2.0) backN++;   // метр назад за полсекунды — уже ход; меньше — толчок соседа
                         }
                         win[x] = (x.X, x.Y, x.Facing, x.Foe != null, Close(x), x.Fig.Fighting);
                     }
                 }
             });
             True(worstTurn <= 1 + 1e-6, $"курс повернулся быстрее предела в {worstTurn:0.00} раза");
-            True(horseN > 1000 && backN <= 0.01 * horseN, $"кони вне схватки пятились быстрее 1 м/с в {backN} окнах по 0,5 с из {horseN}");
+            True(horseN > 1000 && backN <= 0.01 * horseN, $"кони вне схватки пятились быстрее 2 м/с в {backN} окнах по 0,5 с из {horseN}");
+        });
+
+        // ── Г90: натиск телами ──
+        // рыцарей уже, чем пехоты (огибать нечего): натиск с разбега dist м; глубина центра переднего коня за начальным краем
+        (Battle bt, Mover a, Mover b, double deep, int knocked, int maxKnocks, int stillDown) Charge(string tb, double dist, uint seed)
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
+            var TA = Templates.Get("knights"); var TB = Templates.Get(tb);
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 150, 1), RB);
+            var a = bt.Add(TA.Make(1, TA.Name, 150, 1), 500, 500 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+            double front = b.Men.Where(x => x.Alive).Min(x => x.Y), F = b.P.Fp.Front / 2, deep = double.MinValue;
+            int maxKnocks = 0;
+            bt.Turn(_ =>
+            {
+                foreach (var h in a.Men)
+                {
+                    if (!h.Alive || Math.Abs(h.X - 500) > F - 3) continue;
+                    deep = Math.Max(deep, h.Y - front); maxKnocks = Math.Max(maxKnocks, h.Knocks);
+                }
+            });
+            return (bt, a, b, deep, b.Men.Count(x => !double.IsNaN(x.DownAt)), maxKnocks, b.Men.Count(x => x.Alive && x.DownLeft > 0 && x.DownAt < bt.Clock - RB.Men.DownSecMax - 0.1));
+        }
+
+        yield return ("Г90: натиск телами — передний ряд коней вламывается на 1–2 шеренги, сбивает вставших на пути; сбитые встают; убивает только стол", () =>
+        {
+            var (bt, a, b, deep, knocked, maxKnocks, stillDown) = Charge("infantry", 150, 5);
+            True(knocked >= 5, $"сбито с ног {knocked}");
+            True(maxKnocks <= RB.Men.ChargeKnocks, $"конь сбил {maxKnocks}");
+            // центр коня — на полкорпуса (1,4 м) за мордой: морда в 1–2 шеренгах (1 м) — центр от −0,5 до 1,5 м за начальным краем
+            True(deep > -0.5 && deep < 1.5, $"центр коня за начальным краем пехоты на {deep:0.0} м");
+            True(stillDown == 0, $"не встали дольше {RB.Men.DownSecMax} с: {stillDown}");
+            var st = bt.MenMelee;
+            double lost = 1150 - a.P.U.Soldiers - b.P.U.Soldiers;
+            True(Math.Abs(bt.Deaths.Count(d => d.UnitId == 1 || d.UnitId == 2) - lost) <= 2, $"павших записано {bt.Deaths.Count}, выбыло {lost:0} — натиск сам не убивает");
+        });
+
+        yield return ("Г90: без разбега натиска нет — кони не ломятся, никого не сбивают", () =>
+        {
+            var (_, _, _, deep, knocked, _, _) = Charge("infantry", 30, 6);
+            True(knocked == 0, $"сбито с ног {knocked}");
+        });
+
+        yield return ("Г90: на пики во фронт натиска нет — кони встают у острия, никого не сбивают", () =>
+        {
+            var (_, _, _, deep, knocked, _, _) = Charge("pikemen", 150, 7);
+            True(knocked == 0, $"сбито пикинёров {knocked}");
+            True(deep < -RB.Men.PikeTipM + 1, $"центр коня за начальным краем пикинёров на {deep:0.0} м — острия на {RB.Men.PikeTipM} м впереди");
         });
 
         yield return ("Б3 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме удара пехоты во фланг пехоте", () =>

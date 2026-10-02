@@ -30,6 +30,9 @@ namespace BattleCore
         public Man Foe;
         public double SwingAt = double.NaN, ParryAt = double.NaN, NextSwing = double.NaN;
         public int SwingN;
+        // Г90: сбит с ног натиском — лежит ещё DownLeft с (не идёт, не бьёт, его перешагивают); DownAt — когда сбит (часы боя)
+        public double DownLeft, DownAt = double.NaN;
+        public int Knocks;   // Г90: скольких сбил конь за этот натиск (больше ChargeKnocks — натиск его кончился)
     }
 
     public static class Soldiers

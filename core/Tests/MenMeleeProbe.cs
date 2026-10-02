@@ -64,10 +64,11 @@ static class MenMeleeFlank
             var bt = new Battle(MoveTests.Open(1000, 1000), r, new EngineContext { Rng = new Mulberry32(41).Next });
             var inf = Templates.Get("infantry");
             var b = bt.Add(inf.Make(2, "Стоят", 1000, 2), 500, 500, 0);
-            var a = bt.Add(inf.Make(1, "Во фланг", 1000, 1), 500 - 62.5 - 4 - 40, 500, 90);
+            var fa0 = Formation.Of(inf.Make(1, "A", 1000, 1), r);
+            var a = bt.Add(inf.Make(1, "Во фланг", 1000, 1), 500 - (b.P.Fp.Front / 2 + 0.5 + fa0.Depth / 2), 500, 90);   // как тест: в упор к флангу
             bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
             Console.WriteLine(r.Move.MenBodies ? "— бойцы —" : "— фигурки —");
-            for (int t = 0; t < 2; t++)
+            for (int t = 0; t < 1; t++)
             {
                 int k = 0;
                 var log = bt.Turn(_ =>
@@ -77,7 +78,25 @@ static class MenMeleeFlank
                     double gap = double.MaxValue;
                     foreach (var x in a.Men) if (x.Alive) foreach (var y in b.Men) if (y.Alive && Math.Abs(x.X - y.X) < 6 && Math.Abs(x.Y - y.Y) < 6) gap = Math.Min(gap, JsMath.Hypot(x.X - y.X, x.Y - y.Y));
                     int foes = a.Men.Count(x => x.Alive && x.Foe != null), wrap = a.Figs.Count(s => s.Wrap);
-                    if (r.Move.MenBodies && k == 240)
+                    string Loc(double wx, double wy) { b.P.ToLocal(wx, wy, out var lx, out var ly); return $"{lx:0.0},{ly:0.0}"; }
+                    if (r.Move.MenBodies && k == 300)
+                    {
+                        var idle = a.Figs.Where(q => !q.Fighting).ToList();
+                        Console.WriteLine($"   не бьются {idle.Count}: в охвате {idle.Count(q => q.Wrap)}, второй линией {idle.Count(q => q.Wrap && q.WBehind > 0)}, у места (<1,5 м) {idle.Count(q => q.Wrap && q.GoalM < 1.5)}, в пути {idle.Count(q => q.Wrap && q.GoalM >= 1.5)}, без места {idle.Count(q => !q.Wrap)}");
+                        foreach (var q in idle.Where(q => q.Wrap && q.GoalM >= 1.5).Take(8))
+                        {
+                            b.P.ToLocal(q.AX, q.AY, out var lx, out var ly);
+                            double g3 = b.Men.Where(y => y.Alive).Min(y => JsMath.Hypot(y.X - q.X, y.Y - q.Y));
+                            Console.WriteLine($"     в пути {q.Id}: якорь у B {lx:0.0},{ly:0.0} → место {q.WSlotX:0.0},{q.WSlotY:0.0}, до точки {q.GoalM:0.0} м (точка у B {Loc(q.WX, q.WY)}); якорь идёт {JsMath.Hypot(q.AVx, q.AVy):0.0} (хочет {JsMath.Hypot(q.Dvx, q.Dvy):0.0}, предел {q.Vmax:0.0}); бойцы от опоры {JsMath.Hypot(q.RefX - q.AX, q.RefY - q.AY):0.0}; до врага {g3:0.0}; упёрлась {q.BlockedBy}");
+                        }
+                        foreach (var q in idle.Where(q => q.Wrap && q.GoalM < 1.5).Take(0))
+                        {
+                            b.P.ToLocal(q.X, q.Y, out var lx, out var ly);
+                            double g2 = b.Men.Where(y => y.Alive).Min(y => JsMath.Hypot(y.X - q.X, y.Y - q.Y));
+                            Console.WriteLine($"     у места, но не бьётся {q.Id}: место {q.WSlotX:0.0},{q.WSlotY:0.0}, середина бойцов у B {lx:0.0},{ly:0.0}, бойцов {q.MenN}, до ближнего врага (центр) {g2:0.0}, курс {q.Hd:0} (нужно {q.WH:0}), Turned {q.Turned}");
+                        }
+                    }
+                    if (r.Move.MenBodies && k == 240 && false)
                         foreach (var s in a.Figs.Where(q => q.Wrap && !q.Fighting).Take(12))
                         {
                             b.P.ToLocal(s.AX, s.AY, out var lx, out var ly);
@@ -420,5 +439,134 @@ static class MenTurnBattleProbe
             }
         });
         Console.WriteLine($"окон {total}, назад {back}: " + string.Join(", ", why.Select(kv => $"{kv.Key} {kv.Value}")));
+    }
+}
+
+// Г90: натиск телами — сбитые с ног, на сколько шеренг вошли кони; на пики во фронт — конь у острия
+static class MenChargeProbe
+{
+    public static void Run()
+    {
+        var RB = MenBodyTests.RB;
+        foreach (var tb in new[] { "infantry", "pikemen" })
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(5).Next });
+            var TA = Templates.Get("knights"); var TB = Templates.Get(tb);
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), RB);
+            var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 150 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+            double front = b.Men.Where(x => x.Alive).Min(x => x.Y), rank = RB.Map.Formation[TB.Type].RankDepth;
+            double deep = 0, minGap = double.MaxValue, vHit = 0; int knocked = 0, k = 0, readyAt = -1;
+            var log = new List<string>();
+            for (int t = 0; t < 2; t++)
+                log.AddRange(bt.Turn(_ =>
+                {
+                    k++;
+                    if (a.ChargeReady && readyAt < 0) readyAt = k;
+                    knocked = b.Men.Count(x => !double.IsNaN(x.DownAt));
+                    // вглубь строя врага — по его рамке (колонны охвата в тылу не в счёт): от переднего края, внутри фронта
+                    foreach (var h in a.Men)
+                    {
+                        if (!h.Alive) continue;
+                        b.P.ToLocal(h.X, h.Y, out var lx, out var ly);
+                        if (Math.Abs(lx) < b.P.Fp.Front / 2 - 2 && ly < 0) deep = Math.Max(deep, ly + b.P.Fp.Depth / 2);
+                    }
+                    if (tb == "pikemen")
+                        foreach (var h in a.Men.Where(q => q.Alive && q.Y > front - 8))
+                            foreach (var p in b.Men.Where(q => q.Alive && q.Row == 0 && Math.Abs(q.X - h.X) < 3))
+                                minGap = Math.Min(minGap, p.Y - h.Y);
+                }));
+            foreach (var h in a.Men.Where(q => q.Alive).Select(q => { b.P.ToLocal(q.X, q.Y, out var lx, out var ly); return (q, lx, ly); })
+                                   .Where(p => Math.Abs(p.lx) < b.P.Fp.Front / 2 - 2 && p.ly < 0 && p.ly > -b.P.Fp.Depth / 2 + 1).Take(4))
+                Console.WriteLine($"   конь {h.q.Id} внутри: у B {h.lx:0.0},{h.ly:0.0}; колонна в охвате {h.q.Fig.Wrap}, курс колонны {h.q.Fig.Hd:0}, свой {h.q.Facing:0}; противник {(h.q.Foe != null)}");
+            Console.WriteLine($"   строй B: фронт {b.P.Fp.Front:0.0}, глубина {b.P.Fp.Depth:0.0}, живых {b.Men.Count(q => q.Alive)}, у B рамка {b.P.X:0},{b.P.Y:0}");
+            Console.WriteLine($"рыцари натиском на {tb}: натиск готов с {readyAt * RB.Move.Dt:0.0} с; сбито с ног {knocked}; кони вошли за передний край на {deep:0.0} м ({deep / rank:0.0} шеренги); потери A {1000 - a.P.U.Soldiers:0} B {1000 - b.P.U.Soldiers:0}" + (tb == "pikemen" ? $"; ближе всего конь к переднему пикинёру по y {minGap:0.0} м" : ""));
+            Console.WriteLine("   " + string.Join(" | ", log.Where(l => l.Contains("натиск")).Take(3)));
+        }
+    }
+}
+
+// Г90: на пики во фронт — где встают кони перед остриями; потери против фигурок
+static class MenPikeFrontProbe
+{
+    public static void Run()
+    {
+        foreach (var r in new[] { Rules.Base, MenBodyTests.RB })
+        {
+            double la = 0, lb = 0; int near = 0, at = 0, samples = 0;
+            for (uint seed = 1; seed <= 6; seed++)
+            {
+                var bt = new Battle(MoveTests.Open(1000, 1000), r, new EngineContext { Rng = new Mulberry32(seed + 40).Next });
+                var TA = Templates.Get("knights"); var TB = Templates.Get("pikemen");
+                var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+                var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), r);
+                var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 150 + fa.Depth / 2), 180);
+                bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+                int k = 0;
+                bt.Turn(_ =>
+                {
+                    if (!r.Move.MenBodies || ++k % 20 != 0) return;
+                    // кони перед фронтом пикинёров (в пределах их фронта): зазор до ближнего пикинёра первых 4 рядов
+                    var pk = b.Men.Where(q => q.Alive && q.Row < 4).ToList();
+                    foreach (var h in a.Men)
+                    {
+                        if (!h.Alive) continue;
+                        b.P.ToLocal(h.X, h.Y, out var lx, out var ly);
+                        if (Math.Abs(lx) > b.P.Fp.Front / 2 - 3 || ly > -b.P.Fp.Depth / 2) continue;
+                        double g = pk.Count == 0 ? 99 : pk.Min(q => JsMath.Hypot(q.X - h.X, q.Y - h.Y));
+                        if (g > 8) continue;
+                        samples++; if (g < 2) near++; else if (g < 5) at++;
+                    }
+                });
+                la += 1000 - a.P.U.Soldiers; lb += 1000 - b.P.U.Soldiers;
+            }
+            Console.WriteLine($"{(r.Move.MenBodies ? "бойцы" : "фигурки")}: рыцари натиском на пики во фронт — потери рыцарей {la / 6:0}, пикинёров {lb / 6:0}" + (r.Move.MenBodies ? $"; кони у фронта: ближе 2 м до пикинёра {near}, 2–5 м (у острия) {at} из {samples}" : ""));
+        }
+    }
+}
+
+// Г90: глубина натиска — от начального переднего края пехоты, в первые 3 с после касания
+static class MenChargeDepthProbe
+{
+    public static void Run()
+    {
+        var RB = MenBodyTests.RB;
+        for (uint seed = 1; seed <= 4; seed++)
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(seed + 4).Next });
+            var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 150, 1), RB);   // рыцарей уже, чем пехоты: огибать нечего — только натиск
+            var a = bt.Add(TA.Make(1, TA.Name, 150, 1), 500, 500 - (b.P.Fp.Depth / 2 + 150 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+            double front = b.Men.Where(x => x.Alive).Min(x => x.Y), F = b.P.Fp.Front / 2;
+            double t0 = -1, deep = 0, vmax = 0; int k = 0, maxKnocks = 0;
+            var deeps = new List<double>();
+            bt.Turn(_ =>
+            {
+                k++;
+                double t = k * RB.Move.Dt;
+                if (t0 < 0 && bt.Fights.Count > 0) t0 = t;
+                if (t0 < 0 || t > t0 + 3) return;
+                // конь внутри строя пехоты: пехотинцы и спереди, и сзади (по y) ближе 3 м — глубина от начального переднего края
+                var bm = b.Men.Where(x => x.Alive && x.DownLeft <= 0).ToList();
+                foreach (var h in a.Men)
+                {
+                    if (!h.Alive || Math.Abs(h.X - 500) > F - 3) continue;   // у фланга — колонны охвата, не натиск
+                    vmax = Math.Max(vmax, JsMath.Hypot(h.Vx, h.Vy)); maxKnocks = Math.Max(maxKnocks, h.Knocks);
+                    bool before = false, after = false;
+                    foreach (var x in bm)
+                    {
+                        if (Math.Abs(x.X - h.X) > 1.5 || Math.Abs(x.Y - h.Y) > 3) continue;
+                        if (x.Y < h.Y - 0.5) before = true; else if (x.Y > h.Y + 0.5) after = true;
+                    }
+                    deep = Math.Max(deep, h.Y - front); deeps.Add(h.Y - front);   // центр коня за начальным передним краем
+                }
+            });
+            var hs = deeps.OrderByDescending(v => v).ToList();
+            int down = b.Men.Count(x => !double.IsNaN(x.DownAt)), killedDown = b.Men.Count(x => !x.Alive && !double.IsNaN(x.DownAt));
+            Console.WriteLine($"зерно {seed + 4}: коснулись на {t0:0.0} с; за 3 с центр коня (середина фронта) глубже всего на {deep:0.0} м за начальным краем (шеренга 1 м, полкорпуса коня 1,4 м), 95% замеров — не глубже {(hs.Count > 20 ? hs[hs.Count / 20] : 0):0.0} м (замеров {hs.Count}); скорость до {vmax:0.0} м/с; сбито {down} (из них пали потом {killedDown}); больше всех сбил конь — {maxKnocks}; потери за ход A {150 - a.P.U.Soldiers:0} B {1000 - b.P.U.Soldiers:0}; в охвате колонн {a.Figs.Count(q => q.Wrap)}");
+        }
     }
 }

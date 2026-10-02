@@ -151,6 +151,7 @@ namespace BattleCore
             double t = turnStart + k * dt;
             if (k % replanEvery == 0) foreach (var m in Movers) Replan(m);
             var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
+            foreach (var m in Movers) { m.Now = t; m.ChargeReady = MenMode && ChargeReadyOf(m); }   // Г90: натиск телами
             MoveSim.Step(Movers, Geo, R, k);
             for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
             foreach (var m in Movers) if (m.Fleeing) EdgeCheck(m, t + dt);
@@ -849,6 +850,7 @@ namespace BattleCore
                 }
             }
             foreach (var kv in plan) WrapAround(kv.Key.x, kv.Key.y, kv.Value.kept, kv.Value.free);
+            if (MenMode) WrapToFoes();
             // отпущенные из охвата идут на свои места сквозь свой строй (Returning), пока не дойдут
             foreach (var m in Movers)
                 for (int k = 0; k < m.Figs.Count; k++)
@@ -864,6 +866,36 @@ namespace BattleCore
                 }
         }
         const double ReturnedM = 1;   // дошла до своего места в строю — снова твёрдая для своих
+
+        // Б3: колонна бойцов в охвате дошла до своего места у врага, а врага там нет (его фронт сузился — крайние колонны
+        // убраны, Г30): место привязано к рамке врага, а бьются бойцы с бойцами. Такая колонна подходит к ближнему живому врагу
+        // (не дальше WrapSeekM) — встаёт головой к нему, стена остановит (Г89). Фигурки касались за 5 м и этого не замечали
+        const double WrapSeekM = 8;
+        void WrapToFoes()
+        {
+            foreach (var x in Movers)
+            {
+                if (!Alive(x) || x.P.Figs.Count == 0) continue;
+                var f = R.Map.Formation.TryGetValue(x.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+                double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth);
+                for (int k = 0; k < x.Figs.Count && k < x.P.Figs.Count; k++)
+                {
+                    var s = x.Figs[k];
+                    if (!s.Wrap || s.Fighting || s.WFoe == null || s.MenN == 0 || JsMath.Hypot(s.WX - s.AX, s.WY - s.AY) > 1.5) continue;
+                    Man best = null; double bd = WrapSeekM;
+                    foreach (var e in s.WFoe.Men)
+                    {
+                        if (!e.Alive || Math.Abs(e.X - s.X) > bd || Math.Abs(e.Y - s.Y) > bd) continue;
+                        double d = JsMath.Hypot(e.X - s.X, e.Y - s.Y);
+                        if (d < bd) { bd = d; best = e; }
+                    }
+                    if (best == null) continue;
+                    double ux = (best.X - s.AX) / Math.Max(1e-9, JsMath.Hypot(best.X - s.AX, best.Y - s.AY)), uy = (best.Y - s.AY) / Math.Max(1e-9, JsMath.Hypot(best.X - s.AX, best.Y - s.AY));
+                    double back = x.P.Figs[k].Depth / 2 + 2 * rad + 0.2;   // голова колонны — вплотную к врагу
+                    s.WX = best.X - ux * back; s.WY = best.Y - uy * back; s.WH = MoveSim.HeadingOf(ux, uy);
+                }
+            }
+        }
 
         // Места по всему обводу врага, снаружи, лицом к нему: обернувшиеся, что бьются, — при своих; кто шёл —
         // к своему (или соседнему, если строй врага сузился); остальные — по близости к врагу, ближайшее к голове

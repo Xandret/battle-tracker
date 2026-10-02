@@ -289,6 +289,9 @@ if (args.Length > 0 && args[0] == "b3-rally") { MenRallyProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b3-unwrap") { MenUnwrapProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b3-g44") { MenG44Probe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g94b") { MenTurnBattleProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "g90-pike") { MenPikeFrontProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "g90-depth") { MenChargeDepthProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "g90") { MenChargeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g94") { MenTurnProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b3-flee") { MenFleeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-mix") { MenMeleeMix.Run(); return 0; }
