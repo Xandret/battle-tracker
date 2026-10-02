@@ -153,6 +153,7 @@ namespace Journal.Viewer
                 double x = Math.Max(20, Math.Min(s.W - 20, u.MapX / 100 * s.W)), y = Math.Max(20, Math.Min(s.H - 20, u.MapY / 100 * s.H));
                 var m = sc.Battle.Add(u, x, y, u.Facing);
                 sc.Units.Add((m, null)); sc.Tpl[m] = Journal.Art.KitSets.TplOf(s.Look[u0.Id].Kit);   // облик — набора отряда (поле kit или угадан)
+                sc.Style[m] = s.Look[u0.Id].Style;                                                   // и его стиля (поле style или угадан)
                 sc.Color[m] = s.Factions.TryGetValue(fac, out var fi) ? fi.Color : null;
                 placed++; men += u.Soldiers;
             }

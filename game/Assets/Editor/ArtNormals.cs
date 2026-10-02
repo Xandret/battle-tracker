@@ -7,6 +7,7 @@
 // - A — металл: серые прохладные цвета (сталь, кольчуга, блик) — шейдер даёт им блеск.
 // Нормаль — в осях текстуры: x — вдоль u (вправо), y — вдоль v (вверх, к переду бойца), z — к зрителю.
 // Строится сама после выгрузки атласов из полигона (импорт png в Resources/Art) и по меню «Журнал → Карты объёма атласов».
+// Бойцы, кони и павшие с В18 плоские, как у образца (Iron Kings): им карты объёма не строятся — только природе.
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -17,6 +18,7 @@ using UnityEngine;
 public sealed class ArtNormals : AssetPostprocessor
 {
     const string Dir = "Assets/Resources/Art/";
+    static readonly string[] Lit = { "nature" };   // атласы со светом по карте объёма
 
     static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
     {
@@ -24,7 +26,8 @@ public sealed class ArtNormals : AssetPostprocessor
         foreach (var p in imported)
         {
             var q = p.Replace('\\', '/');
-            if (q.StartsWith(Dir) && q.EndsWith(".png") && !q.EndsWith("_n.png") && File.Exists(Path.ChangeExtension(q, ".json"))) todo.Add(q);
+            if (q.StartsWith(Dir) && q.EndsWith(".png") && !q.EndsWith("_n.png") && File.Exists(Path.ChangeExtension(q, ".json"))
+                && System.Array.IndexOf(Lit, Path.GetFileNameWithoutExtension(q)) >= 0) todo.Add(q);
         }
         if (todo.Count == 0) return;
         // не внутри импорта: новые файлы — следующим кадром редактора
@@ -34,7 +37,7 @@ public sealed class ArtNormals : AssetPostprocessor
     [MenuItem("Журнал/Карты объёма атласов")]
     public static void BuildAll()
     {
-        foreach (var name in new[] { "men", "horses", "dead", "nature" })
+        foreach (var name in Lit)
         {
             var p = Dir + name + ".png";
             if (File.Exists(p) && File.Exists(Dir + name + ".json")) Build(p);

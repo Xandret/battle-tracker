@@ -1,7 +1,9 @@
-// ═══════════ MenView.cs — бойцы смотрелки из частей рисунка полигона (В5–В13) ═══════════
-// Перенос drawMen / drawDead полигона (core/Tests/polygon-men.js): меняется полигон — меняем и здесь.
-// Боец собран из частей атласа (поклажа, тело, голова, щит, оружие; конь — из ног, хвоста, туловища, головы и попоны),
-// у каждого — комплект снаряжения отряда по своему номеру. Каждый кадр по данным записи решается, что он делает:
+// ═══════════ MenView.cs — бойцы смотрелки из частей рисунка (В5–В13, облик В18) ═══════════
+// Облик — как у Iron Kings, строго сверху и плоско (В18): перенос fMan / fCav пробы core/Tests/polygon-men-flat.js,
+// части — из её атласов (atlas-export.js): меняется проба — меняем и здесь.
+// Боец собран из частей атласа (поклажа, предплечья, тело-капсула, щит ребром, голова или шлем, оружие, кисти; конь —
+// из ног, хвоста, шеи с головой, туловища и попоны), у каждого — комплект снаряжения отряда своего стиля (В16) по своему
+// номеру. Цвет стороны в атласе — пурпурный, его красит шейдер Men. Каждый кадр по данным записи решается, что он делает:
 // - рукопашная: передние у врага бьют (колют, рубят сбоку или сверху — каждый удар заново), щит идёт навстречу удару,
 //   в миг удара у острия вспышка; задние напирают и поворачиваются к врагу;
 // - стрелки: лук натягивают перед своей стрелой и отпускают в миг вылета; арбалет взводят через стремя;
@@ -34,7 +36,6 @@ namespace Journal.Viewer
     public sealed class MenView
     {
         readonly ArtAtlas men, horses, dead;
-        FigParts figParts;                                                   // части стоящих бойцов (В17), найдены один раз
         readonly Material menMat, horseMat, deadMat;
         readonly Mesh decalMesh = NewMesh(), deadMesh = NewMesh(), deadTopMesh = NewMesh(), horseMesh = NewMesh(), menMesh = NewMesh(), airMesh = NewMesh();
         readonly Batch decals = new Batch(), corpses = new Batch(), deadTop = new Batch(), horseB = new Batch(), menB = new Batch(), air = new Batch();
@@ -53,7 +54,6 @@ namespace Journal.Viewer
         {
             men = ArtAtlas.Load("men"); horses = ArtAtlas.Load("horses"); dead = ArtAtlas.Load("dead");
             if (!Ok) return;
-            figParts = new FigParts(men);
             var sh = Shader.Find("Journal/Men");
             menMat = Mat(sh, men); horseMat = Mat(sh, horses); deadMat = Mat(sh, dead);
             if (!lightSet) { Shader.SetGlobalFloat("_JLight", 1); lightSet = true; }
@@ -82,6 +82,10 @@ namespace Journal.Viewer
             var r = go.AddComponent<MeshRenderer>(); r.sharedMaterial = mat; r.sortingOrder = order;
         }
 
+        // стиль облика всем отрядам (В16) — посмотреть запись в другом стиле; null — как в данных
+        public static string ForceStyle;
+        public void Restyle() { if (rec != null) SetRecording(rec); }
+
         public void SetRecording(Recording r)
         {
             rec = r;
@@ -91,7 +95,7 @@ namespace Journal.Viewer
             for (int i = 0; i < n; i++)
             {
                 looks[i] = Kits.LookOf(r.Units[i].Tpl, r.Units[i].Type);
-                kits[i] = Kits.Of(r.Units[i].Id, looks[i]);
+                kits[i] = Kits.Of(r.Units[i].Id, looks[i], ForceStyle ?? r.Units[i].Style);
                 lowL[i] = new List<float>(); arrowsOf[i] = new List<int>();
             }
         }
@@ -131,18 +135,29 @@ namespace Journal.Viewer
         static float[] Mix(float[] a, float[] b, float e) { var r = new float[5]; for (int i = 0; i < 5; i++) r[i] = a[i] + (b[i] - a[i]) * e; return r; }
         static Aff Pose(Aff m, float[] p) => m.P(p[0], p[1], p[2], p[3], p[4]);
         internal static bool Thrust(string w) => w == "spear" || w == "fork" || w == "pike" || w == "lance";
+        // какой удар (fKind пробы): колющие колют; алебарда, нагината, секира — то сбоку, то сверху; мечи и сабли чаще рубят,
+        // иногда колют; топоры, булавы, дубины — сверху и сбоку. Каждый удар выбирается заново — у соседей разный порядок
+        static string Kind(string w, int s, int blow)
+        {
+            string b = Kits.Base(w);
+            if (w == "halberd" || w == "naginata" || w == "daneaxe") return H(s * 7 + blow, 42) < 0.5f ? "swing" : "chop";
+            if (Thrust(b)) return "thrust";
+            if (b == "sword") return H(s * 7 + blow, 41) < 0.35f ? "thrust" : "swing";
+            return H(s * 7 + blow, 42) < 0.5f ? "chop" : "swing";
+        }
 
         // поза в покое: где оружие и щит, [x, y, поворот, масштаб поперёк, вдоль]; low — насколько опустили древки (В13):
         // 0 — стоймя (марш, покой), 1 — к бою: копья в 2 передних шеренгах, пики в 4, передняя — первой
         static (float[] W, float[] Sh) Rest(Kit k, int rank, float low)
         {
             float[] W = null, Sh = null;
-            string w = k.Weapon;
+            string w = k.Base;
             if (w == "spear" || w == "fork") W = Mix(new[] { 0.21f, -0.06f, 0.15f, 1, 0.2f }, new[] { 0.2f, -0.1f, 0, 1, 1 }, rank < 2 ? Ease(Mathf.Clamp01(low * 1.25f - rank * 0.2f)) : 0);
             else if (w == "pike") W = Mix(new[] { 0.15f, -0.04f, 0.1f, 1, 0.12f }, new[] { rank % 2 == 1 ? -0.3f : 0.12f, 0, 0, 1, 1 }, rank < 4 ? Ease(Mathf.Clamp01(low * 1.4f - rank * 0.13f)) : 0);
             else if (w == "lance") W = new[] { 0.22f, 0.05f, 0.05f, 1, 0.24f };
             else if (w != "bow" && w != "crossbow") W = new[] { 0.22f, -0.06f, 0.3f, 1, 0.65f };
-            if (k.Shield != null) Sh = k.Horse ? new[] { -0.27f, 0, Mathf.PI / 2, 0.75f, 0.42f } : k.ShieldShape == "buckler" ? new[] { -0.2f, 0.07f, 0, 1, 0.6f } : new[] { -0.16f, -0.23f, -0.25f, 1, -0.42f };
+            // щит в руке сверху виден ребром (В18): перед собой у левого плеча; у всадника — вдоль левого бока
+            if (k.ShieldTop != null) Sh = k.Horse ? new[] { -0.29f, 0.05f, Mathf.PI / 2, 1, 1 } : k.ShieldShape == "buckler" ? new[] { -0.25f, -0.12f, -0.2f, 1, 1 } : new[] { -0.24f, -0.15f, -0.6f, 0.9f, 1 };
             return (W, Sh);
         }
         // удары (В8, В13): доля круга удара p 0…1
@@ -346,32 +361,15 @@ namespace Journal.Viewer
         readonly List<ManP> M = new List<ManP>();
         readonly Dictionary<int, float> figTop = new Dictionary<int, float>();
         readonly HashSet<long> fallenNow = new HashSet<long>();
-        int frameDetail = 2;   // подробность фигурок в этом кадре (В17) — для тех, кто рисуется вне DrawMan
-        // стоящие бойцы (В17): части всех фигурок кадра; рисуются в конце — фигурки от дальних к ближним (по y земли), части
-        // внутри фигурки — по своей глубине
-        readonly List<Prim> prims = new List<Prim>();
-        readonly List<(float key, int start, int count)> figs = new List<(float, int, int)>();
-        sealed class PrimKey : IComparer<Prim> { public int Compare(Prim a, Prim b) => a.Key.CompareTo(b.Key); }
-        static readonly PrimKey primKey = new PrimKey();
-        void EmitFigures()
-        {
-            figs.Sort((a, b) => a.key.CompareTo(b.key));
-            foreach (var (_, start, count) in figs)
-            {
-                prims.Sort(start, count, primKey);
-                for (int i = start; i < start + count; i++) { var p = prims[i]; menB.Quad(p.P, p.M, p.C, p.Prm); }
-            }
-        }
         readonly Dictionary<int, (float sw, float nx, float pa)> mel0 = new Dictionary<int, (float, float, float)>(), mel1 = new Dictionary<int, (float, float, float)>();
         readonly List<(float x, float y, float face, float reach, float ap)> sparks = new List<(float, float, float, float, float)>();
 
         public void Draw(double t, Color32[] unitCol, Rect view, float ppm)
         {
             if (!Ok || rec == null || rec.Frames.Count == 0) return;
-            decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear(); prims.Clear(); figs.Clear();
+            decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             float t32 = (float)t;
-            frameDetail = ppm >= 30 ? 2 : ppm >= 14 ? 1 : 0;
             bool In(float x, float y, float pad) => x > view.xMin - pad && x < view.xMax + pad && y > view.yMin - pad && y < view.yMax + pad;
             IndexArrows();
             PrepFrame(f0, t32, In);
@@ -393,10 +391,9 @@ namespace Journal.Viewer
             foreach (var (x, y, face, reach, ap) in sparks)
             {
                 float e = (ap - 0.42f) / 0.08f, k2 = 0.6f + 0.8f * e;
-                air.Quad(spark, Aff.At(x, y - Figure.K * 1.15f).R(face).T(0.2f, reach).S(k2, k2), new Color32(255, 255, 255, (byte)(255 * Mathf.Clamp01(1 - e))), Vector4.zero);
+                air.Quad(spark, Aff.At(x, y).R(face).T(0.2f, reach).S(k2, k2), new Color32(255, 255, 255, (byte)(255 * Mathf.Clamp01(1 - e))), Vector4.zero);
             }
             DrawArrows(t32, In, ppm);
-            EmitFigures();
             decals.To(decalMesh); corpses.To(deadMesh); deadTop.To(deadTopMesh); horseB.To(horseMesh); menB.To(menMesh); air.To(airMesh);
         }
 
@@ -476,12 +473,13 @@ namespace Journal.Viewer
             // тени — до бойцов, влево вниз (свет справа сверху)
             if (ppm >= 8)
             {
-                float so = horse ? 0.45f : 0.2f;
+                // мягкая тень (В18): форма — по телу, сдвиг — в мире, вправо вниз; у коня — в слое коней
+                var hsoft = horses.Get("util/soft");
                 foreach (var m in M)
                 {
                     if (!m.Vis) continue;
-                    if (!horse) { menB.Quad(soft, Aff.At(m.X - 0.34f, m.Y + 0.24f).R(0.93f).S(0.62f, 1.15f), shadow, new Vector4(0, 0, 1, 0)); continue; }   // В17: тень стоящего
-                    menB.Quad(soft, Aff.At(m.X - 0.55f, m.Y + 0.4f).R(m.Face).S(0.95f, 2.4f), shadow, new Vector4(0, 0, 1, 0));   // В17: конь стоймя
+                    if (!horse) menB.Quad(soft, Aff.At(m.X + 0.045f, m.Y + 0.065f).R(m.Face).S(0.72f, 0.48f), shadow, new Vector4(0, 0, 1, 0));
+                    else horseB.Quad(hsoft, Aff.At(m.X + 0.08f, m.Y + 0.1f).R(m.Face).S(0.9f, 2.25f), shadow, new Vector4(0, 0, 1, 0));
                 }
             }
             for (int i = 0; i < M.Count; i++)
@@ -527,7 +525,6 @@ namespace Journal.Viewer
         void DrawMan(ManP m, string look, bool horse, bool flee, bool cheer, bool engaged, bool fireHere, bool shoot, bool active, float low, float t, Color32 col, float ppm)
         {
             var kit = m.Kit; int s = m.Seed; float ph0 = H(s, 5); bool walking = m.Sp > 0.8f;
-            var prm = new Vector4(kit.ClothKey == "f" ? kit.Tone : 0, 0, 0, 0); var neutral = Vector4.zero;
             float rot = 0, ox = 0, oy = 0, step = 0, ap = -1; int blow = 0;
             if (m.Atk && m.Ap >= 0) { ap = m.Ap; blow = m.Blow; }   // Б2: удар — когда он в движке
             else if (m.Atk) { float per = 1.1f + 0.9f * H(s, 7), u0 = t / per + H(s, 8); ap = Frac(u0); blow = Mathf.FloorToInt(u0); }
@@ -536,38 +533,53 @@ namespace Journal.Viewer
             if (engaged && !m.Atk) oy = -0.03f - 0.03f * Mathf.Sin(t * 3 + ph0 * 6.283f);   // задние напирают
             var (PW, PSh) = Rest(kit, m.Rank, low);
             var bas = Aff.At(m.X, m.Y).R(m.Face);
-            bool boots = ppm >= 14;
-            var bootP = men.Get("boot");
 
+            // издали (меньше 16 px/м, В18) — как у образца: капсула со шлемом; из оружия — древки передних шеренг и опущенное копьё
+            if (ppm < 16)
+            {
+                var fm = bas.T(ox, oy);
+                if (horse)
+                {
+                    horseB.Quad(horses.Get(kit.HorseHead), bas.T(0, -0.5f), col, Vector4.zero);
+                    horseB.Quad(horses.Get($"hbody/{kit.Coat}"), bas, col, Vector4.zero);
+                    horseB.Quad(horses.Get(kit.HorseCover), bas, col, Vector4.zero);
+                    fm = bas.T(0, 0.03f);
+                }
+                menB.Quad(men.Get(kit.Body), fm, Col(kit.BodyCol, col), Vector4.zero);
+                menB.Quad(men.Get(kit.Head), fm.T(0, -0.03f), kit.HeadTint ? Col(kit.HeadCol, col) : col, kit.HeadTint ? Tint1 : Vector4.zero);
+                bool pole = !flee && Thrust(kit.Base) && (horse ? walking || m.Atk : m.Rank < 2);
+                if (pole && PW != null) menB.Quad(men.Get("weapon/" + kit.Weapon), Pose(fm, horse ? new[] { 0.2f, 0.25f, -0.04f, 1, 1 } : PW), col, Vector4.zero);
+                return;
+            }
             // бегство (В11): бегом, щит за спиной, оружие несут как придётся или бросили; оглядываются (В13)
-            int detail = ppm >= 30 ? 2 : ppm >= 14 ? 1 : 0;   // В17: вблизи всё, в среднем плане проще, издали — главное
             if (flee && !horse)
             {
                 rot += LookBack(t, s);
                 var Mf = bas.T(ox, -0.05f).R(rot);
-                // оружие несут как придётся или бросили; лук и арбалет — за спиной (не рисуем)
-                string w = Drops(s) || kit.Weapon == "bow" || kit.Weapon == "crossbow" ? null : kit.Weapon;
-                var Wf = w == null ? null : Thrust(w) ? new[] { 0.2f, 0.05f, 0.4f + 0.05f * step, 1, 0.25f } : new[] { 0.2f, 0.05f, 0.6f, 1, 0.5f };
-                int fs = prims.Count;
-                Figure.Build(prims, figParts, kit, Mf.e, Mf.f, m.Face + rot, new FigPose { Weapon = w, W = Wf, Step = step }, col, kit.Tone, detail);
-                figs.Add((m.Y, fs, prims.Count - fs));
+                string w = Drops(s) || kit.Base == "bow" || kit.Weapon == "crossbow" ? null : kit.Weapon;
+                var Wf = w == null ? null : Thrust(Kits.Base(w)) ? new[] { 0.2f, 0.05f, 0.4f + 0.05f * step, 1, 0.25f } : new[] { 0.2f, 0.05f, 0.6f, 1, 0.5f };
+                Flat(kit, bas, Mf, 0.11f * step, w, Wf, null, step, 0, 0, false, true, false, col, Vector4.zero);
                 return;
             }
-            // конь по частям (В13): аллюр по скорости, стоящий переступает и машет хвостом
+            // всадник (В18): конь по частям — аллюр по скорости, стоящий переступает и машет хвостом; шея уходит под грудь;
+            // поводья — от удил к рукам; всадник в седле, ноги по бокам, копьё на скаку опущено
             if (horse)
             {
                 bool run = walking || m.Atk;
                 HorsePose(m.Sp, m.Ph, t, s, out var nod, out var tail, out var bob);
-                var Mr = bas.T(ox, 0.02f).R(rot * 0.35f);
+                var z = Vector4.zero; var white = new Color32(255, 255, 255, 255);
+                for (int i = 0; i < 4; i++) horseB.Quad(horses.Get((kit.Socks >> i & 1) != 0 ? $"hleg/{kit.Coat}/s" : $"hleg/{kit.Coat}"), bas.T(HLeg[i, 0], HLeg[i, 1] + legs[i]), white, z);
+                horseB.Quad(horses.Get($"htail/{kit.Coat}"), bas.T(0, 0.84f).R(tail), white, z);
+                horseB.Quad(horses.Get(kit.HorseHead), bas.T(0, -0.5f + nod), col, z);
+                horseB.Quad(horses.Get($"hbody/{kit.Coat}"), bas, white, z);
+                horseB.Quad(horses.Get(kit.HorseCover), bas, col, z);
+                if (ppm >= 30) for (int sd = -1; sd <= 1; sd += 2) Strip(menB, bas, sd * 0.1f, -1.19f + nod, sd * 0.07f, -0.13f, 0.9f / ppm, new Color32(74, 48, 32, 255));
+                var R0 = bas.T(0, 0.03f - bob * 0.5f); var Mr = R0.T(ox, 0).R(rot * 0.35f);
                 var W = PW;
-                if (kit.Weapon == "lance") { if (run) W = new[] { 0.2f, 0.25f + (m.Atk ? ThrustOff(ap) : 0), -0.04f, 1, 1 }; }
-                else if (m.Atk) { var (r2, sy2) = SwingAng(ap); W = new[] { 0.22f, -0.08f, r2, 1, sy2 }; }
-                // В17: конь стоймя и всадник в седле — одна фигурка
-                int hs = prims.Count;
-                Figure.Horse(prims, figParts, kit, m.X, m.Y, m.Face, legs, nod, tail, bob, col, detail);
-                Figure.Build(prims, figParts, kit, Mr.e, Mr.f, m.Face + rot * 0.35f, new FigPose { Weapon = kit.Weapon, W = W, Sh = PSh, Step = 0 }, col, kit.Tone, detail, true, 0.69f + bob);
-                figs.Add((m.Y, hs, prims.Count - hs));
-                if (m.Atk && ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kit.Weapon == "lance" ? -2.6f : -0.9f, ap));
+                if (kit.Base == "lance") { if (run) W = new[] { 0.2f, 0.25f + (m.Atk ? ThrustOff(ap) : 0), -0.04f, 1, 1 }; }
+                else if (m.Atk && W != null) { var (r2, sy2) = SwingAng(ap); W = new[] { 0.22f, -0.08f, r2, 1, sy2 }; }
+                Flat(kit, R0, Mr, 0, kit.Weapon, W, PSh, 0, 0, 0, false, false, true, col, Vector4.zero);
+                if (m.Atk && ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kit.Base == "lance" ? -2.6f : -0.75f, ap));
                 return;
             }
             // стрелок: состояние лука — по времени до своего выстрела
@@ -577,7 +589,7 @@ namespace Journal.Viewer
                 if (!float.IsNaN(m.Shot))
                 {
                     float dt = m.Shot;
-                    if (look == "bow") bowSt = dt < -0.45f ? 1 : dt < -0.2f ? 2 : dt < 0 ? 3 : dt < 0.22f ? 4 : 1;
+                    if (kit.Base == "bow") bowSt = dt < -0.45f ? 1 : dt < -0.2f ? 2 : dt < 0 ? 3 : dt < 0.22f ? 4 : 1;
                     else xb = dt < 0 ? 0 : dt < 0.25f ? 1 : 2;
                 }
                 else if (active) { bowSt = H(s, 14) < 0.5f ? 1 : 0; xb = H(s, 14) < 0.5f ? 0 : 2; }
@@ -589,8 +601,7 @@ namespace Journal.Viewer
             // удар (В13): копья и пики колют; меч то рубит, то колет; топор, булава и дубина — то сбоку, то сверху;
             // каждый удар выбирается заново (хешем по номеру удара) — у соседей разный порядок
             string wk = m.Atk && shoot ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
-            string kind = !m.Atk || wk == null ? null : Thrust(wk) ? "thrust"
-                : wk == "sword" || wk == "falchion" ? (H(s * 7 + blow, 41) < 0.35f ? "thrust" : "swing") : H(s * 7 + blow, 42) < 0.5f ? "chop" : "swing";
+            string kind = !m.Atk || wk == null ? null : Kind(wk, s, blow);
             if (m.Atk && ap >= 0) { oy -= m.Ap < 0 && ap > 0.3f && ap < 0.55f ? 0.06f : 0;   // Б2: выпад к противнику уже в X/Y движка (Г78) — свой не добавляем
                  rot += kind == "swing" ? 0.18f * Mathf.Sin(ap * 6.283f) : kind == "chop" ? -0.08f * Mathf.Sin(ap * 6.283f) : 0; }
             if (cheer && !m.Atk) oy -= 0.05f * Mathf.Max(0, Mathf.Sin(t * 9 + ph0 * 6.283f));   // ликуют — подпрыгивают
@@ -606,29 +617,70 @@ namespace Journal.Viewer
                 else if (m.Atk) { float c = Mathf.Max(0, Mathf.Sin((ap + 0.5f) * 6.283f)); Sh = new[] { Sh[0] + 0.04f + 0.05f * c, Sh[1] - 0.06f - 0.09f * c, Sh[2] + 0.15f + 0.2f * c, Sh[3], Sh[4] }; }
             }
             // оружие
-            string wpn = wk; var W2 = PW;
+            string wpn = wk, wb = Kits.Base(wk); var W2 = PW;
             if (m.Atk && shoot) W2 = wpn != null ? new[] { 0.22f, -0.06f, 0.3f, 1, 0.65f } : null;
             if (m.Atk && wpn != null && W2 != null)
             {
-                if (kind == "thrust") W2 = Thrust(wpn) ? new[] { W2[0], (wpn == "pike" ? 0 : -0.1f) + ThrustOff(ap), 0, 1, 1 } : new[] { 0.16f, -0.14f + 0.8f * ThrustOff(ap), 0.04f, 1, 1 };
+                if (kind == "thrust") W2 = Thrust(wb) ? new[] { W2[0], (wb == "pike" ? 0 : -0.1f) + ThrustOff(ap), 0, 1, 1 } : new[] { 0.16f, -0.14f + 0.8f * ThrustOff(ap), 0.04f, 1, 1 };
                 else if (kind == "chop") { var (y2, sy2) = ChopPose(ap); W2 = new[] { 0.2f, y2, 0.1f, 1, sy2 }; }
                 else { var (r2, sy2) = SwingAng(ap); W2 = new[] { 0.22f, -0.08f, r2, 1, sy2 }; }
-                if (ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kind == "thrust" ? (wpn == "pike" ? -3.7f : Thrust(wpn) ? -1.35f : -0.85f) : -0.75f, ap));
+                if (ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kind == "thrust" ? (wb == "pike" ? -3.7f : Thrust(wb) ? -1.35f : -0.85f) : -0.75f, ap));
             }
             else if (cheer && W2 != null) W2 = new[] { W2[0], W2[1] - 0.05f, W2[2] * 0.3f - 0.1f, 1, Mathf.Min(W2[4], 0.3f) + 0.08f * Mathf.Sin(t * 9 + ph0 * 6.283f) };   // вскинули оружие
             else if (W2 != null && step != 0) W2 = new[] { W2[0], W2[1], W2[2] + 0.03f * step, W2[3], W2[4] };
-            // стоящий боец (В17): фигурка из частей; стрелок в рукопашной держит запасное оружие одной рукой
-            int start = prims.Count;
-            Figure.Build(prims, figParts, kit, Mm.e, Mm.f, m.Face + rot,
-                new FigPose { Weapon = wpn, W = wpn != null ? W2 : null, Sh = Sh, Step = st, BowSt = bowSt, Xb = xb, Raise = raise }, col, kit.Tone, detail);
-            figs.Add((m.Y, start, prims.Count - start));
+            // плоский боец (В18); стрелок в рукопашной держит запасное оружие одной рукой
+            float sway = walking && !m.Atk ? (m.Sp > 2.6f ? 0.11f : 0.07f) * step : 0;
+            Flat(kit, bas.T(ox, oy), Mm, sway, wpn, wpn != null ? W2 : null, Sh, st, bowSt, xb, raise, false, false, col, Vector4.zero);
         }
-        // тело, сюрко (В15: у кольчуги и лат; цвет стороны без сдвига тона) и голова
-        void BodyHead(Kit kit, Aff m, Color32 col, Vector4 prm)
+
+        // ── плоский боец (В18), как fMan пробы: ступни или ноги в седле, поклажа, предплечья, тело, щит ребром, голова,
+        // оружие, кисти. M0 — оси бойца без покачивания, Mm — с покачиванием и выпадом; sway — на сколько качнуло плечи
+        // (голова качается меньше); raise — щит над головой под стрелами, slung — щит за спиной (бегство); dim — приглушение ──
+        static readonly Vector4 Tint1 = new Vector4(0, 0, 0, 1);
+        static readonly float[] RaiseSh = { -0.03f, -0.05f, -0.1f, 1, 0.9f };
+        // цвет части: свой (RGB) или цвет стороны, сдвинутый к белому или чёрному
+        static Color32 Col(Tint t, Color32 team)
         {
-            menB.Quad(men.Get(kit.Body), m, col, prm);
-            if (kit.Tabard != null) menB.Quad(men.Get(kit.Tabard), m, col, new Vector4(0, prm.y, prm.z, prm.w));
-            menB.Quad(men.Get(kit.Head), m, col, prm);
+            if (t.Rgb >= 0) return new Color32((byte)(t.Rgb >> 16), (byte)(t.Rgb >> 8 & 255), (byte)(t.Rgb & 255), 255);
+            if (t.Tone == 0) return team;
+            return Color32.Lerp(team, t.Tone > 0 ? new Color32(255, 255, 255, team.a) : new Color32(0, 0, 0, team.a), Mathf.Abs(t.Tone));
+        }
+        void Flat(Kit k, Aff M0, Aff Mm, float sway, string wpn, float[] W, float[] Sh, float feet, int bowSt, int xb, bool raise, bool slung, bool mounted, Color32 team, Vector4 dim)
+        {
+            var B = menB; var tint = new Vector4(0, dim.y, 0, 1);
+            if (mounted) B.Quad(men.Get(k.Rider), M0, Col(k.Cloth, team), dim);
+            else if (feet != 0) { var bt = men.Get("boot"); B.Quad(bt, M0.T(-0.085f, 0.02f + 0.15f * feet), team, dim); B.Quad(bt, M0.T(0.085f, 0.02f - 0.15f * feet), team, dim); }
+            string bw = Kits.Base(wpn);
+            bool bowRest = bw == "bow" && bowSt == 0;   // лук в покое — опущен у левого бока вдоль тела; поперёк — когда стреляет
+            Vector2? hr, hl; bool showL;
+            if (bowRest) { hr = null; hl = new Vector2(-0.36f, 0.02f); showL = true; }
+            else (hr, hl, showL) = HandsOf(bw, W, raise ? RaiseSh : slung ? null : Sh, bowSt, xb);
+            if (k.Back != null) B.Quad(men.Get(k.Back), Mm, team, dim);
+            if (slung && k.ShieldFlat != null) B.Quad(men.Get(k.ShieldFlat), Mm.T(0, 0.15f).S(0.7f, 0.7f), Col(k.ShieldCol, team), dim);
+            var arm = men.Get("arm"); var sleeve = Col(k.Sleeve, team);
+            for (int side = 1; side >= -1; side -= 2)
+            {
+                var h = side > 0 ? hr : hl; if (h == null) continue;
+                float ex = side * ElbX, dx = h.Value.x - ex, dy = h.Value.y - ElbY, L = Mathf.Sqrt(dx * dx + dy * dy);
+                if (L >= 0.02f) B.Quad(arm, Mm.T(ex, ElbY).R(Mathf.Atan2(dx, -dy)).S(1, L / FaLen), sleeve, tint);
+            }
+            B.Quad(men.Get(k.Body), Mm, Col(k.BodyCol, team), dim);
+            if (Sh != null && !raise && !slung && k.ShieldTop != null) B.Quad(men.Get(k.ShieldTop), Pose(Mm, Sh), Col(k.ShieldCol, team), dim);
+            B.Quad(men.Get(k.Head), Mm.T(0, -0.03f).R(-0.4f * sway), k.HeadTint ? Col(k.HeadCol, team) : team, k.HeadTint ? tint : dim);
+            if (raise && k.ShieldFlat != null) B.Quad(men.Get(k.ShieldFlat), Mm.T(-0.03f, -0.05f).R(-0.1f).S(0.95f, 0.95f), Col(k.ShieldCol, team), dim);   // щит над головой
+            if (bowRest && k.BowPart != null) B.Quad(men.Get(k.BowPart + "0"), Mm.T(-0.08f, 0.02f).R(-Mathf.PI / 2).S(0.8f, 0.8f), team, dim);
+            else if (bw == "bow" && k.BowPart != null) B.Quad(men.Get(k.BowPart + bowSt), Mm, team, dim);
+            else if (wpn == "crossbow") B.Quad(men.Get("xbow/" + xb), Mm, team, dim);
+            else if (W != null && wpn != null) B.Quad(men.Get("weapon/" + wpn), Pose(Mm, W), team, dim);
+            var hand = men.Get(k.Hand);
+            if (hr != null) B.Quad(hand, Mm.T(hr.Value.x, hr.Value.y), team, dim);
+            if (hl != null && showL) B.Quad(hand, Mm.T(hl.Value.x, hl.Value.y), team, dim);
+        }
+        // тонкая полоска (поводья) из белого квадрата: от (x0, y0) к (x1, y1) в осях m, ширина w метров
+        void Strip(Batch B, Aff m, float x0, float y0, float x1, float y1, float w, Color32 c)
+        {
+            float dx = x1 - x0, dy = y1 - y0, L = Mathf.Sqrt(dx * dx + dy * dy);
+            B.Quad(men.Get("util/px"), m.T((x0 + x1) / 2, (y0 + y1) / 2).R(Mathf.Atan2(dx, -dy)).S(w / 0.1f, L / 0.1f), c, new Vector4(0, 0, 1, 0));
         }
 
         // ── руки (В15), как handsOf полигона: правая — на рукояти; копьё, пика, вилы без щита — двумя руками (левая впереди
@@ -651,23 +703,6 @@ namespace Journal.Viewer
             Vector2? r = W != null ? new Vector2(W[0], W[1]) : (Vector2?)null;
             if (W != null && Sh == null && (weapon == "pike" || weapon == "spear" || weapon == "fork")) return (r, OnPose(W, 0, -0.4f), true);
             return (r, Sh != null ? new Vector2(Sh[0], Sh[1]) : new Vector2(-0.235f, -0.07f), Sh == null);
-        }
-        // предплечье — от локтя к кисти, растянуто по длине (в атласе — длиной FaLen)
-        void Arms(Kit kit, Aff m, Vector2? r, Vector2? l, Color32 col, Vector4 prm)
-        {
-            var arm = men.Get(kit.Arm);
-            for (int side = 1; side >= -1; side -= 2)
-            {
-                var h = side > 0 ? r : l; if (h == null) continue;
-                float ex = side * ElbX, dx = h.Value.x - ex, dy = h.Value.y - ElbY, L = Mathf.Sqrt(dx * dx + dy * dy);
-                if (L >= 0.02f) menB.Quad(arm, m.T(ex, ElbY).R(Mathf.Atan2(dx, -dy)).S(1, L / FaLen), col, prm);
-            }
-        }
-        void Hands(Kit kit, Aff m, Vector2? r, Vector2? l, Color32 col)
-        {
-            var hand = men.Get(kit.Hand);
-            if (r != null) menB.Quad(hand, m.T(r.Value.x, r.Value.y), col, Vector4.zero);
-            if (l != null) menB.Quad(hand, m.T(l.Value.x, l.Value.y), col, Vector4.zero);
         }
 
         // ── павшие и кровь (В8, В13) ──
@@ -692,28 +727,25 @@ namespace Journal.Viewer
                 var u = kits[dd.Unit]; var kit = dd.Man > 0 ? u[(int)(H(rec.Units[dd.Unit].Id * 7919 + dd.Man, 4) * u.Length)] : u[(int)(H(seed, 50) * u.Length)];
                 var col = unitCol[dd.Unit];
                 bool rider = dd.Part == 3 && kit.Horse, wounded = !dd.Killed && !rider;
-                var live = new Vector4(kit.ClothKey == "f" ? kit.Tone : 0, 0, 0, 0);
                 // удар (В13): первые 0,15 с боец ещё стоит — его качнуло по удару; потом падает
                 if (age < 0.15f && !rider)
                 {
                     float k2 = age / 0.15f, d = dd.Dir * Mathf.Deg2Rad;
                     float sx = dd.X + Mathf.Cos(d) * 0.12f * k2, sy = dd.Y + Mathf.Sin(d) * 0.12f * k2;
                     var (W, Sh) = Rest(kit, 0, 0);
-                    // В17: стоящая фигурка, которую качнуло от удара
-                    int fs = prims.Count;
-                    Figure.Build(prims, figParts, kit, sx, sy, dd.Facing * Mathf.Deg2Rad + (H(seed, 55) - 0.5f) * 0.6f * k2, new FigPose { Weapon = kit.Weapon, W = W, Sh = Sh }, col, kit.Tone, frameDetail);
-                    figs.Add((sy, fs, prims.Count - fs));
+                    var sm = Aff.At(sx, sy).R(dd.Facing * Mathf.Deg2Rad + (H(seed, 55) - 0.5f) * 0.6f * k2);
+                    Flat(kit, sm, sm, 0, kit.Weapon, W, Sh, 0, 0, 0, false, false, false, col, Vector4.zero);
                     continue;
                 }
                 int v = (int)(H(seed, 51) * 2);
                 float p = Mathf.Min(1, (age - 0.15f) / 0.35f), e = 1 - (1 - p) * (1 - p);
-                var dp = new Vector4(kit.ClothKey == "f" ? kit.Tone : 0, wounded ? 0 : 0.38f, 0, 0);   // раненый — краски живые
+                var dp = new Vector4(0, wounded ? 0 : 0.38f, 0, 0); var dpt = new Vector4(0, dp.y, 0, 1);   // раненый — краски живые
                 var fm = Aff.At(dd.X, dd.Y).R(a + Mathf.PI / 2 + (H(seed, 52) - 0.5f) * 0.5f);
                 if (rider)
                 {
                     // убитый конь лежит; всадник слетает с него (В13): за 0,55 с — в сторону от туши, в полёте крупнее
                     float he = 1 - Mathf.Pow(1 - Mathf.Min(1, age / 0.5f), 2);
-                    corpses.Quad(dead.Get($"deadhorse/{kit.Coat}/{kit.Bard}"), fm.S(1, 0.4f + 0.6f * he).T(0, -0.6f), col, new Vector4(0, 0.38f, 0, 0));
+                    corpses.Quad(dead.Get(kit.DeadHorse), fm.S(1, 0.4f + 0.6f * he).T(0, -0.6f), col, new Vector4(0, 0.38f, 0, 0));
                     float fl = Mathf.Min(1, age / 0.55f), k3 = 1 + 0.3f * Mathf.Sin(fl * Mathf.PI);
                     fm = fm.T(-0.9f * Ease(fl), 0.3f * Ease(fl)).S(k3, k3);
                 }
@@ -722,13 +754,9 @@ namespace Journal.Viewer
                 {
                     // раненый (Г39, В13) бросил оружие и щит, где упал; ползёт рывками прочь от врага (0,32 м за 0,9 с) с кровавым
                     // следом — или корчится на месте; через 4–12 с затихает
-                    string w = kit.Weapon == "bow" || kit.Weapon == "crossbow" ? kit.Side : kit.Weapon;
-                    if (w != null && w != "none")
-                    {
-                        float sc = w == "pike" || w == "lance" ? 0.4f : w == "spear" || w == "fork" ? 0.7f : 0.9f;
-                        deadTop.Quad(men.Get("weapon/" + w), fm.T(0.45f, -0.5f).R(H(seed, 56) * 6.283f).S(sc, sc), col, dp);
-                    }
-                    if (kit.Shield != null) deadTop.Quad(men.Get(kit.Shield), fm.T(-0.5f, -0.4f).R(H(seed, 57) * 6.283f).S(0.85f, 0.85f), col, dp);
+                    string w = kit.Base == "bow" || kit.Weapon == "crossbow" ? kit.Side : kit.Weapon;
+                    if (w != null && w != "none") deadTop.Quad(men.Get("weapon/" + w), fm.T(0.45f, -0.5f).R(H(seed, 56) * 6.283f).S(LyingScale(w), LyingScale(w)), col, dp);
+                    if (kit.ShieldFlat != null) deadTop.Quad(men.Get(kit.ShieldFlat), fm.T(-0.5f, -0.4f).R(H(seed, 57) * 6.283f).S(0.85f, 0.85f), Col(kit.ShieldCol, col), dp);
                     float life = Mathf.Min(Mathf.Max(0, age - 0.5f), 4 + 8 * H(seed, 54));
                     if (H(seed, 53) < 0.65f)
                     {
@@ -741,21 +769,22 @@ namespace Journal.Viewer
                 }
                 // падение: тело «ложится» от ног — голова туда, куда толкнул удар
                 var cm = fm.S(flip, 0.25f + 0.75f * e).T(0, -0.8f);
-                corpses.Quad(dead.Get(wounded ? $"crawl/{kit.ClothKey}/{kit.ArmourKey}" : $"corpse/{kit.ClothKey}/{kit.ArmourKey}/{v}"), cm, col, dp);
-                deadTop.Quad(men.Get(kit.Head), cm.T(0, -0.56f), col, dp);
+                corpses.Quad(dead.Get(wounded ? $"crawl/{kit.LayoutKey}" : $"corpse/{kit.LayoutKey}/{v}"), cm, Col(kit.BodyCol, col), dp);
+                deadTop.Quad(men.Get(kit.Head), cm.T(0, -0.56f), kit.HeadTint ? Col(kit.HeadCol, col) : col, kit.HeadTint ? dpt : dp);
                 if (!wounded)
                 {
-                    string w = kit.Weapon == "bow" || kit.Weapon == "crossbow" ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
-                    if (w != null)
-                    {
-                        float sc = w == "pike" || w == "lance" ? 0.4f : w == "spear" || w == "fork" ? 0.7f : 0.9f;
-                        deadTop.Quad(men.Get("weapon/" + w), cm.T(0.45f + 0.15f * H(v * 131 + 7, 5), -0.25f + 0.5f * H(v * 131 + 7, 6)).R(H(v * 131 + 7, 7) * 6.283f).S(sc, sc), col, dp);
-                    }
-                    if (kit.Shield != null) deadTop.Quad(men.Get(kit.Shield), cm.T(-0.48f - 0.15f * H(v * 131 + 7, 8), -0.1f + 0.4f * H(v * 131 + 7, 9)).R(H(v * 131 + 7, 10) * 6.283f).S(0.85f, 0.85f), col, dp);
+                    string w = kit.Base == "bow" || kit.Weapon == "crossbow" ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
+                    var wm = cm.T(0.45f + 0.15f * H(v * 131 + 7, 5), -0.25f + 0.5f * H(v * 131 + 7, 6)).R(H(v * 131 + 7, 7) * 6.283f);
+                    if (w != null) deadTop.Quad(men.Get("weapon/" + w), wm.S(LyingScale(w), LyingScale(w)), col, dp);
+                    else if (kit.BowPart != null) deadTop.Quad(men.Get(kit.BowPart + "0"), wm, col, dp);
+                    if (kit.ShieldFlat != null) deadTop.Quad(men.Get(kit.ShieldFlat), cm.T(-0.48f - 0.15f * H(v * 131 + 7, 8), -0.1f + 0.4f * H(v * 131 + 7, 9)).R(H(v * 131 + 7, 10) * 6.283f).S(0.85f, 0.85f), Col(kit.ShieldCol, col), dp);
                     if (dd.Part == 0 && p >= 1) decals.Quad(disc, cm.T(0, -0.56f).S(0.2f, 0.2f), new Color32(123, 18, 18, 204), solid);
                 }
             }
         }
+
+        // лежащее оружие сверху короче: пика и копьё лежат, видны целиком, но рисунок рассчитан на стоящих — ужимаем
+        static float LyingScale(string w) { var b = Kits.Base(w); return b == "pike" || b == "lance" ? 0.4f : b == "spear" || b == "fork" ? 0.7f : 0.9f; }
 
         // брошенное на бегу (В11): кто бросил оружие (почти половина), — оно лежит там, где отряд побежал
         void DrawDropped(int f0, Color32[] unitCol, Func<float, float, float, bool> In)
@@ -776,10 +805,10 @@ namespace Journal.Viewer
                         float y = mf.Xyh[3 * id + 1]; int seed = info.Id * 7919 + id;
                         if (!Drops(seed) || !In(x, y, 3)) continue;
                         var kit = ks[(int)(H(seed, 4) * ks.Length)];
-                        string w = kit.Weapon == "bow" || kit.Weapon == "crossbow" ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
+                        string w = kit.Base == "bow" || kit.Weapon == "crossbow" ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
                         var at = Aff.At(x, y).R(H(seed, 22) * 6.283f);
-                        if (w != null) deadTop.Quad(men.Get("weapon/" + w), at.S(0.9f, w == "pike" ? 0.5f : 0.9f), unitCol[ui], dp);
-                        else if (kit.Weapon == "bow") deadTop.Quad(men.Get("bow/0"), at, unitCol[ui], dp);
+                        if (w != null) deadTop.Quad(men.Get("weapon/" + w), at.S(0.9f, Kits.Base(w) == "pike" ? 0.5f : 0.9f), unitCol[ui], dp);
+                        else if (kit.BowPart != null) deadTop.Quad(men.Get(kit.BowPart + "0"), at, unitCol[ui], dp);
                     }
                 }
             }

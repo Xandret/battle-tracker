@@ -1,6 +1,7 @@
 // ═══════════ BattleViewer.cs — смотрелка боя (И2, шаг 1): движок считает бой в Unity, сцена проигрывает ход ═══════════
 // Сцену выбирают кнопкой сверху; бой считается в фоновом потоке (BattleRecord.Run), потом проигрывается: пробел — пауза,
-// ← → — кадр, колесо — приближение к курсору, тянуть мышью — сдвиг, F — вся карта, 1…8 — сцены.
+// ← → — кадр, колесо — приближение к курсору, тянуть мышью — сдвиг, F — вся карта, 1…8 — сцены; F6 — стиль облика
+// всем отрядам по кругу (В16), F7 — свет на природе, F8 — эффект миниатюр.
 // Режим игры (SetLive): показывает чужую живую запись (ход с приказами, Play/*), сцены не трогает; время ставит игра
 // (T, Playing, Speed); ЛКМ/ПКМ — игре (выбор, приказы), камера — средней кнопкой, WASD/стрелками, колесом, F.
 // Шаг 1 — простой рисунок: земля по клеткам 5 м, тела — плашки цвета стороны, павшие — пятна, стрелы — чёрточки.
@@ -148,7 +149,8 @@ namespace Journal.Viewer
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
             if (!Application.isFocused || InputBlocked) { dragging = false; return; }
-            // облик (В15): F7 — свет на бойцах, F8 — эффект миниатюр; сравнить с плоским рисунком
+            // облик: F6 — стиль всем отрядам по кругу (В16), F7 — свет на природе (бойцы с В18 плоские), F8 — эффект миниатюр
+            if (kb != null && kb.f6Key.wasPressedThisFrame) CycleStyle();
             if (kb != null && kb.f7Key.wasPressedThisFrame) MenView.Light = !MenView.Light;
             if (kb != null && kb.f8Key.wasPressedThisFrame) MiniatureLook.On = !MiniatureLook.On;
             if (PlayInput) { GameInput(mouse, kb); return; }
@@ -394,8 +396,17 @@ namespace Journal.Viewer
         }
 
         // ── интерфейс ──
+        // стиль облика всем отрядам по кругу (В16): как в данных → западный → … → дальневосточный; подпись — на 2,5 с
+        static readonly string[] StyleCycle = { null, "west", "north", "east", "south", "fareast" };
+        static readonly string[] StyleNames = { "как в данных", "западный", "северный", "восточный", "южный", "дальневосточный" };
+        int styleIdx; float styleToast;
+        void CycleStyle() { styleIdx = (styleIdx + 1) % StyleCycle.Length; MenView.ForceStyle = StyleCycle[styleIdx]; menView?.Restyle(); styleToast = Time.unscaledTime + 2.5f; }
+
         void OnGUI()
         {
+            if (Time.unscaledTime < styleToast)
+                GUI.Label(new Rect(Screen.width - 330, 52, 320, 26), $"Стиль облика: {StyleNames[styleIdx]} (F6)",
+                    new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight, normal = { textColor = new Color(0.98f, 0.95f, 0.85f) } });
             uiRects.Clear();
             if (!ShowGui) return;
             var st = new GUIStyle(GUI.skin.label) { fontSize = 14, normal = { textColor = new Color(0.92f, 0.9f, 0.85f) } };

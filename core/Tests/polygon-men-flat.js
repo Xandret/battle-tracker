@@ -462,7 +462,19 @@ function fBow(g, st, kind = "bow"){
   g.strokeStyle = F_INK; g.lineWidth = 0.04 + 2 * fLw(g, 0.7); g.stroke(); g.strokeStyle = lc; g.lineWidth = 0.04; g.stroke();
   if(kind === "yumi"){ g.beginPath(); g.moveTo(cx * 0.5 - 0.05, (ty + cy) / 2 - 0.02); g.lineTo(cx * 0.5 + 0.05, (ty + cy) / 2 - 0.02); g.strokeStyle = "#e8e0cc"; g.lineWidth = 0.03; g.stroke(); }   // обмотка хвата
 }
+// арбалет: 0 — взведён, болт на ложе; 1 — разряжен; 2 и 3 — взвод через стремя (В13): ложе наклонено к земле (сверху
+// видно коротким), стремя впереди у ног; 2 — тетива у дуги, 3 — подтянута крюком на ремне к поясу
 function fXbow(g, st){
+  if(st >= 2){
+    const sy = st === 2 ? -0.42 : -0.2;
+    fStick(g, 0.05, -0.12, 0.05, -0.44, 0.055, F_WOOD);
+    g.beginPath(); g.ellipse(0.05, -0.53, 0.06, 0.04, 0, 0, 6.283); g.strokeStyle = F_INK; g.lineWidth = 0.018 + 2 * fLw(g, 0.6); g.stroke(); g.strokeStyle = F_STEEL_D; g.lineWidth = 0.018; g.stroke();
+    g.beginPath(); g.moveTo(-0.2, -0.44); g.lineTo(0.05, sy); g.lineTo(0.3, -0.44); g.strokeStyle = "#efe9dc"; g.lineWidth = Math.max(0.01, fLw(g, 0.5)); g.stroke();
+    if(st === 3) fStick(g, 0.05, sy, 0.05, -0.06, 0.012, "#5a4630");
+    g.beginPath(); g.moveTo(-0.2, -0.44); g.quadraticCurveTo(0.05, -0.5, 0.3, -0.44);
+    g.strokeStyle = F_INK; g.lineWidth = 0.04 + 2 * fLw(g, 0.7); g.stroke(); g.strokeStyle = F_STEEL; g.lineWidth = 0.04; g.stroke();
+    return;
+  }
   fStick(g, 0.05, 0.02, 0.05, -0.5, 0.055, F_WOOD);
   g.beginPath(); g.moveTo(-0.22, -0.45); g.lineTo(0.05, st ? -0.45 : -0.3); g.lineTo(0.32, -0.45); g.strokeStyle = "#efe9dc"; g.lineWidth = Math.max(0.01, fLw(g, 0.5)); g.stroke();
   if(!st){ fStick(g, 0.05, -0.29, 0.05, -0.58, 0.014, "#e2d6bd"); fTip(g, -0.58, 0.06, 0.02, 0.05); }
@@ -660,7 +672,7 @@ function fCrawl(g, k){ fLying(g, k, CRAWL_POSE); g.save(); g.translate(0, -0.56)
 // поверх, дальние — из-под туловища темнее), хвост и грива на земле; седло с подпругой или попона, раны; лужа — отдельно
 const F_DHORSE = [[-0.3, 0.92], [-0.36, 0.6], [-0.34, 0.15], [-0.37, -0.3], [-0.33, -0.6], [-0.25, -0.9], [-0.17, -1.12], [-0.15, -1.3], [-0.09, -1.5],
   [-0.04, -1.6], [0.04, -1.58], [0.08, -1.45], [0.12, -1.28], [0.08, -1.12], [0.14, -0.88], [0.27, -0.62], [0.32, -0.35], [0.34, 0.1], [0.32, 0.55], [0.24, 0.85], [0.05, 1.0]];
-function fDeadHorse(g, k){
+function fDeadHorse(g, k, mute = true){   // mute — приглушить краски (в атласе Unity приглушает шейдер)
   const h = fHair(k), armoured = k.bard === "full" || k.bard === "lamellar";
   const leg = (x0, y0, a1, a2, col, sock) => {   // от туловища к колену, к путовому суставу, копыто
     const kx = x0 + Math.cos(a1) * 0.3, ky = y0 + Math.sin(a1) * 0.3, fx = kx + Math.cos(a2) * 0.27, fy = ky + Math.sin(a2) * 0.27;
@@ -697,7 +709,7 @@ function fDeadHorse(g, k){
   fDisc(g, -0.075, -1.32, 0.018, F_INK, 0); fDisc(g, -0.035, -1.56, 0.012, F_INK, 0);   // глаз, ноздря
   if(armoured){ g.beginPath(); g.moveTo(-0.16, -1.2); g.lineTo(-0.06, -1.22); g.lineTo(-0.02, -1.48); g.lineTo(-0.1, -1.5); g.closePath(); g.fillStyle = F_STEEL; g.fill(); fEdge(g, 0.6); }
   leg(0.28, -0.52, -0.1, 0.5, near, socks & 2); leg(0.29, 0.5, 0.05, 0.4, near, socks & 8);
-  fMute(g);
+  if(mute) fMute(g);
 }
 // лужа крови: несколько слившихся пятен (В8)
 function fBlood(g, v){

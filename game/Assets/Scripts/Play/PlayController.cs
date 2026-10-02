@@ -81,7 +81,7 @@ namespace Journal.Play
             if (make != null) lastMake = make;
             Game = lastMake();
             recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
-                                    m => Game.Color.TryGetValue(m, out var c) ? c : null);
+                                    m => Game.Color.TryGetValue(m, out var c) ? c : null, m => Game.Style.TryGetValue(m, out var st) ? st : null);
             recorder.Rec.Image = Game.Image;
             recorder.Snap();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false;

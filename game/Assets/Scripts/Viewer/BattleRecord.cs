@@ -12,7 +12,7 @@ namespace Journal.Viewer
 {
     public sealed class UnitInfo
     {
-        public int Id, Faction; public string Name, Tpl, Type, Color;   // Color — #rrggbb (сохранение трекера) или null
+        public int Id, Faction; public string Name, Tpl, Type, Color, Style;   // Color — #rrggbb (сохранение трекера) или null; Style — стиль облика (В16), null — западный
         public double Men, PerMan, RankDepth, Front, Depth;
         public readonly List<double[]> Figs = new List<double[]>();   // по номеру тела: [ширина, глубина, бойцов, ряд]
     }
@@ -107,7 +107,7 @@ namespace Journal.Viewer
         // фаза шага бойцов (В13): где боец был в прошлом кадре и сколько кругов шага набрал
         readonly Dictionary<Mover, (float[] xy, float[] ph)> gait = new Dictionary<Mover, (float[], float[])>();
 
-        public Recorder(string name, string note, Geo geo, IList<Mover> movers, Func<Mover, string> tplOf, Battle battle, int turns, Func<Mover, string> colorOf = null)
+        public Recorder(string name, string note, Geo geo, IList<Mover> movers, Func<Mover, string> tplOf, Battle battle, int turns, Func<Mover, string> colorOf = null, Func<Mover, string> styleOf = null)
         {
             var R = Rules.Base;
             ms = movers.ToList(); this.battle = battle;
@@ -118,7 +118,7 @@ namespace Journal.Viewer
             {
                 var m = ms[i]; var u = m.P.U; idx[u.Id] = i;
                 var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
-                var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Name = u.Name, Tpl = tplOf(m), Type = u.Type, Men = u.Soldiers, Color = colorOf?.Invoke(m),
+                var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Name = u.Name, Tpl = tplOf(m), Type = u.Type, Men = u.Soldiers, Color = colorOf?.Invoke(m), Style = styleOf?.Invoke(m),
                     PerMan = f.PerMan, RankDepth = f.RankDepth, Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
                 foreach (var fig in m.P.Figs) info.Figs.Add(new[] { fig.Width, fig.Depth, fig.Men, fig.Rank });
                 Rec.Units.Add(info);
@@ -243,7 +243,8 @@ namespace Journal.Viewer
             var R = Rules.Base;
             var ms = sc.Units.Select(u => u.M).ToList();
             if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
-            var rc = new Recorder(sc.Name, sc.Note, sc.Geo, ms, m => sc.Tpl[m], sc.Battle, sc.Turns, m => sc.Color.TryGetValue(m, out var c) ? c : null);
+            var rc = new Recorder(sc.Name, sc.Note, sc.Geo, ms, m => sc.Tpl[m], sc.Battle, sc.Turns, m => sc.Color.TryGetValue(m, out var c) ? c : null,
+                                  m => sc.Style.TryGetValue(m, out var st) ? st : null);
             rc.Rec.Image = sc.Image;
             rc.Snap();
             for (int turn = 0; turn < sc.Turns; turn++)

@@ -19,6 +19,7 @@ namespace Journal.Viewer
         public Action<int> Before;                               // перед ходом i (с нуля): приказы между ходами
         public byte[] Image;                                     // картинка карты вместо земли по клеткам (сохранение трекера)
         public readonly Dictionary<Mover, string> Color = new Dictionary<Mover, string>();   // цвет отряда (#rrggbb); нет — оттенок стороны
+        public readonly Dictionary<Mover, string> Style = new Dictionary<Mover, string>();   // стиль облика (В16); нет — западный
         public readonly Dictionary<int, string> SideNames = new Dictionary<int, string>();   // сторона → имя (сохранение — фракции через запятую)
 
         static Rules R => Rules.Base;

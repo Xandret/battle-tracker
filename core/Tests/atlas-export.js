@@ -1,127 +1,121 @@
-// ═══════════ atlas-export.js — рисунок полигона в атласы для Unity (И2, смотрелка боя) ═══════════
-// Запускается на странице полигона (там уже есть все функции рисования): game/Tools/art-server.mjs отдаёт страницу и
-// принимает файлы. exportAtlases() рисует каждую часть бойца, коня, павшего и природы теми же функциями, что полигон,
-// раскладывает по атласам и шлёт PNG и JSON в game/Assets/Resources/Art.
-// Цвет стороны в рисунке — пурпурный #ff00ff (вместе с его светлыми и тёмными оттенками): Unity перекрашивает его в цвет
-// отряда шейдером (Men.shader), поэтому один атлас годится для любой стороны и любого отряда.
+// ═══════════ atlas-export.js — рисунок бойцов (В18) в атласы для Unity (И2, смотрелка боя) ═══════════
+// Запускается на странице пробы core/Tests/men-flat.html (там рисовальщики polygon-men.js и polygon-men-flat.js):
+// game/Tools/art-server.mjs отдаёт страницу и принимает файлы. exportAtlases(["men", "horses", "dead"]) рисует каждую
+// часть теми же функциями, что проба, раскладывает по атласам и шлёт PNG и JSON в game/Assets/Resources/Art.
+// Природа (кроны, кусты, камни) — на странице полигона (core/polygon/polygon.html): exportAtlases(["nature"]).
+// Цвет в атласе и в Unity:
+//   - маркерный пурпурный #ff00ff (с его светлыми и тёмными оттенками и смесями) Unity перекрашивает в цвет вершины —
+//     шейдер Men: цвет стороны, у тела в своей одежде — цвет одежды, у щита — цвет поля;
+//   - белые части (волосы, шапки, капюшоны, тюрбаны, предплечья) Unity умножает на цвет вершины (режим «нейтральная»).
+// Так один атлас годится для любой стороны, стиля и одежды.
 // JSON атласа: { ppm, w, h, sprites: { имя: [x, y, w, h — пиксели в атласе, x0, y0, x1, y1 — рамка в метрах] } };
-// метры — оси бойца полигона: вперёд — вверх (−y), начало — середина плеч (у коня — середина спины).
+// метры — оси бойца пробы: вперёд — вверх (−y), начало — середина плеч (у коня — седло).
 (function(){
-  const KEY = "#ff00ff";
+  const KEY = "#ff00ff", WHITE = "#ffffff";
   const C2 = DEVICE;                       // второй цвет герба: белый, золотой, чёрный
-  const ARMOURS = ["cloth", "mail", "leather0", "leather1", "leather2", "plate"];
-  const CLOTH_KEYS = ["f"].concat(CLOTHS.map((_, i) => "c" + i));   // f — цвет стороны, cN — своя одежда
-  const clothOf = key => key === "f" ? KEY : CLOTHS[+key.slice(1)];
-  const armourOf = a => a.startsWith("leather") ? ["leather", LEATHER[+a.slice(7)]] : [a, LEATHER[0]];
+  const PAINTS = ["plain", "halves", "quarters", "stripe", "cross", "chevron"];
+  const SH_PAINTS = PAINTS.concat(["boss", "wood"]);
+  const SHAPES = ["round", "oval", "heater", "kite", "adarga"];
+  // раскладки тела (fLayout): имя части → комплект для рисовальщика. Ключ — тот же, что Kit.LayoutKey в Unity (Kits.cs)
+  function layouts(){
+    const L = [["cloth", {armour: "cloth"}], ["leather", {armour: "leather"}], ["kaftan", {style: "east", armour: "lamellar"}], ["lacing", {armour: "oyoroi"}]];
+    for(const a of ["mail", "plate"]) for(const p of PAINTS) C2.forEach((c2, i) => L.push([`tabard/${a}/${p}/${i}`, {armour: a, tabard: p, c2}]));
+    for(const a of ["mail", "scale"]) L.push([`cloak/${a}`, {style: "north", armour: a}]);
+    C2.forEach((c2, i) => L.push([`dou/${i}`, {armour: "dou", col: c2}]));   // у доу мон — второго цвета: пурпурный там — одежда
+    return L.map(([key, k]) => [key, Object.assign({style: "west", cloth: KEY, col: KEY, leather: LEATHER[0], tabard: "plain", c2: C2[0]}, k)]);
+  }
 
   // ── список частей: [атлас, имя, рамка в метрах, рисование] ──
   function parts(){
     const P = [];
     const add = (atlas, name, box, paint, res = 1) => P.push({atlas, name, box, paint, res});   // res — доля разрешения атласа
-    // поклажа за спиной
-    add("men", "back/cape", [-0.3, -0.02, 0.3, 0.42], g => backItem(g, {back: "cape", backCol: shade(KEY, -0.3)}));
-    add("men", "back/roll", [-0.26, 0.05, 0.26, 0.28], g => backItem(g, {back: "roll"}));
-    add("men", "back/bag", [-0.15, 0.03, 0.15, 0.3], g => backItem(g, {back: "bag"}));
-    add("men", "back/quiver", [-0.04, -0.06, 0.3, 0.38], g => backItem(g, {back: "quiver"}));
-    C2.forEach((c2, i) => add("men", "back/pavise/" + i, [-0.31, 0.09, 0.31, 0.33], g => backItem(g, {back: "pavise", backCol: KEY, c2})));
-    // плечи с бронёй (без головы и поклажи)
-    for(const ck of CLOTH_KEYS) for(const a of ARMOURS){
-      const [armour, leather] = armourOf(a);
-      add("men", `body/${ck}/${a}`, [-0.31, -0.16, 0.31, 0.2], g => paintBody(g, {back: "none", helm: "none", cloth: clothOf(ck), armour, leather}));
+    if(typeof fBody === "function"){
+      // ── бойцы ──
+      for(const [key, k] of layouts()) add("men", "body/" + key, [-0.34, -0.18, 0.34, 0.15], g => fBody(g, k));
+      const HB = [-0.2, -0.27, 0.2, 0.26];
+      for(const h of ["hair", "cap", "hood", "turban"]) add("men", "head/" + h, HB, g => fHead(g, {helm: h, helmCol: WHITE, col: KEY}));
+      F_HAIRS.fareast.forEach((c, i) => add("men", "head/hachimaki/" + i, HB, g => fHead(g, {helm: "hachimaki", helmCol: c, col: KEY})));
+      for(const h of ["kettle", "capSteel", "nasal", "shishak", "pointed", "great", "bascinet", "sallet", "barbute", "morion"]) add("men", "head/" + h, HB, g => fHead(g, {helm: h, col: KEY}));
+      add("men", "head/great/crest", HB, g => fHead(g, {helm: "great", crest: KEY, col: KEY}));
+      for(const h of ["kabuto", "jingasa"]) add("men", "head/" + h, HB, g => fHead(g, {helm: h, helmCol: F_LACQ, col: KEY}));
+      // щиты: в руке — ребром (shtop), у павших — плашмя (shield); поле — пурпурное (цвет поля), второй цвет — герб
+      for(const shape of SHAPES) for(const p of SH_PAINTS) C2.forEach((c2, i) => {
+        const sh = {shape, paint: p, c1: KEY, c2};
+        add("men", `shtop/${shape}/${p}/${i}`, [-0.26, -0.11, 0.26, 0.08], g => fShieldTop(g, sh));
+        add("men", `shield/${shape}/${p}/${i}`, [-0.26, -0.31, 0.26, 0.37], g => fShield(g, sh));
+      });
+      const bk = {shape: "buckler", paint: "steel", c1: KEY, c2: C2[0]};
+      add("men", "shtop/buckler/steel", [-0.26, -0.11, 0.26, 0.08], g => fShieldTop(g, bk));
+      add("men", "shield/buckler/steel", [-0.15, -0.15, 0.15, 0.15], g => fShield(g, bk));
+      // оружие; длинным древкам хватает половины разрешения
+      for(const w of Object.keys(F_WBOX))
+        add("men", "weapon/" + w, F_WBOX[w].map((v, i) => v + (i < 2 ? -0.03 : 0.03)), g => fWeapon(g, w, KEY), ["pike", "lance", "spear", "fork", "halberd", "naginata", "daneaxe", "javelin"].includes(w) ? 0.5 : 1);
+      for(const kind of ["bow", "recurve", "yumi"]) for(let st = 0; st <= 4; st++) add("men", `bow/${kind}/${st}`, [-0.5, -1.14, 0.45, 0.22], g => fBow(g, st, kind));
+      for(let st = 0; st <= 3; st++) add("men", "xbow/" + st, [-0.3, -0.68, 0.38, 0.08], g => fXbow(g, st));
+      // предплечье — белое (Unity умножает на цвет рукава), от локтя (0, 0) к кисти (0, −FA_LEN); кисти
+      add("men", "arm", [-0.07, -FA_LEN - 0.07, 0.07, 0.07], g => fStick(g, 0, 0, 0, -FA_LEN, 0.07, WHITE));
+      for(const kind of ["skin", "glove", "plate"]) add("men", "hand/" + kind, [-0.05, -0.05, 0.05, 0.05], g => fHand(g, kind));
+      // за спиной
+      const BB = [-0.3, -0.05, 0.36, 0.36];
+      add("men", "back/cape", BB, g => fBack(g, {back: "cape", backCol: shade(KEY, -0.3)}));
+      for(const b of ["roll", "bag"]) add("men", "back/" + b, BB, g => fBack(g, {back: b}));
+      add("men", "back/quiver", BB, g => fBack(g, {back: "quiver", style: "west"}));
+      add("men", "back/quiver/lacq", BB, g => fBack(g, {back: "quiver", style: "fareast"}));
+      C2.forEach((c2, i) => { for(const b of ["pavise", "sashimono"]) add("men", `back/${b}/${i}`, BB, g => fBack(g, {back: b, backCol: KEY, c2})); });
+      add("men", "boot", [-0.06, -0.09, 0.06, 0.09], fBoot);
+      // ноги всадника: штаны — пурпурные (цвет одежды); латы и о-ёрой — свои
+      const RB = [-0.38, -0.16, 0.38, 0.14];
+      add("men", "rider/n", RB, g => fRiderLegs(g, {armour: "cloth", cloth: KEY}));
+      for(const a of ["plate", "oyoroi"]) add("men", "rider/" + a, RB, g => fRiderLegs(g, {armour: a, cloth: KEY}));
+      // служебные: белый круг и мягкое пятно (кровь, тени — Unity красит цветом вершины), белый квадрат (стрелы, поводья)
+      const util = atlas => {
+        add(atlas, "util/disc", [-0.5, -0.5, 0.5, 0.5], g => { g.beginPath(); g.arc(0, 0, 0.48, 0, 6.283); g.fillStyle = WHITE; g.fill(); });
+        add(atlas, "util/soft", [-0.5, -0.5, 0.5, 0.5], g => { const gr = g.createRadialGradient(0, 0, 0, 0, 0, 0.5); gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.6, "rgba(255,255,255,.55)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(-0.5, -0.5, 1, 1); });
+      };
+      util("men"); util("horses");
+      add("men", "util/px", [-0.05, -0.05, 0.05, 0.05], g => { g.fillStyle = WHITE; g.fillRect(-0.05, -0.05, 0.1, 0.1); });
+      add("men", "util/spark", [-0.16, -0.16, 0.16, 0.16], paintSpark);   // вспышка удара (В13)
+      // ── кони: по масти — ноги (и в белом «чулке»), хвост, туловище, голова по отметине и броне; павший конь ──
+      const HH = [-0.21, -0.83, 0.21, 0.14];
+      COATS.forEach((coat, ci) => {
+        const base = {coat, col: KEY, c2: C2[0], bard: "none", mark: "none", tabard: "plain", socks: 0};
+        const with_ = o => Object.assign({}, base, o);
+        add("horses", `hleg/${ci}`, [-0.07, -0.18, 0.07, 0.18], g => fHLeg(g, base, false));
+        add("horses", `hleg/${ci}/s`, [-0.07, -0.18, 0.07, 0.18], g => fHLeg(g, base, true));
+        add("horses", `htail/${ci}`, [-0.1, -0.02, 0.1, 0.59], g => fHTail(g, base));
+        add("horses", `hbody/${ci}`, [-0.28, -0.72, 0.28, 0.98], g => fHBody(g, base));
+        for(const mark of ["none", "star", "blaze", "snip"]) add("horses", `hhead/${ci}/${mark}`, HH, g => fHHead(g, with_({mark})));
+        C2.forEach((c2, i) => add("horses", `hhead/${ci}/full/${i}`, HH, g => fHHead(g, with_({bard: "full", c2}))));
+        add("horses", `hhead/${ci}/lamellar`, HH, g => fHHead(g, with_({bard: "lamellar"})));
+        const dh = [["none", {}], ["cloth", {bard: "cloth"}], ["lamellar", {bard: "lamellar"}]].concat(C2.map((c2, i) => ["full/" + i, {bard: "full", c2}]));
+        for(const [bkey, o] of dh) add("dead", `deadhorse/${ci}/${bkey}`, [-0.52, -1.68, 0.98, 1.58], g => fDeadHorse(g, with_(o), false), 0.75);
+      });
+      // попона и седло поверх туловища
+      const HC = [-0.33, -0.8, 0.33, 1.1], hk = o => Object.assign({coat: COATS[0], col: KEY, c2: C2[0], bard: "none", tabard: "plain"}, o);
+      add("horses", "hcover/none", HC, g => fHCover(g, hk({})));
+      add("horses", "hcover/lamellar", HC, g => fHCover(g, hk({bard: "lamellar"})));
+      C2.forEach((c2, i) => {
+        add("horses", "hcover/cloth/" + i, HC, g => fHCover(g, hk({bard: "cloth", c2})));
+        for(const p of PAINTS) add("horses", `hcover/full/${p}/${i}`, HC, g => fHCover(g, hk({bard: "full", tabard: p, c2})));
+      });
+      // ── павшие и раненые: тело без головы (её Unity кладёт шлемом), оружие и щит Unity кладёт рядом ──
+      for(const [key, k] of layouts()){
+        for(let v = 0; v < 2; v++) add("dead", `corpse/${key}/${v}`, [-0.75, -0.5, 0.75, 0.98], g => fLying(g, k, corpsePose(v)));
+        add("dead", `crawl/${key}`, [-0.5, -1.06, 0.45, 0.95], g => fLying(g, k, CRAWL_POSE));
+      }
     }
-    // головы и шлемы
-    HAIRS.forEach((c, i) => add("men", "head/hair/" + i, [-0.15, -0.15, 0.15, 0.15], g => paintHead(g, {helm: "hair", helmCol: c})));
-    for(const h of ["cap", "hood"]) for(const ck of ["f"].concat(CLOTHS.map((_, i) => "c" + i)))
-      add("men", `head/${h}/${ck}`, [-0.16, -0.16, 0.16, 0.29], g => paintHead(g, {helm: h, helmCol: ck === "f" ? shade(KEY, -0.25) : clothOf(ck)}));
-    for(const h of ["kettle", "capSteel", "nasal", "great", "bascinet", "morion"])
-      add("men", "head/" + h, [-0.2, -0.24, 0.2, 0.24], g => paintHead(g, {helm: h}));
-    add("men", "head/great/crest", [-0.2, -0.24, 0.2, 0.24], g => paintHead(g, {helm: "great", crest: KEY}));
-    // сюрко поверх тела (В15): поле — сторона, герб — второй цвет; Unity кладёт между телом и головой
-    for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron"])
-      C2.forEach((c2, i) => add("men", `tabard/${paint}/${i}`, [-0.22, -0.15, 0.22, 0.2], g => paintTabard(g, paint, KEY, c2)));
-    // руки (В15): предплечье — от локтя (0, 0) к кисти (0, −FA_LEN), Unity растягивает по длине; рукав — по доспеху
-    for(const key of CLOTH_KEYS.concat(["mail", "plate", "leather0", "leather1", "leather2"])){
-      const k = key === "mail" || key === "plate" ? {armour: key} : key.startsWith("leather") ? {armour: "leather", leather: LEATHER[+key.slice(7)]} : {armour: "cloth", cloth: clothOf(key)};
-      add("men", "arm/" + key, [-0.06, -FA_LEN - 0.06, 0.06, 0.06], g => paintForearm(g, k));
+    // ── природа (страница полигона): кроны деревьев (4 палитры × 6 форм), кусты, камни — радиус 1, Unity растягивает ──
+    if(typeof TREES !== "undefined"){
+      TREES.forEach((pal, pi) => { for(let s = 0; s < 6; s++) add("nature", `tree/${pi}/${s}`, [-1.2, -1.2, 1.2, 1.2], g => crownUnit(g, s * 977 + pi * 31, pal, 7)); });
+      for(let s = 0; s < 6; s++) add("nature", "bush/" + s, [-1.2, -1.2, 1.2, 1.2], g => crownUnit(g, s * 571 + 5, BUSH, 5));
+      for(let s = 0; s < 6; s++) add("nature", "boulder/" + s, [-1.25, -1.25, 1.25, 1.25], g => boulder(g, 0, 0, 1, s * 313 + 9, 0.06));
     }
-    for(const kind of ["skin", "glove", "plate"]) add("men", "hand/" + kind, [-0.05, -0.055, 0.05, 0.055], g => paintHand(g, kind));
-    // стоящий боец (В17): цилиндры, шары, срезы корпуса — белые (Unity умножает на цвет ткани, кожи) или своего цвета
-    // (кольчуга, латы, пояс); срезы сюрко — поле стороны и герб; лица и забрала, изнанки щитов, плащ и павеза стоймя
-    for(const kind of ["cloth", "leather", "mail", "plate"]) add("men", "cyl/" + kind, [-CYL_R - 0.015, -CYL_L, CYL_R + 0.015, 0], g => paintCyl(g, kind));
-    for(const kind of ["cloth", "mail", "steel"]) add("men", "ball/" + kind, [-BALL_R - 0.015, -BALL_R - 0.015, BALL_R + 0.015, BALL_R + 0.015], g => paintBall(g, kind));
-    const SLICE_BOX = [-SLICE_RX - 0.015, -SLICE_RY - 0.03, SLICE_RX + 0.015, SLICE_RY + 0.015];
-    for(const kind of ["cloth", "brig", "mail", "plate", "belt"]) add("men", "slice/" + kind, SLICE_BOX, g => paintSlice(g, kind));
-    for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron"]) for(const band of ["u", "l"])
-      C2.forEach((c2, i) => add("men", `slice/tab/${paint}/${band}/${i}`, SLICE_BOX, g => paintSlice(g, "tab", KEY, paint, band, c2)));
-    for(const kind of ["open", "great", "bascinet"]) add("men", "face/" + kind, [-0.09, -0.1, 0.09, 0.1], g => paintFace(g, kind));
-    for(const shape of ["round", "oval", "heater", "buckler"]) add("men", "shieldback/" + shape, [-0.25, -0.3, 0.25, 0.31], g => paintShieldBack(g, shape));
-    add("men", "capev", [-0.26, -0.44, 0.26, 0.47], g => paintCapeV(g, KEY));
-    add("men", "legs2", [-0.16, -0.45, 0.16, 0.45], g => paintLegs2(g));
-    // конь стоймя (В17): срезы туловища (масть — умножением), попона с гербом, сёдла с чепраком
-    const HSL_BOX = [-HSL_RX - 0.03, -HSL_RY - 0.03, HSL_RX + 0.03, HSL_RY + 0.03];
-    add("men", "hslice/coat", HSL_BOX, g => paintHSlice(g, "coat"));
-    C2.forEach((c2, i) => add("men", "hslice/bard/" + i, HSL_BOX, g => paintHSlice(g, "bard", KEY, c2)));
-    for(const kind of ["none", "cloth"]) add("men", "saddle/" + kind, [-0.3, -0.33, 0.3, 0.35], g => paintSaddle(g, kind, KEY));
-    C2.forEach((c2, i) => add("men", "pavisev/" + i, [-0.3, -0.47, 0.3, 0.47], g => paintPaviseV(g, KEY, c2)));
-    // щиты: лицом, цвет поля — сторона, второй цвет — герб
-    for(const shape of ["round", "oval", "heater"])
-      for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron", "boss", "wood"])
-        C2.forEach((c2, i) => add("men", `shield/${shape}/${paint}/${i}`, [-0.26, -0.31, 0.26, 0.31], g => paintShield(g, {shape, paint, c1: KEY, c2})));
-    add("men", "shield/buckler/steel/0", [-0.15, -0.15, 0.15, 0.15], g => paintShield(g, {shape: "buckler", paint: "steel", c1: KEY, c2: C2[0]}));
-    // оружие, лук и арбалет в разных состояниях, сапог
-    // древки длинные и тонкие — им хватает половины разрешения, иначе одна полка атласа занимает полвысоты
-    for(const w of Object.keys(WBOX)) add("men", "weapon/" + w, WBOX[w], g => paintWeapon(g, w, KEY), ["pike", "lance", "spear", "fork"].includes(w) ? 0.5 : 1);
-    for(let st = 0; st <= 4; st++) add("men", "bow/" + st, [-0.36, -1.12, 0.36, 0.2], g => paintBow(g, st));
-    for(let st = 0; st <= 3; st++) add("men", "xbow/" + st, [-0.3, -0.68, 0.38, 0.08], g => paintXbow(g, st));   // 2, 3 — взвод через стремя (В13)
-    add("men", "boot", [-0.06, -0.08, 0.06, 0.08], g => ell(g, 0, 0, 0.045, 0.07, "#3a2c20", 0, false));
-    // служебные: белый круг и мягкое пятно (кровь, тени — Unity красит цветом вершины), белый квадрат (стрелы)
-    add("men", "util/disc", [-0.5, -0.5, 0.5, 0.5], g => { g.beginPath(); g.arc(0, 0, 0.48, 0, 6.283); g.fillStyle = "#fff"; g.fill(); });
-    add("men", "util/soft", [-0.5, -0.5, 0.5, 0.5], g => { const gr = g.createRadialGradient(0, 0, 0, 0, 0, 0.5); gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.6, "rgba(255,255,255,.55)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(-0.5, -0.5, 1, 1); });
-    add("men", "util/px", [-0.05, -0.05, 0.05, 0.05], g => { g.fillStyle = "#fff"; g.fillRect(-0.05, -0.05, 0.1, 0.1); });
-    add("men", "util/spark", [-0.16, -0.16, 0.16, 0.16], paintSpark);   // вспышка удара (В13)
-    // кони: масть × попона × кадр галопа (−1 — стоит)
-    COATS.forEach((coat, ci) => {
-      const bards = [["none", 0], ["cloth", 0], ["full", 0], ["full", 1], ["full", 2]];
-      for(const [bard, c2i] of bards) for(let f = -1; f <= 3; f++)
-        add("horses", `horse/${ci}/${bard}${bard === "full" ? "/" + c2i : ""}/${f}`, [-0.36, -1.36, 0.36, 1.37],
-          g => paintHorse(g, {coat, bard, col: KEY, c2: C2[c2i]}, f));
-      for(const bard of ["none", "cloth", "full"]) add("dead", `deadhorse/${ci}/${bard}`, [-0.5, -1.35, 0.75, 1.0], g => paintDeadHorse(g, {coat, bard, col: KEY}));
-      // конь по частям (В13): ноги, хвост, туловище, голова (у полной барды — в стальном налобнике); места и походка —
-      // HLEG, HTAIL, HNECK и horsePose в polygon-men.js
-      const k = {coat, bard: "none", col: KEY};
-      add("horses", `hrig/leg/${ci}`, HBOX.leg, g => paintHorseLeg(g, k));
-      add("horses", `hrig/tail/${ci}`, HBOX.tail, g => paintHorseTail(g, k));
-      add("horses", `hrig/body/${ci}`, HBOX.body, g => paintHorseBody(g, k));
-      add("horses", `hrig/head/${ci}`, HBOX.head, g => paintHorseHead(g, k));
-      add("horses", `hrig/head/${ci}/full`, HBOX.head, g => paintHorseHead(g, {coat, bard: "full", col: KEY}));
-    });
-    // попоны поверх туловища: седло, чепрак цвета стороны, полная барда с полосой герба
-    add("horses", "hrig/cover/none", HBOX.cover, g => paintHorseCover(g, {bard: "none", col: KEY}));
-    add("horses", "hrig/cover/cloth", HBOX.cover, g => paintHorseCover(g, {bard: "cloth", col: KEY}));
-    C2.forEach((c2, i) => add("horses", "hrig/cover/full/" + i, HBOX.cover, g => paintHorseCover(g, {bard: "full", col: KEY, c2})));
-    // павшие: лежит на спине, голова — к −y (её рисует Unity шлемом), ноги у начала
-    for(const ck of CLOTH_KEYS) for(const a of ARMOURS) for(let v = 0; v < 2; v++){
-      const [armour, leather] = armourOf(a);
-      add("dead", `corpse/${ck}/${a}/${v}`, [-0.72, -0.5, 0.72, 0.95], g => corpseBody(g, clothOf(ck), armour, leather, v));
-    }
-    // раненый ползёт (Г39, В13): лицом вниз, без головы (её Unity кладёт шлемом), рывок за рывком — отражённый рисунок
-    for(const ck of CLOTH_KEYS) for(const a of ARMOURS){
-      const [armour, leather] = armourOf(a);
-      add("dead", `crawl/${ck}/${a}`, [-0.5, -1.06, 0.45, 0.95], g => paintCrawlBody(g, clothOf(ck), armour, leather));
-    }
-    // природа: кроны деревьев (4 палитры × 6 форм), кусты, камни — радиус 1, Unity растягивает до нужного
-    TREES.forEach((pal, pi) => { for(let s = 0; s < 6; s++) add("nature", `tree/${pi}/${s}`, [-1.2, -1.2, 1.2, 1.2], g => crownUnit(g, s * 977 + pi * 31, pal, 7)); });
-    for(let s = 0; s < 6; s++) add("nature", "bush/" + s, [-1.2, -1.2, 1.2, 1.2], g => crownUnit(g, s * 571 + 5, BUSH, 5));
-    for(let s = 0; s < 6; s++) add("nature", "boulder/" + s, [-1.25, -1.25, 1.25, 1.25], g => boulder(g, 0, 0, 1, s * 313 + 9, 0.06));
     return P;
   }
   // крона радиуса 1 м: та же функция полигона, крупно (детали — как вблизи)
   function crownUnit(g, s, pal, nb){ crown(g, 0, 0, 1, s, pal, 60, 0.07, nb); }
-  // тело павшего без головы, оружия и щита (их Unity кладёт рядом сам) — как paintCorpse полигона
-  function corpseBody(g, cloth, armour, leather, v){ paintLying(g, cloth, armour, leather, corpsePose(v)); }
 
-
-  const PPM = {men: 128, horses: 72, dead: 72, nature: 64};
+  const PPM = {men: 128, horses: 96, dead: 72, nature: 64};
   const PAD = 4;
   // рисуем часть в свой холст, раскладываем полками по атласу ширины 2048
   async function build(atlas, list){
@@ -139,6 +133,7 @@
       it.x = x; it.y = y; x += it.w + PAD; shelf = Math.max(shelf, it.h);
     }
     let H = 1; while(H < y + shelf + PAD) H *= 2;
+    if(H > 2048) throw new Error(`атлас ${atlas} выше 2048 (${H}) — Unity его ужмёт`);
     const A = document.createElement("canvas"); A.width = W; A.height = H;
     const ga = A.getContext("2d");
     const sprites = {};
@@ -155,7 +150,9 @@
     const all = parts(), out = [];
     for(const atlas of ["men", "horses", "dead", "nature"]){
       if(only && !only.includes(atlas)) continue;
-      const r = await build(atlas, all.filter(p => p.atlas === atlas));
+      const list = all.filter(p => p.atlas === atlas);
+      if(!list.length){ out.push(`${atlas}: нет рисовальщиков на этой странице`); continue; }
+      const r = await build(atlas, list);
       await fetch(`/save?file=${atlas}.png`, {method: "POST", body: r.png});
       await fetch(`/save?file=${atlas}.json`, {method: "POST", body: r.json});
       out.push(`${atlas}: ${r.count} частей, ${r.W}×${r.H}`);

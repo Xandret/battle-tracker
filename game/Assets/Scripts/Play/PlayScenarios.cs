@@ -20,6 +20,7 @@ namespace Journal.Play
         public readonly Dictionary<Mover, string> Tpl = new Dictionary<Mover, string>();   // шаблон — облик бойцов
         public readonly Dictionary<Mover, double> StartMen = new Dictionary<Mover, double>();
         public readonly Dictionary<Mover, string> Color = new Dictionary<Mover, string>();  // цвет фракции (сохранение); нет — оттенок стороны
+        public readonly Dictionary<Mover, string> Style = new Dictionary<Mover, string>();  // стиль облика (В16, сохранение); нет — западный
         public byte[] Image;                                                                // картинка карты (сохранение); null — земля по клеткам
     }
 
@@ -46,6 +47,7 @@ namespace Journal.Play
             {
                 pb.Tpl[m] = sc.Tpl[m]; pb.StartMen[m] = m.P.U.Soldiers;
                 if (sc.Color.TryGetValue(m, out var c) && c != null) pb.Color[m] = c;
+                if (sc.Style.TryGetValue(m, out var st) && st != null) pb.Style[m] = st;
             }
             return pb;
         }
