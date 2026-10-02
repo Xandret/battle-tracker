@@ -4,6 +4,7 @@
 // тяжёлые рыцари. Стиль пока только хранится — рисунок по стилям придёт с перерисовкой солдатиков (В15, шаг 2).
 using System.Collections.Generic;
 using System.Linq;
+using BattleCore;
 
 namespace Journal.Art
 {
@@ -55,17 +56,26 @@ namespace Journal.Art
         // шаблон, чей облик — этот набор (облик в смотрелке берётся из шаблона: Kits.LookByTpl)
         public static string TplOf(string id) => All.FirstOrDefault(s => s.Id == id).Tpl;
 
-        // по имени и роду войск (как угадывала смотрелка для сохранений)
+        // облик шаблона, который движок подбирает по названию (Templates.Match, как трекер при сборе армий). Род войск
+        // отряда важнее угаданного, если он не стоит по умолчанию (пехота ближнего боя — так трекер создаёт любой отряд, и
+        // в сохранениях так остались многие лучники и пикинёры); но верхом — только конница: пеший отряд «Рыцари Лоутайда» —
+        // пешие рыцари. Что название называет прямо (арбалетчики, мечники, латники, тяжёлая конница) — поверх шаблона.
         public static string Guess(string name, string type, string weapon = null)
         {
-            string n = (name ?? "").ToLowerInvariant();
+            string n = Units.NameKey(name);
             if (n.Contains("арбалет")) return "crossbow";
-            if (n.Contains("лучник") || n.Contains("охотник") || n.Contains("стрелк") || type == "archer" || weapon == "ranged" && type != "cavalry") return "bow";
-            if (n.Contains("пикин") || n.Contains("алебард") || type == "pike") return "pike";
-            if (type == "cavalry") return n.Contains("элит") || n.Contains("тяжел") || n.Contains("тяжёл") ? "barded" : "lance";
-            if (n.Contains("страж") || n.Contains("гвард") || n.Contains("мечник") || n.Contains("рыцар") || n.Contains("латник")) return "sword";
-            if (n.Contains("ополч") || n.Contains("крестьян") || n.Contains("новобран")) return "militia";
-            return "spear";
+            bool byDefault = type == null || type == "infantry" && weapon != "ranged";
+            var g = byDefault ? Units.GuessType(name) : new UnitGuess(type == "infantry" ? "archer" : type, weapon ?? "melee", null);
+            if (type != null && type != "cavalry" && g?.Type == "cavalry") g = new UnitGuess("infantry", "melee", null);
+            var m = Templates.Match(name, g);
+            string kind = g?.Type ?? type;
+            // ополчение шаблон даёт и любой нераспознанной пехоте — облик ополчения только тем, кто так и назван
+            bool militia = n.Contains("ополч") || n.Contains("крестьян") || n.Contains("новобран");
+            string look = !m.Fallback && (m.Id != "militia" || militia) && Kits.LookByTpl.TryGetValue(m.Id, out var l) ? l
+                : kind == "cavalry" ? "lance" : kind == "pike" ? "pike" : kind == "archer" ? "bow" : "spear";
+            if (look == "spear" && (n.Contains("мечник") || n.Contains("латник"))) return "sword";
+            if (look == "lance" && n.Contains("тяжел")) return "barded";
+            return look;
         }
     }
 }

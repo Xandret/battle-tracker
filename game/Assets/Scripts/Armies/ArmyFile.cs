@@ -220,6 +220,28 @@ namespace Journal.Armies
             u.Remove(); Log($"Юнит «{(string)u["name"]}» убран с карты");
         }
 
+        // ── шаблоны: правки партии (templateOverrides трекера) — общие и по фракциям ──
+        public BattleCore.TemplateOverrides Overrides() => BattleCore.Templates.NormalizeOverrides(Plain(Root["templateOverrides"]));
+        // дерево JSON в виде, который ждёт движок: словари, списки, строки, числа, bool, null
+        static object Plain(JToken t)
+        {
+            switch (t?.Type)
+            {
+                case JTokenType.Object: return ((JObject)t).Properties().ToDictionary(p => p.Name, p => Plain(p.Value));
+                case JTokenType.Array: return t.Select(Plain).ToList();
+                case null: case JTokenType.Null: case JTokenType.Undefined: return null;
+                default: return (t as JValue)?.Value;
+            }
+        }
+        // итоговый профиль для фракции: база → общие правки → правки фракции (как resolveTemplate трекера)
+        public BattleCore.UnitTemplate Resolve(string tplId, int? factionId) => BattleCore.Templates.Resolve(tplId, (string)Faction(factionId)?["name"] ?? "", Overrides());
+        // числа и род войск отряда — по профилю; род войск и оружие, угаданные по названию, важнее шаблонных
+        public static void Apply(JObject u, BattleCore.UnitTemplate t, string type = null, string weapon = null)
+        {
+            u["type"] = type ?? t.Type; u["weapon"] = weapon ?? t.Weapon;
+            foreach (var k in BattleCore.Templates.Stats) u[k] = Num(t[k]);
+        }
+
         // Облик по умолчанию (В16): стиль — угаданный по имени, иначе как у прошлого отряда фракции, иначе Западный
         public string DefaultStyle(int? factionId, string name, JObject except = null)
         {

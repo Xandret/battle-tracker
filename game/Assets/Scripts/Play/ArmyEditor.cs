@@ -29,7 +29,8 @@ namespace Journal.Play
         JObject unit, cmdr;                           // что открыто справа
         bool unitChanged;
         readonly List<JObject> fresh = new List<JObject>();   // созданы в этом окне — в журнал, когда уже названы
-        readonly HashSet<JObject> stylePicked = new HashSet<JObject>(), kitPicked = new HashSet<JObject>();   // облик выбран руками — не угадывать
+        // выбрано руками — по названию больше не подставлять: облик, род войск, числа, численность
+        readonly HashSet<JObject> stylePicked = new HashSet<JObject>(), kitPicked = new HashSet<JObject>(), typePicked = new HashSet<JObject>(), numsPicked = new HashSet<JObject>(), menPicked = new HashSet<JObject>();
         string pendingConfirm; float confirmUntil;    // «нажми ещё раз» для опасных действий
 
         readonly Label fileLabel, status, unitsTitle;
@@ -260,16 +261,16 @@ namespace Journal.Play
             var tdd = new DropdownField("Шаблон", tpls, 0);
             tdd.RegisterValueChangedCallback(e =>
             {
-                var t = Templates.Base.FirstOrDefault(x => x.Name == e.newValue); if (t == null) return;
-                u["type"] = t.Type; u["weapon"] = t.Weapon;
-                u["discipline"] = ArmyFile.Num(t.Discipline); u["morale"] = ArmyFile.Num(t.Morale); u["eqAtk"] = ArmyFile.Num(t.EqAtk); u["eqDef"] = ArmyFile.Num(t.EqDef);
-                u["exp"] = ArmyFile.Num(t.Exp); u["mastery"] = ArmyFile.Num(t.Mastery);
+                var b = Templates.Base.FirstOrDefault(x => x.Name == e.newValue); if (b == null) return;
+                var t = file.Resolve(b.Id, ArmyFile.Id(u["factionId"]));   // с правками партии и фракции, как в трекере
+                ArmyFile.Apply(u, t); numsPicked.Add(u); typePicked.Add(u);
                 if (Kits.LookByTpl.TryGetValue(t.Id, out var look)) { u["kit"] = look; kitPicked.Add(u); }
-                Changed(); Say($"Числа и снаряжение — по шаблону «{t.Name}»");
+                bool own = Templates.Stats.Any(k => Math.Abs(t[k] - b[k]) > 1e-9);
+                Changed(); Say($"Числа и снаряжение — по шаблону «{t.Name}»" + (own ? " с правками фракции" : ""));
             });
             form.Add(tdd);
-            Choice("Род войск", Types, (string)u["type"], v => { u["type"] = v; Changed(); });
-            Choice("Оружие", Weapons, (string)u["weapon"], v => { u["weapon"] = v; Changed(); });
+            Choice("Род войск", Types, (string)u["type"], v => { u["type"] = v; typePicked.Add(u); Changed(); });
+            Choice("Оружие", Weapons, (string)u["weapon"], v => { u["weapon"] = v; typePicked.Add(u); Changed(); });
             Lbl(form, "Облик", "army-h2");
             Choice("Снаряжение", KitSets.All.Select(k => (k.Id, k.Name)).ToArray(), ArmyFile.KitOf(u), v => { u["kit"] = v; kitPicked.Add(u); Changed(); });
             Choice("Стиль", Styles.All.Select(s => (s.Id, s.Name)).ToArray(), ArmyFile.StyleOf(u), v => { u["style"] = v; stylePicked.Add(u); Changed(); });
@@ -329,6 +330,7 @@ namespace Journal.Play
                 f.SetValueWithoutNotify((float)v);
                 o[key] = ArmyFile.Num(v);
                 if (key == "soldiers" && ArmyFile.Fresh(o)) o["initial"] = ArmyFile.Num(v);   // не воевал — это его полный состав
+                if (unitField) (key == "soldiers" ? menPicked : numsPicked).Add(o);
                 if (unitField) Changed(); else { file.Dirty = true; Rebuild(); }
             });
             form.Add(f);
@@ -342,15 +344,31 @@ namespace Journal.Play
             form.Add(d);
         }
         void Changed() { unitChanged = true; file.Dirty = true; Rebuild(); }
-        // новый отряд назвали — облик угадываем заново уже по настоящему имени (при создании имя временное), пока его не
-        // выбрали руками (В16)
+        // новый отряд назвали (при создании имя временное) — по настоящему имени заново: шаблон, как его подбирает трекер
+        // (Templates.Match, с правками фракции), и облик (В16); что выбрано руками, не трогаем
         void Reguess(JObject u)
         {
-            string style = (string)u["style"], kit = (string)u["kit"];
-            if (!stylePicked.Contains(u)) u["style"] = file.DefaultStyle(ArmyFile.Id(u["factionId"]), (string)u["name"], except: u);
-            if (!kitPicked.Contains(u)) u["kit"] = KitSets.Guess((string)u["name"], (string)u["type"], (string)u["weapon"]);
-            if ((string)u["style"] != style || (string)u["kit"] != kit)
-                Say($"Облик угадан по имени: {KitSets.NameOf((string)u["kit"])} · {Styles.NameOf((string)u["style"])} — можно сменить справа");
+            string name = (string)u["name"], style = (string)u["style"], kit = (string)u["kit"];
+            var fid = ArmyFile.Id(u["factionId"]);
+            var m = Templates.Match(name);
+            string tpl = null;
+            if (!m.Fallback)
+            {
+                // род войск — как autoDetectType трекера, пока его не выбрали руками; числа — шаблона, пока их не трогали
+                var t = file.Resolve(m.Id, fid);
+                if (!typePicked.Contains(u)) { u["type"] = m.Type ?? t.Type; u["weapon"] = m.Weapon ?? t.Weapon; }
+                if (!numsPicked.Contains(u))
+                {
+                    foreach (var k in Templates.Stats) u[k] = ArmyFile.Num(t[k]);
+                    if (!menPicked.Contains(u)) { u["soldiers"] = ArmyFile.Num(t.Size); u["initial"] = ArmyFile.Num(t.Size); }
+                    tpl = $"шаблон «{t.Name}»" + (m.Why != null ? $" ({m.Why})" : "");
+                }
+                else if (!typePicked.Contains(u) && m.Why != null) tpl = $"род войск — {m.Why}";
+            }
+            if (!stylePicked.Contains(u)) u["style"] = file.DefaultStyle(fid, name, except: u);
+            if (!kitPicked.Contains(u)) u["kit"] = KitSets.Guess(name, (string)u["type"], (string)u["weapon"]);
+            if (tpl != null || (string)u["style"] != style || (string)u["kit"] != kit)
+                Say($"По названию: {(tpl != null ? tpl + " · " : "")}{KitSets.NameOf((string)u["kit"])} · {Styles.NameOf((string)u["style"])} — можно сменить справа");
         }
         // журнал: созданное — «основана», «принял командование», «встал в строй» уже с настоящим именем; правка отряда —
         // одной записью «изменён», когда уходим с него (как в трекере)
@@ -378,10 +396,10 @@ namespace Journal.Play
         void AddUnit()
         {
             FlushUnitLog();
-            var t = Templates.Get("infantry");
+            var t = file.Resolve("infantry", factionId);
             string name = $"Отряд {file.Units.Count + 1}";
             unit = file.AddUnit(name, t, factionId, t.Size, log: false); fresh.Add(unit); cmdr = null;
-            Rebuild(); Say("Отряд создан по шаблону «Пехота» — выбери шаблон, снаряжение и стиль справа");
+            Rebuild(); Say("Отряд создан — впиши название: шаблон и облик подберутся по нему; поменять можно справа");
         }
         void CloneUnit()
         {
