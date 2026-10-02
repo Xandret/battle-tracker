@@ -37,7 +37,9 @@ namespace Journal.Viewer
         Camera cam;
         Material mat;
         GameObject groundGo; Mesh unitsMesh;
-        Color32[] unitCol;
+        Color32[] unitCol, unitColRaw;   // цвет стороны: для плашек (в линейном пространстве) и для шейдера бойцов (как есть)
+        MenView menView;
+        const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — плашки
         readonly List<Rect> uiRects = new List<Rect>();
         bool dragging; Vector2 dragFrom; Vector3 camFrom;
 
@@ -61,6 +63,7 @@ namespace Journal.Viewer
             unitsMesh.MarkDynamic();
             units.AddComponent<MeshFilter>().sharedMesh = unitsMesh;
             var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
+            menView = new MenView(transform);
             Load(0);
         }
 
@@ -187,14 +190,15 @@ namespace Journal.Viewer
             gm.SetVector("_Info", new Vector4(m.W, m.H, (float)(rec.W / m.W), 1));
             var r = groundGo.AddComponent<MeshRenderer>(); r.sharedMaterial = gm; r.sortingOrder = 0;
             // цвет отряда: оттенок стороны по порядку внутри фракции
-            unitCol = new Color32[rec.Units.Count];
+            unitCol = new Color32[rec.Units.Count]; unitColRaw = new Color32[rec.Units.Count];
             var seen = new Dictionary<int, int>();
             for (int i = 0; i < rec.Units.Count; i++)
             {
                 int f = rec.Units[i].Faction; seen.TryGetValue(f, out int k); seen[f] = k + 1;
                 var pal = Side.TryGetValue(f, out var p) ? p : Side[1];
-                unitCol[i] = Lin(Hex(pal[k % pal.Length]));
+                unitColRaw[i] = Hex(pal[k % pal.Length]); unitCol[i] = Lin(unitColRaw[i]);
             }
+            menView?.SetRecording(rec);
         }
 
         // ── отряды: тело — плашка ширина × глубина, повёрнутая по курсу; павшие — пятна; стрелы в полёте — чёрточки ──
@@ -214,6 +218,16 @@ namespace Journal.Viewer
         void DrawUnits()
         {
             V.Clear(); C.Clear(); I.Clear();
+            // близко — бойцы из рисунка полигона (MenView); плашки, павшие и стрелы ниже — только издали
+            float ppm = Screen.height / (2 * cam.orthographicSize);
+            if (menView != null && menView.Ok && ppm >= MenFrom)
+            {
+                var p = cam.transform.position; float hh = cam.orthographicSize, hw = hh * cam.aspect;
+                menView.Draw(t, unitColRaw, new Rect(p.x - hw, -p.y - hh, 2 * hw, 2 * hh), ppm);
+                unitsMesh.Clear();
+                return;
+            }
+            menView?.Hide();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             // павшие — под отрядами
             var blood = Lin(new Color32(110, 22, 18, 255));
