@@ -30,7 +30,7 @@ function kitsFor(i, col = RED, style = STYLE){
   if(!UNITS.has(key)) UNITS.set(key, {id: 300 + i * 17 + (col === BLUE ? 5 : 0) + STYLES.findIndex(s => s[0] === style) * 101, col, tpl: LOOKS[i][1], style});
   return kitsF(UNITS.get(key));
 }
-const W = Math.max(innerWidth, 1320), H = 3420;
+const W = Math.max(innerWidth, 1320), H = 3780;
 const c = document.getElementById("c"), dpr = window.devicePixelRatio || 1;
 c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
 ctx = c.getContext("2d");
@@ -122,6 +122,13 @@ function frame(t){
     y += s === 30 ? 250 : 125;
   }
   // ── 5. Конница ──
+  label("Кони вблизи (110 px/м): отметины, грива, уздечка и поводья, седло со стременами, чепрак, попона, ламелляр", 20, y); y += 16;
+  {
+    const s = 110, B0 = base(90, y + 1.5 * s, s);
+    const near = [kitsFor(6, RED, "west")[1], kitsFor(6, BLUE, "north")[3], kitsFor(7, RED, "west")[0], kitsFor(7, BLUE, "east")[0], kitsFor(6, RED, "fareast")[2], kitsFor(6, BLUE, "south")[5]];
+    near.forEach((k, i) => fCav(B0, i * 1.45, 0, 0, k, {v: i === 5 ? 1.6 : 0, ph: t * 1.6 / 1.7, t, seed: i + 40}));
+    y += 2.95 * s;
+  }
   label("Конница (55 px/м): стоят; скачут с опущенными копьями; конные лучники и сабли на шагу", 20, y); y += 16;
   {
     const s = 55;
@@ -159,8 +166,10 @@ function frame(t){
       const yy = 0.6 - ((n + e) * 0.32) % 2.2, M = mT(B1, 9.0 + j * 1.2, yy);
       put(fCrawlSpr(k), n % 2 ? mS(M, -1, 1) : M);
     }
-    put(fDeadHorseSpr(kitsFor(7, BLUE, "west")[0]), mR(mT(B1, 12.2, 0), 0.3));
-    put(fDeadHorseSpr(kitsFor(6, RED, "east")[1]), mR(mT(B1, 14.0, 0), -0.4));
+    // павшие кони: большая лужа у груди и шеи
+    [[kitsFor(7, BLUE, "west")[0], 12.0, 0.3], [kitsFor(6, RED, "east")[1], 14.2, -0.4]].forEach(([k, x, r], j) => {
+      const M = mR(mT(B1, x, 0.1), r); put(fBloodSpr(50 + j), mS(mT(M, 0.25, -0.4), 1.9, 1.9)); put(fDeadHorseSpr(k), M);
+    });
     // падение по кругу: стоит, удар — отшатнулся, падает навзничь, лужа растёт
     const B2 = base(60, y + 3.0 * s, s);
     for(let j = 0; j < 8; j++){
