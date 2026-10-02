@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Бойцы сверху — проба В18</title>
+<!-- Проба облика В18 «как у Iron Kings»: строго сверху, плоско (рисовальщик polygon-men-flat.js поверх polygon-men.js).
+     Смотреть: node game/Tools/art-server.mjs → http://localhost:8790/men-flat.html
+     ?bg=grass — трава вместо бумаги; ?t=2.5 — застыть в этот миг; ?shot=имя — снимок в game/Assets/_Shots/имя.png;
+     ?k=2 — пикселей на точку экрана (чётче снимок) -->
+<style>
+  body { margin: 0; background: #23201b; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script src="polygon-men.js"></script>
+<script src="polygon-men-flat.js"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+if(Q.get("k")) Object.defineProperty(window, "devicePixelRatio", {get: () => +Q.get("k")});
+const view = {s: 70};
+let ctx;
+const RED = "#d0503c", BLUE = "#3f78c0", GRASS = Q.get("bg") === "grass";
+const FOOT = [["militia", "militia", "Ополчение"], ["spear", "infantry", "Копейщики"], ["sword", "guard", "Мечники"],
+              ["pike", "pikemen", "Пикинёры"], ["bow", "archers", "Лучники"], ["crossbow", "crossbowmen", "Арбалетчики"]];
+const unitOf = (i, col) => ({id: 300 + i * 17 + (col === BLUE ? 5 : 0), col, tpl: FOOT[i][1]});
+const kitsFor = (i, col = RED) => kitsOf(unitOf(i, col));
+const W = Math.max(innerWidth, 1320), H = 2150;
+const c = document.getElementById("c"), dpr = window.devicePixelRatio || 1;
+c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
+ctx = c.getContext("2d");
+const sparks = [];
+
+function ground(){
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if(GRASS){
+    ctx.fillStyle = "#6f7a45"; ctx.fillRect(0, 0, W, H);
+    for(let i = 0; i < 6000; i++){ const x = hash(i, 1) * W, y = hash(i, 2) * H; ctx.fillStyle = hash(i, 3) < 0.5 ? "rgba(60,70,30,.25)" : "rgba(150,150,90,.18)"; ctx.fillRect(x, y, 2, 2); }
+  } else {
+    ctx.fillStyle = "#f3f4f1"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(120,128,140,.18)";   // точки сетки, как на столе у автора
+    for(let y = 20; y < H; y += 46) for(let x = 20; x < W; x += 46){ ctx.beginPath(); ctx.arc(x, y, 1.3, 0, 6.283); ctx.fill(); }
+  }
+}
+function label(text, x, y, small){
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = small ? "12px system-ui" : "bold 15px system-ui"; ctx.fillStyle = GRASS ? "#f4ecd6" : "#3a312a"; ctx.fillText(text, x, y);
+}
+// матрица раздела: начало (px), масштаб s px/м
+function base(ox, oy, s){ view.s = s; setZoom(); return [s * dpr, 0, 0, s * dpr, ox * dpr, oy * dpr]; }
+const stepAt = (t, speed, seed) => Math.sin(6.283 * (t * speed / 1.4 + hash(seed, 9)));
+
+function frame(t){
+  ground();
+  let y = 30;
+  // ── 1. Вплотную: образец по обмеру и наши ──
+  label("Вплотную (180 px/м): слева — образец по обмеру ролика, дальше — наши наборы", 20, y); y += 20;
+  {
+    const s = 180, B = base(75, y + 0.75 * s, s);
+    const pick = [[2, 0], [2, 3], [1, 0], [1, 4], [0, 1], [0, 6], [3, 2], [4, 0], [5, 1]];
+    [RED, BLUE, "#a3a8ad"].forEach((col, i) => { fShadow(B, i * 0.72, 0, 0); put(fSampleSpr(col), mT(B, i * 0.72, 0)); });
+    pick.forEach(([kit, n], i) => { const k = kitsFor(kit)[n]; fMan(B, (i + 3.3) * 0.72, 0, 0, k, {low: 0}); });
+    y += 1.35 * s;
+  }
+  // ── 2. Все пешие наборы стоя ──
+  label("Все пешие наборы (70 px/м): передняя шеренга, древки к бою", 20, y); y += 16;
+  {
+    const s = 70, colW = 640;
+    FOOT.forEach(([look, , name], i) => {
+      const cx = 20 + (i % 2) * colW, top = y + Math.floor(i / 2) * 175;
+      label(name, cx, top + 14, true);
+      const B = base(cx + 30, top + (look === "spear" || look === "militia" ? 125 : 95), s);
+      kitsFor(i).slice(0, 8).forEach((k, j) => fMan(B, j * 0.8, 0, 0, k, {low: look === "pike" ? 0 : 1}));
+    });
+    y += 3 * 175 + 10;
+  }
+  // ── 3. Движение и бой ──
+  label("Движение и бой (70 px/м): строй идёт кругом, схватка, стрелки", 20, y); y += 16;
+  {
+    const s = 70;
+    // строй 4 × 3 копейщиков идёт по кругу: курс — по касательной, шаг — по пройденному пути
+    const B1 = base(200, y + 190, s), sp = kitsFor(1), R0 = 1.9, wv = 1.25 / R0, a = t * wv;
+    // центр строя — на круге, идёт по часовой; правая рука бойца смотрит в середину круга, задние шеренги — позади
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for(let r = 0; r < 3; r++) for(let f = 0; f < 4; f++){
+      const ox = (f - 1.5) * 0.75, oy = r * 0.8;
+      const bx = R0 * ca - ox * ca + oy * sa, by = R0 * sa - ox * sa - oy * ca;
+      fMan(B1, bx, by, a + Math.PI, sp[(r * 4 + f) % sp.length], {low: 0, rank: r, step: stepAt(t, 1.25 * (R0 - ox) / R0, r * 4 + f)});
+    }
+    // схватка: мечники (красные) против копейщиков (синих)
+    const B2 = base(560, y + 200, s), sw = kitsFor(2), spB = kitsFor(1, BLUE);
+    for(let i = 0; i < 3; i++){
+      const p1 = frac(t / 1.3 + hash(i, 21)), p2 = frac(t / 1.45 + hash(i, 22));
+      const k1 = sw[i], kind1 = hash(i * 7 + Math.floor(t / 1.3 + hash(i, 21)), 41) < 0.35 ? "thrust" : "swing";
+      fMan(B2, i * 0.85, 0.65, 0, k1, {ap: p1, kind: kind1, sparks});
+      fMan(B2, i * 0.85, -0.65, Math.PI, spB[i], {ap: p2, kind: "thrust", low: 1, sparks});
+    }
+    fSparks(sparks);
+    // лучники натягивают и стреляют, арбалетчики — выстрел и взвод
+    const B3 = base(900, y + 200, s), bw = kitsFor(4), xb = kitsFor(5);
+    for(let i = 0; i < 4; i++){
+      const u = frac(t / 2.6 + i * 0.13), bowSt = u < 0.15 ? 0 : u < 0.3 ? 1 : u < 0.5 ? 2 : u < 0.85 ? 3 : 4;
+      fMan(B3, i * 0.8, -0.6, 0, bw[i], {bowSt});
+      const v = frac(t / 4 + i * 0.21), xs = v < 0.25 ? 0 : v < 0.35 ? 1 : v < 0.65 ? 2 : v < 0.9 ? 3 : 0;
+      fMan(B3, i * 0.8, 0.9, 0, xb[i], {xb: xs});
+    }
+    y += 380;
+  }
+  // ── 4. Как в игре ──
+  for(const s of [30, 14]){
+    label(`Как в игре: ${s} px/м, строи 8 × 4 шагают на месте`, 20, y); y += 12;
+    const B = base(30, y + (s === 30 ? 130 : 62), s);   // сверху — место под опущенные пики
+    FOOT.forEach(([look], i) => {
+      const ks = kitsFor(i), x0 = i * (s === 30 ? 7.4 : 13.5);
+      for(let r = 0; r < 4; r++) for(let f = 0; f < 8; f++){
+        const n = r * 8 + f;
+        fMan(B, x0 + f * 0.8, r * 0.85, 0, ks[n % ks.length], {low: 1, rank: r, step: stepAt(t, 1.2, n + i * 40)});
+      }
+    });
+    y += s === 30 ? 250 : 125;
+  }
+  label("Конница, падение и павшие — следующим шагом пробы", 20, y + 10, true);
+}
+
+const T0 = performance.now(), fixed = Q.get("t");
+function loop(){ frame(fixed ? +fixed : (performance.now() - T0) / 1000); if(!fixed) requestAnimationFrame(loop); }
+loop();
+if(Q.get("shot")) c.toBlob(b => fetch("/shot?file=" + encodeURIComponent(Q.get("shot")) + ".png", {method: "POST", body: b})
+  .then(r => r.text()).then(tx => document.title = "снимок: " + tx));
+</script>
