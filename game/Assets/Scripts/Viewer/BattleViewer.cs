@@ -1,0 +1,274 @@
+// ═══════════ BattleViewer.cs — смотрелка боя (И2, шаг 1): движок считает бой в Unity, сцена проигрывает ход ═══════════
+// Сцену выбирают кнопкой сверху; бой считается в фоновом потоке (BattleRecord.Run), потом проигрывается: пробел — пауза,
+// ← → — кадр, колесо — приближение к курсору, тянуть мышью — сдвиг, F — вся карта, 1…8 — сцены.
+// Шаг 1 — простой рисунок: земля по клеткам 5 м, тела — плашки цвета стороны, павшие — пятна, стрелы — чёрточки.
+// Облик полигона (земля шейдером, бойцы из атласов) — следующими шагами, поверх этого же каркаса.
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using BattleCore;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+namespace Journal.Viewer
+{
+    public sealed class BattleViewer : MonoBehaviour
+    {
+        // цвет стороны (В4): отряды одной фракции — оттенки её цвета
+        static readonly Dictionary<int, string[]> Side = new Dictionary<int, string[]>
+        {
+            [1] = new[] { "#b5372b", "#c8662c", "#9b2d52", "#cf8f2e", "#8a2c2a", "#d4573c" },
+            [2] = new[] { "#2f63a8", "#2c8b9e", "#5a4aa2", "#4583c8", "#27497f", "#5b7fb6" },
+            [3] = new[] { "#2f7d4a", "#4f9a3a", "#24685e", "#6f9a2e" },
+            [4] = new[] { "#c9a227", "#d9c04a", "#a8841c", "#e0b84e" },
+        };
+        // земля по коду клетки (Terrain.cs), как в полигоне
+        static readonly Dictionary<int, string> Ground = new Dictionary<int, string>
+        {
+            [1] = "#9ca86c", [2] = "#b9a072", [3] = "#dccb98", [4] = "#eceff2", [5] = "#919f62", [6] = "#5f7444", [7] = "#5b8aa5",
+            [8] = "#88aebd", [9] = "#9a7448", [10] = "#77885f", [11] = "#9a968b", [12] = "#c6bfae", [13] = "#8a6239", [14] = "#b0a898",
+            [15] = "#946c43", [16] = "#587a7b", [17] = "#977d59", [18] = "#ad5a3c", [19] = "#b4ad9f", [20] = "#bdb5a5",
+        };
+
+        Recording rec;
+        Task<Recording> job; string jobNote = "";
+        int scene = -1, pendingScene = -1;
+        double t; bool playing; float speed = 1;
+        Camera cam;
+        Material mat;
+        GameObject groundGo; Mesh unitsMesh;
+        Color32[] unitCol;
+        readonly List<Rect> uiRects = new List<Rect>();
+        bool dragging; Vector2 dragFrom; Vector3 camFrom;
+
+        // для проверки из CLI: бой посчитан и показан; что сейчас на экране
+        public bool Ready => rec != null && job == null;
+        public string Status => job != null ? "считаю: " + jobNote : rec == null ? "пусто" : $"{rec.Name}: {t:0.0} из {rec.Seconds:0.0} с, кадров {rec.Frames.Count}, павших {rec.Dead.Count}, стрел {rec.Arrows.Count}";
+        public void Show(int i, double at = 0) { Load(i); t = at; }
+        public void Seek(double at) { if (rec != null) { t = Math.Max(0, Math.Min(rec.Seconds, at)); playing = false; } }
+        public void LookAt(float x, float y, float size) { cam.transform.position = new Vector3(x, -y, -10); cam.orthographicSize = size; }
+
+        void Start()
+        {
+            cam = Camera.main;
+            cam.orthographic = true;
+            cam.backgroundColor = new Color32(23, 22, 26, 255);
+            var sh = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default") ?? Shader.Find("Sprites/Default");
+            mat = new Material(sh);
+            var units = new GameObject("Отряды");
+            unitsMesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            unitsMesh.MarkDynamic();
+            units.AddComponent<MeshFilter>().sharedMesh = unitsMesh;
+            var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
+            Load(0);
+        }
+
+        void Load(int i)
+        {
+            if (job != null) { pendingScene = i; return; }   // бой ещё считается — выберем, когда досчитает
+            scene = i; playing = false; t = 0; jobNote = "строю сцену";
+            var (name, make) = ViewerScenes.All[i];
+            job = Task.Run(() => BattleRecord.Run(make(), s => jobNote = s));
+        }
+
+        void Update()
+        {
+            if (job != null && job.IsCompleted)
+            {
+                if (job.IsFaulted) { Debug.LogException(job.Exception); jobNote = "ошибка: " + job.Exception.InnerException?.Message; }
+                else { rec = job.Result; BuildGround(); FitView(); playing = true; }
+                job = null;
+                if (pendingScene >= 0) { int p = pendingScene; pendingScene = -1; Load(p); }
+            }
+            HandleInput();
+            if (rec == null) return;
+            if (playing) { t += Time.deltaTime * speed; if (t >= rec.Seconds) { t = rec.Seconds; playing = false; } }
+            DrawUnits();
+        }
+
+        // ── ввод: камера и проигрывание ──
+        bool OverUI(Vector2 screen)
+        {
+            var gui = new Vector2(screen.x, Screen.height - screen.y);
+            foreach (var r in uiRects) if (r.Contains(gui)) return true;
+            return false;
+        }
+        void HandleInput()
+        {
+            var mouse = Mouse.current; var kb = Keyboard.current;
+            if (kb != null)
+            {
+                if (kb.spaceKey.wasPressedThisFrame && rec != null) { if (t >= rec.Seconds) t = 0; playing = !playing; }
+                if (kb.rightArrowKey.wasPressedThisFrame && rec != null) { playing = false; t = Math.Min(rec.Seconds, Math.Floor(t / rec.Dt + 1e-6) * rec.Dt + rec.Dt); }
+                if (kb.leftArrowKey.wasPressedThisFrame && rec != null) { playing = false; t = Math.Max(0, Math.Ceiling(t / rec.Dt - 1e-6) * rec.Dt - rec.Dt); }
+                if (kb.fKey.wasPressedThisFrame) FitView();
+                for (int k = 0; k < ViewerScenes.All.Length && k < 9; k++)
+                    if (kb[Key.Digit1 + k].wasPressedThisFrame) Load(k);
+            }
+            if (mouse == null) return;
+            Vector2 mp = mouse.position.ReadValue();
+            float wheel = mouse.scroll.ReadValue().y;
+            if (Mathf.Abs(wheel) > 0.01f && !OverUI(mp))
+            {
+                Vector3 before = cam.ScreenToWorldPoint(mp);
+                cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * Mathf.Pow(0.85f, Mathf.Sign(wheel)), 3f, 4000f);
+                Vector3 after = cam.ScreenToWorldPoint(mp);
+                cam.transform.position += before - after;
+            }
+            if ((mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame) && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
+            if (dragging)
+            {
+                if (!mouse.leftButton.isPressed && !mouse.rightButton.isPressed) dragging = false;
+                else
+                {
+                    float k = 2 * cam.orthographicSize / Screen.height;
+                    Vector2 d = (mp - dragFrom) * k;
+                    cam.transform.position = camFrom - new Vector3(d.x, d.y, 0);
+                }
+            }
+        }
+        void FitView()
+        {
+            if (rec == null) return;
+            float w = (float)rec.W, h = (float)rec.H, aspect = (float)Screen.width / Mathf.Max(1, Screen.height);
+            cam.transform.position = new Vector3(w / 2, -h / 2, -10);
+            cam.orthographicSize = Mathf.Max(h / 2, w / 2 / aspect) * 1.08f;
+        }
+
+        // ── земля: клетка 5 м — пиксель, между клетками — плавно; высота чуть светлее ──
+        void BuildGround()
+        {
+            if (groundGo) Destroy(groundGo);
+            var m = rec.Map;
+            var tex = new Texture2D(m.W, m.H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var px = new Color32[m.W * m.H];
+            for (int y = 0; y < m.H; y++)
+                for (int x = 0; x < m.W; x++)
+                {
+                    int i = y * m.W + x;
+                    var c = Hex(Ground.TryGetValue(m.T[i], out var s) ? s : Ground[1]);
+                    float f = 1 + m.Z[i] * 0.05f;
+                    px[(m.H - 1 - y) * m.W + x] = new Color32((byte)Mathf.Min(255, c.r * f), (byte)Mathf.Min(255, c.g * f), (byte)Mathf.Min(255, c.b * f), 255);
+                }
+            tex.SetPixels32(px); tex.Apply();
+            groundGo = new GameObject("Земля");
+            float W = (float)rec.W, H = (float)rec.H;
+            var mesh = new Mesh
+            {
+                vertices = new[] { new Vector3(0, -H, 1), new Vector3(W, -H, 1), new Vector3(W, 0, 1), new Vector3(0, 0, 1) },
+                uv = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) },
+                triangles = new[] { 0, 2, 1, 0, 3, 2 },
+            };
+            groundGo.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var gm = new Material(mat) { mainTexture = tex };
+            var r = groundGo.AddComponent<MeshRenderer>(); r.sharedMaterial = gm; r.sortingOrder = 0;
+            // цвет отряда: оттенок стороны по порядку внутри фракции
+            unitCol = new Color32[rec.Units.Count];
+            var seen = new Dictionary<int, int>();
+            for (int i = 0; i < rec.Units.Count; i++)
+            {
+                int f = rec.Units[i].Faction; seen.TryGetValue(f, out int k); seen[f] = k + 1;
+                var pal = Side.TryGetValue(f, out var p) ? p : Side[1];
+                unitCol[i] = Hex(pal[k % pal.Length]);
+            }
+        }
+
+        // ── отряды: тело — плашка ширина × глубина, повёрнутая по курсу; павшие — пятна; стрелы в полёте — чёрточки ──
+        readonly List<Vector3> V = new List<Vector3>(); readonly List<Color32> C = new List<Color32>(); readonly List<int> I = new List<int>();
+        void Quad(float cx, float cy, float w, float d, float headDeg, Color32 c)
+        {
+            // мир Unity: X = x, Y = −y; курс 0° — вверх по карте, по часовой
+            float a = headDeg * Mathf.Deg2Rad, s = Mathf.Sin(a), co = Mathf.Cos(a);
+            Vector2 fwd = new Vector2(s, co), right = new Vector2(co, -s);
+            Vector2 p = new Vector2(cx, -cy);
+            int b = V.Count;
+            V.Add(p - right * (w / 2) - fwd * (d / 2)); V.Add(p + right * (w / 2) - fwd * (d / 2));
+            V.Add(p + right * (w / 2) + fwd * (d / 2)); V.Add(p - right * (w / 2) + fwd * (d / 2));
+            for (int k = 0; k < 4; k++) C.Add(c);
+            I.Add(b); I.Add(b + 2); I.Add(b + 1); I.Add(b); I.Add(b + 3); I.Add(b + 2);
+        }
+        void DrawUnits()
+        {
+            V.Clear(); C.Clear(); I.Clear();
+            double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
+            // павшие — под отрядами
+            var blood = new Color32(110, 22, 18, 255);
+            foreach (var dd in rec.Dead) if (dd.Frame <= f0) Quad(dd.X, dd.Y, 0.9f, 1.6f, dd.Dir + 90, blood);   // удар (угол на карте) → курс: +90°
+            var A = rec.Frames[f0]; var B = rec.Frames[f1];
+            for (int u = 0; u < A.Length; u++)
+            {
+                var a = A[u]; var b = B[u]; var info = rec.Units[u];
+                if (rec.StateAt(u, f0) == 2) continue;   // ушёл с поля
+                var col = unitCol[u];
+                float h0 = a[2], dh = Mathf.DeltaAngle(a[2], b[2]);
+                for (int k = 0; 5 + 2 * k < a.Length; k++)
+                {
+                    float x = a[4 + 2 * k], y = a[5 + 2 * k];
+                    if (float.IsNaN(x)) continue;
+                    if (5 + 2 * k < b.Length && !float.IsNaN(b[4 + 2 * k])) { x += (b[4 + 2 * k] - x) * q; y += (b[5 + 2 * k] - y) * q; }
+                    float head = rec.Heads[f0].TryGetValue(u * 65536 + k, out var hd) ? hd : h0 + dh * q;
+                    var fig = k < info.Figs.Count ? info.Figs[k] : info.Figs[0];
+                    Quad(x, y, (float)fig[0], (float)fig[1], head, col);
+                }
+            }
+            // стрелы в полёте — по прямой между вылетом и концом (дуга и тень — на шаге облика)
+            var ink = new Color32(30, 24, 18, 255);
+            foreach (var ar in rec.Arrows)
+            {
+                if (ar.T0 > t) break;
+                if (ar.T1 <= t) continue;
+                float uu = (float)((t - ar.T0) / Math.Max(1e-3, ar.T1 - ar.T0));
+                float x = ar.X0 + (ar.X1 - ar.X0) * uu, y = ar.Y0 + (ar.Y1 - ar.Y0) * uu;
+                float head = Mathf.Atan2(ar.X1 - ar.X0, -(ar.Y1 - ar.Y0)) * Mathf.Rad2Deg;
+                Quad(x, y, 0.12f, 1.2f, head, ink);
+            }
+            unitsMesh.Clear();
+            unitsMesh.SetVertices(V); unitsMesh.SetColors(C); unitsMesh.SetTriangles(I, 0);
+            unitsMesh.RecalculateBounds();
+        }
+
+        // ── интерфейс ──
+        void OnGUI()
+        {
+            uiRects.Clear();
+            var st = new GUIStyle(GUI.skin.label) { fontSize = 14, normal = { textColor = new Color(0.92f, 0.9f, 0.85f) } };
+            var btn = new GUIStyle(GUI.skin.button) { fontSize = 13 };
+            // сцены
+            float x = 10, y = 8;
+            for (int i = 0; i < ViewerScenes.All.Length; i++)
+            {
+                string label = $"{i + 1}. {ViewerScenes.All[i].Name}";
+                float w = btn.CalcSize(new GUIContent(label)).x + 12;
+                if (x + w > Screen.width - 10) { x = 10; y += 30; }
+                var r = new Rect(x, y, w, 26); uiRects.Add(r);
+                var old = GUI.backgroundColor; if (i == scene) GUI.backgroundColor = new Color(0.9f, 0.65f, 0.3f);
+                if (GUI.Button(r, label, btn)) Load(i);
+                GUI.backgroundColor = old;
+                x += w + 6;
+            }
+            // низ: проигрывание
+            float by = Screen.height - 40;
+            var bar = new Rect(0, by - 6, Screen.width, 46); uiRects.Add(bar);
+            GUI.Box(bar, GUIContent.none);
+            if (job != null) { GUI.Label(new Rect(12, by, 600, 28), $"Считаю бой «{ViewerScenes.All[scene].Name}»: {jobNote}…", st); return; }
+            if (rec == null) return;
+            if (GUI.Button(new Rect(10, by, 44, 28), playing ? "❚❚" : "▶", btn)) { if (t >= rec.Seconds) t = 0; playing = !playing; }
+            float sx = 60;
+            foreach (var sp in new[] { 1f, 2f, 4f })
+            {
+                var old = GUI.backgroundColor; if (Mathf.Approximately(speed, sp)) GUI.backgroundColor = new Color(0.9f, 0.65f, 0.3f);
+                if (GUI.Button(new Rect(sx, by, 40, 28), "×" + sp, btn)) speed = sp;
+                GUI.backgroundColor = old; sx += 44;
+            }
+            int turn = Math.Min(rec.Turns, (int)Math.Floor(t / rec.TurnSec + 1e-9) + 1);
+            double tin = t - (turn - 1) * rec.TurnSec;
+            GUI.Label(new Rect(sx + 8, by + 3, 130, 24), $"ход {turn} · {tin:0.0} с", st);
+            float nt = GUI.HorizontalSlider(new Rect(sx + 140, by + 9, Screen.width - sx - 160, 20), (float)t, 0, (float)rec.Seconds);
+            if (Math.Abs(nt - t) > 1e-3) { t = nt; playing = false; }
+            // подпись сцены
+            GUI.Label(new Rect(12, by - 30, Screen.width - 24, 24), rec.Note, st);
+        }
+
+        static Color32 Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    }
+}
