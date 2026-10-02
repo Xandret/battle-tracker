@@ -15,6 +15,7 @@ namespace BattleCore
         public double FrontDist;        // сколько метров до переднего края своего строя (для выстрела поверх своих)
         public int File, Rank;          // место в строю: колонна и шеренга
         public bool Horse, Alive = true;
+        public Man Man;                 // живой боец (Г75), если мишень — он
     }
 
     public static class Ballistics

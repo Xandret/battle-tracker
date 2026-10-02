@@ -43,7 +43,7 @@ namespace BattleCore
         public int UnitId; public byte End;
     }
     // Павший (Г67): где упал, когда (часы боя), чей, куда смотрел, откуда пришёл удар, во что попало
-    public struct Death { public double X, Y, T, Facing, Dir; public int UnitId; public string Part; public bool Killed; }
+    public struct Death { public double X, Y, T, Facing, Dir; public int UnitId, ManId; public string Part; public bool Killed; }   // ManId — номер бойца (Г75), 0 — неизвестен
 
     public sealed partial class Battle
     {
@@ -63,10 +63,8 @@ namespace BattleCore
         // Бойцы отряда поимённо: тело, номер фигурки, место в фигурке (её система координат)
         sealed class Troop
         {
-            public int Laid = -1, Cols = -1, Figs = -1;
+            public int Version = -1;
             public List<Body> Bodies = new List<Body>();
-            public List<int> Fig = new List<int>();
-            public List<double> Ox = new List<double>(), Oy = new List<double>();
         }
 
         static bool Shooter(Mover m) => m.P.U.Weapon == "ranged";
@@ -129,49 +127,35 @@ namespace BattleCore
             AimShoot(m, m.Order, t);
         }
 
-        // ── тела бойцов (Г33) — по фигуркам; перестраиваются, когда меняется раскладка ──
+        // ── тела бойцов (Г33) — живые бойцы отряда (Г75): мишень там, где боец стоит; список — заново при раскладке ──
         Troop TroopOf(Mover m)
         {
             if (!troops.TryGetValue(m, out var tr)) troops[m] = tr = new Troop();
-            if (tr.Laid == m.LaidMen && tr.Cols == m.Cols && tr.Figs == m.P.Figs.Count) return tr;
+            if (tr.Version == m.MenVersion) return tr;
             var P = m.P; var f = R.Map.Formation.TryGetValue(P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
-            tr.Bodies.Clear(); tr.Fig.Clear(); tr.Ox.Clear(); tr.Oy.Clear();
             bool horse = Units.IsCav(P.U);
-            for (int k = 0; k < P.Figs.Count; k++)
+            var idx = new Dictionary<FigState, int>();
+            for (int k = 0; k < m.Figs.Count; k++) idx[m.Figs[k]] = k;
+            tr.Bodies.Clear();
+            foreach (var man in m.Men)
             {
+                if (!man.Alive || man.Fig == null || !idx.TryGetValue(man.Fig, out int k) || k >= P.Figs.Count) continue;
                 var fg = P.Figs[k];
-                int cols = Math.Max(1, (int)Math.Round(fg.Width / f.PerMan)), rows = Math.Max(1, (int)Math.Round(fg.Depth / f.RankDepth));
-                int left = (int)Math.Round(fg.Men);
-                for (int j = 0; j < rows && left > 0; j++)
-                {
-                    int n = Math.Min(cols, left); double off = (cols - n) / 2.0; left -= n;
-                    for (int i = 0; i < n; i++)
-                    {
-                        double ox = -fg.Width / 2 + (off + i + 0.5) * f.PerMan, oy = -fg.Depth / 2 + (j + 0.5) * f.RankDepth;
-                        tr.Bodies.Add(new Body
-                        {
-                            Owner = P, Horse = horse, Facing = P.Facing, File = fg.File, Rank = fg.Rank * rows + j,
-                            FrontDist = fg.Y + oy + P.Fp.Depth / 2,
-                        });
-                        tr.Fig.Add(k); tr.Ox.Add(ox); tr.Oy.Add(oy);
-                    }
-                }
+                int rows = Math.Max(1, (int)Math.Round(fg.Depth / f.RankDepth));
+                var b = man.Body ??= new Body { Man = man };
+                b.Owner = P; b.Horse = horse; b.Alive = true;
+                b.File = fg.File; b.Rank = fg.Rank * rows + man.Row; b.FrontDist = fg.Y + man.Ly + P.Fp.Depth / 2;
+                tr.Bodies.Add(b);
             }
-            tr.Laid = m.LaidMen; tr.Cols = m.Cols; tr.Figs = P.Figs.Count;
+            tr.Version = m.MenVersion;
             return tr;
         }
         void PlaceBodies(Mover m, Troop tr)
         {
-            var P = m.P;
-            double h = P.Facing * Math.PI / 180, rx = Math.Cos(h), ry = Math.Sin(h), fx = Math.Sin(h), fy = -Math.Cos(h);
-            for (int i = 0; i < tr.Bodies.Count; i++)
+            foreach (var b in tr.Bodies)
             {
-                int k = tr.Fig[i];
-                if (k >= m.Figs.Count) continue;
-                var s = m.Figs[k]; var b = tr.Bodies[i];
-                b.X = s.X + tr.Ox[i] * rx - tr.Oy[i] * fx;
-                b.Y = s.Y + tr.Ox[i] * ry - tr.Oy[i] * fy;
-                b.Facing = P.Facing;
+                var man = b.Man;
+                b.X = man.X; b.Y = man.Y; b.Facing = man.Facing;
                 b.Ground = GroundZ(b.X, b.Y);
             }
         }
@@ -282,7 +266,7 @@ namespace BattleCore
             var A = Combat.Eff(w.Att.P.U, mode, null, Ctx);
             var opts = new BattleRequest { Mode = mode, FatigueMode = "percent" };
             double dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, A, new EffStats(), opts, null, Ctx, false, 1, "", "front", null, w.U * w.N0);
-            w.Planned = (int)Js.Round(Math.Max(0, dmg) * RR.Bows[w.Bow].VolleyK);
+            w.Planned = (int)Js.Round(Math.Max(0, dmg) * RR.Bows[w.Bow].VolleyK * RR.LiveRanksK);
             var fresh = new List<Shot>();
             for (int i = 0; i < w.Planned; i++)
                 fresh.Add(new Shot { W = w, Index = i, LaunchT = w.T0 + (i + 0.5) / w.Planned * (w.T1 - w.T0) });
@@ -330,8 +314,10 @@ namespace BattleCore
             double sx = sh.X, sy = sh.Y, sz = sh.Ground + (sh.Horse ? RR.HorseHeight + 0.7 : RR.LaunchHeight);
             double rankDepth = R.Map.Formation.TryGetValue(w.Att.P.U.Type, out var ff) ? ff.RankDepth : 1;
             // упреждение (Г66): куда цель придёт к прилёту стрелы; ошибка — от скорости цели
-            var tfs = w.Def.Figs[Math.Min(w.Def.Figs.Count - 1, tt.Fig[tgtIdx])];
-            double vx = tfs.Vx, vy = tfs.Vy, px = tgt.X, py = tgt.Y;
+            // упреждение — по ходу фигурки цели, а не по переминанию бойца в ней (Г75): строй, что смыкается под обстрелом,
+            // сбивает прицел — на этом стоит сверка стрельбы со столом
+            var tf = tgt.Man?.Fig;
+            double vx = tf?.Vx ?? 0, vy = tf?.Vy ?? 0, px = tgt.X, py = tgt.Y;
             (double theta, double speed, bool high)? aim = null;
             double tof = 0;
             for (int it = 0; it < 3; it++)
@@ -439,6 +425,7 @@ namespace BattleCore
             if (D.Cmdr != null && D.Cmdr.BuffDef != 0) pOut *= Math.Max(0, 1 - D.Cmdr.BuffDef / 100);
             if (Ctx.Rng() >= pOut) return false;
             body.Alive = false;
+            if (body.Man != null) body.Man.Alive = false;   // падает тот самый боец (Г75)
             victim.P.U.Soldiers -= 1;
             victim.ShotDown++;
             double wPart = RR.PartLethality[part];
@@ -454,7 +441,7 @@ namespace BattleCore
             Deaths.Add(new Death
             {
                 X = body.X, Y = body.Y, T = curT, Facing = body.Facing + (look() - 0.5) * 40, Dir = Math.Atan2(ar.VY, ar.VX) * 180 / Math.PI,
-                UnitId = victim.P.U.Id, Part = part, Killed = killed,
+                UnitId = victim.P.U.Id, ManId = body.Man?.Id ?? 0, Part = part, Killed = killed,
             });
             return true;
         }

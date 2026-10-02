@@ -35,6 +35,9 @@ namespace BattleCore
     public sealed class FigState
     {
         public int Id;   // постоянный номер тела в отряде: место в строю (индекс) меняется — обмены, потери, — а тело то же
+        // касается врага (Г27) и в какую сторону он (единичный вектор) — для выпадов передних бойцов (Г78)
+        public bool Fighting; public double FightX, FightY, FoeX, FoeY;   // FoeX, FoeY — где касающаяся фигурка врага
+        public double Hc, Hs, Hd;   // курс фигурки на деле (Soldiers.FigHeading): косинус, синус, градусы — на шаг бойцов
         public double X, Y, Vx, Vy;
         public double Dvx, Dvy, Vmax;
         public int BlockedBy; public bool BlockedByEnemy, Slowed;
@@ -84,6 +87,8 @@ namespace BattleCore
         // Бой в движении (БД1): сколько бойцов разложено на фигурки сейчас; где упали выбывшие фигурки (Г30)
         public int LaidMen = -1;
         public int NextFigId;                    // номер для следующего нового тела (FigState.Id)
+        public List<Man> Men = new List<Man>();  // живые бойцы (Г75); MenVersion — меняется при каждой раскладке
+        public int NextManId, MenVersion;
         // Бегство (БД4, Г70–Г72): толпа без строя — каждая фигурка бежит сама к FleeX, FleeY (край карты прочь от врага)
         public bool Fleeing, Gone, RallyPending, Rallied;
         public int LeftMen;                      // ушли за край карты (живы, но в этой битве их нет); LaidMen — только те, кто на поле
@@ -100,6 +105,7 @@ namespace BattleCore
             m.NominalFp = new Footprint { Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
             m.NominalCols = m.Cols = m.MinCols = m.P.Figs.Count == 0 ? 0 : m.P.Figs.Max(f => f.File) + 1;
             m.LaidMen = (int)Math.Max(0, Js.Round(u.Soldiers));
+            Soldiers.Assign(m, r, spawn: true);
             return m;
         }
     }
@@ -213,6 +219,7 @@ namespace BattleCore
             for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
             Bodies.Step(ms, M.Dt, r);
             foreach (var m in ms) if (m.Fleeing) FollowCrowd(m, M.Dt);
+            Soldiers.Step(ms, M.Dt, r);   // бойцы внутри фигурок (Г75)
             foreach (var m in ms) if (!m.Fleeing) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
             if ((k + 1) % every == 0) foreach (var m in ms) if (!m.Fleeing) Reassign(m, r);
         }
