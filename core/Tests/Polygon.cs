@@ -278,6 +278,27 @@ static class Polygon
             if (rec1.Fleeing) rally.Battle.Order(rec1, new MoveOrder { Kind = OrderKind.Rally });   // игрок приказывает каждый ход, пока бегут
         };
         list.Add(rally);
+
+        // Облик (В13): анимации пачки 1 — древки к бою, взвод арбалета, аллюры коня, удары, павшие и раненые
+        var anim = new Scene { Name = "Облик: анимации", Turns = 3, Geo = MoveTests.Open(1300, 800),
+            Note = "В13. Слева пикинёры идут на пехоту с пиками стоймя и опускают их, когда до врага 30 м, — передние первыми. " +
+                   "Дальше арбалетчики бьют по пехоте и взводят арбалеты через стремя. Пехота рубит ополчение: удары сбоку и сверху, " +
+                   "уколы, щит навстречу удару, вспышка в миг удара. Справа рыцари шагом и рысью выходят на 40 м и встают — кони переступают " +
+                   "и машут хвостами. Павший сначала качнётся от удара, потом падает; раненые (доля — по итогам удара стола, Г39) " +
+                   "ползут прочь от врага, оставляя кровавый след, или корчатся на месте и через 4–12 с затихают." };
+        anim.Battle = new Battle(anim.Geo, R0, new EngineContext { Rng = new Mulberry32(13).Next });
+        anim.Fighter("infantry", 2, "Враг: пехота", 190, 420, 0, faction: 2, men: 400);
+        var apk = anim.Fighter("pikemen", 1, "Пикинёры", 190, 420 - 170, 180, men: 400);
+        anim.Fighter("infantry", 4, "Враг: пехота Б", 520, 420, 0, faction: 2, men: 400);
+        var axb = anim.Fighter("crossbowmen", 3, "Арбалетчики", 520, 420 - 115, 180, men: 300);
+        anim.Fighter("militia", 6, "Враг: ополчение", 850, 420, 0, faction: 2, men: 400);
+        var ain = anim.Fighter("infantry", 5, "Пехота", 850, 420 - (4 + 0.5 + 4), 180, men: 400);
+        var akn = anim.Fighter("knights", 7, "Рыцари", 1150, 640, 0, men: 200);
+        anim.Order(apk, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        anim.Order(axb, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
+        anim.Order(ain, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
+        anim.Order(akn, new MoveOrder { X = 1150, Y = 600, Facing = 0 });
+        list.Add(anim);
         return list;
     }
     static readonly Rules R0 = Rules.Base;
@@ -340,7 +361,8 @@ static class Polygon
             // бой (БД1): численность по кадрам и где упали фигурки — [x, y, номер кадра]
             var soldiers = new List<double[]> { ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray() };
             var fallen = ms.Select(_ => new List<double[]>()).ToList();
-            // павшие поимённо (Г67): [x, y, кадр, отряд, куда смотрел, откуда удар, часть тела 0 голова 1 корпус 2 ноги 3 конь]
+            // павшие поимённо (Г67): [x, y, кадр, отряд, куда смотрел, откуда удар, часть тела 0 голова 1 корпус 2 ноги 3 конь,
+            // номер бойца, убит 1 / ранен 0 (Г39, В13)]
             var dead = new List<double[]>();
             var idx = ms.Select((m, i) => (m.P.U.Id, i)).ToDictionary(p => p.Id, p => p.i);
             int seenDead = 0;
@@ -374,7 +396,7 @@ static class Polygon
                         {
                             var d = sc.Battle.Deaths[seenDead];
                             int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
-                            dead.Add(new[] { Math.Round(d.X, 2), Math.Round(d.Y, 2), frames.Count - 1, idx[d.UnitId], Math.Round(d.Facing), Math.Round(d.Dir), part, d.ManId });
+                            dead.Add(new[] { Math.Round(d.X, 2), Math.Round(d.Y, 2), frames.Count - 1, idx[d.UnitId], Math.Round(d.Facing), Math.Round(d.Dir), part, d.ManId, d.Killed ? 1 : 0 });
                         }
                     for (int i = 0; i < ms.Count; i++)
                         while (fallen[i].Count < ms[i].Fallen.Count)

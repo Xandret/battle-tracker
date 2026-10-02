@@ -713,8 +713,19 @@ namespace BattleCore
 
         // Павшие в рукопашной (Г67): точного места нет — падают у переднего края схватки, в случайной точке
         // касающихся фигурок, лицом к врагу, кровь брызжет назад (от удара). Случайность — своя, только для рисунка.
+        // Г39, В13: кто из павших убит, а кто ранен — по итогам удара стола: доля убитых среди потерь отряда с прошлого раза.
+        // Численность в схватке тает по ходу окна удара, а убитые и раненые пишутся, когда окно закрылось, — пока итогов
+        // нет, доля ожидаемая: летальность стола со средним броском (Base + (Die + 1)/2 ÷ (опыт ÷ ExpDiv)).
+        // Только для рисунка (раненый ползёт): численность и правила не меняются
+        readonly Dictionary<Mover, (double k, double w)> meleeSeen = new Dictionary<Mover, (double k, double w)>();
         void MeleeDeaths(Mover m, int n)
         {
+            var mu = m.P.U; var Lt = R.Lethality;
+            meleeSeen.TryGetValue(m, out var seen);
+            double dk = mu.TotKilled - seen.k, dw = mu.TotWounded - seen.w;
+            meleeSeen[m] = (mu.TotKilled, mu.TotWounded);
+            double expected = Js.Clamp(Lt.Base + (Lt.Die + 1) / 2.0 / (Math.Max(1, mu.Exp) / Lt.ExpDiv), 0, 100) / 100;
+            double killedShare = dk + dw > 1e-9 ? Math.Max(0, Math.Min(1, dk / (dk + dw))) : expected;
             // Г78: падают те, кто у врага — бойцы касающихся фигурок, ближние к фигурке врага (по тому, где стоят, а не по
             // месту в строю: пересаженный вперёд ещё идёт), чуть вперемешку (хешем); никто не касается — ближайшие к врагу
             var alive = m.Men.Where(x => x.Alive && x.Fig != null).ToList();
@@ -744,7 +755,8 @@ namespace BattleCore
                 Deaths.Add(new Death
                 {
                     X = x.X, Y = x.Y, T = curT, Facing = x.Facing + (look() - 0.5) * 60, Dir = dir + (look() - 0.5) * 50,
-                    UnitId = m.P.U.Id, ManId = x.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs", Killed = true,
+                    UnitId = m.P.U.Id, ManId = x.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs",
+                    Killed = MoveSim.Hash01(m.P.U.Id, x.Id, 16) < killedShare,
                 });
             }
         }
