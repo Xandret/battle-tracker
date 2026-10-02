@@ -362,7 +362,7 @@ namespace Journal.Viewer
                 for (int i = start; i < start + count; i++) { var p = prims[i]; menB.Quad(p.P, p.M, p.C, p.Prm); }
             }
         }
-        readonly Dictionary<int, (float h, float sw, float nx, float pa)> mel0 = new Dictionary<int, (float, float, float, float)>(), mel1 = new Dictionary<int, (float, float, float, float)>();
+        readonly Dictionary<int, (float sw, float nx, float pa)> mel0 = new Dictionary<int, (float, float, float)>(), mel1 = new Dictionary<int, (float, float, float)>();
         readonly List<(float x, float y, float face, float reach, float ap)> sparks = new List<(float, float, float, float, float)>();
 
         public void Draw(double t, Color32[] unitCol, Rect view, float ppm)
@@ -493,7 +493,7 @@ namespace Journal.Viewer
         }
 
         // ── рукопашная по бойцам (Б2): противник, удар и щит — из движка ──
-        // Боец смотрит на своего противника; удар проигрывается вокруг своего времени в движке: замах — до (по NextSwing),
+        // Боец смотрит на своего противника — это курс из движка (Г94); удар проигрывается вокруг своего времени в движке: замах — до (по NextSwing),
         // вспышка — в миг удара (тогда же падает ударенный), возврат — после; принял удар на щит — щит рывком навстречу
         void MenMelee(MenFrame m0, MenFrame m1, float q, float t)
         {
@@ -504,8 +504,7 @@ namespace Journal.Viewer
                 var m = M[i];
                 bool a0 = mel0.TryGetValue(m.Id, out var e0), a1 = mel1.TryGetValue(m.Id, out var e1);
                 if (!a0 && !a1) continue;
-                float h = a0 && a1 && !float.IsNaN(e0.h) && !float.IsNaN(e1.h) ? e0.h + Mathf.DeltaAngle(e0.h, e1.h) * q : a0 && !float.IsNaN(e0.h) ? e0.h : a1 ? e1.h : float.NaN;
-                if (!float.IsNaN(h)) m.Face = h * Mathf.Deg2Rad;
+                // курс — из движка как есть (Г94: Man.Facing в схватке уже смотрит на противника и поворачивается плавно)
                 // ближний удар к t: −0,45 с — замах, 0 — удар, +0,55 с — возврат
                 float best = float.NaN;
                 void Try(float T) { if (float.IsNaN(T)) return; float d = t - T; if (d >= -0.45f && d <= 0.55f && (float.IsNaN(best) || Mathf.Abs(d) < Mathf.Abs(t - best))) best = T; }
@@ -517,11 +516,11 @@ namespace Journal.Viewer
                 M[i] = m;
             }
         }
-        static void Fill(Dictionary<int, (float, float, float, float)> d, MenFrame f)
+        static void Fill(Dictionary<int, (float, float, float)> d, MenFrame f)
         {
             d.Clear();
             if (f?.Eng == null) return;
-            for (int k = 0; k < f.Eng.Length; k++) d[f.Eng[k]] = (f.EngH[k], f.EngSw[k], f.EngNx[k], f.EngPa[k]);
+            for (int k = 0; k < f.Eng.Length; k++) d[f.Eng[k]] = (f.EngSw[k], f.EngNx[k], f.EngPa[k]);
         }
 
         // ── один боец: как в drawMen полигона ──

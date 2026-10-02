@@ -21,10 +21,9 @@ namespace Journal.Viewer
     public struct DeadRec { public float X, Y, Facing, Dir, T; public int Frame, Unit, Part, Man; public bool Killed; }
     // бойцы отряда в кадре (Г75): по номеру бойца — x, y, курс°; NaN — нет (пал, ушёл, ещё не было); фигурка и ряд;
     // Ph — фаза шага (В13): круги шага, набранные по пройденному пути — ноги не скользят при смене скорости
-    // Рукопашная по бойцам (Б2, только при MenBodies): кто в схватке — Eng (номера бойцов), курс на противника EngH (°, NaN —
-    // противника нет), прошлый удар EngSw, следующий по ритму EngNx, удар на щит EngPa (часы боя; NaN — не было).
+    // Рукопашная по бойцам (Б2, только при MenBodies): кто в схватке — Eng (номера бойцов), прошлый удар EngSw, следующий по ритму EngNx, удар на щит EngPa (часы боя; NaN — не было).
     // Только сцепившиеся — запись не растёт на всё войско
-    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng; public float[] EngH, EngSw, EngNx, EngPa; }
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng; public float[] EngSw, EngNx, EngPa; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
 
     public sealed class Recording
@@ -128,22 +127,21 @@ namespace Journal.Viewer
         }
         static int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
         // кто из бойцов отряда в схватке (Б2): с противником или только что бил либо принял удар на щит
-        readonly List<int> eId = new List<int>(); readonly List<float> eH = new List<float>(), eSw = new List<float>(), eNx = new List<float>(), ePa = new List<float>();
+        readonly List<int> eId = new List<int>(); readonly List<float> eSw = new List<float>(), eNx = new List<float>(), ePa = new List<float>();
         void MeleeOf(Mover m, MenFrame mf, int n)
         {
             double now = battle.Clock;
-            eId.Clear(); eH.Clear(); eSw.Clear(); eNx.Clear(); ePa.Clear();
+            eId.Clear(); eSw.Clear(); eNx.Clear(); ePa.Clear();
             foreach (var man in m.Men)
             {
                 if (!man.Alive || man.Id >= n) continue;
                 var foe = man.Foe != null && man.Foe.Alive ? man.Foe : null;
                 if (foe == null && !(now - man.SwingAt < 0.6) && !(now - man.ParryAt < 0.6)) continue;
                 eId.Add(man.Id);
-                eH.Add(foe != null ? (float)(Math.Atan2(foe.X - man.X, -(foe.Y - man.Y)) * 180 / Math.PI) : float.NaN);
                 eSw.Add((float)man.SwingAt); eNx.Add(foe != null ? (float)man.NextSwing : float.NaN); ePa.Add((float)man.ParryAt);
             }
             if (eId.Count == 0) return;
-            mf.Eng = eId.ToArray(); mf.EngH = eH.ToArray(); mf.EngSw = eSw.ToArray(); mf.EngNx = eNx.ToArray(); mf.EngPa = ePa.ToArray();
+            mf.Eng = eId.ToArray(); mf.EngSw = eSw.ToArray(); mf.EngNx = eNx.ToArray(); mf.EngPa = ePa.ToArray();
         }
 
         public void Snap()
