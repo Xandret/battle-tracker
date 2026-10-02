@@ -150,6 +150,110 @@ static class MenBodyTests
             var ov = Overlap(new[] { a, b });
             True(ov.enemy < 0.4, $"враги налезли на {ov.enemy:0.00} м");
         });
+
+        // ── Б2 (Г83): касания и павшие — по бойцам ──
+        (Battle bt, Mover a, Mover b) Duel(Rules r, string ta, string tb, uint seed)
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), r, new EngineContext { Rng = new Mulberry32(seed).Next });
+            var TA = Templates.Get(ta); var TB = Templates.Get(tb);
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), r);
+            var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            return (bt, a, b);
+        }
+
+        yield return ("Б2 (Г83): падает тот, кого ударили — почти все павшие в рукопашной пали от удара бойца; остальные удары — на щит", () =>
+        {
+            var (bt, a, b) = Duel(RB, "infantry", "infantry", 7001);
+            bt.Turn();
+            var st = bt.MenMelee;
+            True(st.Hits > 100, $"попаданий {st.Hits}");
+            True(st.Hits >= 0.95 * (st.Hits + st.Fallback), $"пало от ударов {st.Hits}, без удара {st.Fallback}");
+            True(st.Parries > st.Hits, $"на щит {st.Parries} при попаданиях {st.Hits}");
+            int melee = bt.Deaths.Count(d => d.UnitId == 1 || d.UnitId == 2);
+            double lost = 2000 - a.P.U.Soldiers - b.P.U.Soldiers;
+            True(Math.Abs(melee - lost) <= 2, $"павших записано {melee}, выбыло {lost:0}");
+        });
+
+        yield return ("Б2 (Г88): полный контакт — потери как у колонн-фигурок ±10% (сколько — стол, кто — бойцы)", () =>
+        {
+            double fa = 0, fb = 0, ma = 0, mb = 0;
+            for (uint s = 1; s <= 6; s++)
+            {
+                var (bt, a, b) = Duel(Rules.Base, "infantry", "infantry", s + 7000); bt.Turn(); fa += 1000 - a.P.U.Soldiers; fb += 1000 - b.P.U.Soldiers;
+                var (bt2, a2, b2) = Duel(RB, "infantry", "infantry", s + 7000); bt2.Turn(); ma += 1000 - a2.P.U.Soldiers; mb += 1000 - b2.P.U.Soldiers;
+            }
+            True(Math.Abs(ma / fa - 1) <= 0.1 && Math.Abs(mb / fb - 1) <= 0.1, $"фигурки {fa / 6:0}/{fb / 6:0}, бойцы {ma / 6:0}/{mb / 6:0}");
+        });
+
+        yield return ("Б2 (Г83): пикинёры достают из задних шеренг (до 4-й) дальше обычной досягаемости, пехота — нет", () =>
+        {
+            double Rad(Mover m) { var f = RB.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : RB.Map.Formation["infantry"]; return RB.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth); }
+            // бойцы с противником дальше ReachM от него (по зазору тел): сколько за ход (сумма по шагам) и из какой шеренги
+            int Far(string t, out int maxRow)
+            {
+                var (bt, a, b) = Duel(RB, t, "infantry", 901);
+                double ra = Rad(a), rb = Rad(b);
+                int n = 0, mr = 0;
+                bt.Turn(_ =>
+                {
+                    foreach (var x in a.Men)
+                    {
+                        if (!x.Alive || x.Foe == null || !x.Foe.Alive) continue;
+                        if (JsMath.Hypot(x.Foe.X - x.X, x.Foe.Y - x.Y) - ra - rb <= RB.Men.ReachM + 1.0) continue;   // противник назначен на касании (раз в 0,5 с) — запас на сдвиг
+                        n++; mr = Math.Max(mr, x.Row);
+                    }
+                });
+                maxRow = mr;
+                return n;
+            }
+            int pike = Far("pikemen", out int pr), inf = Far("infantry", out _);
+            True(pike > 1000, $"пикой дальше досягаемости: {pike} (сумма по шагам)");
+            True(pr >= 2, $"пикой — только из {pr + 1}-й шеренги");
+            // у пехоты дальше досягаемости — только отошедшие с прошлого касания (удар по ним идёт мимо)
+            True(pike > 5 * Math.Max(1, inf), $"дальше досягаемости: пики {pike}, пехота {inf}");
+        });
+
+        yield return ("Б2: для рисунка — у бойца противник, время удара и щита; павшие — у врага", () =>
+        {
+            var (bt, a, b) = Duel(RB, "infantry", "infantry", 7003);
+            int foes = 0, swung = 0, parried = 0;
+            bt.Turn(_ =>
+            {
+                foes = Math.Max(foes, a.Men.Count(x => x.Alive && x.Foe != null && x.Foe.Alive));
+                swung = a.Men.Count(x => !double.IsNaN(x.SwingAt)); parried = b.Men.Count(x => !double.IsNaN(x.ParryAt));
+            });
+            True(foes > 50, $"с противником {foes}");
+            True(swung > 50 && parried > 50, $"ударили {swung}, приняли на щит {parried}");
+            // павший в рукопашной стоял у врага: ближе 3 м до живого врага в конце хода (строй не уходил)
+            var fallen = bt.Deaths.Where(d => d.UnitId == 2).ToList();
+            int near = fallen.Count(d => a.Men.Any(x => x.Alive && JsMath.Hypot(x.X - d.X, x.Y - d.Y) < 3));
+            True(fallen.Count > 0 && near >= 0.9 * fallen.Count, $"у врага пали {near} из {fallen.Count}");
+        });
+
+        yield return ("Б2 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме охвата, бегства и «сплотить» (Б3)", () =>
+        {
+            // не догнали фигурки ещё в Б1 (те же 6 провалов были до Б2): охват — колонны идут к местам у врага дольше
+            // фигурок (стена бойцов, а не касание на 5 м); бегство и «сплотить» — Б3 (бегство вразброс)
+            var gaps = new[] { "охват (Г68): рыцари на пехоту в упор", "охват (Г68, Г63): пехота во фланг", "охват (Г68): враг разбит",
+                               "бегство (Г70, Г71)", "сплотить (Г72)" };
+            // долгие сверки — отдельно: полный контакт — тест выше (против фигурок), стрельба бойцами не менялась (Б2 — рукопашная)
+            var slow = new[] { "бой (Г62): полный контакт", "стрельба (Г65, Г75)", "стрельба (Г65): без приказа", "упреждение (Г66)",
+                               "бегство: одно зерно", "бой: одно зерно" };
+            var was = BattleTests.Use; BattleTests.Use = RB;
+            var bad = new List<string>();
+            try
+            {
+                foreach (var (n, run) in BattleTests.All())
+                {
+                    if (gaps.Any(g => n.StartsWith(g)) || slow.Any(g => n.StartsWith(g))) continue;
+                    try { run(); } catch (Exception e) { bad.Add($"{n}: {e.Message}"); }
+                }
+            }
+            finally { BattleTests.Use = was; }
+            True(bad.Count == 0, string.Join("\n      ", bad));
+        });
     }
 }
 

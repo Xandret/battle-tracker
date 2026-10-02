@@ -5,7 +5,8 @@ using BattleCore;
 
 static class BattleTests
 {
-    static Rules R => Rules.Base;
+    public static Rules Use = Rules.Base;   // Б2: тот же набор с бойцами-телами — dotnet run --project Tests -- battle-men
+    static Rules R => Use;
     static void True(bool ok, string what) { if (!ok) throw new Exception(what); }
 
     static Geo Open(double w = 1000, double h = 1000) => MoveTests.Open(w, h);
