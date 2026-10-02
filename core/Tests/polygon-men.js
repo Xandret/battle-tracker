@@ -529,6 +529,23 @@ function figHead(ui, k){
   if(isNaN(a)) return undefined;
   return isNaN(b) ? a : a + angD(b, a) * (frame - fi);
 }
+// Состояние отряда по кадрам (БД4): 0 в строю, 1 бежит, 2 ушёл с поля, 3 бежит, но приказ «сплотить» ждёт, 4 сплотился
+function stateAt(ui, fr){
+  const L = S.states && S.states[ui];
+  if(!L) return 0;
+  let st = L[1];
+  for(let i = 0; i < L.length && L[i] <= fr; i += 2) st = L[i + 1];
+  return st;
+}
+function stateSince(ui, fr){   // с какого кадра нынешнее состояние
+  const L = S.states && S.states[ui];
+  if(!L) return 0;
+  let since = 0;
+  for(let i = 0; i < L.length && L[i] <= fr; i += 2) since = L[i];
+  return since;
+}
+const fleeing = st => st === 1 || st === 3;
+const drops = s => hash(s, 21) < 0.45;   // кто бросает оружие на бегу (В11)
 // павшие отряда по кадрам: кадр → [[x, y, номер в S.dead], …]
 function deadsOf(ui){
   agScene();
@@ -574,9 +591,18 @@ function buildAgents(ui){
   const join = (m, k) => { m.fig = k; m.slot = fs[k].length; fs[k].push(m); };
   const FC = new Float64Array(nf), FS = new Float64Array(nf), FH = new Float64Array(nf), FV = new Float64Array(nf);
   const dead = deadsOf(ui), vmax = Math.max(4, (u.norm || 100) / (S.turnSec || 15) * 1.6) * S.dt;
+  const dropped = [];   // брошенное на бегу оружие: [x, y, поворот, зерно бойца, кадр]
   for(let f = 0; f < N; f++){
     const fr = F[f][ui], live = k => k >= 0 && k < nf && fr && fr[4 + 2 * k] != null;
-    for(let k = 0; k < nf; k++) if(fs[k].length && !live(k)){ for(const m of fs[k]) m.fig = -1; fs[k] = []; dirty = true; }   // тело пропало
+    const st = stateAt(ui, f), pf0 = f ? F[f - 1][ui] : null;
+    if(f && fleeing(st) && !fleeing(stateAt(ui, f - 1))) for(const m of men) if(m.alive && drops(m.seed)) dropped.push([m.x, m.y, m.face + (hash(m.seed, 22) - 0.5) * 2.5, m.seed, f]);
+    for(let k = 0; k < nf; k++) if(fs[k].length && !live(k)){
+      // бегущий отряд уходит за край: тело пропало у края карты — его бойцы ушли, а не встают в чужие фигурки (БД4)
+      const lx = pf0 && pf0[4 + 2 * k], ly = pf0 && pf0[5 + 2 * k];
+      const gone = st >= 1 && st <= 3 && lx != null && Math.min(lx, ly, S.w - lx, S.h - ly) < 30;
+      for(const m of fs[k]){ m.fig = -1; if(gone) m.alive = false; }
+      fs[k] = []; dirty = true;
+    }
     // павший — ближайший к месту гибели боец из фигурок рядом
     for(const [x, y, i] of dead.get(f) || []){
       let best = null, bd = 1e18;
@@ -650,7 +676,7 @@ function buildAgents(ui){
     for(let id = 0; id < Nm; id++){ const k = fig[fi * Nm + id]; if(k >= 0) (lastL[k] || (lastL[k] = [])).push(id); }
     return lastL;
   };
-  return {n: Nm, pos, face, fig, rank, seed: men.map(m => m.seed), figMen, deadSeed};
+  return {n: Nm, pos, face, fig, rank, seed: men.map(m => m.seed), figMen, deadSeed, dropped};
 }
 
 // ── Фигурка: её бойцы — с их местами, курсом и снаряжением; анимация — по каждому ──
@@ -660,7 +686,8 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
   const ui = S.units.indexOf(u), ag = agentsOf(ui), fi = Math.min(Math.floor(frame), N - 1), ids = ag.figMen(fi)[k];
   if(!ids || !ids.length) return;
   const f1 = Math.min(fi + 1, N - 1), q = frame - fi, Nm = ag.n, kits = kitsOf(u), parts = view.s >= PARTS_FROM;
-  const eng = MEL.get(ui) ? MEL.get(ui).get(k) : undefined, fire = FIRE.has(ui * 100000 + k);
+  const ust = stateAt(ui, fi), flee = fleeing(ust);
+  const eng = MEL.get(ui) && !flee ? MEL.get(ui).get(k) : undefined, fire = FIRE.has(ui * 100000 + k);
   ctx.save(); ctx.translate(X(0), Y(0)); ctx.scale(view.s, view.s);
   const T0 = ctx.getTransform(), B = [T0.a, T0.b, T0.c, T0.d, T0.e, T0.f];
   const M = ids.map(id => {
@@ -720,6 +747,19 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
     else if(!m.atk){ rot += 0.035 * Math.sin(t * 0.9 + ph0 * 6.283) + (eng === undefined ? glance(t, s) : 0); ox = 0.02 * Math.sin(t * 0.6 + ph0 * 9); }
     if(eng !== undefined && !m.atk) oy = -0.03 - 0.03 * Math.sin(t * 3 + ph0 * 6.283);          // задние напирают
     const P = restPose(kit, m.rank), base = mR(mT(B, m.x, m.y), m.face);
+    if(flee && !horse){   // бегство (В11): бегом, щит за спиной, оружие несут как придётся или бросили
+      const Mf = mR(mT(base, ox, -0.05), rot);
+      if(step && view.s >= 14){ const bt = bootSpr(); put(bt, mT(Mf, -0.09, 0.03 + 0.14 * step)); put(bt, mT(Mf, 0.09, 0.03 - 0.14 * step)); }
+      if(kit.shield && kit.shield.shape !== "buckler") put(shieldSpr(kit.shield), mP(Mf, [0, 0.24, 0, 0.85, 0.45]));
+      put(bodySpr(kit), Mf);
+      const w = kit.weapon;
+      if(!drops(s)){
+        if(w === "bow") put(bowSpr(0), mP(Mf, [0.05, 0.25, 0.4, 0.8, 0.5]));
+        else if(w === "crossbow") put(xbowSpr(1), mP(Mf, [0.05, 0.3, 0.5, 1, 0.5]));
+        else put(weapSpr(w, kit.col), mP(Mf, THRUST.has(w) ? [0.2, 0.05, 0.4 + 0.05 * step, 1, 0.25] : [0.2, 0.05, 0.6, 1, 0.5]));
+      }
+      continue;
+    }
     if(horse){
       const run = walking || m.atk, gp = t * 2.4 + ph0;
       if(!run){ put(compSpr(kit, m.rank), mR(base, rot * 0.2)); continue; }   // стоит — одним спрайтом
@@ -863,6 +903,7 @@ function drawDead(){
   }
   ctx.fill(pool);
   if(!near) return;
+  drawDropped(r, t);
   if(view.s < 7){   // издали тела — пятна цвета своей стороны, одна заливка на отряд
     const by = new Map();
     for(const [x, y, fi, ui, fc, dir] of S.dead){
@@ -896,15 +937,50 @@ function drawDead(){
   drawStuck(r, t);
 }
 
-// Знамя отряда (Г7): в центре строя, ближе к первой шеренге; рисуется в пикселях — видно с любого приближения
-function drawBanner(f, h, depth, col){
+// Брошенное на бегу (В11): оружие там, где побежали; знамя упало там, где был отряд. Сплотились — знамя подняли
+function drawDropped(r, t){
+  if(!S.states || view.s < 7) return;
+  const [vx0, vy0, vx1, vy1] = viewBox(r, 3), fi = Math.min(Math.floor(frame), S.frames.length - 1);
+  S.units.forEach((u, ui) => {
+    if(!S.states[ui] || S.states[ui].length < 4) return;
+    const ag = agentsOf(ui), kits = kitsOf(u);
+    ctx.save(); ctx.translate(X(0), Y(0)); ctx.scale(view.s, view.s);
+    const T0 = ctx.getTransform(), B = [T0.a, T0.b, T0.c, T0.d, T0.e, T0.f];
+    for(const [x, y, rot, seed, f] of ag.dropped){
+      if(f > fi || x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+      const kit = kits[Math.floor(hash(seed, 4) * kits.length)], w = kit.weapon === "bow" || kit.weapon === "crossbow" ? kit.side : kit.weapon;
+      if(w && w !== "none") put(weapSpr(w, kit.col), mS(mR(mT(B, x, y), rot), 0.9, w === "pike" ? 0.5 : 0.9));
+      else if(kit.weapon === "bow") put(bowSpr(0), mR(mT(B, x, y), rot));
+    }
+    ctx.restore();
+    // знамя лежит, пока отряд бежит или ушёл
+    const st = stateAt(ui, fi);
+    if(st === 1 || st === 2){
+      const f0 = stateSince(ui, fi), F0 = S.frames[f0][ui], sc = Math.min(1.6, Math.max(0.8, view.s / 12));
+      ctx.save(); ctx.translate(X(F0[0]), Y(F0[1])); ctx.rotate(hash(ui, f0) * 6.283); ctx.scale(sc, sc);
+      ctx.lineCap = "round"; ctx.strokeStyle = INK; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(14, 0); ctx.stroke();
+      ctx.strokeStyle = WOOD; ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-13, 0); ctx.lineTo(-13, 15); ctx.lineTo(-7.5, 11); ctx.lineTo(-2, 15); ctx.lineTo(-2, 0); ctx.closePath();
+      ctx.fillStyle = mix(u.col, "#7a7466", 0.35); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.restore();
+    }
+  });
+}
+
+// Знамя отряда (Г7): в центре строя, ближе к первой шеренге; рисуется в пикселях — видно с любого приближения.
+// Бегство (В11): знамя упало (лежит на земле); приказ «сплотить» ждёт или только что сплотились — знамя поднято и машет
+function drawBanner(f, h, depth, col, ui){
+  const fi = Math.min(Math.floor(frame), S.frames.length - 1), st = ui === undefined ? 0 : stateAt(ui, fi);
+  if(st === 1 || st === 2) return;
+  const wave = st === 3 || (st === 4 && (fi - stateSince(ui, fi)) * S.dt < 4), t = frame * S.dt;
   const bx = X(f[0] + Math.sin(h) * depth * 0.2), by = Y(f[1] - Math.cos(h) * depth * 0.2);
   const s = Math.min(1.6, Math.max(0.8, view.s / 12));
   ctx.save(); ctx.translate(bx, by); ctx.scale(s, s);
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   ctx.strokeStyle = INK; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(0, -26); ctx.stroke();
   ctx.strokeStyle = WOOD; ctx.lineWidth = 1.4; ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(17, -25); ctx.lineTo(13, -19.5); ctx.lineTo(17, -14); ctx.lineTo(0, -14); ctx.closePath();
+  const wy = x => wave ? Math.sin(t * 7 - x * 0.35) * 2.2 * x / 17 : 0;   // полотнище машет, у древка неподвижно
+  ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(8.5, -25 + wy(8.5)); ctx.lineTo(17, -25 + wy(17)); ctx.lineTo(13, -19.5 + wy(13)); ctx.lineTo(17, -14 + wy(17)); ctx.lineTo(8.5, -14 + wy(8.5)); ctx.lineTo(0, -14); ctx.closePath();
   ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.stroke();
   ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.fillRect(1.5, -21, 9, 2.2);
   ctx.restore();

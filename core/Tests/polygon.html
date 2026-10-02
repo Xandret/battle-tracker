@@ -763,7 +763,7 @@ function draw(){
     // центр строя и курс
     ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5; ctx.beginPath();
     ctx.moveTo(X(f[0]), Y(f[1])); ctx.lineTo(X(f[0] + Math.sin(h) * (u.depth / 2 + 14)), Y(f[1] - Math.cos(h) * (u.depth / 2 + 14))); ctx.stroke();
-    if($("showMen").checked && view.s >= 1.5) drawBanner(f, h, u.depth, col);   // поверх линии курса
+    if($("showMen").checked && view.s >= 1.5) drawBanner(f, h, u.depth, col, i);   // поверх линии курса; i — для знамени при бегстве (В11)
     // карта всегда «бумажная» — подпись тёмная со светлой обводкой в любой теме
     const lx = X(f[0]) + 8, ly = Y(f[1]) + u.depth / 2 * view.s + 16;
     ctx.font = "600 12px system-ui"; ctx.lineJoin = "round";
