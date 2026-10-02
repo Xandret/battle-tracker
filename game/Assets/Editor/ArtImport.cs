@@ -12,7 +12,8 @@ public sealed class ArtImport : AssetPostprocessor
         var ti = (TextureImporter)assetImporter;
         ti.textureType = TextureImporterType.Default;
         ti.sRGBTexture = false;
-        ti.alphaIsTransparency = true;
+        // карта объёма (*_n, ArtNormals): в A — металл, а не прозрачность — цвет под нулевой A не трогать
+        ti.alphaIsTransparency = !assetPath.EndsWith("_n.png");
         ti.alphaSource = TextureImporterAlphaSource.FromInput;
         ti.mipmapEnabled = true;
         ti.textureCompression = TextureImporterCompression.Uncompressed;

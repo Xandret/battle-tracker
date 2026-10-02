@@ -99,6 +99,7 @@ namespace Journal.Viewer
             var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
             menView = new MenView(transform);
             banners = new Banners(transform);
+            MiniatureLook.Setup(cam);   // облик «миниатюры на столе» (В15)
         }
         void Start()
         {
@@ -146,6 +147,9 @@ namespace Journal.Viewer
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
             if (!Application.isFocused) { dragging = false; return; }
+            // облик (В15): F7 — свет на бойцах, F8 — эффект миниатюр; сравнить с плоским рисунком
+            if (kb != null && kb.f7Key.wasPressedThisFrame) MenView.Light = !MenView.Light;
+            if (kb != null && kb.f8Key.wasPressedThisFrame) MiniatureLook.On = !MiniatureLook.On;
             if (PlayInput) { GameInput(mouse, kb); return; }
             if (kb != null)
             {

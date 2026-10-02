@@ -53,9 +53,8 @@ namespace Journal.Viewer
             men = ArtAtlas.Load("men"); horses = ArtAtlas.Load("horses"); dead = ArtAtlas.Load("dead");
             if (!Ok) return;
             var sh = Shader.Find("Journal/Men");
-            menMat = new Material(sh) { mainTexture = men.Tex };
-            horseMat = new Material(sh) { mainTexture = horses.Tex };
-            deadMat = new Material(sh) { mainTexture = dead.Tex };
+            menMat = Mat(sh, men); horseMat = Mat(sh, horses); deadMat = Mat(sh, dead);
+            if (!lightSet) { Shader.SetGlobalFloat("_JLight", 1); lightSet = true; }
             // слои снизу вверх: кровь → павшие → их головы, оружие, щиты и упавшие стрелы → кони → бойцы → стрелы в воздухе, вспышки
             Layer(parent, "Кровь", decalMesh, menMat, 4);
             Layer(parent, "Павшие", deadMesh, deadMat, 5);
@@ -64,6 +63,16 @@ namespace Journal.Viewer
             Layer(parent, "Бойцы", menMesh, menMat, 10);
             Layer(parent, "Стрелы в полёте", airMesh, menMat, 20);
         }
+        // материал атласа: рисунок и карта объёма (ArtNormals, <атлас>_n) — свет и блеск металла (В15)
+        static bool lightSet;
+        static Material Mat(Shader sh, ArtAtlas a)
+        {
+            var m = new Material(sh) { mainTexture = a.Tex };
+            if (a.Normals != null) { m.SetTexture("_NormalTex", a.Normals); m.SetFloat("_JHasNormals", 1); }
+            return m;
+        }
+        // свет вкл/выкл (сравнить с плоским рисунком полигона)
+        public static bool Light { get => Shader.GetGlobalFloat("_JLight") > 0.5f; set { Shader.SetGlobalFloat("_JLight", value ? 1 : 0); lightSet = true; } }
         static void Layer(Transform parent, string name, Mesh mesh, Material mat, int order)
         {
             var go = new GameObject(name); go.transform.SetParent(parent, false);
@@ -90,21 +99,25 @@ namespace Journal.Viewer
         {
             public readonly List<Vector3> V = new List<Vector3>(); public readonly List<Color32> C = new List<Color32>();
             public readonly List<Vector2> U = new List<Vector2>(); public readonly List<Vector4> P = new List<Vector4>(); public readonly List<int> I = new List<int>();
-            public void Clear() { V.Clear(); C.Clear(); U.Clear(); P.Clear(); I.Clear(); }
+            public readonly List<Vector4> X = new List<Vector4>();   // куда в мире смотрят оси текстуры u, v — для света (В15)
+            public void Clear() { V.Clear(); C.Clear(); U.Clear(); P.Clear(); X.Clear(); I.Clear(); }
             public void Quad(Part p, Aff m, Color32 col, Vector4 prm)
             {
                 if (!p.Ok) return;
                 int b = V.Count;
                 Add(m, p.X0, p.Y0); Add(m, p.X1, p.Y0); Add(m, p.X1, p.Y1); Add(m, p.X0, p.Y1);
                 U.Add(new Vector2(p.U0, p.V1)); U.Add(new Vector2(p.U1, p.V1)); U.Add(new Vector2(p.U1, p.V0)); U.Add(new Vector2(p.U0, p.V0));
-                for (int k = 0; k < 4; k++) { C.Add(col); P.Add(prm); }
+                // u — вдоль +x части: (a, b) карты → мир (a, −b); v — к переду (−y части): (−c, −d) карты → мир (−c, d)
+                float ul = Mathf.Sqrt(m.a * m.a + m.b * m.b), vl = Mathf.Sqrt(m.c * m.c + m.d * m.d);
+                var ax = new Vector4(ul > 1e-6f ? m.a / ul : 1, ul > 1e-6f ? -m.b / ul : 0, vl > 1e-6f ? -m.c / vl : 0, vl > 1e-6f ? m.d / vl : 1);
+                for (int k = 0; k < 4; k++) { C.Add(col); P.Add(prm); X.Add(ax); }
                 I.Add(b); I.Add(b + 1); I.Add(b + 2); I.Add(b); I.Add(b + 2); I.Add(b + 3);
             }
             void Add(Aff m, float x, float y) => V.Add(new Vector3(m.a * x + m.c * y + m.e, -(m.b * x + m.d * y + m.f), 0));
             public void To(Mesh mesh)
             {
                 mesh.Clear();
-                mesh.SetVertices(V); mesh.SetColors(C); mesh.SetUVs(0, U); mesh.SetUVs(1, P); mesh.SetTriangles(I, 0);
+                mesh.SetVertices(V); mesh.SetColors(C); mesh.SetUVs(0, U); mesh.SetUVs(1, P); mesh.SetUVs(2, X); mesh.SetTriangles(I, 0);
                 mesh.bounds = new Bounds(Vector3.zero, new Vector3(1e6f, 1e6f, 10));
             }
         }
