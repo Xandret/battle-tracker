@@ -494,7 +494,10 @@ function headsOf(ui){
   if(HEADS[ui]) return HEADS[ui];
   const F = S.frames, N = F.length;
   let nb = 0; for(const fr of F) if(fr[ui]) nb = Math.max(nb, (fr[ui].length - 4) >> 1);
-  const H = new Float32Array(N * nb).fill(NaN), hd = new Map(), maxTurn = 3.2 * S.dt;   // поворот до ~180°/с
+  const H = new Float32Array(N * nb).fill(NaN), hd = new Map(), maxTurn = 2.0 * S.dt;   // поворот до ~115°/с
+  // по движению — только на марше: идёт весь отряд и сама фигурка, не медленнее трети нормы; толкотня и перестроение
+  // на месте курс не трогают — иначе стоящие фигурки крутятся
+  const u = S.units[ui], go = Math.max(1.5, 0.33 * (u.norm || 100) / (S.turnSec || 15));
   if(S.heads) S.heads.forEach((list, f) => { if(list) for(const [u2, id, a] of list) if(u2 === ui) hd.set(f * 65536 + id, a * Math.PI / 180); });
   for(let k = 0; k < nb; k++){
     let cur = NaN;
@@ -505,11 +508,11 @@ function headsOf(ui){
       let want = hd.get(f * 65536 + k);
       if(want === undefined){
         want = uh;
-        const fa = Math.max(0, f - 2), fb = Math.min(N - 1, f + 2), a = F[fa][ui], b = F[fb][ui];
+        const fa = Math.max(0, f - 4), fb = Math.min(N - 1, f + 4), a = F[fa][ui], b = F[fb][ui];
         if(fb > fa && a && b && a[4 + 2 * k] != null && b[4 + 2 * k] != null){
           const dt = (fb - fa) * S.dt, dx = b[4 + 2 * k] - a[4 + 2 * k], dy = b[5 + 2 * k] - a[5 + 2 * k];
-          const ux = b[0] - a[0], uy = b[1] - a[1], stepping = Math.sqrt(ux * ux + uy * uy) / dt > 0.3 && Math.abs(angD(Math.atan2(ux, -uy), uh)) > 1.05;
-          if(!stepping && Math.sqrt(dx * dx + dy * dy) / dt > 0.6){ const mh = Math.atan2(dx, -dy); if(Math.abs(angD(mh, uh)) < 2.6) want = mh; }
+          const ux = b[0] - a[0], uy = b[1] - a[1], march = Math.sqrt(ux * ux + uy * uy) / dt > go && Math.abs(angD(Math.atan2(ux, -uy), uh)) < 1.05;
+          if(march && Math.sqrt(dx * dx + dy * dy) / dt > go){ const mh = Math.atan2(dx, -dy); if(Math.abs(angD(mh, uh)) < 1.75) want = mh; }
         }
       }
       cur = isNaN(cur) ? want : turnTo(cur, want, maxTurn);
@@ -634,7 +637,7 @@ function buildAgents(ui){
         const dx = tx - m.x, dy = ty - m.y, d = Math.sqrt(dx * dx + dy * dy), vm = FV[k];
         if(d > vm){ m.x += dx / d * vm; m.y += dy / d * vm; } else { m.x = tx; m.y = ty; }
         // далеко от места — бежит туда и смотрит, куда бежит; на месте — как фигурка
-        const want = d - vm > 0.6 ? Math.atan2(dx, -dy) : h;
+        const want = d - vm > 2.5 ? Math.atan2(dx, -dy) : h;   // смотрит, куда бежит, только если бежит далеко
         if(want !== m.face) m.face = turnTo(m.face, want, 0.7);
       }
       pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; face[o] = m.face; fig[o] = k; rank[o] = Math.min(255, g.rank * fd + row);
