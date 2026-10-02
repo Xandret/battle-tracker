@@ -45,12 +45,13 @@
     // древки длинные и тонкие — им хватает половины разрешения, иначе одна полка атласа занимает полвысоты
     for(const w of Object.keys(WBOX)) add("men", "weapon/" + w, WBOX[w], g => paintWeapon(g, w, KEY), ["pike", "lance", "spear", "fork"].includes(w) ? 0.5 : 1);
     for(let st = 0; st <= 4; st++) add("men", "bow/" + st, [-0.36, -1.12, 0.36, 0.2], g => paintBow(g, st));
-    for(let st = 0; st <= 1; st++) add("men", "xbow/" + st, [-0.3, -0.68, 0.38, 0.08], g => paintXbow(g, st));
+    for(let st = 0; st <= 3; st++) add("men", "xbow/" + st, [-0.3, -0.68, 0.38, 0.08], g => paintXbow(g, st));   // 2, 3 — взвод через стремя (В13)
     add("men", "boot", [-0.06, -0.08, 0.06, 0.08], g => ell(g, 0, 0, 0.045, 0.07, "#3a2c20", 0, false));
     // служебные: белый круг и мягкое пятно (кровь, тени — Unity красит цветом вершины), белый квадрат (стрелы)
     add("men", "util/disc", [-0.5, -0.5, 0.5, 0.5], g => { g.beginPath(); g.arc(0, 0, 0.48, 0, 6.283); g.fillStyle = "#fff"; g.fill(); });
     add("men", "util/soft", [-0.5, -0.5, 0.5, 0.5], g => { const gr = g.createRadialGradient(0, 0, 0, 0, 0, 0.5); gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.6, "rgba(255,255,255,.55)"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(-0.5, -0.5, 1, 1); });
     add("men", "util/px", [-0.05, -0.05, 0.05, 0.05], g => { g.fillStyle = "#fff"; g.fillRect(-0.05, -0.05, 0.1, 0.1); });
+    add("men", "util/spark", [-0.16, -0.16, 0.16, 0.16], paintSpark);   // вспышка удара (В13)
     // кони: масть × попона × кадр галопа (−1 — стоит)
     COATS.forEach((coat, ci) => {
       const bards = [["none", 0], ["cloth", 0], ["full", 0], ["full", 1], ["full", 2]];
@@ -58,11 +59,28 @@
         add("horses", `horse/${ci}/${bard}${bard === "full" ? "/" + c2i : ""}/${f}`, [-0.36, -1.36, 0.36, 1.37],
           g => paintHorse(g, {coat, bard, col: KEY, c2: C2[c2i]}, f));
       for(const bard of ["none", "cloth", "full"]) add("dead", `deadhorse/${ci}/${bard}`, [-0.5, -1.35, 0.75, 1.0], g => paintDeadHorse(g, {coat, bard, col: KEY}));
+      // конь по частям (В13): ноги, хвост, туловище, голова (у полной барды — в стальном налобнике); места и походка —
+      // HLEG, HTAIL, HNECK и horsePose в polygon-men.js
+      const k = {coat, bard: "none", col: KEY};
+      add("horses", `hrig/leg/${ci}`, HBOX.leg, g => paintHorseLeg(g, k));
+      add("horses", `hrig/tail/${ci}`, HBOX.tail, g => paintHorseTail(g, k));
+      add("horses", `hrig/body/${ci}`, HBOX.body, g => paintHorseBody(g, k));
+      add("horses", `hrig/head/${ci}`, HBOX.head, g => paintHorseHead(g, k));
+      add("horses", `hrig/head/${ci}/full`, HBOX.head, g => paintHorseHead(g, {coat, bard: "full", col: KEY}));
     });
+    // попоны поверх туловища: седло, чепрак цвета стороны, полная барда с полосой герба
+    add("horses", "hrig/cover/none", HBOX.cover, g => paintHorseCover(g, {bard: "none", col: KEY}));
+    add("horses", "hrig/cover/cloth", HBOX.cover, g => paintHorseCover(g, {bard: "cloth", col: KEY}));
+    C2.forEach((c2, i) => add("horses", "hrig/cover/full/" + i, HBOX.cover, g => paintHorseCover(g, {bard: "full", col: KEY, c2})));
     // павшие: лежит на спине, голова — к −y (её рисует Unity шлемом), ноги у начала
     for(const ck of CLOTH_KEYS) for(const a of ARMOURS) for(let v = 0; v < 2; v++){
       const [armour, leather] = armourOf(a);
       add("dead", `corpse/${ck}/${a}/${v}`, [-0.72, -0.5, 0.72, 0.95], g => corpseBody(g, clothOf(ck), armour, leather, v));
+    }
+    // раненый ползёт (Г39, В13): лицом вниз, без головы (её Unity кладёт шлемом), рывок за рывком — отражённый рисунок
+    for(const ck of CLOTH_KEYS) for(const a of ARMOURS){
+      const [armour, leather] = armourOf(a);
+      add("dead", `crawl/${ck}/${a}`, [-0.5, -1.06, 0.45, 0.95], g => paintCrawlBody(g, clothOf(ck), armour, leather));
     }
     // природа: кроны деревьев (4 палитры × 6 форм), кусты, камни — радиус 1, Unity растягивает до нужного
     TREES.forEach((pal, pi) => { for(let s = 0; s < 6; s++) add("nature", `tree/${pi}/${s}`, [-1.2, -1.2, 1.2, 1.2], g => crownUnit(g, s * 977 + pi * 31, pal, 7)); });

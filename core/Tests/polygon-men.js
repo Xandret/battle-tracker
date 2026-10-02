@@ -263,34 +263,86 @@ function paintBow(g, st){
   g.beginPath(); g.moveTo(-tx, ty); g.quadraticCurveTo(0, cy, tx, ty);
   g.strokeStyle = INK; g.lineWidth = 0.075; g.stroke(); g.strokeStyle = WOOD; g.lineWidth = 0.045; g.stroke();
 }
-// арбалет — в осях бойца: 0 взведён, болт на ложе; 1 разряжен
+// арбалет — в осях бойца: 0 взведён, болт на ложе; 1 разряжен; 2 и 3 — взвод через стремя (В13): ложе наклонено к земле
+// (сверху видно коротким), стремя впереди у ног; 2 — тетива у дуги, 3 — подтянута крюком на ремне к поясу
 function paintXbow(g, st){
+  if(st >= 2){
+    const sy = st === 2 ? -0.42 : -0.2;
+    stick(g, 0.05, -0.12, 0.05, -0.44, 0.06, WOOD);
+    g.beginPath(); g.ellipse(0.05, -0.53, 0.06, 0.04, 0, 0, 6.283); g.strokeStyle = INK; g.lineWidth = 0.035; g.stroke();
+    g.strokeStyle = STEEL_D; g.lineWidth = 0.018; g.stroke();
+    g.beginPath(); g.moveTo(-0.2, -0.44); g.lineTo(0.05, sy); g.lineTo(0.3, -0.44); g.strokeStyle = "#efe9dc"; g.lineWidth = 0.014; g.stroke();
+    if(st === 3) stick(g, 0.05, sy, 0.05, -0.06, 0.012, "#5a4630");
+    g.beginPath(); g.moveTo(-0.2, -0.44); g.quadraticCurveTo(0.05, -0.5, 0.3, -0.44);
+    g.strokeStyle = INK; g.lineWidth = 0.07; g.stroke(); g.strokeStyle = STEEL; g.lineWidth = 0.04; g.stroke();
+    return;
+  }
   stick(g, 0.05, 0.02, 0.05, -0.5, 0.06, WOOD);
   g.beginPath(); g.moveTo(-0.22, -0.45); g.lineTo(0.05, st ? -0.45 : -0.3); g.lineTo(0.32, -0.45); g.strokeStyle = "#efe9dc"; g.lineWidth = 0.014; g.stroke();
   if(!st){ stick(g, 0.05, -0.29, 0.05, -0.6, 0.016, "#d8cdb5"); tip(g, 0.05, -0.6, 0.06); }
   g.beginPath(); g.moveTo(-0.22, -0.45); g.quadraticCurveTo(0.05, -0.58, 0.32, -0.45);
   g.strokeStyle = INK; g.lineWidth = 0.07; g.stroke(); g.strokeStyle = STEEL; g.lineWidth = 0.04; g.stroke();
 }
-// конь: кадр галопа 0…3 (ноги вперёд-назад, кивок головой, хвост), −1 — стоит
-function paintHorse(g, k, f){
-  const hc = k.coat, dark = shade(hc, -0.4), ph = f * Math.PI / 2, run = f >= 0 ? 1 : 0, nod = -0.05 * Math.cos(ph) * run;
-  for(const [lx, ly, o] of [[-0.15, -0.44, 0], [0.15, -0.44, 1.2], [-0.15, 0.64, 2.6], [0.15, 0.64, 3.8]])
-    ell(g, lx, ly - Math.sin(ph + o) * 0.17 * run, 0.055, 0.13, dark);                          // ноги из-под туловища
-  g.beginPath(); for(const s of [-1, 0, 1]){ g.moveTo(s * 0.03, 0.84); g.quadraticCurveTo(s * 0.09 + Math.sin(ph) * 0.06 * run, 1.06, s * 0.06 + 0.02 + Math.sin(ph + 1) * 0.1 * run, 1.3); }
-  g.strokeStyle = INK; g.lineWidth = 0.075; g.stroke(); g.strokeStyle = dark; g.lineWidth = 0.04; g.stroke();   // хвост
-  ell(g, 0, 0.12, 0.22, 0.8, hc);                                                                // туловище
-  const head = k.bard === "full" ? STEEL : hc;
-  g.save(); g.translate(0, nod);
-  g.beginPath(); g.moveTo(-0.1, -0.5); g.quadraticCurveTo(-0.13, -0.9, -0.065, -1.2);             // шея и голова
-  g.quadraticCurveTo(0, -1.28, 0.065, -1.2); g.quadraticCurveTo(0.13, -0.9, 0.1, -0.5); g.closePath();
+// ── Конь по частям (В13): ноги, хвост, туловище, голова с шеей, попона — отдельные части, походку задаёт код ──
+// Оси коня: начало — середина спины (седло), вперёд — −y. Рисуются по порядку: ноги, хвост, туловище, голова, попона,
+// потом всадник. Так в атласе Unity у коня 5 частей на масть вместо кадра на каждую масть × попону × кадр.
+const HLEG = [[-0.17, -0.5], [0.17, -0.5], [-0.17, 0.66], [0.17, 0.66]];   // ЛП, ПП, ЛЗ, ПЗ — где нога в покое (чуть из-под боков)
+const HTAIL = [0, 0.84], HNECK = [0, -0.5];                                   // корень хвоста и шеи
+const HBOX = {leg: [-0.075, -0.18, 0.075, 0.18], tail: [-0.16, -0.05, 0.16, 0.55], body: [-0.25, -0.7, 0.25, 0.95],
+  head: [-0.16, -0.82, 0.16, 0.06], cover: [-0.3, -0.65, 0.3, 0.9]};
+function paintHorseLeg(g, k){ ell(g, 0, 0, 0.06, 0.16, shade(k.coat, -0.4)); }   // нога из-под туловища
+function paintHorseTail(g, k){                                                     // от корня назад (+y)
+  g.beginPath(); for(const s of [-1, 0, 1]){ g.moveTo(s * 0.03, 0); g.quadraticCurveTo(s * 0.09, 0.22, s * 0.06 + 0.02, 0.46); }
+  g.strokeStyle = INK; g.lineWidth = 0.075; g.stroke(); g.strokeStyle = shade(k.coat, -0.4); g.lineWidth = 0.04; g.stroke();
+}
+function paintHorseBody(g, k){ ell(g, 0, 0.12, 0.22, 0.8, k.coat); }
+function paintHorseHead(g, k){                                                     // от основания шеи вперёд (−y)
+  const head = k.bard === "full" ? STEEL : k.coat;
+  g.beginPath(); g.moveTo(-0.1, 0); g.quadraticCurveTo(-0.13, -0.4, -0.065, -0.7);
+  g.quadraticCurveTo(0, -0.78, 0.065, -0.7); g.quadraticCurveTo(0.13, -0.4, 0.1, 0); g.closePath();
   g.fillStyle = head; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
-  ell(g, -0.06, -0.98, 0.025, 0.05, head); ell(g, 0.06, -0.98, 0.025, 0.05, head);               // уши
-  if(k.bard !== "full") stick(g, 0, -0.48, 0, -0.94, 0.04, dark);                                // грива
-  g.restore();
+  ell(g, -0.06, -0.48, 0.025, 0.05, head); ell(g, 0.06, -0.48, 0.025, 0.05, head);               // уши
+  if(k.bard !== "full") stick(g, 0, 0.02, 0, -0.44, 0.04, shade(k.coat, -0.4));                 // грива
+}
+function paintHorseCover(g, k){
   if(k.bard === "full"){ ell(g, 0, 0.14, 0.26, 0.74, k.col); ell(g, 0, 0.14, 0.2, 0.66, shade(k.col, 0.12), 0, false);
     g.fillStyle = k.c2; g.fillRect(-0.025, -0.55, 0.05, 1.35); }                                   // попона до копыт, полоса герба
   else if(k.bard === "cloth") ell(g, 0, 0.08, 0.27, 0.34, shade(k.col, -0.15));                 // чепрак
   else ell(g, 0, 0.08, 0.17, 0.22, LEATHER[0]);                                                  // седло
+}
+// Аллюр (В13) по скорости, м/с: стоит < 0,35 ≤ шаг < 2,3 ≤ рысь < 4,8 ≤ галоп. Фаза — круги шага (1 — все четыре ноги
+// прошли по разу), копится по пройденному: путь ÷ длина круга аллюра, поэтому ноги не скользят по земле.
+// Ноги ходят вперёд-назад со сдвигом по фазе: шаг — по одной (ЛЗ, ЛП, ПЗ, ПП), рысь — по диагонали парами,
+// галоп — задние почти вместе, потом передние. Голова кивает (на шаге дважды за круг), хвост машет, всадника качает.
+const GAIT = {
+  walk:   {amp: 0.15, off: [0.25, 0.75, 0, 0.5], stride: 1.7, nod: 0.04, nodN: 2, tail: 0.1, bob: 0.008},
+  trot:   {amp: 0.22, off: [0, 0.5, 0.5, 0], stride: 2.8, nod: 0.012, nodN: 2, tail: 0.07, bob: 0.025},
+  gallop: {amp: 0.32, off: [0.4, 0.5, 0, 0.1], stride: 5.0, nod: 0.06, nodN: 1, tail: 0.18, bob: 0.035},
+};
+const gaitOf = v => v < 0.35 ? null : v < 2.3 ? "walk" : v < 4.8 ? "trot" : "gallop";
+const strideOf = v => { const G = GAIT[gaitOf(v)]; return G ? G.stride : 1.7; };
+// поза коня: ноги (сдвиг вперёд, м — со знаком минус), кивок головы, поворот хвоста (рад), качка всадника.
+// Стоит — переступает, отмахивается хвостом и вскидывает голову раз в несколько секунд (у каждого коня — свой ритм)
+function horsePose(v, ph, t, s){
+  const G = GAIT[gaitOf(v)], tau = 2 * Math.PI;
+  if(!G){
+    const slot = Math.floor(t / 3.5 + hash(s, 31) * 4), r = hash(s * 13 + slot, 32), u = frac(t / 3.5 + hash(s, 31) * 4);
+    const pulse = Math.sin(u * Math.PI);
+    return {legs: [0, 0, r < 0.25 ? -0.06 * pulse : 0, r > 0.75 ? -0.06 * pulse : 0], nod: r > 0.4 && r < 0.6 ? 0.05 * pulse : 0.01 * Math.sin(t * 0.8 + s),
+      tail: (r < 0.5 ? 0.25 : 0.06) * Math.sin(t * 5 + s) * pulse, bob: 0};
+  }
+  return {legs: G.off.map(o => -G.amp * Math.sin(tau * (ph - o))), nod: -G.nod * Math.sin(tau * G.nodN * ph),
+    tail: G.tail * Math.sin(tau * ph + 1), bob: G.bob * Math.sin(tau * 2 * ph)};
+}
+// конь целиком одним рисунком (для бойца издали и кадров атласа старого вида): f — кадр галопа 0…3, −1 — стоит
+function paintHorse(g, k, f){
+  const P = f < 0 ? horsePose(0, 0, 0, 0) : horsePose(8, f / 4, 0, 0);
+  const at = (x, y, r, fn) => { g.save(); g.translate(x, y); g.rotate(r); fn(); g.restore(); };
+  HLEG.forEach(([x, y], i) => at(x, y + P.legs[i], 0, () => paintHorseLeg(g, k)));
+  at(HTAIL[0], HTAIL[1], P.tail, () => paintHorseTail(g, k));
+  paintHorseBody(g, k);
+  at(HNECK[0], HNECK[1] + P.nod, 0, () => paintHorseHead(g, k));
+  paintHorseCover(g, k);
 }
 // павший: лежит на спине, голова — к −y, ноги у начала; рядом — оружие и щит; краски приглушены (В8)
 function paintCorpse(g, k, v){
@@ -315,6 +367,21 @@ function paintCorpse(g, k, v){
   g.save(); g.translate(0, -0.56); paintHead(g, k); g.restore();
   g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(112,106,96,.38)"; g.fillRect(-2, -2, 4, 4); g.globalCompositeOperation = "source-over";
 }
+// раненый (Г39, В13): лежит лицом вниз, голова к −y, правая рука вытянута вперёд, левая согнута в локте, правая нога
+// подтянута — так он ползёт; следующий рывок — тот же рисунок, отражённый слева направо. Краски живые, не приглушены
+function sleeveOf(k){ return k.armour === "mail" ? "#8e9296" : k.armour === "leather" ? k.leather : k.armour === "plate" ? STEEL : k.cloth; }
+function paintCrawlBody(g, cloth, armour, leather){
+  const pants = mix(cloth, "#3e3328", 0.55), boot = "#3a2c20", sleeve = sleeveOf({armour, leather, cloth});
+  stick(g, -0.08, 0.1, -0.12, 0.8, 0.1, pants); ell(g, -0.125, 0.85, 0.05, 0.07, boot);
+  stick(g, 0.08, 0.1, 0.3, 0.42, 0.1, pants); stick(g, 0.3, 0.42, 0.22, 0.76, 0.095, pants); ell(g, 0.21, 0.8, 0.05, 0.07, boot);
+  stick(g, 0.19, -0.3, 0.27, -0.95, 0.09, sleeve); ell(g, 0.28, -0.99, 0.035, 0.035, "#c49a74");
+  stick(g, -0.19, -0.3, -0.4, -0.46, 0.09, sleeve); stick(g, -0.4, -0.46, -0.27, -0.76, 0.085, sleeve); ell(g, -0.26, -0.79, 0.035, 0.035, "#c49a74");
+  g.beginPath(); g.moveTo(-0.21, -0.36); g.quadraticCurveTo(-0.22, -0.44, -0.12, -0.44); g.lineTo(0.12, -0.44); g.quadraticCurveTo(0.22, -0.44, 0.21, -0.36);
+  g.lineTo(0.17, 0.14); g.lineTo(-0.17, 0.14); g.closePath(); g.fillStyle = cloth; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.04; g.stroke();
+  if(armour === "mail" || armour === "plate"){ ell(g, 0, -0.15, 0.15, 0.2, armour === "mail" ? "#9a9ea2" : STEEL); if(armour === "plate") ell(g, -0.04, -0.22, 0.04, 0.06, SHINE, 0, false); }
+  else if(armour === "leather") ell(g, 0, -0.15, 0.15, 0.2, leather);
+}
+function paintCrawl(g, k){ paintCrawlBody(g, k.cloth, k.armour, k.leather); g.save(); g.translate(0, -0.56); paintHead(g, k); g.restore(); }
 // павший конь лежит на боку: ноги в сторону
 function paintDeadHorse(g, k){
   const hc = k.coat, dark = shade(hc, -0.4);
@@ -351,9 +418,27 @@ const weapSpr = (w, col) => spr("w" + w + (w === "lance" ? col : ""), WBOX[w], g
 const bowSpr = st => spr("bow" + st, [-0.36, -1.12, 0.36, 0.2], g => paintBow(g, st));
 const xbowSpr = st => spr("xb" + st, [-0.3, -0.68, 0.38, 0.08], g => paintXbow(g, st));
 const bootSpr = () => spr("boot", [-0.06, -0.08, 0.06, 0.08], g => ell(g, 0, 0, 0.045, 0.07, "#3a2c20", 0, false));
+const sparkSpr = () => spr("spark", [-0.16, -0.16, 0.16, 0.16], paintSpark);
+// вспышка удара (В13): четырёхлучевая звезда — белая, середина жёлтая, тонкий контур
+function paintSpark(g){
+  g.beginPath();
+  for(let i = 0; i < 8; i++){ const a = i * Math.PI / 4 - Math.PI / 2, r = i % 2 ? 0.045 : 0.15; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  g.closePath(); g.fillStyle = "#fffbe8"; g.fill(); g.strokeStyle = "rgba(43,38,33,.6)"; g.lineWidth = 0.012; g.stroke();
+  ell(g, 0, 0, 0.04, 0.04, "#f3d36b", 0, false);
+}
 const horseSpr = (k, f) => spr("h" + k.horseKey + "|" + f, [-0.36, -1.36, 0.36, 1.37], g => paintHorse(g, k, f));
+// конь по частям (В13): поза — из horsePose
+function putHorse(k, base, P){
+  const leg = spr("hl" + k.coat, HBOX.leg, g => paintHorseLeg(g, k));
+  HLEG.forEach(([x, y], i) => put(leg, mT(base, x, y + P.legs[i])));
+  put(spr("ht" + k.coat, HBOX.tail, g => paintHorseTail(g, k)), mR(mT(base, HTAIL[0], HTAIL[1]), P.tail));
+  put(spr("hb" + k.coat, HBOX.body, g => paintHorseBody(g, k)), base);
+  put(spr("hh" + k.coat + (k.bard === "full" ? "f" : ""), HBOX.head, g => paintHorseHead(g, k)), mT(base, HNECK[0], HNECK[1] + P.nod));
+  put(spr("hc" + k.horseKey, HBOX.cover, g => paintHorseCover(g, k)), base);
+}
 const corpseSpr = (k, v) => spr("c" + k.bodyKey + (k.shield ? k.shield.key : "") + k.weapon + k.side + v, [-1.05, -1.0, 1.05, 1.0], g => paintCorpse(g, k, v));
 const deadHorseSpr = k => spr("dh" + k.horseKey, [-0.5, -1.35, 0.75, 1.0], g => paintDeadHorse(g, k));
+const crawlSpr = k => spr("cr" + k.bodyKey, [-0.5, -1.06, 0.45, 0.95], g => paintCrawl(g, k));
 // мягкая тень под бойцом (В5)
 const SHADOW = (() => {
   const c = document.createElement("canvas"); c.width = c.height = 32;
@@ -365,11 +450,14 @@ const SHADOW = (() => {
 
 // Поза в покое: где оружие и щит. [x, y, поворот, масштаб поперёк, масштаб вдоль] — вдоль меньше 1: древко наклонено к нам
 // (стоймя копьё сверху — короткий обрубок), щит в руке виден наискосок.
-function restPose(k, rank){
+// low (В13) — насколько отряд опустил древки: 0 — стоймя (марш, покой), 1 — к бою: копья в 2 передних шеренгах,
+// пики в 4; передняя шеренга опускает первой, следующие — с запаздыванием.
+const mixPose = (a, b, e) => a.map((v, i) => v + (b[i] - v) * e);
+function restPose(k, rank, low = 1){
   const w = k.weapon;
   let W = null, Sh = null;
-  if(w === "spear" || w === "fork") W = rank < 2 ? [0.2, -0.1, 0, 1, 1] : [0.21, -0.06, 0.15, 1, 0.2];
-  else if(w === "pike") W = rank < 4 ? [rank % 2 ? -0.3 : 0.12, 0, 0, 1, 1] : [0.15, -0.04, 0.1, 1, 0.12];
+  if(w === "spear" || w === "fork") W = mixPose([0.21, -0.06, 0.15, 1, 0.2], [0.2, -0.1, 0, 1, 1], rank < 2 ? ease(Math.min(1, Math.max(0, low * 1.25 - rank * 0.2))) : 0);
+  else if(w === "pike") W = mixPose([0.15, -0.04, 0.1, 1, 0.12], [rank % 2 ? -0.3 : 0.12, 0, 0, 1, 1], rank < 4 ? ease(Math.min(1, Math.max(0, low * 1.4 - rank * 0.13))) : 0);
   else if(w === "lance") W = [0.22, 0.05, 0.05, 1, 0.24];
   else if(w !== "bow" && w !== "crossbow") W = [0.22, -0.06, 0.3, 1, 0.65];
   if(k.shield) Sh = k.horse ? [-0.27, 0, Math.PI / 2, 0.75, 0.42] : k.shield.shape === "buckler" ? [-0.2, 0.07, 0, 1, 0.6] : [-0.16, -0.23, -0.25, 1, -0.42];
@@ -411,7 +499,19 @@ function swingAng(p){   // рубящие: замах вправо-вверх, �
   if(p < 0.85){ const e = ease((p - 0.47) / 0.38); return [-0.9 + 1.2 * e, 1 - 0.35 * e]; }
   return [0.3, 0.65];
 }
+function chopPose(p){   // сверху (В13): замах вверх — оружие к нам, видно коротким; удар вниз-вперёд; возврат; [сдвиг вперёд, масштаб вдоль]
+  if(p < 0.35){ const e = ease(p / 0.35); return [-0.08 + 0.1 * e, 0.65 - 0.5 * e]; }
+  if(p < 0.47){ const e = (p - 0.35) / 0.12; return [0.02 - 0.2 * e, 0.15 + 0.95 * e]; }
+  if(p < 0.85){ const e = ease((p - 0.47) / 0.38); return [-0.18 + 0.1 * e, 1.1 - 0.45 * e]; }
+  return [-0.08, 0.65];
+}
 const THRUST = new Set(["spear", "fork", "pike", "lance"]);
+// бегущий оглядывается через плечо (В13): почти половина — раз в 2–4 с на полсекунды, плечи поворачиваются до 50°
+function lookBack(t, s){
+  if(hash(s, 43) > 0.45) return 0;
+  const u = frac(t / (2 + 2 * hash(s, 44)) + hash(s, 45));
+  return u < 0.18 ? (hash(s, 46) < 0.5 ? -0.9 : 0.9) * Math.sin(u / 0.18 * Math.PI) : 0;
+}
 // взгляд по сторонам: раз в несколько секунд боец поворачивает голову и плечи
 function glance(t, s){
   const slot = Math.floor(t / 3 + hash(s, 9) * 3), r = hash(s * 7 + slot, 11);
@@ -560,6 +660,44 @@ function stateSince(ui, fr){   // с какого кадра нынешнее с
   return since;
 }
 const fleeing = st => st === 1 || st === 3;
+// Древки к бою (В13): отряд в схватке или край врага ближе 30 м — опускают за 1,2 с; иначе поднимают за 2 с.
+// Отряд — отрезок своего фронта (центр, курс, ширина); зазор — расстояние между отрезками минус полглубины обоих.
+let LOW = [], LOW_SCENE = null;
+function segDist(ax, ay, bx, by, cx, cy, dx, dy){
+  const pt = (px, py, x0, y0, x1, y1) => { const vx = x1 - x0, vy = y1 - y0, L = vx * vx + vy * vy, u = L > 0 ? Math.max(0, Math.min(1, ((px - x0) * vx + (py - y0) * vy) / L)) : 0; return Math.hypot(px - x0 - u * vx, py - y0 - u * vy); };
+  return Math.min(pt(ax, ay, cx, cy, dx, dy), pt(bx, by, cx, cy, dx, dy), pt(cx, cy, ax, ay, bx, by), pt(dx, dy, ax, ay, bx, by));
+}
+function lowerOf(ui){
+  if(LOW_SCENE !== S){ LOW_SCENE = S; LOW = []; }
+  if(LOW[ui]) return LOW[ui];
+  const F = S.frames, N = F.length, L = new Float32Array(N), U = S.units, side = U[ui].faction || 1;
+  const seg = (j, p) => { const h = p[2] * Math.PI / 180, c = Math.cos(h) * (U[j].front || 20) / 2, s = Math.sin(h) * (U[j].front || 20) / 2; return [p[0] - c, p[1] - s, p[0] + c, p[1] + s]; };
+  let cur = 0, near = 0;   // близость врага — раз в 3 кадра (0,6 с), между ними — последняя
+  for(let f = 0; f < N; f++){
+    const p = F[f][ui];
+    let want = 0;
+    if(p){
+      if(f % 3 === 0){
+        near = 0;
+        const a = seg(ui, p);
+        for(let j = 0; j < U.length && !near; j++){
+          const e = F[f][j]; if(!e || (U[j].faction || 1) === side) continue;
+          const b = seg(j, e);
+          if(segDist(a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]) - ((U[ui].depth || 10) + (U[j].depth || 10)) / 2 < 30) near = 1;
+        }
+      }
+      const pairs = S.fights && S.fights[Math.min(f, S.fights.length - 1)];
+      want = near || (pairs && pairs.includes(ui)) ? 1 : 0;
+    }
+    cur = want ? Math.min(1, cur + S.dt / 1.2) : Math.max(0, cur - S.dt / 2);
+    L[f] = cur;
+  }
+  return LOW[ui] = L;
+}
+function lowerAt(ui){
+  const L = lowerOf(ui), N = S.frames.length, fi = Math.min(Math.floor(frame), N - 1), f1 = Math.min(fi + 1, N - 1);
+  return L[fi] + (L[f1] - L[fi]) * (frame - fi);
+}
 const drops = s => hash(s, 21) < 0.45;   // кто бросает оружие на бегу (В11)
 // павшие отряда по кадрам: кадр → [[x, y, номер в S.dead], …]
 function deadsOf(ui){
@@ -590,6 +728,9 @@ function buildAgents(ui){
     }
   }
   const Nm = men.length, pos = new Float32Array(N * Nm * 2), face = new Float32Array(N * Nm), fig = new Int16Array(N * Nm).fill(-1), rank = new Uint8Array(N * Nm);
+  // фаза шага (В13), круги: путь ÷ длина круга — у пешего 1,4 м шагом и 2,4 м бегом, у коня — по аллюру
+  const phase = new Float32Array(N * Nm);
+  for(const m of men) m.ph = hash(m.seed, 5);
   const fs = G.map(() => []);   // фигурка → её бойцы по местам (место = номер в списке, без дыр)
   const full = G.map((g, k) => Math.min(g.cap, Math.round(u.figs[k][2] ?? g.cap)));   // сколько бойцов в фигурке по строю
   let dirty = false;            // были потери или пропали тела — строй смыкается, пока есть кому
@@ -708,11 +849,12 @@ function buildAgents(ui){
         const dx = tx - m.x, dy = ty - m.y, d = Math.sqrt(dx * dx + dy * dy), vm = Math.min(FV[k], (m.v + m.acc) * S.dt), st = Math.min(d, vm);
         if(d > 1e-6){ m.x += dx / d * st; m.y += dy / d * st; }
         m.v = st / S.dt;
+        m.ph += st / (horse ? strideOf(m.v) : m.v > 2.6 ? 2.4 : 1.4);
         // далеко от места — бежит туда и смотрит, куда бежит; на месте — как фигурка; поворачивается в своём темпе
         const want = d - st > 2.5 ? Math.atan2(dx, -dy) : h;
         if(want !== m.face) m.face = turnTo(m.face, want, m.tr);
       }
-      pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; face[o] = m.face; fig[o] = k; rank[o] = Math.min(255, g.rank * fd + row);
+      pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; face[o] = m.face; fig[o] = k; rank[o] = Math.min(255, g.rank * fd + row); phase[o] = m.ph;
     }
     if(f) separate(f);
   }
@@ -723,7 +865,7 @@ function buildAgents(ui){
     for(let id = 0; id < Nm; id++){ const k = fig[fi * Nm + id]; if(k >= 0) (lastL[k] || (lastL[k] = [])).push(id); }
     return lastL;
   };
-  return {n: Nm, pos, face, fig, rank, seed: men.map(m => m.seed), figMen, deadSeed, dropped};
+  return {n: Nm, pos, face, fig, rank, phase, seed: men.map(m => m.seed), figMen, deadSeed, dropped};
 }
 
 // ── Фигурка: её бойцы — с их местами, курсом и снаряжением; анимация — по каждому ──
@@ -741,8 +883,13 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
     const o0 = fi * Nm + id, alive1 = ag.fig[f1 * Nm + id] >= 0, o1 = alive1 ? f1 * Nm + id : o0;
     const x0 = ag.pos[o0 * 2], y0 = ag.pos[o0 * 2 + 1], x1 = ag.pos[o1 * 2], y1 = ag.pos[o1 * 2 + 1], a0 = ag.face[o0];
     return {x: x0 + (x1 - x0) * q, y: y0 + (y1 - y0) * q, face: a0 + angD(ag.face[o1], a0) * q, sp: Math.hypot(x1 - x0, y1 - y0) / S.dt,
+      ph: ag.phase[o0] + (ag.phase[o1] - ag.phase[o0]) * q,
       seed: ag.seed[id], rank: ag.rank[o0], kit: kits[Math.floor(hash(ag.seed[id], 4) * kits.length)]};
   });
+  // древки к бою (В13): копья и пики — стоймя на марше, опущены у врага; издали — готовый спрайт с той или другой позой
+  const low = lowerAt(ui), poleRank = r => low >= 0.5 ? r : 99;
+  // сплотились (БД4) — первые 4 с вскидывают оружие и кричат (В13)
+  const cheer = ust === 4 && (fi - stateSince(ui, fi)) * S.dt < 4;
   if(view.s < 6){   // совсем издали (2–3 px на бойца): плечи и головы точками — две заливки на фигурку
     const pb = new Path2D(), ph = new Path2D();
     for(const m of M){ pb.moveTo(m.x + 0.27, m.y); pb.ellipse(m.x, m.y, 0.27, 0.15, m.face, 0, 6.283); ph.moveTo(m.x + 0.12, m.y); ph.arc(m.x, m.y, 0.12, 0, 6.283); }
@@ -750,7 +897,7 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
     ctx.restore(); return;
   }
   if(!parts){   // издали: готовый спрайт, лёгкое покачивание на ходу
-    for(const m of M){ const bob = m.sp > 0.8 ? Math.sin(t * 11 + hash(m.seed, 3) * 6.283) * 0.05 : 0; put(compSpr(m.kit, m.rank), mT(mR(mT(B, m.x, m.y), m.face), 0, bob)); }
+    for(const m of M){ const bob = m.sp > 0.8 ? Math.sin(m.ph * 12.566) * 0.05 : 0; put(compSpr(m.kit, poleRank(m.rank)), mT(mR(mT(B, m.x, m.y), m.face), 0, bob)); }
     ctx.restore(); return;
   }
   // рукопашная: кто ближе к врагу — бьёт, остальные напирают и поворачиваются туда же
@@ -786,15 +933,17 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
       for(const m of M) put(sp, mT(mR(mT(B, m.x + SH_X * so, m.y + SH_Y * so), m.face), 0, sy));
     }
   }
+  const sparks = [];   // вспышки ударов (В13) — поверх всех бойцов фигурки
   for(const m of M){
     const kit = m.kit, s = m.seed, ph0 = hash(s, 5), walking = m.sp > 0.8;
-    let rot = 0, ox = 0, oy = 0, step = 0, ap = -1;   // ap — доля круга удара
-    if(m.atk) ap = frac(t / (1.1 + 0.9 * hash(s, 7)) + hash(s, 8));
-    if(walking && !m.atk){ const fq = m.sp > 4 ? 2.6 : m.sp > 1.6 ? 2 : 1.5; step = Math.sin((t * fq + ph0) * 6.283); rot += 0.07 * step; }
+    let rot = 0, ox = 0, oy = 0, step = 0, ap = -1, blow = 0;   // ap — доля круга удара, blow — номер удара
+    if(m.atk){ const per = 1.1 + 0.9 * hash(s, 7), u0 = t / per + hash(s, 8); ap = frac(u0); blow = Math.floor(u0); }
+    if(walking && !m.atk){ step = Math.sin(m.ph * 6.283); rot += (m.sp > 2.6 ? 0.11 : 0.07) * step; }   // бегом плечи ходят сильнее
     else if(!m.atk){ rot += 0.035 * Math.sin(t * 0.9 + ph0 * 6.283) + (eng === undefined ? glance(t, s) : 0); ox = 0.02 * Math.sin(t * 0.6 + ph0 * 9); }
     if(eng !== undefined && !m.atk) oy = -0.03 - 0.03 * Math.sin(t * 3 + ph0 * 6.283);          // задние напирают
-    const P = restPose(kit, m.rank), base = mR(mT(B, m.x, m.y), m.face);
+    const P = restPose(kit, m.rank, low), base = mR(mT(B, m.x, m.y), m.face);
     if(flee && !horse){   // бегство (В11): бегом, щит за спиной, оружие несут как придётся или бросили
+      rot += lookBack(t, s);                                                                      // оглядываются на бегу (В13)
       const Mf = mR(mT(base, ox, -0.05), rot);
       if(step && view.s >= 14){ const bt = bootSpr(); put(bt, mT(Mf, -0.09, 0.03 + 0.14 * step)); put(bt, mT(Mf, 0.09, 0.03 - 0.14 * step)); }
       if(kit.shield && kit.shield.shape !== "buckler") put(shieldSpr(kit.shield), mP(Mf, [0, 0.24, 0, 0.85, 0.45]));
@@ -807,17 +956,17 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
       }
       continue;
     }
-    if(horse){
-      const run = walking || m.atk, gp = t * 2.4 + ph0;
-      if(!run){ put(compSpr(kit, m.rank), mR(base, rot * 0.2)); continue; }   // стоит — одним спрайтом
-      put(horseSpr(kit, Math.floor(frac(gp) * 4)), base);
-      const Mr = mR(mT(base, ox, 0.02 + (run ? Math.sin(gp * 12.566) * 0.03 : 0)), rot * 0.35);
+    if(horse){   // конь по частям (В13): аллюр по скорости, стоящий переступает и машет хвостом
+      const run = walking || m.atk, HP = horsePose(m.sp, m.ph, t, s);
+      putHorse(kit, base, HP);
+      const Mr = mR(mT(base, ox, 0.02 + HP.bob), rot * 0.35);
       put(bodySpr(kit), Mr);
       if(P.Sh) put(shieldSpr(kit.shield), mP(Mr, P.Sh));
       let W = P.W;
       if(kit.weapon === "lance"){ if(run) W = [0.2, 0.25 + (m.atk ? thrustOff(ap) : 0), -0.04, 1, 1]; }
       else if(m.atk){ const [r2, sy2] = swingAng(ap); W = [0.22, -0.08, r2, 1, sy2]; }
       if(W) put(weapSpr(kit.weapon, kit.col), mP(Mr, W));
+      if(m.atk && ap >= 0.42 && ap < 0.5) sparks.push([m, kit.weapon === "lance" ? -2.6 : -0.9, ap]);
       continue;
     }
     // стрелок: состояние лука по времени до своего выстрела
@@ -829,35 +978,52 @@ function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
         else xb = dt < 0 ? 0 : dt < 0.25 ? 1 : 2;
       } else if(active){ bowSt = hash(s, 14) < 0.5 ? 1 : 0; xb = hash(s, 14) < 0.5 ? 0 : 2; }
       if(bowSt >= 2) rot -= 0.14;
-      if(xb === 2){ lean = 0.05; rot += 0.15 * Math.sin(t * 5 + ph0 * 6); }
+      // арбалет взводят через стремя (В13): нагнулся к стремени (2), тянет тетиву крюком к поясу (3) — и снова
+      if(xb === 2){ xb = frac(t * 0.45 + ph0) < 0.5 ? 2 : 3; lean = xb === 2 ? 0.1 : 0.04; rot += 0.04 * Math.sin(t * 4 + ph0 * 6); }
       if(xb === 1) oy += 0.04;
     }
-    if(m.atk && ap >= 0){ oy -= ap > 0.3 && ap < 0.55 ? 0.06 : 0; rot += THRUST.has(kit.weapon) ? 0 : 0.18 * Math.sin(ap * 6.283); }
+    // удар (В13): копья и пики колют; меч то рубит, то колет; топор, булава и дубина — то сбоку, то сверху.
+    // Каждый удар выбирается заново (хешем по номеру удара) — у соседей разный порядок
+    const wk = m.atk && shoot ? (kit.side !== "none" ? kit.side : null) : kit.weapon;
+    const kind = !m.atk || !wk ? null : THRUST.has(wk) ? "thrust"
+      : wk === "sword" || wk === "falchion" ? (hash(s * 7 + blow, 41) < 0.35 ? "thrust" : "swing") : hash(s * 7 + blow, 42) < 0.5 ? "chop" : "swing";
+    if(m.atk && ap >= 0){ oy -= ap > 0.3 && ap < 0.55 ? 0.06 : 0; rot += kind === "swing" ? 0.18 * Math.sin(ap * 6.283) : kind === "chop" ? -0.08 * Math.sin(ap * 6.283) : 0; }
+    if(cheer && !m.atk) oy -= 0.05 * Math.max(0, Math.sin(t * 9 + ph0 * 6.283));                  // ликуют — подпрыгивают
     const Mm = mR(mT(base, ox, oy - lean), rot);
     // ноги: на ходу и в бою шагают
     const st = step || (m.atk ? Math.sin(ap * 6.283) * 0.6 : 0);
     if(st && view.s >= 14){ const bt = bootSpr(); put(bt, mT(Mm, -0.09, 0.03 + 0.12 * st)); put(bt, mT(Mm, 0.09, 0.03 - 0.12 * st)); }
-    // кто стоит или идёт и ничего не делает — один готовый спрайт; по частям — кто бьёт, стреляет, прикрывается щитом
+    // кто стоит или идёт и ничего не делает — один готовый спрайт; по частям — кто бьёт, стреляет, прикрывается щитом,
+    // поднимает или опускает древко, ликует
     const raise = fire && !m.atk && P.Sh && kit.shield.shape !== "buckler" && hash(s, 13) < 0.85;
-    if(!m.atk && !raise && bowSt < 2 && bowSt !== 4 && !xb){ put(compSpr(kit, m.rank), Mm); continue; }
+    const pole = (kit.weapon === "pike" || kit.weapon === "spear" || kit.weapon === "fork") && low > 0.02 && low < 0.98;
+    if(!m.atk && !raise && !pole && !cheer && bowSt < 2 && bowSt !== 4 && !xb){ put(compSpr(kit, poleRank(m.rank)), Mm); continue; }
     put(bodySpr(kit), Mm);
-    // щит: под стрелами — над головой
+    // щит: под стрелами — над головой; в рукопашной — вперёд, навстречу удару врага (В13): прикрывается между своими ударами
     if(P.Sh){
       let Sh = P.Sh;
       if(raise) Sh = [-0.03, -0.05, -0.1, 1, 0.9];
-      else if(m.atk) Sh = [Sh[0] + 0.04, Sh[1] - 0.06, Sh[2] + 0.15, Sh[3], Sh[4]];
+      else if(m.atk){ const c = Math.max(0, Math.sin((ap + 0.5) * 6.283)); Sh = [Sh[0] + 0.04 + 0.05 * c, Sh[1] - 0.06 - 0.09 * c, Sh[2] + 0.15 + 0.2 * c, Sh[3], Sh[4]]; }
       put(shieldSpr(kit.shield), mP(Mm, Sh));
     }
     // оружие
-    let wpn = kit.weapon, W = P.W;
-    if(m.atk && shoot){ wpn = kit.side !== "none" ? kit.side : null; W = wpn ? [0.22, -0.06, 0.3, 1, 0.65] : null; }
+    let wpn = wk, W = P.W;
+    if(m.atk && shoot) W = wpn ? [0.22, -0.06, 0.3, 1, 0.65] : null;
     if(m.atk && wpn){
-      if(THRUST.has(wpn)) W = [W[0], (wpn === "pike" ? 0 : -0.1) + thrustOff(ap), 0, 1, 1];
+      if(kind === "thrust") W = THRUST.has(wpn) ? [W[0], (wpn === "pike" ? 0 : -0.1) + thrustOff(ap), 0, 1, 1] : [0.16, -0.14 + 0.8 * thrustOff(ap), 0.04, 1, 1];
+      else if(kind === "chop"){ const [y2, sy2] = chopPose(ap); W = [0.2, y2, 0.1, 1, sy2]; }
       else { const [r2, sy2] = swingAng(ap); W = [0.22, -0.08, r2, 1, sy2]; }
-    } else if(W && step) W = [W[0], W[1], W[2] + 0.03 * step, W[3], W[4]];
+      if(ap >= 0.42 && ap < 0.5) sparks.push([m, kind === "thrust" ? (wpn === "pike" ? -3.7 : THRUST.has(wpn) ? -1.35 : -0.85) : -0.75, ap]);
+    } else if(cheer && W) W = [W[0], W[1] - 0.05, W[2] * 0.3 - 0.1, 1, Math.min(W[4], 0.3) + 0.08 * Math.sin(t * 9 + ph0 * 6.283)];   // вскинули оружие
+    else if(W && step) W = [W[0], W[1], W[2] + 0.03 * step, W[3], W[4]];
     if(wpn === "bow" && !m.atk) put(bowSpr(bowSt), Mm);
-    else if(wpn === "crossbow" && !m.atk) put(xbowSpr(xb ? 1 : 0), xb === 2 ? mP(Mm, [0.0, 0.22, 0.5, 1, 0.55]) : Mm);
+    else if(wpn === "crossbow" && !m.atk) put(xbowSpr(xb), Mm);
     else if(W && wpn) put(weapSpr(wpn, kit.col), mP(Mm, W));
+  }
+  // вспышка удара (В13): в миг удара у острия — звёздочка, за 0,1 с вырастает и гаснет
+  for(const [m, reach, ap] of sparks){
+    const e = (ap - 0.42) / 0.08, base = mR(mT(B, m.x, m.y), m.face), k2 = 0.6 + 0.8 * e;
+    ctx.globalAlpha = 1 - e; put(sparkSpr(), mS(mT(base, 0.2, reach), k2, k2)); ctx.globalAlpha = 1;
   }
   ctx.restore();
 }
@@ -964,21 +1130,51 @@ function drawDead(){
     return;
   }
   S.dead.forEach((dd, di) => {
-    const [x, y, fi, ui, fc, dir, part] = dd;
+    const [x, y, fi, ui, fc, dir, part, , killed] = dd;
     if(fi > now || x < vx0 || x > vx1 || y < vy0 || y > vy1) return;
     const u = S.units[ui], kits = kitsOf(u), seed = (fi * 131 + ui * 7919 + Math.round(x * 13) + Math.round(y * 7)) | 0;
     const man = agentsOf(ui).deadSeed.get(di);   // павший — тот самый боец: тело в его снаряжении (В10)
     const kit = kits[Math.floor(hash(man ?? seed, man === undefined ? 50 : 4) * kits.length)], v = Math.floor(hash(seed, 51) * 4);
-    const p = Math.min(1, (t - fi * S.dt) / 0.35), e = 1 - (1 - p) * (1 - p), a = dir * Math.PI / 180 + (hash(seed, 52) - 0.5) * 0.5;
+    const age = t - fi * S.dt, a = dir * Math.PI / 180 + (hash(seed, 52) - 0.5) * 0.5;
+    const rider = part === 3 && kit.horse, wounded = killed === 0 && !rider;   // killed нет (старые данные) — убит
+    // удар (В13): первые 0,15 с боец ещё стоит — его качнуло по удару; потом падает
+    if(age < 0.15 && !rider){
+      const k2 = age / 0.15, d = dir * Math.PI / 180, sp0 = compSpr(kit, 0);
+      ctx.save(); ctx.translate(X(x + Math.cos(d) * 0.12 * k2), Y(y + Math.sin(d) * 0.12 * k2));
+      ctx.rotate(fc * Math.PI / 180 + (hash(seed, 55) - 0.5) * 0.6 * k2); ctx.scale(view.s, view.s);
+      ctx.drawImage(sp0.c, sp0.x, sp0.y, sp0.w, sp0.h); ctx.restore();
+      return;
+    }
+    const p = Math.min(1, (age - 0.15) / 0.35), e = 1 - (1 - p) * (1 - p);
     ctx.save(); ctx.translate(X(x), Y(y)); ctx.rotate(a + Math.PI / 2); ctx.scale(view.s, view.s);
-    if(part === 3 && kit.horse){
-      const hs = deadHorseSpr(kit); ctx.save(); ctx.scale(1, 0.4 + 0.6 * e); ctx.drawImage(hs.c, hs.x, hs.y - 0.6, hs.w, hs.h); ctx.restore();
-      ctx.translate(-0.9, 0.3);
+    if(rider){
+      const he = 1 - Math.pow(1 - Math.min(1, age / 0.5), 2);
+      const hs = deadHorseSpr(kit); ctx.save(); ctx.scale(1, 0.4 + 0.6 * he); ctx.drawImage(hs.c, hs.x, hs.y - 0.6, hs.w, hs.h); ctx.restore();
+      // всадник слетает с коня (В13): за 0,55 с — в сторону от туши, в полёте крупнее (выше, ближе к нам)
+      const fl = Math.min(1, age / 0.55), k3 = 1 + 0.3 * Math.sin(fl * Math.PI);
+      ctx.translate(-0.9 * ease(fl), 0.3 * ease(fl)); ctx.scale(k3, k3);
+    }
+    let flip = 1;
+    if(wounded){
+      // раненый (Г39, В13) бросил оружие и щит там, где упал; дальше ползёт рывками прочь от врага (0,32 м за 0,9 с)
+      // и оставляет кровавый след, или корчится на месте; через 4–12 с затихает
+      const w = kit.weapon === "bow" || kit.weapon === "crossbow" ? kit.side : kit.weapon;
+      if(w && w !== "none"){ const ws = weapSpr(w, kit.col), sc = w === "pike" || w === "lance" ? 0.4 : w === "spear" || w === "fork" ? 0.7 : 0.9;
+        ctx.save(); ctx.translate(0.45, -0.5); ctx.rotate(hash(seed, 56) * 6.283); ctx.scale(sc, sc); ctx.drawImage(ws.c, ws.x, ws.y, ws.w, ws.h); ctx.restore(); }
+      if(kit.shield){ const ss = shieldSpr(kit.shield); ctx.save(); ctx.translate(-0.5, -0.4); ctx.rotate(hash(seed, 57) * 6.283); ctx.scale(0.85, 0.85); ctx.drawImage(ss.c, ss.x, ss.y, ss.w, ss.h); ctx.restore(); }
+      const life = Math.min(Math.max(0, age - 0.5), 4 + 8 * hash(seed, 54));
+      if(hash(seed, 53) < 0.65){
+        const n = life / 0.9, j = Math.floor(n);
+        ctx.fillStyle = BLOOD; ctx.globalAlpha = 0.7;
+        for(let q = 0; q < j; q++){ ctx.beginPath(); ctx.arc((hash(seed, 60 + q) - 0.5) * 0.14, -0.32 * q - 0.25, 0.035 + 0.03 * hash(seed, 80 + q), 0, 6.283); ctx.fill(); }
+        ctx.globalAlpha = 1;
+        ctx.translate(0, -0.32 * (j + ease(n - j))); flip = j % 2 ? -1 : 1;
+      } else { ctx.rotate(0.12 * Math.sin(life * 2.3 + seed)); flip = Math.floor(life / 1.6) % 2 ? -1 : 1; }
     }
     // падение: тело «ложится» от ног — растягиваем вдоль оси от точки, где стоял
-    ctx.scale(1, 0.25 + 0.75 * e);
-    const sp = corpseSpr(kit, v); ctx.drawImage(sp.c, sp.x, sp.y - 0.8, sp.w, sp.h);
-    if(part === 0 && p >= 1){ ctx.fillStyle = BLOOD; ctx.globalAlpha = 0.8; ctx.beginPath(); ctx.arc(0, -1.36, 0.1, 0, 6.283); ctx.fill(); }
+    ctx.scale(flip, 0.25 + 0.75 * e);
+    const sp = wounded ? crawlSpr(kit) : corpseSpr(kit, v); ctx.drawImage(sp.c, sp.x, sp.y - 0.8, sp.w, sp.h);
+    if(part === 0 && p >= 1 && !wounded){ ctx.fillStyle = BLOOD; ctx.globalAlpha = 0.8; ctx.beginPath(); ctx.arc(0, -1.36, 0.1, 0, 6.283); ctx.fill(); }
     ctx.restore();
   });
   drawStuck(r, t);

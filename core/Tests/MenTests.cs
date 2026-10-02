@@ -152,6 +152,17 @@ static class MenTests
             True(Math.Abs(alive - Math.Round(b.P.U.Soldiers)) <= 5, $"бойцов {alive}, в строю {b.P.U.Soldiers:0}");
         });
 
+        yield return ("раненые (Г39, В13): в рукопашной павшие — и убитые, и раненые, доля убитых как в итогах удара стола", () =>
+        {
+            var (bt, a, b) = Duel("infantry", "infantry", 0.5, 5);
+            bt.Turn(); bt.Turn();
+            var melee = bt.Deaths.Where(d => d.UnitId == 2).ToList();
+            int killed = melee.Count(d => d.Killed), wounded = melee.Count - killed;
+            double table = b.P.U.TotKilled / Math.Max(1e-9, b.P.U.TotKilled + b.P.U.TotWounded), seen = killed / (double)Math.Max(1, melee.Count);
+            True(melee.Count >= 30 && killed > 0 && wounded > 0, $"павших {melee.Count}: убитых {killed}, раненых {wounded}");
+            True(Math.Abs(seen - table) < 0.15, $"доля убитых {seen:0.00}, у стола {table:0.00}");
+        });
+
         yield return ("бойцы: одно зерно — один исход", () =>
         {
             double[] Run()
