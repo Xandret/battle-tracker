@@ -324,6 +324,7 @@ namespace BattleCore
                 if (tRigid[i]) continue;   // Г86: на жёстком месте — ни на кого не смотрит
                 double reach = tReach[i] + maxBody, xi = tX[i], yi = tY[i]; int own = tMi[i];
                 if (OnlyOwn(xi, yi, reach, own)) continue;   // в округе — только свои: взгляд вперёд не нужен
+                Prof.N[5]++; long seen = 0;
                 int cx0 = Math.Max(0, (int)((xi - reach - gx0) / gCell)), cx1 = Math.Min(gW - 1, (int)((xi + reach - gx0) / gCell));
                 int cy0 = Math.Max(0, (int)((yi - reach - gy0) / gCell)), cy1 = Math.Min(gH - 1, (int)((yi + reach - gy0) / gCell));
                 for (int cy = cy0; cy <= cy1; cy++)
@@ -334,6 +335,10 @@ namespace BattleCore
                         for (int j = gHead[k]; j >= 0; j = gNext[j])
                         {
                             if (tMi[j] == own) continue;
+                            // сблизиться за взгляд могут лишь те, кто сейчас не дальше суммы досягаемостей (тела + ход за взгляд + зазор)
+                            double ddx = tX[j] - xi, ddy = tY[j] - yi, rr = tReach[i] + tReach[j];
+                            if (ddx * ddx + ddy * ddy > rr * rr) continue;
+                            seen++;
                             var rel = RelOf(i, j);
                             if (rel == Rel.Ghost)
                             {
@@ -358,6 +363,7 @@ namespace BattleCore
                             if (enemy || !First(ms, i, j, ax, ay, bx, by, dt, M)) Yield(i, nx, ny, j, enemy);
                         }
                     }
+                Prof.N[6] += seen;
             }
 
             Prof.Add(13, ref pt);
@@ -392,12 +398,17 @@ namespace BattleCore
 
             Prof.Add(14, ref pt);
             // 5) расталкивание перекрывшихся — два прохода; пары — клетка с собой и с четырьмя соседними впереди (каждая
-            // пара — один раз), только занятые клетки; клетка — не меньше двух самых больших тел
+            // пара — один раз), только занятые клетки; клетка — не меньше двух самых больших тел. (Клетка по пешему телу с
+            // кольцами соседей у коней давала столько же проверок пар — 230 млн за ход на 60 тыс.: выигрыш внутри клетки съедали
+            // кольца; рычаг — тела, отсортированные по клеткам в сплошном массиве, не размер клетки.)
+            long pp = Prof.Now();
             Grid(c, Math.Max(Cell, 2 * maxBody + M.BodyTol));
+            Prof.Add(18, ref pp);
             for (int iter = 0; iter < 2; iter++)
                 foreach (int k in gUsed)
                 {
                     int cx = k % gW, cy = k / gW; bool soft = gSoft[k];
+                    if (iter == 0 && soft) { long n0 = 0; for (int i = gHead[k]; i >= 0; i = gNext[i]) n0++; Prof.N[7] += n0 * (n0 - 1) / 2; }
                     if (soft)   // Г86: клетка из одних жёстких — толкаться некому
                         for (int i = gHead[k]; i >= 0; i = gNext[i])
                             for (int j = gNext[i]; j >= 0; j = gNext[j]) Pair(ms, i, j, dt, M);
@@ -405,12 +416,13 @@ namespace BattleCore
                     {
                         int nx = cx + NX[q], ny = cy + NY[q];
                         if (nx < 0 || ny < 0 || nx >= gW || ny >= gH) continue;
-                        int h = gHead[ny * gW + nx];
-                        if (h < 0 || !(soft || gSoft[ny * gW + nx])) continue;
+                        int nk = ny * gW + nx, h = gHead[nk];
+                        if (h < 0 || !(soft || gSoft[nk])) continue;
                         for (int i = gHead[k]; i >= 0; i = gNext[i])
                             for (int j = h; j >= 0; j = gNext[j]) Pair(ms, i, j, dt, M);
                     }
                 }
+            Prof.Add(19, ref pp);
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i];
@@ -418,6 +430,7 @@ namespace BattleCore
                 if ((tFlag[i] & 4) != 0) { man.Vx = (man.X - tX0[i]) / dt; man.Vy = (man.Y - tY0[i]) / dt; }
                 // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает
             }
+            Prof.Add(20, ref pp);
             Finish(ms, dt, r, c);
             Prof.Add(15, ref pt);
         }
@@ -520,7 +533,7 @@ namespace BattleCore
             }
         }
 
-        static readonly int[] NX = { 1, -1, 0, 1 }, NY = { 0, 1, 1, 1 };
+        static readonly int[] NX = { 1, -1, 0, 1 }, NY = { 0, 1, 1, 1 };   // соседние клетки «впереди» — каждая пара клеток один раз
         // Грубая сетка хозяев клеток (CoarseCell м): чей отряд в клетке, −2 — разные отряды. Боец, вокруг которого только
         // свой отряд, на чужих не смотрит — в глубине строя и на марше вдали от всех это почти весь отряд
         const double CoarseCell = 6;
@@ -549,6 +562,7 @@ namespace BattleCore
         // Пара бойцов перекрылась — развести: свой отряд — пополам, свой чужой — уступающего, враг — того, кто шёл на другого
         static void Pair(IList<Mover> ms, int i, int j, double dt, Rules.MoveR M)
         {
+            Prof.N[8]++;
             double ex = tX[i] - tX[j], ey = tY[i] - tY[j], lim = tHalf[i] + tRad[i] + tHalf[j] + tRad[j] + M.BodyTol;
             if (ex * ex + ey * ey >= lim * lim) return;
             var rel = RelOf(i, j);
@@ -558,6 +572,7 @@ namespace BattleCore
             double d = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double nx, out double ny);
             double pen = -d;
             if (pen <= M.BodyTol) return;
+            Prof.N[9]++;
             double wa;
             // свои: пополам; кто упёрся во врага — того свои не двигают, сдвигается напирающий: давка сзади не продавливает
             // передних во врага (Г89, Г90: в строй вламывается только натиск, а не задние ряды на полном ходу)

@@ -10,7 +10,7 @@ namespace BattleCore
     public static class Prof
     {
         public static readonly long[] T = new long[24];
-        public static readonly long[] N = new long[8];
+        public static readonly long[] N = new long[16];
         public static long Now() => Stopwatch.GetTimestamp();
         public static void Add(int i, ref long t) { long n = Stopwatch.GetTimestamp(); T[i] += n - t; t = n; }
         public static double Sec(int i) => T[i] / (double)Stopwatch.Frequency;
