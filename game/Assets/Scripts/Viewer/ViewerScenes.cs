@@ -31,12 +31,13 @@ namespace Journal.Viewer
         public static Geo Of(TerrainMap m) => new Geo { Map = m, W = Terrain.WidthM(m), H = Terrain.HeightM(m) };
 
         // движение без боя: отряд с приказом «иди туда, встань так»
-        public void Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf, int faction = 1, double men = 1000)
+        public Mover Add(string tpl, int id, string name, double x, double y, double facing, double tx, double ty, double tf, int faction = 1, double men = 1000)
         {
             var t = Templates.Get(tpl);
             var m = Mover.Place(t.Make(id, name, men, faction), x, y, facing, R);
             Units.Add((m, new MoveOrder { X = tx, Y = ty, Facing = tf }));
             Tpl[m] = tpl;
+            return m;
         }
         // бой: отряды живут в Battle
         public Mover Fighter(string tpl, int id, string name, double x, double y, double facing, int faction = 1, double men = 1000)
@@ -73,6 +74,7 @@ namespace Journal.Viewer
             ("Рода войск", Parade),
             ("Облик: анимации", () => Anim()),
             ("Бойцы: рукопашная (Б2)", () => Anim(true)),
+            ("Облик: стили", StylesShow),
         };
 
         static SceneDef Shoot()
@@ -213,6 +215,23 @@ namespace Journal.Viewer
             sc.Order(xb, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
             sc.Order(inf, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
             sc.Order(kn, new MoveOrder { X = 1150, Y = 600, Facing = 0 });
+            return sc;
+        }
+
+        // облик по стилям (В16, В18): строки — стили, столбцы — наборы; отряды по 12 человек, тесно, шагают на юг 6 м —
+        // при ~18 px/м весь ряд стиля в кадре
+        static SceneDef StylesShow()
+        {
+            var sc = new SceneDef { Name = "Облик: стили", Turns = 2, Geo = SceneDef.Open(200, 160),
+                Note = "В16, В18. Строки — стили: западный, северный, восточный, южный, дальневосточный; столбцы — ополчение, пехота, гвардия, пикинёры, лучники, рыцари." };
+            string[] styles = { "west", "north", "east", "south", "fareast" }, tpls = { "militia", "infantry", "guard", "pikemen", "archers", "knights" };
+            for (int r = 0; r < styles.Length; r++)
+                for (int k = 0; k < tpls.Length; k++)
+                {
+                    double x = 40 + k * 13, y = 40 + r * 16;
+                    var m = sc.Add(tpls[k], r * 10 + k + 1, tpls[k], x, y, 180, x, y + 6, 180, faction: r % 2 + 1, men: 12);
+                    sc.Style[m] = styles[r];
+                }
             return sc;
         }
 
