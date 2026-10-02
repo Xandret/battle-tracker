@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Замер скорости движка на сохранениях трекера, без Unity. Загрузчик сохранений и запись кадров — из смотрелки
+       (Viewer/*), Newtonsoft — из кэша пакетов Unity (game/Library появляется после первого открытия проекта в редакторе).
+       Запуск из game/Tools/bench: dotnet run -c Release, затем двойной дефис, путь к сохранению, [ходов=2], [ширина карты, м] -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../core/BattleCore.csproj" />
+    <Compile Include="../../Assets/Scripts/Viewer/SaveScene.cs" Link="Viewer/SaveScene.cs" />
+    <Compile Include="../../Assets/Scripts/Viewer/ViewerScenes.cs" Link="Viewer/ViewerScenes.cs" />
+    <Compile Include="../../Assets/Scripts/Viewer/BattleRecord.cs" Link="Viewer/BattleRecord.cs" />
+    <Reference Include="../../Library/PackageCache/com.unity.nuget.newtonsoft-json@*/Runtime/Newtonsoft.Json.dll" />
+  </ItemGroup>
+</Project>

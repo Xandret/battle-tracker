@@ -129,6 +129,9 @@ namespace Journal.Viewer
         }
 
         // ── ввод: камера и проигрывание ──
+        // мышь — только когда окно игры в фокусе и курсор внутри него: нажатие в другом окне (или на другом мониторе)
+        // иначе начинало «перетаскивание», которое не заканчивалось и держало камеру на месте — приблизил, а отряда нет
+        static bool InScreen(Vector2 p) => p.x >= 0 && p.y >= 0 && p.x < Screen.width && p.y < Screen.height;
         bool OverUI(Vector2 screen)
         {
             if (OverExternalUi != null && OverExternalUi(screen)) return true;
@@ -139,6 +142,7 @@ namespace Journal.Viewer
         void HandleInput()
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
+            if (!Application.isFocused) { dragging = false; return; }
             if (PlayInput) { GameInput(mouse, kb); return; }
             if (kb != null)
             {
@@ -152,7 +156,7 @@ namespace Journal.Viewer
             if (mouse == null) return;
             Vector2 mp = mouse.position.ReadValue();
             Zoom(mouse, mp);
-            if ((mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame) && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
+            if ((mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame) && InScreen(mp) && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
             if (dragging)
             {
                 if (!mouse.leftButton.isPressed && !mouse.rightButton.isPressed) dragging = false;
@@ -168,7 +172,7 @@ namespace Journal.Viewer
         void Zoom(Mouse mouse, Vector2 mp)
         {
             float wheel = mouse.scroll.ReadValue().y;
-            if (Mathf.Abs(wheel) < 0.01f || OverUI(mp)) return;
+            if (Mathf.Abs(wheel) < 0.01f || !InScreen(mp) || OverUI(mp)) return;
             Vector3 before = cam.ScreenToWorldPoint(mp);
             cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * Mathf.Pow(0.85f, Mathf.Sign(wheel)), 3f, 4000f);
             Vector3 after = cam.ScreenToWorldPoint(mp);
@@ -194,7 +198,7 @@ namespace Journal.Viewer
             if (mouse == null) return;
             Vector2 mp = mouse.position.ReadValue();
             Zoom(mouse, mp);
-            if (mouse.middleButton.wasPressedThisFrame && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
+            if (mouse.middleButton.wasPressedThisFrame && InScreen(mp) && !OverUI(mp)) { dragging = true; dragFrom = mp; camFrom = cam.transform.position; }
             if (dragging)
             {
                 if (!mouse.middleButton.isPressed) dragging = false;
@@ -254,7 +258,7 @@ namespace Journal.Viewer
                 // карта из сохранения трекера — картинкой (sRGB, сглаженная, с мипами)
                 var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, anisoLevel = 4 };
                 tex.LoadImage(rec.Image);
-                gm = new Material(Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default") ?? Shader.Find("Sprites/Default")) { mainTexture = tex };
+                gm = new Material(Shader.Find("Journal/MapImage")) { mainTexture = tex };   // непрозрачная, под всеми слоями
             }
             else
             {

@@ -1,7 +1,9 @@
 // ═══════════ SaveScene.cs — бой из сохранения трекера (armiya_hodN.txt): отладка смотрелки на настоящем масштабе ═══════════
 // Сохранение — JSON трекера: фракции, отряды (mapX/mapY в % картинки, facing), картинка карты (mapImage), лог.
-// Клеток местности в таких сохранениях нет: карта — поле 2000 м шириной (mapOpts.widthM, как в трекере по умолчанию),
-// высота — по пропорциям картинки; картинка ложится землёй. Стороны движку — по логу боёв («A → B», «A ⇄ B»):
+// Клеток местности в таких сохранениях нет: карта — поле шириной mapOpts.widthM (в старых сохранениях её нет — 2000 м,
+// как в трекере), высота — по пропорциям картинки; картинка ложится землёй. Фишки стоят теснее строёв (в 50–60 м при
+// фронте 100–300 м) — отряды налезают, движок их расталкивает. Шире карта — меньше налезают, но счёт дороже: пути
+// (FlowField) строятся по всей карте, 4000 м считается в 2,5 раза дольше 2000 м. Стороны движку — по логу боёв («A → B», «A ⇄ B»):
 // фракции, что дрались друг с другом, — враги, остальное — раскраска графа в два цвета. Цвет отряда — цвет фракции.
 // Сохранение — конец хода: бежавшие отряды возвращаются в строй, уничтоженных нет. Приказ на ход — бить ближайшего врага.
 // Без UnityEngine: строится в фоновом потоке, как и остальные сцены. Разбор — Newtonsoft (пакет com.unity.nuget.newtonsoft-json).
@@ -42,8 +44,8 @@ namespace Journal.Viewer
         public static string Label(string f) => $"Сохранение: ход {TurnOf(f)}";
         static int TurnOf(string f) { var m = Regex.Match(Path.GetFileName(f), @"hod(\d+)"); return m.Success ? int.Parse(m.Groups[1].Value) : 0; }
 
-        // headerOnly — только проверить, что в сохранении есть расстановка на карте (для списка сцен)
-        public static TrackerSave Read(string path, bool headerOnly = false)
+        // headerOnly — только проверить, что в сохранении есть расстановка на карте (для списка сцен); widthM > 0 — ширина карты явно
+        public static TrackerSave Read(string path, bool headerOnly = false, double widthM = 0)
         {
             var o = JObject.Parse(System.IO.File.ReadAllText(path));
             var units = (JArray)o["units"];
@@ -63,33 +65,12 @@ namespace Journal.Viewer
             }
             foreach (var e in units) s.Units.Add(UnitOf(e));
             var wm = (double?)o["mapOpts"]?["widthM"];
-            if (wm.HasValue) { s.W = wm.Value; s.Scale = $"ширина {s.W:0} м из сохранения"; }
-            else { s.W = FitWidth(s.Units, aspect); s.Scale = s.W > 2000 ? $"ширины в сохранении нет — {s.W:0} м, чтобы строи соседей не налезали" : "ширины в сохранении нет — 2000 м, как в трекере"; }
+            if (widthM > 0) { s.W = widthM; s.Scale = $"ширина {s.W:0} м задана"; }
+            else if (wm.HasValue) { s.W = wm.Value; s.Scale = $"ширина {s.W:0} м из сохранения"; }
+            else { s.W = 2000; s.Scale = "ширины в сохранении нет — 2000 м, как в трекере; строи налезают"; }
             s.H = s.W * aspect;
             Sides(s, (JArray)o["log"]);
             return s;
-        }
-
-        // В старых сохранениях ширины нет — трекер считает 2000 м. Фишка — не строй: соседние отряды стоят в 50–60 м, а фронт
-        // тысячи бойцов — 100–250 м, строи налезают. Ширина — чтобы медиана «до ближайшего своего» была ≈ 1,3 медианы фронта.
-        static double FitWidth(List<Unit> us, double aspect)
-        {
-            var R = Rules.Base;
-            var on = us.Where(u => u.OnMap && u.Status != "destroyed" && u.Soldiers >= 1).ToList();
-            var nn = new List<double>(); var fronts = new List<double>();
-            foreach (var u in on)
-            {
-                fronts.Add(Formation.Of(u, R).Front);
-                double best = double.MaxValue;
-                foreach (var v in on)
-                    if (v != u && v.FactionId == u.FactionId)
-                        best = Math.Min(best, Math.Sqrt(Math.Pow((u.MapX - v.MapX) / 100 * 2000, 2) + Math.Pow((u.MapY - v.MapY) / 100 * 2000 * aspect, 2)));
-                if (best < double.MaxValue) nn.Add(best);
-            }
-            if (nn.Count == 0 || fronts.Count == 0) return 2000;
-            double Med(List<double> a) { a.Sort(); return a[a.Count / 2]; }
-            double k = 1.3 * Med(fronts) / Math.Max(1, Med(nn));
-            return Math.Round(Math.Max(2000, Math.Min(8000, 2000 * k)) / 100) * 100;
         }
 
         static double Num(JToken e, string k, double def = 0) { var v = e[k]; return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : def; }
@@ -162,10 +143,10 @@ namespace Journal.Viewer
             return "infantry";
         }
 
-        public static SceneDef Make(string path, int turns = 4, uint seed = 16)
+        public static SceneDef Make(string path, int turns = 4, uint seed = 16, double widthM = 0)
         {
             var R = Rules.Base;
-            var s = Read(path);
+            var s = Read(path, widthM: widthM);
             var geo = SceneDef.Open(s.W, s.H);
             var sc = new SceneDef { Name = $"Сохранение: ход {s.Turn}", Turns = turns, Geo = geo, Image = s.Image };
             sc.Battle = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next });
