@@ -45,6 +45,10 @@ namespace BattleCore
             var f = For(u, r);
             int m = Math.Max(1, (int)Math.Round(menPerFigure));
             int ranks = (int)Math.Min(f.Ranks, Math.Max(1, Js.Round(u.Soldiers)));
+            // Б1 (Г85): бойцы — тела, фигурка — колонна во всю глубину строя шириной в столько рядов, чтобы вышло около
+            // 10 человек (пехота 1 × 8, пики 1 × 10, стрелки и конница 2 × 5): на место павшего — стоящий за ним,
+            // охват — колоннами, фронт сужается крайними колоннами
+            if (r.Move.MenBodies) return (Math.Max(1, (int)Math.Round(10.0 / ranks)), ranks);
             (int fw, int fd) best = (m, 1);
             (int div, double asp, int w) bestKey = (int.MaxValue, double.MaxValue, 0);
             for (int fd = 1; fd <= m; fd++)

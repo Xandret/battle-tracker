@@ -24,6 +24,7 @@ namespace BattleCore
         public double Hu;            // своя доля 0…1 (хеш номера): фаза выпадов и виляния
         public Body Body;            // мишень для стрел (Г33) — та же точка
         public bool Reseat;          // В14: идёт на новое место (дальше ReseatM) — шагом, без подтягивания
+        public double ViaX = double.NaN, ViaY;   // Б1: к месту напрямик не пройти (вода, стена) — идёт к этой клетке по карте отряда
     }
 
     public static class Soldiers
@@ -194,7 +195,7 @@ namespace BattleCore
         // и раскладка велит, где сколько). Фигурка, у которой излишек меньше, чем у соседки (ближе полутора размеров),
         // на BalanceDiff и больше, берёт у неё одного бойца — ближнего к себе; за раз — не больше одного на фигурку.
         // Так строй смыкается от краёв понемногу, каждый идёт только к соседней фигурке, а одна потеря строй не дёргает
-        static void Balance(Mover m, Rules r)
+        internal static void Balance(Mover m, Rules r)
         {
             var P = m.P; int nk = m.Figs.Count;
             if (nk < 2 || m.Fleeing) return;   // бегущая толпа строя не держит

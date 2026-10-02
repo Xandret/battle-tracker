@@ -52,6 +52,9 @@ namespace BattleCore
         public bool Returning;
         // бегство (Г70): свой курс, если общий путь толпы перекрыт врагом (окружённые разбегаются в открытую сторону)
         public double FleeH = double.NaN;
+        // Б1 (MenBodies): якорь колонны — где она хочет быть (её ведут Desire и FleeDesire); X, Y — середина её живых бойцов
+        public double AX, AY, AVx, AVy;
+        public int MenN;   // живых бойцов в колонне на прошлом шаге (Б1)
     }
 
     public sealed class Mover
@@ -80,6 +83,7 @@ namespace BattleCore
         public Footprint NominalFp;
         public int NominalCols, Cols, MinCols;   // колонн фигурок: в линии, сейчас, самое узкое за ход
         public bool Reforming; public double RegroupSec;
+        public double NarrowSince;               // Б1: с последнего перестроения в узости, с
         public double TargetX, TargetY;          // куда идёт центр строя (внутри карты)
         public FlowField RouteField;             // карта для пути в обход своего (Г61); null — путь по Field
         public List<string> Detoured = new List<string>();
@@ -101,7 +105,7 @@ namespace BattleCore
         {
             var m = new Mover { P = new Placed { U = u, X = x, Y = y, Facing = MoveSim.Norm(facing) } };
             m.P.Relayout(r, menPerFigure);
-            foreach (var f in m.P.Figs) { m.P.ToWorld(f.X, f.Y, out var wx, out var wy); m.Figs.Add(new FigState { Id = m.NextFigId++, X = wx, Y = wy }); }
+            foreach (var f in m.P.Figs) { m.P.ToWorld(f.X, f.Y, out var wx, out var wy); m.Figs.Add(new FigState { Id = m.NextFigId++, X = wx, Y = wy, AX = wx, AY = wy }); }
             m.Nominal = m.P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
             m.NominalFp = new Footprint { Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
             m.NominalCols = m.Cols = m.MinCols = m.P.Figs.Count == 0 ? 0 : m.P.Figs.Max(f => f.File) + 1;
@@ -211,6 +215,7 @@ namespace BattleCore
             double t = k * M.Dt;
             int every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt)), narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
             var prev = new List<(double x, double y)[]>();
+            foreach (var m in ms) m.NarrowSince += M.Dt;
             if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, r);   // узости впереди (Г59)
             foreach (var m in ms)
             {
@@ -219,9 +224,10 @@ namespace BattleCore
                 m.Steps++;
             }
             for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
-            Bodies.Step(ms, M.Dt, r);
+            if (M.MenBodies) MenBodies.Step(ms, M.Dt, r);   // Б1: тела — бойцы, фигурка — колонна за якорем
+            else Bodies.Step(ms, M.Dt, r);
             foreach (var m in ms) if (m.Fleeing) FollowCrowd(m, M.Dt);
-            Soldiers.Step(ms, M.Dt, r);   // бойцы внутри фигурок (Г75)
+            if (!M.MenBodies) Soldiers.Step(ms, M.Dt, r);   // бойцы внутри фигурок (Г75)
             foreach (var m in ms) if (!m.Fleeing) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
             if ((k + 1) % every == 0) foreach (var m in ms) if (!m.Fleeing) Reassign(m, r);
         }
@@ -321,7 +327,10 @@ namespace BattleCore
                 for (int k = 0; k < P.Figs.Count; k++)
                 {
                     P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
-                    if (JsMath.Hypot(sx - m.Figs[k].X, sy - m.Figs[k].Y) > M.RegroupLagM) lag++;
+                    double fx = M.MenBodies ? m.Figs[k].AX : m.Figs[k].X, fy = M.MenBodies ? m.Figs[k].AY : m.Figs[k].Y;   // Б1: колонна — по якорю
+                    // Б1: место в воде (хвост сложенной колонны ещё за рекой) — колонна стоит у ближайшего сухого, как и идёт (Desire)
+                    if (M.MenBodies && m.Field != null && !Free(m.Field, sx, sy)) { int c = m.Field.NearestPassableCached(m.Field.CellOf(sx, sy)); if (c >= 0) (sx, sy) = m.Field.CenterOf(c); }
+                    if (JsMath.Hypot(sx - fx, sy - fy) > M.RegroupLagM) lag++;
                 }
                 if (lag > M.RegroupShare * P.Figs.Count) { target *= M.RegroupSpeed; m.RegroupSec += dt; }
                 else m.Reforming = false;
@@ -399,17 +408,19 @@ namespace BattleCore
         {
             var M = r.Move; var u = m.P.U; var F = m.Field;
             double top = BattleMap.UnitSpeed(u, r) / M.TurnSec;   // ровно норма за ход (Г71); толпа — вокруг неё
+            bool mb = r.Move.MenBodies;
             foreach (var s in m.Figs)
             {
                 double h1 = Hash01(u.Id, s.Id, 1), h2 = Hash01(u.Id, s.Id, 2);
-                double rho = F != null && F.Inside(s.X, s.Y) ? F.Mult(F.CellOf(s.X, s.Y)) ?? 1 : 1;
+                double px = mb ? s.AX : s.X, py = mb ? s.AY : s.Y;   // Б1: колонну ведёт якорь
+                double rho = F != null && F.Inside(px, py) ? F.Mult(F.CellOf(px, py)) ?? 1 : 1;
                 double vmax = top * (1 + M.FleeSpeedJitter * (0.5 - h1)) / rho;
                 double own = double.IsNaN(s.FleeH) ? m.FleeHeading : s.FleeH;
                 double hx = Math.Sin(own * Math.PI / 180), hy = -Math.Cos(own * Math.PI / 180);
-                if (double.IsNaN(s.FleeH) && F != null && F.Inside(s.X, s.Y) && Free(F, s.X, s.Y))
+                if (double.IsNaN(s.FleeH) && F != null && F.Inside(px, py) && Free(F, px, py))
                 {
-                    int next = F.Next(F.CellOf(s.X, s.Y));
-                    if (next >= 0) { var c = F.CenterOf(next); double ex = c.x - s.X, ey = c.y - s.Y, el = JsMath.Hypot(ex, ey); if (el > 1e-9) { hx = ex / el; hy = ey / el; } }
+                    int next = F.Next(F.CellOf(px, py));
+                    if (next >= 0) { var c = F.CenterOf(next); double ex = c.x - px, ey = c.y - py, el = JsMath.Hypot(ex, ey); if (el > 1e-9) { hx = ex / el; hy = ey / el; } }
                 }
                 double a = (h2 * 2 - 1) * M.FleeSpreadDeg * Math.PI / 180, ca = Math.Cos(a), sa = Math.Sin(a);
                 s.Dvx = (hx * ca - hy * sa) * vmax; s.Dvy = (hx * sa + hy * ca) * vmax; s.Vmax = vmax;
@@ -431,39 +442,40 @@ namespace BattleCore
             if (m.Fleeing) { FleeDesire(m, r); return; }
             var M = r.Move; var P = m.P; var u = P.U;
             double vmax0 = M.FigureCatchUp * TopSpeed(u, r);
-            var F = m.Field;
+            var F = m.Field; bool mb = M.MenBodies;
             for (int k = 0; k < P.Figs.Count; k++)
             {
                 var s = m.Figs[k];
+                double px = mb ? s.AX : s.X, py = mb ? s.AY : s.Y;   // Б1: колонну ведёт якорь, бойцы идут за ним
                 P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
                 double gx = s.Wrap ? s.WX : sx, gy = s.Wrap ? s.WY : sy;
-                double rho = F != null && F.Inside(s.X, s.Y) ? F.Mult(F.CellOf(s.X, s.Y)) ?? 1 : 1;
+                double rho = F != null && F.Inside(px, py) ? F.Mult(F.CellOf(px, py)) ?? 1 : 1;
                 double vmax = vmax0 / rho;
                 double dvx, dvy;
                 (double x, double y)? via = null;
                 if (F != null)
                 {
                     if (!Free(F, sx, sy)) { int c = F.NearestPassableCached(F.CellOf(sx, sy)); if (c >= 0) (gx, gy) = F.CenterOf(c); }
-                    if (JsMath.Hypot(gx - s.X, gy - s.Y) > F.CellW && Free(F, s.X, s.Y) && double.IsInfinity(F.SegmentCost(s.X, s.Y, gx, gy)))
+                    if (JsMath.Hypot(gx - px, gy - py) > F.CellW && Free(F, px, py) && double.IsInfinity(F.SegmentCost(px, py, gx, gy)))
                     {
-                        int next = F.Next(F.CellOf(s.X, s.Y));
+                        int next = F.Next(F.CellOf(px, py));
                         if (next >= 0) via = F.CenterOf(next);
                     }
                 }
                 if (via.HasValue)
                 {
-                    double ex = via.Value.x - s.X, ey = via.Value.y - s.Y, el = Math.Max(1e-9, JsMath.Hypot(ex, ey));
+                    double ex = via.Value.x - px, ey = via.Value.y - py, el = Math.Max(1e-9, JsMath.Hypot(ex, ey));
                     dvx = ex / el * vmax; dvy = ey / el * vmax;
                 }
                 else if (s.Wrap)
                 {
                     // охват: к точке у врага, без скорости места в строю
-                    dvx = (gx - s.X) / M.SlotTau; dvy = (gy - s.Y) / M.SlotTau;
+                    dvx = (gx - px) / M.SlotTau; dvy = (gy - py) / M.SlotTau;
                 }
                 else
                 {
-                    dvx = (sx - prev[k].x) / dt + (gx - s.X) / M.SlotTau;
-                    dvy = (sy - prev[k].y) / dt + (gy - s.Y) / M.SlotTau;
+                    dvx = (sx - prev[k].x) / dt + (gx - px) / M.SlotTau;
+                    dvy = (sy - prev[k].y) / dt + (gy - py) / M.SlotTau;
                 }
                 double dv = JsMath.Hypot(dvx, dvy);
                 if (dv > vmax) { dvx *= vmax / dv; dvy *= vmax / dv; }
@@ -533,6 +545,9 @@ namespace BattleCore
             double s = T.MetersAt(m.Along), half = m.NominalFp.Front / 2 + M.NarrowMarginM;
             double from = Math.Max(0, s - P.Fp.Depth / 2), to = Math.Min(T.Length, s + LeadFor(1));
             int want = m.NominalCols;
+            // Б1: колонны узкие (1 м) и чувствуют каждые полметра прохода — точки проверки привязаны к меткам пути, а не к
+            // хвосту строя (иначе соседние проверки то попадают на узость, то проскакивают её)
+            if (M.MenBodies) from = Math.Floor(from / 2.5) * 2.5;
             for (double q = from; q <= to + 1e-9; q += 2.5)
             {
                 var (x, y, dx, dy) = T.AtMeters(Math.Min(q, T.Length));
@@ -540,7 +555,11 @@ namespace BattleCore
                 int c = ColsFor(l + rr);
                 if (c < want && (q <= s || q - s <= LeadFor(c))) want = c;
             }
-            if (want != m.Cols) SetCols(m, want);
+            // Б1: шире — не раньше NarrowWidenSec после перестроения и только если шире хотя бы на 2 колонны (или обратно в
+            // линию): иначе строй дёргается между 6 и 7 колоннами на каждом бугорке берега
+            if (M.MenBodies && want > m.Cols && want < m.NominalCols && (want - m.Cols < 2 || m.NarrowSince < M.NarrowWidenSec)) want = m.Cols;
+            if (M.MenBodies && want > m.Cols && m.NarrowSince < M.NarrowWidenSec) want = m.Cols;
+            if (want != m.Cols) { SetCols(m, want); m.NarrowSince = 0; }
         }
 
         // ── обход своих (Г61) ──

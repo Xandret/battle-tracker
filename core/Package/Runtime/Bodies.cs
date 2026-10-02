@@ -320,7 +320,7 @@ namespace BattleCore
         }
 
         // Ближайшие точки двух отрезков (Эриксон, «Real-Time Collision Detection», 5.1.9); квадрат расстояния
-        static double SegSeg(double p1x, double p1y, double q1x, double q1y, double p2x, double p2y, double q2x, double q2y,
+        internal static double SegSeg(double p1x, double p1y, double q1x, double q1y, double p2x, double p2y, double q2x, double q2y,
                              out double c1x, out double c1y, out double c2x, out double c2y)
         {
             const double eps = 1e-12;

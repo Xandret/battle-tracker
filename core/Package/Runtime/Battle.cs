@@ -660,7 +660,7 @@ namespace BattleCore
                     if (d < bd) { bd = d; best = q; }
                 }
                 if (best >= 0) { bodies[k] = m.Figs[free[best]]; free.RemoveAt(best); }
-                else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy };
+                else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy, AX = wx, AY = wy };
             }
             m.Figs = bodies.ToList();
             // отбившиеся подходят к строю в обход врага: карта направлений к месту сбора, клетки под вражескими строями закрыты
@@ -1002,7 +1002,7 @@ namespace BattleCore
                     if (d < bd) { bd = d; best = q; }
                 }
                 if (best >= 0) { bodies[k] = m.Figs[free[best]]; free.RemoveAt(best); }
-                else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy };
+                else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy, AX = wx, AY = wy };
             }
             foreach (int q in free) m.Fallen.Add((m.Figs[q].X, m.Figs[q].Y));
             P.Figs = figs; P.Fp = Formation.Of(P.U, R);
