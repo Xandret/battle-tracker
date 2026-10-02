@@ -18,7 +18,7 @@ const Q = new URLSearchParams(location.search);
 if(Q.get("k")) Object.defineProperty(window, "devicePixelRatio", {get: () => +Q.get("k")});
 const view = {s: 10};
 let ctx;
-const RED = "#c8463a", BLUE = "#3f78c0", PAPER = Q.get("bg") === "paper", W = Math.max(innerWidth, 1400), H = 4600;
+const RED = "#c8463a", BLUE = "#3f78c0", PAPER = Q.get("bg") === "paper", W = Math.max(innerWidth, 1400), H = 5320;
 const c = document.getElementById("c"), dpr = window.devicePixelRatio || 1;
 c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
 ctx = c.getContext("2d");
@@ -44,6 +44,8 @@ function kitsFor(tpl, col, style = "west", id = 1){ const key = tpl + col + styl
 const cyc = (t, per, off = 0) => frac(t / per + off);
 // боец на высоте z (на стене, на лестнице, на мосту башни): крупнее, как всё, что ближе к камере (bUp)
 function fManUp(B, x, y, z, face, k, o = {}){ const q = bUp(z); fMan(mS(B, q, q), x / q, y / q, face, k, o); }
+// боец на лестнице на высоте z, лицом к стене (−y); c — фаза перехвата рук
+function fClimbUp(B, x, y, z, k, c){ const q = bUp(z); fClimb(mS(B, q, q), x / q, y / q, 0, k, c); }
 
 function frame(t){
   ground();
@@ -160,30 +162,43 @@ function frame(t){
     g.save(); bPoly(g, bRect(0, 0, SW, SH)); g.clip();
     patch(bRect(-1, -1, SW + 1, 6), "#b6a98a", true);
     bHouse(g, 24.5, -4, 33.5, 3.3, {roof: "tile", seed: 9990});
-    bWall(g, [[4, 8], [SW + 2, 8]], {outer: 1, seed: 9961, stairs: [{s: 17, len: 7, dir: -1}]});
+    const WALL = bWall(g, [[4, 8], [SW + 2, 8]], {outer: 1, seed: 9961, stairs: [{s: 17, len: 7, dir: -1}]});
     bTowerRound(g, 4, 8, 5.4, {seed: 9962, roof: "open", flag: RED, t});
     const red = [61, 62, 63].map(id => kitsFor("infantry", RED, "west", id)).flat(), blue = [71, 72, 73, 74].map(id => kitsFor("guard", BLUE, "west", id)).flat(), bk = i => blue[i % blue.length], rk = i => red[i % red.length];
     const xbow = kitsFor("crossbowmen", RED, "west", 64), fight = (k, q) => ({ap: frac(t * 0.9 + q), kind: fKind(k, Math.floor(t * 0.9 + q), Math.round(q * 10))});
     view.s = s; setZoom();
-    // внизу: отряд штурмующих ждёт очереди к лестницам; один сорвался
+    // внизу: отряд штурмующих ждёт очереди к лестницам
     let n = 0;
     for(let r = 0; r < 3; r++) for(let i = 0; i < 12; i++){ const x = 8.6 + i * 0.86 + (r % 2) * 0.43, yy = 16.6 + r * 0.95; fMan(B, x, yy, 0, blue[n++ % blue.length], {low: 0, step: Math.sin(t * 4 + i + r) * 0.3}); }
-    fFall(B, 13.4, 13.4, 0.4, bk(5), 1, 1);
-    // лестницы и кто на них
-    const lad = [[11.6, 14.6, 11.6, 10.45], [15.6, 14.4, 15.4, 10.45]];
+    // лестницы ставят в проёмы между зубцами: верх — на подоконник бойницы, через проём и перелезают
+    const cren = x0 => WALL.crenels.reduce((a, c) => Math.abs(c.x - x0) < Math.abs(a.x - x0) ? c : a);
+    const lad = [11.6, 15.6].map(x0 => { const c = cren(x0); return {x: c.x, top: c.y - 0.05, foot: c.y + 4.1}; });
     world(ox, oy, s);   // бойцы рисуются в своих осях — вернуть метры сцены
-    for(const [fx, fy, tx, ty] of lad) bLadderUp(g, fx, fy, tx, ty, WZ);
+    for(const L of lad) bLadderUp(g, L.x, L.foot, L.x, L.top, WZ);
     view.s = s; setZoom();
-    [[0, 0.32], [0, 0.72], [1, 0.55]].forEach(([li, f], i) => { const [fx, fy, tx, ty] = lad[li]; fManUp(B, fx + (tx - fx) * f, fy + (ty - fy) * f, WZ * f, 0, bk(10 + i), {low: 0, step: Math.sin(t * 6 + i * 2)}); });
+    // по каждой лестнице друг за другом лезут трое (цикл LT с): подъём ступенька за ступенькой → перелезает через
+    // проём на ход → бьётся в проёме; на первой лестнице через раз средний срывается и падает навзничь от стены
+    const LT = 7, walkY = lad[0].top - 0.95;
+    lad.forEach((L, li) => { for(let j = 0; j < 3; j++){
+      const q = frac(t / LT + j / 3 + li * 0.17), cyc = Math.floor(t / LT + j / 3 + li * 0.17), k = bk(10 + li * 3 + j), at = f => [L.x, L.foot + (L.top - L.foot) * f];
+      if(li === 0 && j === 1 && cyc % 2 === 0 && q >= 0.4){   // сорвался на 0,4 цикла: на высоте ~6 м
+        const f0 = 0.4 / 0.62, z0 = WZ * f0, [x0, y0] = at(f0), tf = Math.sqrt(2 * z0 / 9.8), tau = (q - 0.4) * LT;
+        if(tau < tf){ const z = z0 - 4.9 * tau * tau; fManUp(B, x0 + 0.3 * tau, y0 + 1.7 * tau, z, Math.PI * 1.3 * tau / tf, k, {lean: -1, step: Math.sin(tau * 30), ap: frac(tau * 3), kind: "swing"}); }
+        else fFall(B, x0 + 0.3 * tf, y0 + 1.7 * tf, Math.PI * 1.3, k, 0.3 + 0.7 * Math.min(1, (tau - tf) / 0.3), 1);
+        continue;
+      }
+      if(q < 0.62){ const p = q / 0.62, f = p - Math.sin(p * 6.283 * 11) / (6.283 * 11), [x0, y0] = at(f); fClimbUp(B, x0, y0, WZ * f, k, p * 11); }
+      else if(q < 0.74){ const u = ease((q - 0.62) / 0.12); fManUp(B, L.x, L.top + (walkY - L.top) * u, WZ, 0, k, {low: 0, lean: 1 - u, step: Math.sin(u * 12)}); }
+      else { ctx.globalAlpha = Math.min(1, (1 - q) / 0.08); fManUp(B, L.x, walkY, WZ, 0, k, fight(k, j * 0.3 + li * 0.5)); ctx.globalAlpha = 1; }
+    } });
     // осадная башня у стены, мост лёг на ход
     world(ox, oy, s);
     bSiegeTower(g, 27.5, 14.4, 0, 1, BLUE, t, 10);
     view.s = s; setZoom();
     // на ходу: защитники в два ряда; у верха лестниц и у моста — схватка
-    for(let i = 0; i < 18; i++){ const x = 8.6 + i * 0.95; if(Math.abs(x - 27.5) < 2.2) continue; const k = red[i % red.length], att = Math.abs(x - 11.6) < 0.8 || Math.abs(x - 15.5) < 0.8;
-      fManUp(B, x, 9.25, WZ, Math.PI, k, att ? fight(k, i * 0.37) : {low: 0}); }
+    for(let i = 0; i < 18; i++){ const x = 8.6 + i * 0.95; if(Math.abs(x - 27.5) < 2.2 || lad.some(L => Math.abs(x - L.x) < 1.2)) continue; fManUp(B, x, 9.25, WZ, Math.PI, rk(i), {low: 0}); }
+    lad.forEach((L, li) => [-1, 1].forEach((sd, q) => { const k = rk(20 + li * 2 + q); fManUp(B, L.x + sd * 0.78, walkY - 0.15, WZ, Math.PI + sd * 0.9, k, fight(k, li * 0.4 + q * 0.5 + 0.1)); }));
     for(let i = 0; i < 12; i++){ const x = 9.0 + i * 1.3; if(Math.abs(x - 27.5) < 2.2) continue; fManUp(B, x, 8.2, WZ, Math.PI, red[(i + 7) % red.length], {low: 0}); }
-    [[11.6, 10.0], [15.45, 10.05]].forEach(([x, yy], i) => fManUp(B, x, yy, WZ, 0, bk(20 + i), fight(bk(20 + i), i * 0.5 + 0.2)));
     [[26.7, 9.7], [28.3, 9.6], [27.5, 10.9]].forEach(([x, yy], i) => fManUp(B, x, yy, WZ + 0.5, 0, bk(23 + i), i < 2 ? fight(bk(23 + i), i * 0.4) : {low: 0}));
     [[26.7, 8.4], [28.3, 8.3]].forEach(([x, yy], i) => fManUp(B, x, yy, WZ, Math.PI, rk(3 + i), fight(rk(3 + i), i * 0.4 + 0.15)));
     // на открытой площадке башни — арбалетчики
@@ -204,6 +219,15 @@ function frame(t){
     bRidgeTent(g, 28.5, 4, 0, 2.4, 3.4, {col: RED, seed: 9981});
     bFire(g, 32.5, 4, t, 9982);
     y += 9 * s;
+  }
+  // ── 7. Мельница ──
+  label("Мельница (25 px/м): А — строго сверху: крылья в отвесной плоскости видны почти ребром, крест — в тени на земле; Б — плоскость крыльев условно завалена к зрителю", 20, y); y += 14;
+  {
+    const ox = 20, oy = y + 10, s = 25; world(ox, oy, s);
+    bWindmill(g, 13, 13, t, 141, {face: -0.4});
+    bWindmill(g, 40, 13, t, 151, {face: -0.4, lean: 0.75});
+    label("А", ox + 1 * s, oy + 1.5 * s); label("Б", ox + 28 * s, oy + 1.5 * s);
+    y += 27 * s;
   }
 }
 

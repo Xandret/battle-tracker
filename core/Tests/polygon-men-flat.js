@@ -827,6 +827,19 @@ function fFall(B, x, y, face, k, u, v){
   const e = ease(Math.min(1, (u - 0.3) / 0.45)), M0 = mR(mT(B, x, y), face);
   put(fCorpseSpr(k, v), mT(mS(mR(M0, Math.PI), 1, 0.3 + 0.7 * e), 0, -0.8));
 }
+// боец на лестнице, вид сверху: руки на тетивах перехватывают попеременно (c — фаза, целое — один перехват), ступни
+// на перекладинах ниже — выглядывают сзади по очереди, корпус покачивается; щит закинут за спину, оружие в ножнах
+function fClimb(B, x, y, face, k, c){
+  const s = Math.sin(c * 6.283), M0 = mR(mT(B, x, y), face), Mm = mR(M0, 0.07 * s), bt = fBootSpr();
+  fShadow(B, x, y, face);
+  put(bt, mT(M0, -0.1, 0.13 + 0.06 * s)); put(bt, mT(M0, 0.1, 0.13 - 0.06 * s));
+  if(k.shield) put(fShieldSpr(k.shield), mS(mT(Mm, 0, 0.17), 0.8, 0.8));
+  if(k.back !== "none") put(fBackSpr(k), Mm);
+  const hr = [0.25, -0.2 - 0.1 * s], hl = [-0.25, -0.2 + 0.1 * s], arm = fArmSpr(k), hk = fHandSpr(handKind(k));
+  for(const [side, h] of [[1, hr], [-1, hl]]){ const ex = side * ELB[0], ey = ELB[1], dx = h[0] - ex, dy = h[1] - ey; put(arm, mS(mR(mT(Mm, ex, ey), Math.atan2(dx, -dy)), 1, Math.hypot(dx, dy) / FA_LEN)); }
+  put(fBodySpr(k), Mm); put(fHeadSpr(k), mT(Mm, F_HEAD[0], F_HEAD[1] - 0.03));
+  put(hk, mT(Mm, hr[0], hr[1])); put(hk, mT(Mm, hl[0], hl[1]));
+}
 function fSparks(list){
   for(const [Mm, reach, ap] of list){ const e = (ap - 0.42) / 0.08, k2 = 0.6 + 0.8 * e; ctx.globalAlpha = 1 - e; put(sparkSpr(), mS(mT(Mm, 0.2, reach), k2, k2)); ctx.globalAlpha = 1; }
   list.length = 0;

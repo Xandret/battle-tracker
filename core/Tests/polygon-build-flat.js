@@ -133,7 +133,8 @@ function bWalk(pts, step, start, cb){
 // боевой ход из плит ~3,8 м (7 бойцов в ряд); изнутри — низкий парапет 0,4 м. Бруствер и парапет бросают тень на ход,
 // если солнце с их стороны. Высота стены h (9 м) — в длинной мягкой тени. stairs: [{s, len, dir}] — марши во двор вдоль
 // внутренней стороны: с какого метра ломаной, длина, куда спуск (+1 — по ходу ломаной). outer = +1 — зубцы слева
-// по ходу ломаной, −1 — справа.
+// по ходу ломаной, −1 — справа. Зубцы 0,8 м через 1,45 м: проём бойницы 0,65 м — в него ставят лестницу и через
+// него перелезают. Возвращает {crenels: [{x, y, tx, ty, nx, ny}]} — середины проёмов на наружном краю, n — наружу.
 const B_WALK = "#cdc5b4", B_SILL = "#8a8170";
 function bWall(g, pts, o = {}){
   const w = o.w ?? 5, seed = o.seed ?? 1, side = o.outer ?? 1, h = o.h ?? 9, PAR = 0.75, INN = 0.4, a = w / 2;
@@ -172,10 +173,11 @@ function bWall(g, pts, o = {}){
   bPoly(g, strip(a, a - PAR)); g.fillStyle = B_SILL; g.fill(); bGrain(g, 0.35);
   bRough(g, off(a - PAR), false, seed + 9); bInk(g, 0.6);
   bRough(g, band.poly, true, seed); bInk(g, 1.15);
-  const M = [];
-  bWalk(off(a), 1.3, 0.65, (x, y, tx, ty) => { const nx = -ty * side, ny = tx * side, q = (u, v) => [x + tx * u + nx * v, y + ty * u + ny * v];
-    M.push([q(-0.43, 0.14), q(0.43, 0.14), q(0.43, -PAR), q(-0.43, -PAR)]); });
+  const M = [], crenels = [];
+  bWalk(off(a), 1.45, 0.7, (x, y, tx, ty) => { const nx = -ty * side, ny = tx * side, q = (u, v) => [x + tx * u + nx * v, y + ty * u + ny * v];
+    M.push([q(-0.4, 0.14), q(0.4, 0.14), q(0.4, -PAR), q(-0.4, -PAR)]); const [cx, cy] = q(0.725, 0); crenels.push({x: cx, y: cy, tx, ty, nx, ny}); });
   M.forEach((m, i) => bShape(g, m, B_STONE_L, seed + i, 0.75, 0.3));
+  return {crenels};
 }
 // марш во двор вдоль внутренней стороны стены: площадка у прохода в парапете, ступени вниз — темнее к земле; тень
 // клином: у верха длинная, у земли сходит на нет
@@ -428,21 +430,66 @@ function bWell(g, x, y, seed = 131){
   for(const s of [-1, 1]) bShape(g, bRect(x + s * 1.05 - 0.15, y - 0.15, x + s * 1.05 + 0.15, y + 0.15), B_WOOD_D, seed + s, 0.6, 0);
   g.beginPath(); g.moveTo(x - 1.05, y); g.lineTo(x + 1.05, y); g.strokeStyle = B_WOOD; g.lineWidth = 0.16; g.stroke(); bInk(g, 0.5);
 }
-// мельница: каменная башенка с шатром, четыре крыла-решётки крутятся
-function bWindmill(g, x, y, t = 0, seed = 141){
-  bShadow(g, () => { g.beginPath(); g.arc(x, y, 2.4, 0, 6.283); }, 9);
-  bShape(g, bCirc(x, y, 2.4, 20), B_STONE, seed, 1.1, 0.4);
-  for(let k = 0; k < 8; k++){ const a0 = k * Math.PI / 4, a1 = a0 + Math.PI / 4, am = (a0 + a1) / 2;
-    g.beginPath(); g.moveTo(x, y); g.arc(x, y, 1.8, a0, a1); g.closePath(); g.fillStyle = bFacet(B_ROOF.thatch, Math.cos(am), Math.sin(am)); g.fill(); }
-  bRough(g, bCirc(x, y, 1.8, 16), true, seed + 1); bInk(g, 0.8);
-  const a = t * 0.8;
-  for(let k = 0; k < 4; k++){
-    const b = a + k * Math.PI / 2, pts = bRot(bRect(x - 0.45, y - 6.5, x + 0.45, y - 0.6), x, y, b);
-    bPoly(g, pts); g.fillStyle = "rgba(236,226,206,.9)"; g.fill();
-    g.save(); bPoly(g, pts); g.clip(); const S = []; for(let u = 0.9; u < 6.5; u += 0.6){ const p = bRot([[x - 0.45, y - u], [x + 0.45, y - u]], x, y, b); S.push([p[0][0], p[0][1], p[1][0], p[1][1]]); } bLines(g, S, "rgba(90,60,30,.6)", 0.4); g.restore();
-    bRough(g, pts, true, seed + k); bInk(g, 0.8);
-  }
-  bShape(g, bCirc(x, y, 0.45, 10), B_WOOD_D, seed + 9, 0.7, 0);
+// мельница-башня: каменная башня, вокруг на середине высоты — галерея из досок с перилами; сверху — шатёр «лодкой»
+// на поворотном круге, повёрнут к ветру (o.face). Спереди из шатра выходит вал, на нём четыре крыла: мах, решётка
+// с ведомой стороны и парусина; крутятся в отвесной плоскости на высоте 12 м. Сзади от шатра до земли — водило
+// с подкосами и воротом: им поворачивают шатёр. Крылья сверху видны почти ребром (их чуть развернуло ветром), их
+// «крест» читается по тени, которая крутится на земле, — так строго сверху. o.lean > 0 — условность: плоскость
+// крыльев завалена к зрителю на эту долю, и крест виден сам
+function bWindmill(g, x, y, t = 0, seed = 141, o = {}){
+  const face = o.face ?? -0.4, lean = o.lean ?? 0, sun = bSun(face), HUB = 12, HY = -3.9, L = 9, W = 2.0, TW = 0.3, rot = t * 0.9;
+  const top = ([px, py, pz]) => [px * bUp(pz), py - lean * (pz - HUB)], shd = ([px, py, pz]) => [px + sun[0] * pz, py + sun[1] * pz];
+  // точка крыла: r — вдоль маха от вала, n — поперёк, на ведомую сторону (решётка там); решётка развёрнута на TW назад
+  const sail = (i, map) => {
+    const th = rot + i * Math.PI / 2, c = Math.cos(th), s = Math.sin(th), Q = (r, n) => map([c * r + s * n, HY + TW * n, HUB + s * r - c * n]);
+    return {s, cloth: [Q(2, 0.15), Q(L, 0.15), Q(L, W), Q(2, W)], stock: [Q(0.5, -0.14), Q(L + 0.3, -0.14), Q(L + 0.3, 0.14), Q(0.5, 0.14)],
+      bars: [0.15, W / 2, W].map(n => [...Q(2, n), ...Q(L, n)]).concat(Array.from({length: 13}, (_, k) => { const r = 2 + (L - 2) * k / 12; return [...Q(r, 0), ...Q(r, W)]; }))};
+  };
+  const drawSail = S => {
+    bPoly(g, S.cloth); g.fillStyle = "rgba(234,224,200,.94)"; g.fill(); bGrain(g, 0.25);
+    bLines(g, S.bars, B_WOOD_D, 0.5); bRough(g, S.cloth, true, seed + 3, bLw(g, 0.3)); bInk(g, 0.6);
+    bShape(g, S.stock, B_WOOD, seed + 4, 0.7, 0);
+  };
+  const ring = (r0, r1) => { g.beginPath(); g.arc(0, 0, r1, 0, 6.283); g.moveTo(r0, 0); g.arc(0, 0, r0, 0, 6.283, true); };
+  bAt(g, x, y, face, () => {
+    // двор: утоптанная земля, мешки у двери, запасной жёрнов
+    g.beginPath(); g.ellipse(0, 1.5, 6.2, 6.8, 0, 0, 6.283); g.fillStyle = "rgba(170,150,110,.55)"; g.fill(); bGrain(g, 0.3);
+    bSack(g, -3.4, 4.4, 0.5, seed + 11); bSack(g, -2.6, 5.0, -0.2, seed + 12); bSack(g, -3.7, 5.4, 1.2, seed + 13);
+    bShadow(g, () => { g.beginPath(); g.arc(3.9, 4.6, 0.75, 0, 6.283); }, 0.4);
+    g.beginPath(); g.arc(3.9, 4.6, 0.75, 0, 6.283); g.fillStyle = B_STONE_D; g.fill(); bGrain(g, 0.4); bInk(g, 0.8);
+    g.beginPath(); g.arc(3.9, 4.6, 0.16, 0, 6.283); g.fillStyle = "#4a4136"; g.fill(); bLines(g, [0, 1, 2, 3].map(k => { const a = k * 0.785; return [3.9 + Math.cos(a) * 0.25, 4.6 + Math.sin(a) * 0.25, 3.9 + Math.cos(a) * 0.68, 4.6 + Math.sin(a) * 0.68]; }), "rgba(60,52,40,.45)", 0.4);
+    // тени: башня; водило с подкосами и крылья — по высоте
+    bShadow(g, () => { g.beginPath(); g.arc(0, 0, 3.4, 0, 6.283); }, 10);
+    const S = [0, 1, 2, 3].map(i => sail(i, shd));
+    bCast(g, () => { bSub(g, bSeg(shd([0, 2.6, 10]), [0, 9.6], 0.36)); for(const sx of [-1, 1]) bSub(g, bSeg(shd([sx * 1.8, 1.8, 10]), shd([0, 6.4, 4.5]), 0.2)); for(const q of S){ bSub(g, q.cloth); bSub(g, q.stock); } }, 0.3);
+    bLines(g, S.flatMap(q => q.bars), "rgba(28,22,12,.2)", 0.5);
+    // галерея: доски по кругу, перила
+    ring(3.05, 4.15); g.fillStyle = B_WOOD_L; g.fill("evenodd"); bGrain(g, 0.35);
+    bLines(g, Array.from({length: 40}, (_, k) => { const a = k / 40 * 6.283; return [Math.cos(a) * 3.05, Math.sin(a) * 3.05, Math.cos(a) * 4.15, Math.sin(a) * 4.15]; }), "rgba(70,48,26,.45)", 0.35);
+    bRough(g, bCirc(0, 0, 4.15, 36), true, seed + 5); bInk(g, 0.9);
+    g.beginPath(); g.arc(0, 0, 3.95, 0, 6.283); g.strokeStyle = B_WOOD_D; g.lineWidth = bLw(g, 0.6); g.stroke();
+    // башня
+    bShape(g, bCirc(0, 0, 3.05, 28), B_STONE, seed + 6, 1.0, 0.45);
+    const T = [0, 1, 2, 3].map(i => sail(i, top));
+    if(lean > 0) T.filter(q => q.s < 0).forEach(drawSail);
+    // шатёр «лодкой»: два ската (светлее к солнцу), дранка поперёк, конёк вдоль вала
+    const cap = Array.from({length: 28}, (_, k) => { const a = k / 28 * 6.283, c = Math.cos(a), s = Math.sin(a); return [2.45 * Math.sign(c) * Math.pow(Math.abs(c), 0.8), (s < 0 ? 2.95 : 2.7) * s]; });
+    for(const sx of [-1, 1]){ g.save(); g.beginPath(); g.rect(sx < 0 ? -3 : 0, -3.2, 3, 6.4); g.clip(); bPoly(g, cap); g.fillStyle = bFacet(B_ROOF.shingle, sx * Math.cos(face), sx * Math.sin(face)); g.fill(); bGrain(g, 0.3); g.restore(); }
+    g.save(); bPoly(g, cap); g.clip(); bRoofTex(g, "shingle", -2.5, -3, 2.5, 2.8, false); g.restore();
+    bLines(g, [[0, -2.95, 0, 2.7]], "rgba(30,20,12,.55)", 0.8);
+    bRough(g, cap, true, seed + 7); bInk(g, 1.0);
+    // водило: от шатра к земле — сужается (ниже — дальше от камеры), подкосы, ворот и столбики
+    const tp = (yy, z) => [0, yy, z];
+    for(const sx of [-1, 1]){ const a = top([sx * 1.8, 1.8, 10]), b = top([0, 6.4, 4.5]); bShape(g, bSeg(a, b, 0.2), B_WOOD_D, seed + 8 + sx, 0.6, 0); }
+    { const a = top(tp(2.6, 10)), b = top(tp(9.6, 0.4)); bShape(g, [[a[0] - 0.21, a[1]], [a[0] + 0.21, a[1]], [b[0] + 0.15, b[1]], [b[0] - 0.15, b[1]]], B_WOOD, seed + 10, 0.8, 0.2); }
+    bShape(g, bRect(-0.75, 9.45, 0.75, 9.75), B_WOOD_D, seed + 14, 0.7, 0);
+    for(const sx of [-1, 1]) bShape(g, bRect(sx * 0.75 - 0.08, 9.3, sx * 0.75 + 0.08, 9.9), B_WOOD_D, seed + 15 + sx, 0.5, 0);
+    for(const [px, py] of [[-2.2, 10.4], [2.3, 10.2]]){ g.beginPath(); g.arc(px, py, 0.17, 0, 6.283); g.fillStyle = B_WOOD; g.fill(); bInk(g, 0.6); }
+    // вал и крылья; на конце вала — железная головка
+    bShape(g, bSeg(top([0, -2.6, 12]), top([0, HY, HUB]), 0.55), B_WOOD_D, seed + 16, 0.8, 0.2);
+    (lean > 0 ? T.filter(q => q.s >= 0) : T.slice().sort((a, b) => a.s - b.s)).forEach(drawSail);
+    { const [hx, hy] = top([0, HY, HUB]); bShape(g, bRect(hx - 0.5, hy - 0.35, hx + 0.5, hy + 0.25), B_IRON, seed + 17, 0.8, 0); }
+  });
 }
 // огород за плетнём: грядки рядами
 function bGarden(g, x0, y0, x1, y1, seed = 151){
@@ -798,8 +845,8 @@ function bRibauldequin(g, x, y, face, col = "#b0302a", fire = 0){
     if(fire > 0) bSmoke(g, 0, -1.8, fire, 285, 1.6);
   });
 }
-// маг-пушка: та же пушка, другой выстрел. u — доля цикла, 0 — выстрел. После — вспышка цвета стороны, светящийся
-// снаряд с хвостом, кольцо волны, цветной дым с искрами; к концу цикла — накачка: огоньки по спирали стягиваются к
+// маг-пушка: та же пушка, другой выстрел. u — доля цикла, 0 — выстрел. Выхлоп — как у пушки: вспышка пороха и дым;
+// своё — светящийся снаряд с хвостом, кольцо волны, искры; к концу цикла — накачка: огоньки по спирали стягиваются к
 // дулу, пояса ствола загораются, у дула растёт свечение
 function bMagic(g, x, y, face, col = "#7a5ad0", u = 0, o = {}){
   u = frac(u);
@@ -818,8 +865,7 @@ function bMagicFx(g, fire, charge, col){
     g.restore();
   }
   if(fire <= 0) return;
-  const smoke = mix(col, "#e8e4da", 0.55);
-  bSmoke(g, 0, y0 - (0.8 + 2.0 * fire), fire, 619, 1.0, {flash: false, rgb: [1, 3, 5].map(i => parseInt(smoke.slice(i, i + 2), 16)).join(",")});
+  bSmoke(g, 0, y0 - (0.8 + 2.4 * fire), fire, 619, 1.15, {flash: false});   // выхлоп — пороховой, как у пушки
   g.save(); g.globalCompositeOperation = "lighter";
   if(fire < 0.35){ const v = fire / 0.35; g.beginPath(); g.arc(0, y0 - 0.4, 0.4 + 3.4 * v, 0, 6.283); g.strokeStyle = bRgba(lt, 0.8 * (1 - v)); g.lineWidth = bLw(g, 2.2) * (1 - 0.5 * v); g.stroke(); }
   if(fire < 0.07){ const v = fire / 0.07, head = y0 - 1 - 16 * v, L = 6, gr = g.createLinearGradient(0, head + L, 0, head);
@@ -831,7 +877,7 @@ function bMagicFx(g, fire, charge, col){
     g.beginPath(); g.moveTo(px, py - s); g.quadraticCurveTo(px, py, px + s, py); g.quadraticCurveTo(px, py, px, py + s); g.quadraticCurveTo(px, py, px - s, py); g.quadraticCurveTo(px, py, px, py - s);
     g.fillStyle = bRgba(lt, 1 - fire * 0.8); g.fill(); }
   g.restore();
-  if(fire < 0.14) bFlash(g, 0, y0 - 0.1, 1 - fire / 0.14, 1.2, col);
+  if(fire < 0.14) bFlash(g, 0, y0 - 0.1, 1 - fire / 0.14, 1);
 }
 // таран: крыша из досок, обтянутая шкурами (двускатная, конёк вдоль), колёса по бокам, окованный лоб бревна торчит вперёд
 function bRam(g, x, y, face, push = 0){
