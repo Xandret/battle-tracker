@@ -499,6 +499,20 @@ function headsOf(ui){
   // на месте курс не трогают — иначе стоящие фигурки крутятся
   const u = S.units[ui], go = Math.max(1.5, 0.33 * (u.norm || 100) / (S.turnSec || 15));
   if(S.heads) S.heads.forEach((list, f) => { if(list) for(const [u2, id, a] of list) if(u2 === ui) hd.set(f * 65536 + id, a * Math.PI / 180); });
+  // отряд сложен в колонну (узость, Г59): тела вытянуты вдоль курса сильнее, чем поперёк. Только тогда фигурки смотрят,
+  // куда идут; в линии все держат курс отряда — иначе на манёврах фигурки расходятся «ёлочкой»
+  const folded = new Uint8Array(N);
+  for(let f = 0; f < N; f++){
+    const p = F[f][ui]; if(!p) continue;
+    const uh = p[2] * Math.PI / 180, c = Math.cos(uh), s = Math.sin(uh);
+    let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+    for(let k = 0; k < nb; k++){
+      const x = p[4 + 2 * k], y = p[5 + 2 * k]; if(x == null) continue;
+      const lat = (x - p[0]) * c + (y - p[1]) * s, lon = -(x - p[0]) * s + (y - p[1]) * c;
+      a0 = Math.min(a0, lat); a1 = Math.max(a1, lat); b0 = Math.min(b0, lon); b1 = Math.max(b1, lon);
+    }
+    folded[f] = b1 - b0 > (a1 - a0) * 1.2 && b1 - b0 > 15 ? 1 : 0;
+  }
   for(let k = 0; k < nb; k++){
     let cur = NaN;
     for(let f = 0; f < N; f++){
@@ -512,10 +526,11 @@ function headsOf(ui){
         if(fb > fa && a && b && a[4 + 2 * k] != null && b[4 + 2 * k] != null){
           const dt = (fb - fa) * S.dt, dx = b[4 + 2 * k] - a[4 + 2 * k], dy = b[5 + 2 * k] - a[5 + 2 * k];
           const ux = b[0] - a[0], uy = b[1] - a[1], march = Math.sqrt(ux * ux + uy * uy) / dt > go && Math.abs(angD(Math.atan2(ux, -uy), uh)) < 1.05;
-          if(march && Math.sqrt(dx * dx + dy * dy) / dt > go){ const mh = Math.atan2(dx, -dy); if(Math.abs(angD(mh, uh)) < 1.75) want = mh; }
+          if(folded[f] && march && Math.sqrt(dx * dx + dy * dy) / dt > go){ const mh = Math.atan2(dx, -dy); if(Math.abs(angD(mh, uh)) < 1.75) want = mh; }
         }
       }
-      cur = isNaN(cur) ? want : turnTo(cur, want, maxTurn);
+      // «кругом» (Г52): разворот больше 135° — сразу; бойцы не обходят фигурку, а поворачиваются на месте (см. buildAgents)
+      cur = isNaN(cur) || Math.abs(angD(want, cur)) > 2.35 ? want : turnTo(cur, want, maxTurn);
       H[f * nb + k] = cur;
     }
   }
@@ -560,6 +575,7 @@ function agentsOf(ui){
 }
 function buildAgents(ui){
   const u = S.units[ui], F = S.frames, N = F.length, pm = u.pm || 1, rd = u.rd || 1, {H, nb} = headsOf(ui);
+  const horse = lookOf(u) === "lance" || lookOf(u) === "barded";
   const nf = Math.min(nb, u.figs.length);   // тела со старта; новые (редко) — без своих бойцов
   const fd = u.fd || (u.fd = Math.max(...u.figs.map(q => Math.round(q[1] / rd))));
   const G = u.figs.slice(0, nf).map(g => { const cols = Math.max(1, Math.round(g[0] / pm)), rows = Math.max(1, Math.round(g[1] / rd)); return {w: g[0], d: g[1], cols, cap: cols * rows, rank: g[3] || 0}; });
@@ -569,7 +585,8 @@ function buildAgents(ui){
     const n = Math.min(G[k].cap, Math.round(u.figs[k][2] ?? G[k].cap));
     for(let s = 0; s < n; s++){
       const seed = u.id * 7919 + k * 64 + Math.floor(s / G[k].cols) * 8 + s % G[k].cols;
-      men.push({id: men.length, fig: k, slot: s, seed, x: 0, y: 0, face: 0, alive: true, jx: (hash(seed, 1) - 0.5) * 0.12 * pm, jy: (hash(seed, 2) - 0.5) * 0.12 * rd});
+      men.push({id: men.length, fig: k, slot: s, seed, x: 0, y: 0, face: 0, alive: true, jx: (hash(seed, 1) - 0.5) * 0.12 * pm, jy: (hash(seed, 2) - 0.5) * 0.12 * rd,
+        v: 0, acc: (5 + 7 * hash(seed, 24)) * S.dt, tr: (1.4 + 1.8 * hash(seed, 25)) * S.dt});   // разгон, м/с за кадр; поворот, рад за кадр
     }
   }
   const Nm = men.length, pos = new Float32Array(N * Nm * 2), face = new Float32Array(N * Nm), fig = new Int16Array(N * Nm).fill(-1), rank = new Uint8Array(N * Nm);
@@ -589,6 +606,27 @@ function buildAgents(ui){
     if(v < L.length){ L[v] = last; last.slot = v; }
   }
   const join = (m, k) => { m.fig = k; m.slot = fs[k].length; fs[k].push(m); };
+  // расталкивание (бойцы — круги по ширине плеч, конные — шире): каждый отходит на половину перекрытия
+  const R0 = horse ? 0.85 : 0.52, cell = new Map();
+  function separate(f){
+    cell.clear();
+    for(const m of men) if(m.alive && m.fig >= 0){ const key = Math.floor(m.x / R0) * 65536 + Math.floor(m.y / R0); let l = cell.get(key); if(!l) cell.set(key, l = []); l.push(m); }
+    for(const m of men){
+      if(!m.alive || m.fig < 0) continue;
+      const cx = Math.floor(m.x / R0), cy = Math.floor(m.y / R0);
+      for(let ax = -1; ax <= 1; ax++) for(let ay = -1; ay <= 1; ay++){
+        const l = cell.get((cx + ax) * 65536 + cy + ay); if(!l) continue;
+        for(const q of l){
+          if(q.id <= m.id) continue;
+          const dx = q.x - m.x, dy = q.y - m.y, d2 = dx * dx + dy * dy;
+          if(d2 >= R0 * R0 || d2 < 1e-8) continue;
+          const d = Math.sqrt(d2), push = (R0 - d) / 2 / d;
+          m.x -= dx * push; m.y -= dy * push; q.x += dx * push; q.y += dy * push;
+        }
+      }
+    }
+    for(const m of men) if(m.alive && m.fig >= 0){ const o = f * Nm + m.id; pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; }
+  }
   const FC = new Float64Array(nf), FS = new Float64Array(nf), FH = new Float64Array(nf), FV = new Float64Array(nf);
   const dead = deadsOf(ui), vmax = Math.max(4, (u.norm || 100) / (S.turnSec || 15) * 1.6) * S.dt;
   const dropped = [];   // брошенное на бегу оружие: [x, y, поворот, зерно бойца, кадр]
@@ -641,6 +679,12 @@ function buildAgents(ui){
       }
       if(!moved) dirty = false;
     }
+    // «кругом»: курс фигурки перевернулся — задний ряд стал передним; места зеркалятся, и каждый остаётся, где стоял
+    if(f) for(let k = 0; k < nf; k++){
+      const L = fs[k];
+      if(L.length < 2 || !live(k) || isNaN(H[(f - 1) * nb + k]) || Math.abs(angD(H[f * nb + k], H[(f - 1) * nb + k])) < 2.3) continue;
+      L.reverse(); L.forEach((m, i) => m.slot = i);
+    }
     // по фигурке: курс, его синус и косинус, шаг тела за кадр (боец не медленнее своего тела) — раз на кадр
     const pf = f ? F[f - 1][ui] : null;
     for(let k = 0; k < nf; k++){
@@ -660,14 +704,17 @@ function buildAgents(ui){
       const tx = fr[4 + 2 * k] + lx * c - ly * s, ty = fr[5 + 2 * k] + lx * s + ly * c;
       if(f === 0){ m.x = tx; m.y = ty; m.face = h; }
       else {
-        const dx = tx - m.x, dy = ty - m.y, d = Math.sqrt(dx * dx + dy * dy), vm = FV[k];
-        if(d > vm){ m.x += dx / d * vm; m.y += dy / d * vm; } else { m.x = tx; m.y = ty; }
-        // далеко от места — бежит туда и смотрит, куда бежит; на месте — как фигурка
-        const want = d - vm > 2.5 ? Math.atan2(dx, -dy) : h;   // смотрит, куда бежит, только если бежит далеко
-        if(want !== m.face) m.face = turnTo(m.face, want, 0.7);
+        // каждый трогается и останавливается в своём темпе: шаг не больше, чем позволяет его разгон
+        const dx = tx - m.x, dy = ty - m.y, d = Math.sqrt(dx * dx + dy * dy), vm = Math.min(FV[k], (m.v + m.acc) * S.dt), st = Math.min(d, vm);
+        if(d > 1e-6){ m.x += dx / d * st; m.y += dy / d * st; }
+        m.v = st / S.dt;
+        // далеко от места — бежит туда и смотрит, куда бежит; на месте — как фигурка; поворачивается в своём темпе
+        const want = d - st > 2.5 ? Math.atan2(dx, -dy) : h;
+        if(want !== m.face) m.face = turnTo(m.face, want, m.tr);
       }
       pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; face[o] = m.face; fig[o] = k; rank[o] = Math.min(255, g.rank * fd + row);
     }
+    if(f) separate(f);
   }
   let lastF = -1, lastL = null;
   const figMen = fi => {   // кто в какой фигурке в кадре fi
