@@ -433,21 +433,23 @@ function bWell(g, x, y, seed = 131){
 // мельница-башня: каменная башня, вокруг на середине высоты — галерея из досок с перилами; сверху — шатёр «лодкой»
 // на поворотном круге, повёрнут к ветру (o.face). Спереди из шатра выходит вал, на нём четыре крыла: мах, решётка
 // с ведомой стороны и парусина; крутятся в отвесной плоскости на высоте 12 м. Сзади от шатра до земли — водило
-// с подкосами и воротом: им поворачивают шатёр. Крылья сверху видны почти ребром (их чуть развернуло ветром), их
-// «крест» читается по тени, которая крутится на земле, — так строго сверху. o.lean > 0 — условность: плоскость
-// крыльев завалена к зрителю на эту долю, и крест виден сам
+// с подкосами и большим колесом ворота: им поворачивают шатёр. Строго сверху крылья видны почти ребром, поэтому
+// плоскость крыльев условно завалена к зрителю (o.lean, доля; Алекс выбрал вариант «как мельница выглядит в жизни»):
+// крест виден сам, тень — от настоящего положения крыльев. o.lean = 0 — честный вид сверху
 function bWindmill(g, x, y, t = 0, seed = 141, o = {}){
-  const face = o.face ?? -0.4, lean = o.lean ?? 0, sun = bSun(face), HUB = 12, HY = -3.9, L = 9, W = 2.0, TW = 0.3, rot = t * 0.9;
-  const top = ([px, py, pz]) => [px * bUp(pz), py - lean * (pz - HUB)], shd = ([px, py, pz]) => [px + sun[0] * pz, py + sun[1] * pz];
+  const face = o.face ?? -0.4, lean = o.lean ?? 0.75, sun = bSun(face), HUB = 12, HY = -3.9, L = 9, W = 2.0, TW = 0.3, rot = t * 0.9;
+  // крылья — с завалом плоскости к зрителю; остальное — строго сверху
+  const top = ([px, py, pz]) => [px * bUp(pz), py - lean * (pz - HUB)], up = ([px, py, pz]) => [px * bUp(pz), py], shd = ([px, py, pz]) => [px + sun[0] * pz, py + sun[1] * pz];
   // точка крыла: r — вдоль маха от вала, n — поперёк, на ведомую сторону (решётка там); решётка развёрнута на TW назад
   const sail = (i, map) => {
     const th = rot + i * Math.PI / 2, c = Math.cos(th), s = Math.sin(th), Q = (r, n) => map([c * r + s * n, HY + TW * n, HUB + s * r - c * n]);
-    return {s, cloth: [Q(2, 0.15), Q(L, 0.15), Q(L, W), Q(2, W)], stock: [Q(0.5, -0.14), Q(L + 0.3, -0.14), Q(L + 0.3, 0.14), Q(0.5, 0.14)],
+    return {s, cloth: [Q(2, 0.15), Q(L, 0.15), Q(L, W), Q(2, W)], stock: [Q(0.5, -0.14), Q(L + 0.3, -0.14), Q(L + 0.3, 0.14), Q(0.5, 0.14)], board: [Q(2, -0.14), Q(L, -0.14), Q(L, -0.5), Q(2, -0.5)],
       bars: [0.15, W / 2, W].map(n => [...Q(2, n), ...Q(L, n)]).concat(Array.from({length: 13}, (_, k) => { const r = 2 + (L - 2) * k / 12; return [...Q(r, 0), ...Q(r, W)]; }))};
   };
   const drawSail = S => {
     bPoly(g, S.cloth); g.fillStyle = "rgba(234,224,200,.94)"; g.fill(); bGrain(g, 0.25);
     bLines(g, S.bars, B_WOOD_D, 0.5); bRough(g, S.cloth, true, seed + 3, bLw(g, 0.3)); bInk(g, 0.6);
+    bShape(g, S.board, B_WOOD_L, seed + 2, 0.6, 0.2);
     bShape(g, S.stock, B_WOOD, seed + 4, 0.7, 0);
   };
   const ring = (r0, r1) => { g.beginPath(); g.arc(0, 0, r1, 0, 6.283); g.moveTo(r0, 0); g.arc(0, 0, r0, 0, 6.283, true); };
@@ -461,7 +463,7 @@ function bWindmill(g, x, y, t = 0, seed = 141, o = {}){
     // тени: башня; водило с подкосами и крылья — по высоте
     bShadow(g, () => { g.beginPath(); g.arc(0, 0, 3.4, 0, 6.283); }, 10);
     const S = [0, 1, 2, 3].map(i => sail(i, shd));
-    bCast(g, () => { bSub(g, bSeg(shd([0, 2.6, 10]), [0, 9.6], 0.36)); for(const sx of [-1, 1]) bSub(g, bSeg(shd([sx * 1.8, 1.8, 10]), shd([0, 6.4, 4.5]), 0.2)); for(const q of S){ bSub(g, q.cloth); bSub(g, q.stock); } }, 0.3);
+    bCast(g, () => { bSub(g, bSeg(shd([0, 2.6, 10]), [0, 9.6], 0.36)); for(const sx of [-1, 1]) bSub(g, bSeg(shd([sx * 1.8, 1.8, 10]), shd([0, 6.4, 4.5]), 0.2)); for(const q of S){ bSub(g, q.cloth); bSub(g, q.stock); bSub(g, q.board); } }, 0.3);
     bLines(g, S.flatMap(q => q.bars), "rgba(28,22,12,.2)", 0.5);
     // галерея: доски по кругу, перила
     ring(3.05, 4.15); g.fillStyle = B_WOOD_L; g.fill("evenodd"); bGrain(g, 0.35);
@@ -480,13 +482,15 @@ function bWindmill(g, x, y, t = 0, seed = 141, o = {}){
     bRough(g, cap, true, seed + 7); bInk(g, 1.0);
     // водило: от шатра к земле — сужается (ниже — дальше от камеры), подкосы, ворот и столбики
     const tp = (yy, z) => [0, yy, z];
-    for(const sx of [-1, 1]){ const a = top([sx * 1.8, 1.8, 10]), b = top([0, 6.4, 4.5]); bShape(g, bSeg(a, b, 0.2), B_WOOD_D, seed + 8 + sx, 0.6, 0); }
-    { const a = top(tp(2.6, 10)), b = top(tp(9.6, 0.4)); bShape(g, [[a[0] - 0.21, a[1]], [a[0] + 0.21, a[1]], [b[0] + 0.15, b[1]], [b[0] - 0.15, b[1]]], B_WOOD, seed + 10, 0.8, 0.2); }
-    bShape(g, bRect(-0.75, 9.45, 0.75, 9.75), B_WOOD_D, seed + 14, 0.7, 0);
-    for(const sx of [-1, 1]) bShape(g, bRect(sx * 0.75 - 0.08, 9.3, sx * 0.75 + 0.08, 9.9), B_WOOD_D, seed + 15 + sx, 0.5, 0);
+    for(const sx of [-1, 1]){ const a = up([sx * 1.8, 1.8, 10]), b = up([0, 6.4, 4.5]); bShape(g, bSeg(a, b, 0.2), B_WOOD_D, seed + 8 + sx, 0.6, 0); }
+    { const a = up(tp(2.6, 10)), b = up(tp(9.6, 0.4)); bShape(g, [[a[0] - 0.21, a[1]], [a[0] + 0.21, a[1]], [b[0] + 0.15, b[1]], [b[0] - 0.15, b[1]]], B_WOOD, seed + 10, 0.8, 0.2); }
+    { const wr = 1.2, P = a => [Math.cos(a) * wr, 9.7 - lean * Math.sin(a) * wr], rim = Array.from({length: 24}, (_, k) => P(k / 24 * 6.283)), cx = 0, cy = 9.7;   // колесо — завалено, как крылья
+      bLines(g, Array.from({length: 8}, (_, k) => { const [px, py] = P(k / 8 * 6.283 + 0.2); return [cx, cy, px, py]; }), B_WOOD_D, 1.0);
+      bPoly(g, rim); g.strokeStyle = B_INK; g.lineWidth = 0.16 + bLw(g, 1.0); g.stroke(); g.strokeStyle = B_WOOD; g.lineWidth = 0.16; g.stroke();
+      g.beginPath(); g.arc(cx, cy, 0.18, 0, 6.283); g.fillStyle = B_WOOD_D; g.fill(); bInk(g, 0.6); }
     for(const [px, py] of [[-2.2, 10.4], [2.3, 10.2]]){ g.beginPath(); g.arc(px, py, 0.17, 0, 6.283); g.fillStyle = B_WOOD; g.fill(); bInk(g, 0.6); }
     // вал и крылья; на конце вала — железная головка
-    bShape(g, bSeg(top([0, -2.6, 12]), top([0, HY, HUB]), 0.55), B_WOOD_D, seed + 16, 0.8, 0.2);
+    bShape(g, bSeg(up([0, -2.6, 12]), up([0, HY, HUB]), 0.55), B_WOOD_D, seed + 16, 0.8, 0.2);
     (lean > 0 ? T.filter(q => q.s >= 0) : T.slice().sort((a, b) => a.s - b.s)).forEach(drawSail);
     { const [hx, hy] = top([0, HY, HUB]); bShape(g, bRect(hx - 0.5, hy - 0.35, hx + 0.5, hy + 0.25), B_IRON, seed + 17, 0.8, 0); }
   });
