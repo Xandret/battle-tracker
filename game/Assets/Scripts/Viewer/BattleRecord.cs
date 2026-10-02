@@ -41,6 +41,44 @@ namespace Journal.Viewer
         public double Seconds => (Frames.Count - 1) * Dt;
         public bool Done;                                                                            // досчитана; иначе дописывается по ходу счёта
 
+        // Где отряд нарисован в момент t: рамка вокруг его бойцов по осям курса (середина, курс°, фронт, глубина, м).
+        // Отбившихся одиночек не считаем — 2–98% по каждой оси. Бойцов в записи нет — центр и строй из кадра.
+        // Нужна панелям игры: рамка выбора и табличка — там, где отряд виден, а не где он в счёте (счёт идёт впереди показа,
+        // а бойцы на скаку отстают от своих мест в строю).
+        float[] boxL = new float[64], boxF = new float[64];
+        public bool UnitBox(int ui, double t, out float x, out float y, out float facing, out float front, out float depth)
+        {
+            x = y = facing = front = depth = 0;
+            if (Frames.Count == 0 || ui < 0 || ui >= Units.Count) return false;
+            double ft = t / Dt; int f0 = Math.Max(0, Math.Min((int)Math.Floor(ft), Frames.Count - 1)), f1 = Math.Min(f0 + 1, Frames.Count - 1);
+            float q = (float)Math.Max(0, Math.Min(1, ft - f0));
+            var a = Frames[f0][ui]; var b = Frames[f1][ui];
+            float dh = (float)(((b[2] - a[2]) % 360 + 540) % 360 - 180);
+            x = a[0] + (b[0] - a[0]) * q; y = a[1] + (b[1] - a[1]) * q; facing = a[2] + dh * q;
+            front = (float)Units[ui].Front; depth = (float)Units[ui].Depth;
+            if (f0 >= Men.Count) return true;
+            var m0 = Men[f0][ui]; var m1 = f1 < Men.Count ? Men[f1][ui] : m0;
+            double h = facing * Math.PI / 180; float rx = (float)Math.Cos(h), ry = (float)Math.Sin(h), fx = (float)Math.Sin(h), fy = (float)-Math.Cos(h);
+            int n = 0, cnt = m0.Xyh.Length / 3;
+            if (boxL.Length < cnt) { boxL = new float[cnt]; boxF = new float[cnt]; }
+            for (int id = 0; id < cnt; id++)
+            {
+                float px = m0.Xyh[3 * id];
+                if (float.IsNaN(px)) continue;
+                float py = m0.Xyh[3 * id + 1];
+                if (3 * id + 1 < m1.Xyh.Length && !float.IsNaN(m1.Xyh[3 * id])) { px += (m1.Xyh[3 * id] - px) * q; py += (m1.Xyh[3 * id + 1] - py) * q; }
+                float dx = px - x, dy = py - y;
+                boxL[n] = dx * rx + dy * ry; boxF[n] = dx * fx + dy * fy; n++;
+            }
+            if (n == 0) return true;
+            Array.Sort(boxL, 0, n); Array.Sort(boxF, 0, n);
+            int lo = (int)(n * 0.02), hi = Math.Max(lo, (int)Math.Ceiling(n * 0.98) - 1);
+            float l0 = boxL[lo], l1 = boxL[hi], d0 = boxF[lo], d1 = boxF[hi];
+            x += rx * (l0 + l1) / 2 + fx * (d0 + d1) / 2; y += ry * (l0 + l1) / 2 + fy * (d0 + d1) / 2;
+            front = l1 - l0 + 1.2f; depth = d1 - d0 + 1.6f;   // + место самого бойца
+            return true;
+        }
+
         public int StateAt(int ui, int frame)
         {
             var L = States?[ui]; if (L == null) return 0;

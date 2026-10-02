@@ -53,6 +53,7 @@ namespace Journal.Viewer
         public bool ShowGui = true;                       // false — без OnGUI (кнопок сцен и нижней полосы)
         public bool PlayInput;                            // управление игры: ЛКМ/ПКМ — игре, камера — средней кнопкой и клавишами (SetLive включает)
         public Func<Vector2, bool> OverExternalUi;        // экранная точка над интерфейсом игры — колесо и сдвиг камеры её не трогают
+        public Vector4 Insets;                            // px экрана под панелями игры: слева, сверху, справа, снизу — кадр (F) в остаток
         public bool Live => live;
         public Recording Rec => rec;
         public Camera Cam { get { Init(); return cam; } }
@@ -184,11 +185,15 @@ namespace Journal.Viewer
             if (kb != null)
             {
                 if (kb.fKey.wasPressedThisFrame) FitView();
+                bool ctrl = kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed;   // Ctrl+A — «выбрать всех» в игре, не сдвиг
                 var d = Vector2.zero;
+                if (!ctrl)
+                {
                 if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) d.x -= 1;
                 if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) d.x += 1;
                 if (kb.wKey.isPressed || kb.upArrowKey.isPressed) d.y += 1;
                 if (kb.sKey.isPressed || kb.downArrowKey.isPressed) d.y -= 1;
+                }
                 if (d != Vector2.zero)
                 {
                     float v = cam.orthographicSize * 1.4f * (kb.shiftKey.isPressed ? 2.5f : 1);   // ~0,7 экрана в секунду
@@ -205,13 +210,26 @@ namespace Journal.Viewer
                 else cam.transform.position = camFrom - (Vector3)((mp - dragFrom) * (2 * cam.orthographicSize / Screen.height));
             }
         }
-        void FitView()
+        // ── кадр: вся карта, рамка или точка — в части экрана, свободной от интерфейса игры (Insets) ──
+        public void FitView() { if (rec != null) FitRect(0, 0, (float)rec.W, (float)rec.H); }
+        public void FitRect(float x0, float y0, float x1, float y1)
         {
-            if (rec == null) return;
-            float w = (float)rec.W, h = (float)rec.H, aspect = (float)Screen.width / Mathf.Max(1, Screen.height);
-            cam.transform.position = new Vector3(w / 2, -h / 2, -10);
-            cam.orthographicSize = Mathf.Max(h / 2, w / 2 / aspect) * 1.08f;
+            Init();
+            var (fw, fh) = FreeSize();
+            float hw = Mathf.Max(1, x1 - x0) / 2, hh = Mathf.Max(1, y1 - y0) / 2;
+            cam.orthographicSize = Mathf.Clamp(Mathf.Max(hh * Screen.height / fh, hw * Screen.height / fw) * 1.06f, 3f, 4000f);
+            Focus((x0 + x1) / 2, (y0 + y1) / 2);
         }
+        // точку карты — в середину свободной части экрана, приближение прежнее
+        public void Focus(float x, float y)
+        {
+            Init();
+            var (fw, fh) = FreeSize();
+            float k = 2 * cam.orthographicSize / Screen.height;   // метров на пиксель
+            float dx = Insets.x + fw / 2 - Screen.width / 2f, dy = Insets.w + fh / 2 - Screen.height / 2f;
+            cam.transform.position = new Vector3(x - dx * k, -y - dy * k, -10);
+        }
+        (float w, float h) FreeSize() => (Mathf.Max(64, Screen.width - Insets.x - Insets.z), Mathf.Max(64, Screen.height - Insets.y - Insets.w));
 
         // неровность края по виду земли (0 — край ровно по клеткам), как в полигоне; постройки — ровно
         static readonly Dictionary<int, float> Amp = new Dictionary<int, float>

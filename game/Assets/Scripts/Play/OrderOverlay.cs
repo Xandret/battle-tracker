@@ -1,7 +1,8 @@
 // ═══════════ OrderOverlay.cs — подсказки приказов на карте (И2, Г80) ═══════════
 // Поверх отрядов: путь приказа, «призрак» строя там, где отряд встанет к концу хода, стрелка — куда лицом.
-// Выбранный отряд — ярко (золото), остальные своей стороны — блекло; натиск — зелёный (хватит разбега) или красный;
-// стрелок — круг дальности; под выбранным и под мышью — рамка строя. Только рисунок: данные — из Battle.Preview.
+// Выбранные — ярко (золото), остальные своей стороны — блекло; натиск — зелёный (хватит разбега) или красный;
+// стрелок — круг дальности; под выбранными и под мышью — рамка строя; ЛКМ по земле — рамка выбора.
+// Только рисунок: данные — из Battle.Preview (у группы при протягивании путь движком — у главного, у прочих — призрак).
 using System;
 using System.Collections.Generic;
 using BattleCore;
@@ -41,27 +42,44 @@ namespace Journal.Play
             var cam = Camera.main;
             ppm = Screen.height / (2 * cam.orthographicSize);
             bool orders = pc.Phase == PlayPhase.Orders;
-            if (pc.Hover != null && pc.Hover != pc.Selected) Footprint(pc.Hover.P.X, pc.Hover.P.Y, pc.Hover.P.Facing, pc.Hover.P.Fp.Front, pc.Hover.P.Fp.Depth, White, 1.5f);
+            // рамки выбора и наведения — где отряд виден (по его бойцам в записи), а не где он в счёте
+            if (pc.Hover != null && pc.Hover != pc.Selected && PlayController.Present(pc.Hover)) { pc.BoxOf(pc.Hover, out var hx, out var hy, out var hf, out var hw, out var hd); Footprint(hx, hy, hf, hw, hd, White, 1.5f); }
             if (orders)
                 foreach (var m in pc.Battle.Movers)
                 {
-                    if (m == pc.Selected || PlayController.SideOf(m) != pc.ActiveSide) continue;
+                    if (pc.IsSelected(m) || PlayController.SideOf(m) != pc.ActiveSide) continue;
                     var p = pc.PreviewOf(m);
                     if (p != null) Plan(m, p, GoldDim, 1.5f, false);
                 }
-            var s = pc.Selected;
-            if (s != null && PlayController.Present(s))
+            foreach (var s in pc.Selection)
             {
-                Footprint(s.P.X, s.P.Y, s.P.Facing, s.P.Fp.Front, s.P.Fp.Depth, Gold, 2.5f);
-                if (orders)
+                if (!PlayController.Present(s)) continue;
+                bool main = s == pc.Selected;
+                pc.BoxOf(s, out var sx, out var sy, out var sf, out var sw, out var sd);
+                Footprint(sx, sy, sf, sw, sd, Gold, main ? 2.5f : 2f);
+                if (!orders) continue;
+                if (pc.Dragging && !main)
+                {
+                    // прочие в группе, пока тянут: путь движком не считаем (дорого) — линия к месту и призрак строя
+                    if (pc.DragOrders.TryGetValue(s, out var o)) GroupGhost(s, o);
+                }
+                else
                 {
                     var p = pc.Dragging ? pc.DragPreview : pc.PreviewOf(s);
-                    if (p != null) Plan(s, p, Gold, 2.5f, true);
-                    if (pc.Dragging && pc.DragOrder != null && pc.DragOrder.Kind == OrderKind.Move && (pc.DragTo - pc.DragFrom).magnitude > 4)
-                        Line(pc.DragFrom.x, pc.DragFrom.y, pc.DragTo.x, pc.DragTo.y, White, 2);   // протянутая линия фронта
-                    double range = s.P.U.Weapon == "ranged" ? BattleMap.RangeOf(s.P.U, pc.Battle.R) : 0;
-                    if (range > 0) Circle(s.P.X, s.P.Y, range + s.P.Fp.Depth / 2, Range, 1.5f, true);
+                    if (p != null) Plan(s, p, Gold, main ? 2.5f : 2f, true);
                 }
+                double range = main && s.P.U.Weapon == "ranged" ? BattleMap.RangeOf(s.P.U, pc.Battle.R) : 0;
+                if (range > 0) Circle(s.P.X, s.P.Y, range + s.P.Fp.Depth / 2, Range, 1.5f, true);
+            }
+            if (orders && pc.Dragging && pc.DragOrder != null && pc.DragOrder.Kind == OrderKind.Move && (pc.DragTo - pc.DragFrom).magnitude > 4)
+                Line(pc.DragFrom.x, pc.DragFrom.y, pc.DragTo.x, pc.DragTo.y, White, 2);   // протянутая линия фронта
+            if (pc.BoxSelecting)
+            {
+                // рамка выбора: углы экрана → точки карты
+                var a = pc.MapPoint(pc.BoxA); var b = pc.MapPoint(pc.BoxB);
+                var c1 = pc.MapPoint(new Vector2(pc.BoxA.x, pc.BoxB.y)); var c2 = pc.MapPoint(new Vector2(pc.BoxB.x, pc.BoxA.y));
+                Quad(a, c2, b, c1, new Color32(245, 240, 228, 28));
+                Line(a.x, a.y, c2.x, c2.y, White, 1.5f); Line(c2.x, c2.y, b.x, b.y, White, 1.5f); Line(b.x, b.y, c1.x, c1.y, White, 1.5f); Line(c1.x, c1.y, a.x, a.y, White, 1.5f);
             }
             mesh.Clear();
             mesh.SetVertices(V); mesh.SetColors(C); mesh.SetTriangles(I, 0);
@@ -79,6 +97,20 @@ namespace Journal.Play
                 Footprint(p.EndX, p.EndY, p.EndFacing, m.P.Fp.Front, m.P.Fp.Depth, full ? Ghost : col, 1, fill: full);
                 Arrow(p.EndX, p.EndY, p.EndFacing, m.P.Fp.Depth / 2 + 6, pathCol, px);
             }
+        }
+
+        // приказ группе, пока его тянут: атака — линия к цели; движение — линия к месту и призрак строя с курсом
+        void GroupGhost(Mover m, MoveOrder o)
+        {
+            if (o.Kind == OrderKind.Attack)
+            {
+                var t = pc.Battle.ById(o.TargetId);
+                if (t != null) Line(m.P.X, m.P.Y, t.P.X, t.P.Y, o.Charge ? Ok : Gold, 1.5f, dashed: true);
+                return;
+            }
+            Line(m.P.X, m.P.Y, o.X, o.Y, Gold, 1.5f, dashed: true);
+            Footprint(o.X, o.Y, o.Facing, m.P.Fp.Front, m.P.Fp.Depth, Ghost, 1, fill: true);
+            Arrow(o.X, o.Y, o.Facing, m.P.Fp.Depth / 2 + 6, Gold, 1.5f);
         }
 
         // ── примитивы: мир Unity — (x, −y); толщина — в пикселях экрана ──
