@@ -250,13 +250,24 @@ namespace BattleCore
             public double FootTurnDegPerSec = 360, HorseTurnDegPerSec = 120;
             public double FootSideMps = 1.5, FootBackMps = 1.0, HorseSideMps = 0.5, HorseBackMps = 0.3;
             public double FaceMoveM = 1.5, FaceMoveMps = 1.5;
+            // колонна стоит, боец ближе StandShuffleM к месту — держит курс строя и подтягивается на место шагом (конь вбок как пеший,
+            // назад до StandBackMps): колонна пришла сжатой (ряды — вразнобой), разворачиваться к месту в сжатой колонне — столкновения
+            public double StandShuffleM = 5, StandBackMps = 1.0;
+            // колонна встала (не в схватке), а кто-то дальше SettleFarM от места (пришли вразнобой): места колонны раздаются заново —
+            // каждому ближайшее свободное, если общий путь до мест короче не меньше чем на SettleGainM; никто не бежит через строй
+            public double SettleFarM = 0.75, SettleGainM = 0.3;
             public double PushMaxMps = 6;
             // Г90 (Б3): натиск телами. Конь с разбега (натиск готов —
             // Mover.ChargeReady) пешему врагу не уступает: тот сбит с ног на DownSecMin…DownSecMax с и отброшен, конь теряет ChargeLoss
             // своего хода на каждом сбитом; медленнее ChargeMinMps — натиск его кончился, дальше стена (Г89). Убивает только стол (К29).
             // Пики во фронт: острия на PikeTipM впереди первой шеренги — конь встаёт у острия, пики достают из PikeRanks шеренг
             public double ChargeMinMps = 3, ChargeLoss = 0.3, DownSecMin = 1, DownSecMax = 2, PikeTipM = 2.5;
-            public int ChargeKnocks = 2;   // конь за натиск сбивает не больше стольких — вламывается на 1–2 шеренги   // Г94: толкотня двигает бойца не быстрее этого — без рывков
+            public int ChargeKnocks = 2;   // конь за натиск сбивает не больше стольких — вламывается на 1–2 шеренги
+            // Старт волной (Iron Kings): колонна тронулась с места — передний ряд первым, каждый следующий через WaveRowSec
+            public double WaveRowSec = 0.1, WaveAfterStopSec = 1;   // волна — только после стоянки не короче WaveAfterStopSec (не на каждом рывке)
+            // Г84: бегство рассыпается за FleeScatterMin…Max с (свой срок по хешу): задний ряд бежит сразу, передний — последним;
+            // до своего срока боец стоит, где стоял, потом места толпы расходятся за FleeScatterRampSec
+            public double FleeScatterMin = 2, FleeScatterMax = 4, FleeScatterRampSec = 1.5;   // Г94: толкотня двигает бойца не быстрее этого — без рывков
         }
         public MenR Men = new MenR();
 

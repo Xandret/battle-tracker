@@ -30,7 +30,7 @@ namespace BattleCore
         [ThreadStatic] static double[] tLx, tLy;     // сдвиг места бойца от якоря на этом шаге (с растяжкой бегущей толпы) — для RefX, RefY
         [ThreadStatic] static List<int> gUsed;       // занятые клетки сетки
         [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through),
-                                                     // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь
+                                                     // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь, 128 — ждёт своей очереди (старт волной, Г84)
         [ThreadStatic] static Rules.MenR tMR;
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
@@ -64,7 +64,7 @@ namespace BattleCore
             int n = 0;
             foreach (var m in ms)
             {
-                if (m.Men.Count > 0 && m.Steps % every == 0) Soldiers.Balance(m, r);   // смыкание между колоннами (В14)
+                if (m.Men.Count > 0 && m.Steps % every == 0) { Soldiers.Balance(m, r); Soldiers.Settle(m, r); }   // смыкание между колоннами (В14); обмен мест в стоящей колонне
                 foreach (var s in m.Figs) { double hd = Soldiers.FigHeading(m, s), h = hd * Math.PI / 180; s.Hc = Math.Cos(h); s.Hs = Math.Sin(h); s.Hd = hd; }
                 foreach (var man in m.Men) if (man.Alive && man.Fig != null) n++;
             }
@@ -108,6 +108,12 @@ namespace BattleCore
                         avx = il > 1e-9 ? vx / il * along : 0; avy = il > 1e-9 ? vy / il * along : 0;
                     }
                     s.AVx = avx; s.AVy = avy; s.AX = nx; s.AY = ny;
+                    bool mv = avx * avx + avy * avy > 0.25;
+                    double tnow = m.Steps * dt;
+                    // тронулась после стоянки не короче WaveAfterStopSec — волна; после рывка на миг — нет (иначе бой дёргал бы строй)
+                    if (mv && !s.Moving) s.StartT = tnow - s.StopT >= r.Men.WaveAfterStopSec ? tnow : double.NegativeInfinity;
+                    if (!mv && s.Moving) s.StopT = tnow;
+                    s.Moving = mv;
                 }
             }
             if (n == 0) { Finish(ms, dt, r, 0); return; }
@@ -143,10 +149,28 @@ namespace BattleCore
                     bool down = man.DownLeft > 0;
                     if (down) man.DownLeft = Math.Max(0, man.DownLeft - dt);
                     double lx = man.Lx, ly = man.Ly, hu = man.Hu;
+                    // старт волной (Iron Kings): колонна тронулась — первыми те, чьи места ближе к цели хода (вперёд — передний ряд,
+                    // задом или вбок — соответствующий край), каждый следующий ряд через WaveRowSec; ждущий стоит. Считать от ряда 0
+                    // нельзя: на отступлении передний ряд врезался бы в ещё ждущие задние и толкотня отбрасывала его назад
+                    bool waiting = false;
+                    if (!m.Fleeing && s.Moving)
+                    {
+                        double al = Math.Max(1e-9, Math.Sqrt(s.AVx * s.AVx + s.AVy * s.AVy));
+                        double ahead = ((lx * s.Hc - ly * s.Hs) * s.AVx + (lx * s.Hs + ly * s.Hc) * s.AVy) / al;   // место бойца впереди якоря по ходу, м
+                        double wave = Math.Max(0, (f.Ranks * f.RankDepth / 2 - ahead) / f.RankDepth) * MR.WaveRowSec;
+                        waiting = time - s.StartT < wave;
+                    }
                     if (m.Fleeing)
                     {
-                        lx *= MR.FleeSpread; ly *= MR.FleeSpread;
-                        lx += Math.Sin(time * 2 * Math.PI / (2 + hu) + hu * 6.283) * MR.FleeWanderM;
+                        // Г84: толпа рассыпается за FleeScatterMin…Max с — задний ряд бежит сразу, передний последним; до срока боец стоит,
+                        // где стоял (передние ещё держат строй), потом места толпы расходятся плавно
+                        double scatter = MR.FleeScatterMin + (MR.FleeScatterMax - MR.FleeScatterMin) * hu;
+                        double release = m.FleeSince + scatter * (1 - (man.Row + 0.5) / Math.Max(1, f.Ranks));
+                        double ramp = Js.Clamp((m.Now - release) / MR.FleeScatterRampSec, 0, 1);
+                        if (ramp <= 0) waiting = true;
+                        double sp = 1 + (MR.FleeSpread - 1) * ramp;
+                        lx *= sp; ly *= sp;
+                        lx += Math.Sin(time * 2 * Math.PI / (2 + hu) + hu * 6.283) * MR.FleeWanderM * ramp;
                     }
                     double hx = s.AX + lx * s.Hc - ly * s.Hs, hy = s.AY + lx * s.Hs + ly * s.Hc;
                     // выпады (Г78): у кого свой противник (Б2) — к нему; передние бьющейся колонны без него — к врагу колонны
@@ -199,11 +223,21 @@ namespace BattleCore
                     }
                     double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * MR.SpeedK, v = JsMath.Hypot(vx, vy);
                     if (v > vmax) { vx *= vmax / v; vy *= vmax / v; v = vmax; }
-                    // Г94: курс тела — к нужному не быстрее turn за шаг; вбок и назад относительно курса — медленно
+                    if (waiting) { vx = 0; vy = 0; v = 0; }
+                    // Г94: курс тела — к нужному не быстрее turn за шаг; вбок и назад относительно курса — медленно. Колонна стоит, боец
+                    // у места — переступает (конь вбок и назад как пеший), не разворачиваясь: иначе пробка у мест не рассасывается
+                    bool standing = !m.Fleeing && !s.Moving && far <= MR.StandShuffleM;
                     double want;
                     if (m.Fleeing) want = v > 0.5 ? MoveSim.HeadingOf(vx, vy) : man.Facing;
                     else if (foe != null && foe.Alive) want = MoveSim.HeadingOf(foe.X - man.X, foe.Y - man.Y);
-                    else if (!backing && (far > MR.FaceMoveM || v > MR.FaceMoveMps || man.Vx * man.Vx + man.Vy * man.Vy > MR.FaceMoveMps * MR.FaceMoveMps))
+                    else if (waiting) want = man.Facing;   // ждёт своей очереди — стоит как стоял
+                    else if (man.Vx * man.Vx + man.Vy * man.Vy > MR.FaceMoveMps * MR.FaceMoveMps && Math.Abs(MoveSim.AngleDiff(man.Facing, s.Hd)) > 20 && !(far > MR.FaceMoveM || v > MR.FaceMoveMps))
+                    {
+                        // у места, но ещё идёт (не толкотня — быстрее FaceMoveMps) не по курсу строя: сперва тормозит, держа курс,
+                        // развернётся, сбавив ход (Г94); при толкотне доворот не ждёт — иначе в плотном строю не развернуться
+                        want = man.Facing; vx = 0; vy = 0; v = 0;
+                    }
+                    else if (!backing && ((far > MR.FaceMoveM || v > MR.FaceMoveMps) && !standing || man.Vx * man.Vx + man.Vy * man.Vy > MR.FaceMoveMps * MR.FaceMoveMps))
                     {
                         // по ходу. Ещё бежит, а хочет стоять или назад от своего хода — сперва тормозит, глядя по своему ходу, потом
                         // разворачивается: иначе конь на скаку смотрел бы уже назад, а нёсся вперёд — «задом»
@@ -215,9 +249,9 @@ namespace BattleCore
                     man.Facing = MoveSim.Norm(Math.Abs(dh) <= turn ? want : man.Facing + Math.Sign(dh) * turn);
                     double fh = man.Facing * Math.PI / 180, ufx = Math.Sin(fh), ufy = -Math.Cos(fh);
                     double fwd = vx * ufx + vy * ufy, side = -vx * ufy + vy * ufx;   // вперёд и вправо (вправо — (−ufy, ufx))
-                    double back = backing ? vmax : backMax;
+                    double back = backing ? vmax : standing ? Math.Max(backMax, MR.StandBackMps) : backMax, sideLim = standing ? Math.Max(sideMax, MR.FootSideMps) : sideMax;
                     if (fwd < -back) fwd = -back;
-                    if (side > sideMax) side = sideMax; else if (side < -sideMax) side = -sideMax;
+                    if (side > sideLim) side = sideLim; else if (side < -sideLim) side = -sideLim;
                     vx = ufx * fwd - ufy * side; vy = ufy * fwd + ufx * side;
                     if (down) { vx = 0; vy = 0; }   // лежит: не идёт (Г90)
                     tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly;
@@ -233,7 +267,7 @@ namespace BattleCore
                     // вламывается передний ряд колонны (Г90: на 1–2 шеренги — колонной, а не каждый конь по своей паре: иначе задние
                     // ряды брали бы шеренгу за шеренгой и прошли строй насквозь); задние — за ним, у стены
                     bool charge = horse && m.ChargeReady && !m.Fleeing && man.Row == 0 && man.Knocks < MR.ChargeKnocks && man.Vx * man.Vx + man.Vy * man.Vy >= MR.ChargeMinMps * MR.ChargeMinMps;
-                    tFlag[c] = (byte)((archer ? 1 : 0) | (Through(s) ? 8 : 0) | (charge ? 16 : 0) | (down ? 32 : 0) | (horse ? 64 : 0)); tBlocked[c] = 0; tBlockedEnemy[c] = false;
+                    tFlag[c] = (byte)((archer ? 1 : 0) | (Through(s) ? 8 : 0) | (charge ? 16 : 0) | (down ? 32 : 0) | (horse ? 64 : 0) | (waiting ? 128 : 0)); tBlocked[c] = 0; tBlockedEnemy[c] = false;
                     // конь смотрит дальше на длину острия пики — иначе медленно подходя, острий не видел бы (Г90)
                     tReach[c] = half + rad + Math.Max(JsMath.Hypot(vx, vy), JsMath.Hypot(man.Vx, man.Vy)) * laF + M.MenYieldM + (horse ? MR.PikeTipM : 0);
                     if (half + rad > maxBody) maxBody = half + rad;
@@ -346,7 +380,7 @@ namespace BattleCore
                 // где был бы якорь по этому бойцу; пересаживающийся (В14) и отставший дальше LagRefM якорь не тянут — они не упёрлись,
                 // а догоняют: «стоят» за нынешнее место якоря (один отставший на сотню метров иначе держал бы всю колонну)
                 double ix = man.X - (tLx[i] * s.Hc - tLy[i] * s.Hs), iy = man.Y - (tLx[i] * s.Hs + tLy[i] * s.Hc);
-                if (man.Reseat || (ix - s.AX) * (ix - s.AX) + (iy - s.AY) * (iy - s.AY) > LagRefM * LagRefM) { ix = s.AX; iy = s.AY; }
+                if (man.Reseat || (tFlag[i] & 128) != 0 || (ix - s.AX) * (ix - s.AX) + (iy - s.AY) * (iy - s.AY) > LagRefM * LagRefM) { ix = s.AX; iy = s.AY; }   // ждущий (старт волной, Г84) якорь не держит
                 s.RefX += ix; s.RefY += iy; s.RefN++;
                 if (tBlocked[i] != 0) { s.BlockedBy = tBlocked[i]; s.BlockedByEnemy = tBlockedEnemy[i]; }
                 if ((tFlag[i] & 2) != 0) s.Slowed = true;
