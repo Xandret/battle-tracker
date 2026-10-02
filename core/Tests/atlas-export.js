@@ -45,6 +45,19 @@
       add("men", "arm/" + key, [-0.06, -FA_LEN - 0.06, 0.06, 0.06], g => paintForearm(g, k));
     }
     for(const kind of ["skin", "glove", "plate"]) add("men", "hand/" + kind, [-0.05, -0.055, 0.05, 0.055], g => paintHand(g, kind));
+    // стоящий боец (В17): цилиндры, шары, срезы корпуса — белые (Unity умножает на цвет ткани, кожи) или своего цвета
+    // (кольчуга, латы, пояс); срезы сюрко — поле стороны и герб; лица и забрала, изнанки щитов, плащ и павеза стоймя
+    for(const kind of ["cloth", "leather", "mail", "plate"]) add("men", "cyl/" + kind, [-CYL_R - 0.015, -CYL_L, CYL_R + 0.015, 0], g => paintCyl(g, kind));
+    for(const kind of ["cloth", "mail", "steel"]) add("men", "ball/" + kind, [-BALL_R - 0.015, -BALL_R - 0.015, BALL_R + 0.015, BALL_R + 0.015], g => paintBall(g, kind));
+    const SLICE_BOX = [-SLICE_RX - 0.015, -SLICE_RY - 0.03, SLICE_RX + 0.015, SLICE_RY + 0.015];
+    for(const kind of ["cloth", "brig", "mail", "plate", "belt"]) add("men", "slice/" + kind, SLICE_BOX, g => paintSlice(g, kind));
+    for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron"]) for(const band of ["u", "l"])
+      C2.forEach((c2, i) => add("men", `slice/tab/${paint}/${band}/${i}`, SLICE_BOX, g => paintSlice(g, "tab", KEY, paint, band, c2)));
+    for(const kind of ["open", "great", "bascinet"]) add("men", "face/" + kind, [-0.09, -0.1, 0.09, 0.1], g => paintFace(g, kind));
+    for(const shape of ["round", "oval", "heater", "buckler"]) add("men", "shieldback/" + shape, [-0.25, -0.3, 0.25, 0.31], g => paintShieldBack(g, shape));
+    add("men", "capev", [-0.26, -0.44, 0.26, 0.47], g => paintCapeV(g, KEY));
+    add("men", "legs2", [-0.16, -0.45, 0.16, 0.45], g => paintLegs2(g));
+    C2.forEach((c2, i) => add("men", "pavisev/" + i, [-0.3, -0.47, 0.3, 0.47], g => paintPaviseV(g, KEY, c2)));
     // щиты: лицом, цвет поля — сторона, второй цвет — герб
     for(const shape of ["round", "oval", "heater"])
       for(const paint of ["plain", "halves", "quarters", "stripe", "cross", "chevron", "boss", "wood"])

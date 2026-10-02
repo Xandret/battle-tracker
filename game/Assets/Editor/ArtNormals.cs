@@ -66,7 +66,11 @@ public sealed class ArtNormals : AssetPostprocessor
             if (s.Groups[1].Value.StartsWith("util/")) continue;
             // у древков и стрел половина разрешения — свой масштаб; берём из рамки в метрах
             float mw = float.Parse(v[6], inv) - float.Parse(v[4], inv), sppm = mw > 0 ? w / mw : ppm;
-            Part(px, outPx, W, H, x0, y0, w, h, sppm);
+            string name = s.Groups[1].Value;
+            // стоящий боец (В17): цилиндр — объём только поперёк (по длине его растягивают), шар — точная сфера
+            if (name.StartsWith("cyl/") || name.StartsWith("ball/"))
+                Analytic(px, outPx, W, H, x0, y0, w, h, float.Parse(v[4], inv), float.Parse(v[5], inv), float.Parse(v[6], inv), float.Parse(v[7], inv), name.StartsWith("cyl/") ? 0.06f : 0.1f, name.StartsWith("ball/"));
+            else Part(px, outPx, W, H, x0, y0, w, h, sppm);
             n++;
         }
         var dst = new Texture2D(W, H, TextureFormat.RGBA32, false, true);
@@ -121,6 +125,22 @@ public sealed class ArtNormals : AssetPostprocessor
                 var nrm = new Vector3(-gx, gy, 1).normalized;   // dh/dv = −dh/dy(строк)
                 var c = px[(H - 1 - (y0 + y)) * W + x0 + x];
                 outPx[(H - 1 - (y0 + y)) * W + x0 + x] = new Color32((byte)(127.5f + 127.5f * nrm.x), (byte)(127.5f + 127.5f * nrm.y), (byte)(127.5f + 127.5f * nrm.z), (byte)(Metal(c) ? 255 : 0));
+            }
+    }
+
+    // нормали по форме: цилиндр радиуса R вдоль v (вид сверху на лежащий цилиндр) или шар радиуса R с центром в (0, 0) метров
+    static void Analytic(Color32[] px, Color32[] outPx, int W, int H, int x0, int y0, int w, int h, float mx0, float my0, float mx1, float my1, float R, bool ball)
+    {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int at = (H - 1 - (y0 + y)) * W + x0 + x; var c = px[at];
+                if (c.a <= 110) continue;
+                float xm = mx0 + (x + 0.5f) / w * (mx1 - mx0), ym = my0 + (y + 0.5f) / h * (my1 - my0);
+                float nx = Mathf.Clamp(xm / R, -0.98f, 0.98f), ny = ball ? Mathf.Clamp(-ym / R, -0.98f, 0.98f) : 0;
+                float q = nx * nx + ny * ny; if (q > 0.96f) { float k = Mathf.Sqrt(0.96f / q); nx *= k; ny *= k; q = 0.96f; }
+                var n = new Vector3(nx, ny, Mathf.Sqrt(1 - q));
+                outPx[at] = new Color32((byte)(127.5f + 127.5f * n.x), (byte)(127.5f + 127.5f * n.y), (byte)(127.5f + 127.5f * n.z), (byte)(Metal(c) ? 255 : 0));
             }
     }
 

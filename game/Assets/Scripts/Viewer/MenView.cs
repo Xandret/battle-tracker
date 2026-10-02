@@ -34,6 +34,7 @@ namespace Journal.Viewer
     public sealed class MenView
     {
         readonly ArtAtlas men, horses, dead;
+        FigParts figParts;                                                   // части стоящих бойцов (В17), найдены один раз
         readonly Material menMat, horseMat, deadMat;
         readonly Mesh decalMesh = NewMesh(), deadMesh = NewMesh(), deadTopMesh = NewMesh(), horseMesh = NewMesh(), menMesh = NewMesh(), airMesh = NewMesh();
         readonly Batch decals = new Batch(), corpses = new Batch(), deadTop = new Batch(), horseB = new Batch(), menB = new Batch(), air = new Batch();
@@ -52,6 +53,7 @@ namespace Journal.Viewer
         {
             men = ArtAtlas.Load("men"); horses = ArtAtlas.Load("horses"); dead = ArtAtlas.Load("dead");
             if (!Ok) return;
+            figParts = new FigParts(men);
             var sh = Shader.Find("Journal/Men");
             menMat = Mat(sh, men); horseMat = Mat(sh, horses); deadMat = Mat(sh, dead);
             if (!lightSet) { Shader.SetGlobalFloat("_JLight", 1); lightSet = true; }
@@ -128,7 +130,7 @@ namespace Journal.Viewer
         static float Ease(float p) => p * p * (3 - 2 * p);
         static float[] Mix(float[] a, float[] b, float e) { var r = new float[5]; for (int i = 0; i < 5; i++) r[i] = a[i] + (b[i] - a[i]) * e; return r; }
         static Aff Pose(Aff m, float[] p) => m.P(p[0], p[1], p[2], p[3], p[4]);
-        static bool Thrust(string w) => w == "spear" || w == "fork" || w == "pike" || w == "lance";
+        internal static bool Thrust(string w) => w == "spear" || w == "fork" || w == "pike" || w == "lance";
 
         // поза в покое: где оружие и щит, [x, y, поворот, масштаб поперёк, вдоль]; low — насколько опустили древки (В13):
         // 0 — стоймя (марш, покой), 1 — к бою: копья в 2 передних шеренгах, пики в 4, передняя — первой
@@ -344,13 +346,28 @@ namespace Journal.Viewer
         readonly List<ManP> M = new List<ManP>();
         readonly Dictionary<int, float> figTop = new Dictionary<int, float>();
         readonly HashSet<long> fallenNow = new HashSet<long>();
+        // стоящие бойцы (В17): части всех фигурок кадра; рисуются в конце — фигурки от дальних к ближним (по y земли), части
+        // внутри фигурки — по своей глубине
+        readonly List<Prim> prims = new List<Prim>();
+        readonly List<(float key, int start, int count)> figs = new List<(float, int, int)>();
+        sealed class PrimKey : IComparer<Prim> { public int Compare(Prim a, Prim b) => a.Key.CompareTo(b.Key); }
+        static readonly PrimKey primKey = new PrimKey();
+        void EmitFigures()
+        {
+            figs.Sort((a, b) => a.key.CompareTo(b.key));
+            foreach (var (_, start, count) in figs)
+            {
+                prims.Sort(start, count, primKey);
+                for (int i = start; i < start + count; i++) { var p = prims[i]; menB.Quad(p.P, p.M, p.C, p.Prm); }
+            }
+        }
         readonly Dictionary<int, (float h, float sw, float nx, float pa)> mel0 = new Dictionary<int, (float, float, float, float)>(), mel1 = new Dictionary<int, (float, float, float, float)>();
         readonly List<(float x, float y, float face, float reach, float ap)> sparks = new List<(float, float, float, float, float)>();
 
         public void Draw(double t, Color32[] unitCol, Rect view, float ppm)
         {
             if (!Ok || rec == null || rec.Frames.Count == 0) return;
-            decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear();
+            decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear(); prims.Clear(); figs.Clear();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             float t32 = (float)t;
             bool In(float x, float y, float pad) => x > view.xMin - pad && x < view.xMax + pad && y > view.yMin - pad && y < view.yMax + pad;
@@ -374,9 +391,10 @@ namespace Journal.Viewer
             foreach (var (x, y, face, reach, ap) in sparks)
             {
                 float e = (ap - 0.42f) / 0.08f, k2 = 0.6f + 0.8f * e;
-                air.Quad(spark, Aff.At(x, y).R(face).T(0.2f, reach).S(k2, k2), new Color32(255, 255, 255, (byte)(255 * Mathf.Clamp01(1 - e))), Vector4.zero);
+                air.Quad(spark, Aff.At(x, y - Figure.K * 1.15f).R(face).T(0.2f, reach).S(k2, k2), new Color32(255, 255, 255, (byte)(255 * Mathf.Clamp01(1 - e))), Vector4.zero);
             }
             DrawArrows(t32, In, ppm);
+            EmitFigures();
             decals.To(decalMesh); corpses.To(deadMesh); deadTop.To(deadTopMesh); horseB.To(horseMesh); menB.To(menMesh); air.To(airMesh);
         }
 
@@ -460,8 +478,9 @@ namespace Journal.Viewer
                 foreach (var m in M)
                 {
                     if (!m.Vis) continue;
+                    if (!horse) { menB.Quad(soft, Aff.At(m.X - 0.34f, m.Y + 0.24f).R(0.93f).S(0.62f, 1.15f), shadow, new Vector4(0, 0, 1, 0)); continue; }   // В17: тень стоящего
                     var sm = Aff.At(m.X - 0.6f * so, m.Y + 0.8f * so).R(m.Face);
-                    (horse ? horseB : menB).Quad(soft, sm.T(0, horse ? 0.12f : 0.02f).S(0.66f, horse ? 2.0f : 0.48f), shadow, new Vector4(0, 0, 1, 0));
+                    horseB.Quad(soft, sm.T(0, 0.12f).S(0.66f, 2.0f), shadow, new Vector4(0, 0, 1, 0));
                 }
             }
             for (int i = 0; i < M.Count; i++)
@@ -521,20 +540,17 @@ namespace Journal.Viewer
             var bootP = men.Get("boot");
 
             // бегство (В11): бегом, щит за спиной, оружие несут как придётся или бросили; оглядываются (В13)
+            int detail = ppm >= 30 ? 2 : ppm >= 14 ? 1 : 0;   // В17: вблизи всё, в среднем плане проще, издали — главное
             if (flee && !horse)
             {
                 rot += LookBack(t, s);
                 var Mf = bas.T(ox, -0.05f).R(rot);
-                if (step != 0 && boots) { menB.Quad(bootP, Mf.T(-0.09f, 0.03f + 0.14f * step), col, neutral); menB.Quad(bootP, Mf.T(0.09f, 0.03f - 0.14f * step), col, neutral); }
-                if (kit.Shield != null && kit.ShieldShape != "buckler") menB.Quad(men.Get(kit.Shield), Pose(Mf, new[] { 0, 0.24f, 0, 0.85f, 0.45f }), col, neutral);
-                BodyHead(kit, Mf, col, prm);
-                if (!Drops(s))
-                {
-                    string w = kit.Weapon;
-                    if (w == "bow") menB.Quad(men.Get("bow/0"), Pose(Mf, new[] { 0.05f, 0.25f, 0.4f, 0.8f, 0.5f }), col, neutral);
-                    else if (w == "crossbow") menB.Quad(men.Get("xbow/1"), Pose(Mf, new[] { 0.05f, 0.3f, 0.5f, 1, 0.5f }), col, neutral);
-                    else menB.Quad(men.Get("weapon/" + w), Pose(Mf, Thrust(w) ? new[] { 0.2f, 0.05f, 0.4f + 0.05f * step, 1, 0.25f } : new[] { 0.2f, 0.05f, 0.6f, 1, 0.5f }), col, neutral);
-                }
+                // оружие несут как придётся или бросили; лук и арбалет — за спиной (не рисуем)
+                string w = Drops(s) || kit.Weapon == "bow" || kit.Weapon == "crossbow" ? null : kit.Weapon;
+                var Wf = w == null ? null : Thrust(w) ? new[] { 0.2f, 0.05f, 0.4f + 0.05f * step, 1, 0.25f } : new[] { 0.2f, 0.05f, 0.6f, 1, 0.5f };
+                int fs = prims.Count;
+                Figure.Build(prims, figParts, kit, Mf.e, Mf.f, m.Face + rot, new FigPose { Weapon = w, W = Wf, Step = step }, col, kit.Tone, detail);
+                figs.Add((m.Y, fs, prims.Count - fs));
                 return;
             }
             // конь по частям (В13): аллюр по скорости, стоящий переступает и машет хвостом
@@ -587,7 +603,6 @@ namespace Journal.Viewer
             if (cheer && !m.Atk) oy -= 0.05f * Mathf.Max(0, Mathf.Sin(t * 9 + ph0 * 6.283f));   // ликуют — подпрыгивают
             var Mm = bas.T(ox, oy - lean).R(rot);
             float st = step != 0 ? step : m.Atk ? Mathf.Sin(ap * 6.283f) * 0.6f : 0;   // ноги: на ходу и в бою шагают
-            if (st != 0 && boots) { menB.Quad(bootP, Mm.T(-0.09f, 0.03f + 0.12f * st), col, neutral); menB.Quad(bootP, Mm.T(0.09f, 0.03f - 0.12f * st), col, neutral); }
             // щит: под стрелами — над головой; в рукопашной — вперёд, навстречу удару врага (прикрывается между своими ударами)
             bool raise = fireHere && !m.Atk && PSh != null && kit.ShieldShape != "buckler" && H(s, 13) < 0.85f;
             var Sh = PSh;
@@ -609,16 +624,11 @@ namespace Journal.Viewer
             }
             else if (cheer && W2 != null) W2 = new[] { W2[0], W2[1] - 0.05f, W2[2] * 0.3f - 0.1f, 1, Mathf.Min(W2[4], 0.3f) + 0.08f * Mathf.Sin(t * 9 + ph0 * 6.283f) };   // вскинули оружие
             else if (W2 != null && step != 0) W2 = new[] { W2[0], W2[1], W2[2] + 0.03f * step, W2[3], W2[4] };
-            // руки (В15): предплечья под телом, кисти поверх оружия; стрелок в рукопашной держит запасное оружие одной рукой
-            var (hr, hl, showL) = HandsOf(m.Atk && shoot ? wpn ?? "none" : kit.Weapon, wpn != null ? W2 : null, Sh, bowSt, xb);
-            if (kit.Back != null) menB.Quad(men.Get(kit.Back), Mm, col, neutral);
-            Arms(kit, Mm, hr, hl, col, prm);
-            BodyHead(kit, Mm, col, prm);
-            if (Sh != null) menB.Quad(men.Get(kit.Shield), Pose(Mm, Sh), col, neutral);
-            if (wpn == "bow" && !m.Atk) menB.Quad(men.Get("bow/" + bowSt), Mm, col, neutral);
-            else if (wpn == "crossbow" && !m.Atk) menB.Quad(men.Get("xbow/" + xb), Mm, col, neutral);
-            else if (W2 != null && wpn != null) menB.Quad(men.Get("weapon/" + wpn), Pose(Mm, W2), col, neutral);
-            Hands(kit, Mm, hr, showL ? hl : null, col);
+            // стоящий боец (В17): фигурка из частей; стрелок в рукопашной держит запасное оружие одной рукой
+            int start = prims.Count;
+            Figure.Build(prims, figParts, kit, Mm.e, Mm.f, m.Face + rot,
+                new FigPose { Weapon = wpn, W = wpn != null ? W2 : null, Sh = Sh, Step = st, BowSt = bowSt, Xb = xb, Raise = raise }, col, kit.Tone, detail);
+            figs.Add((m.Y, start, prims.Count - start));
         }
         // тело, сюрко (В15: у кольчуги и лат; цвет стороны без сдвига тона) и голова
         void BodyHead(Kit kit, Aff m, Color32 col, Vector4 prm)
@@ -637,7 +647,7 @@ namespace Journal.Viewer
             float c = Mathf.Cos(T[2]), sn = Mathf.Sin(T[2]), px = x * T[3], py = y * T[4];
             return new Vector2(T[0] + px * c - py * sn, T[1] + px * sn + py * c);
         }
-        static (Vector2? r, Vector2? l, bool showL) HandsOf(string weapon, float[] W, float[] Sh, int bowSt = 0, int xb = 0)
+        internal static (Vector2? r, Vector2? l, bool showL) HandsOf(string weapon, float[] W, float[] Sh, int bowSt = 0, int xb = 0)
         {
             if (weapon == "bow")
             {

@@ -1,141 +1,41 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Солдатики: проба косого вида</title>
-<!-- Проба (В15, силуэт): земля — сверху, фигурка — стоит: высота уходит вверх по экрану (косая проекция, как вид
-     «три четверти»). Боец собран из объёмных частей — сапоги, ноги, корпус, руки, голова, оружие, щит — и рисуется от
-     дальних частей к ближним, поэтому его можно повернуть куда угодно. Не рабочий рисунок — образец для выбора.
-     Смотреть: node game/Tools/art-server.mjs → http://localhost:8790/men-oblique.html  (?s=110 — px на метр, ?k=0.6 — наклон,
-     ?shot=имя — снимок в game/Assets/_Shots) -->
+<title>Стоящие бойцы</title>
+<!-- Стоящие бойцы (В17): косой вид — земля сверху, фигурка стоит. Рисует figure() из polygon-men.js — те же части и
+     сборка, что у Unity. Смотреть: node game/Tools/art-server.mjs → http://localhost:8790/men-oblique.html
+     ?s=110 — px на метр; ?kit=spear,sword — только эти наборы; ?pose=rest|low|walk|atk — поза; ?side=#b0302a;
+     ?k=2 — пикселей на точку; ?shot=имя — снимок в game/Assets/_Shots -->
 <style>body { margin: 0; background: #23201b; } canvas { display: block; }</style>
 <canvas id="c"></canvas>
+<script src="polygon-men.js"></script>
 <script>
 const Q = new URLSearchParams(location.search);
-const S = +Q.get("s") || 110, K = +Q.get("k") || 0.6, DPR = +Q.get("dpr") || 1;
-const INK = "#2b2621", STEEL = "#a4a8ab", SKIN = "#c49a74", WOOD = "#7a5a36";
-function mix(a, b, k){ const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const x = p(a), y = p(b); return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * k).toString(16).padStart(2, "0")).join(""); }
-const shade = (h, k) => k >= 0 ? mix(h, "#ffffff", k) : mix(h, "#000000", -k);
-
-// ── 3D: x — вправо, y — назад (к зрителю на экране вниз), z — вверх; боец смотрит в −y ──
-// экран: (x, y − K·z); ближе к зрителю — больше y·K + z (рисуется позже)
-function proj(p){ return [p[0], p[1] - K * p[2]]; }
-const depth = p => p[1] * K + p[2];
-function rot(p, a){ const c = Math.cos(a), s = Math.sin(a); return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]]; }
-
-// примитивы: капсула (конечности, древко), шар (голова, кисть), стопка эллипсов (корпус), диск (щит), сапог
-function man(kit, face){
-  const P = [], R = p => rot(p, face);
-  const cap = (a, b, r, col, opt = {}) => P.push({t: "cap", a: R(a), b: R(b), r, col, ...opt});
-  const ball = (c, r, col, opt = {}) => P.push({t: "ball", c: R(c), r, col, ...opt});
-  const L = kit.legs, T = kit.torso, A = kit.arm;
-  // сапоги и ноги: левая чуть впереди
-  for(const [x, f] of [[-0.09, -0.06], [0.09, 0.03]]){
-    P.push({t: "boot", c: R([x, f, 0.03]), face, col: "#4a3828"});
-    cap([x, f + 0.02, 0.08], [x * 0.9, 0.0, 0.86], 0.066, L);
-  }
-  // корпус: стопка срезов от пояса до плеч — шире к плечам; пояс
-  for(let i = 0; i <= 8; i++){
-    const z = 0.86 + i * 0.07, w = 0.15 + 0.055 * Math.min(1, i / 6), d = 0.105 + 0.01 * Math.min(1, i / 6);
-    P.push({t: "slice", c: R([0, 0.01, z]), rx: w, ry: d, face, col: i === 0 ? "#5a4028" : i === 8 ? shade(T, 0.08) : T, top: i === 8, kit});
-  }
-  // руки: от плеча вниз к локтю, предплечье вперёд к кисти
-  const hr = kit.hr, hl = kit.hl;
-  cap([0.215, 0.0, 1.38], [0.25, 0.05, 1.08], 0.058, A); cap([0.25, 0.05, 1.08], hr, 0.052, A); ball(hr, 0.045, SKIN);
-  cap([-0.215, 0.0, 1.38], [-0.25, 0.05, 1.08], 0.058, A); cap([-0.25, 0.05, 1.08], hl, 0.052, A);
-  if(!kit.shield) ball(hl, 0.045, SKIN);
-  // шея, голова, шлем
-  cap([0, 0.0, 1.42], [0, -0.01, 1.52], 0.05, SKIN);
-  ball([0, -0.02, 1.62], 0.11, SKIN, {helm: kit.helm});
-  // оружие: копьё в правой — назад-вниз к земле, вперёд-вверх
-  if(kit.weapon === "spear") cap([hr[0], hr[1] + 0.55, hr[2] - 0.35], [hr[0], hr[1] - 1.4, hr[2] + 0.75], 0.018, WOOD, {tip: true});
-  if(kit.weapon === "sword") cap(hr, [hr[0] + 0.05, hr[1] - 0.25, hr[2] + 0.75], 0.016, "#d8dadb", {blade: true});
-  // щит на левой руке — вертикальный, лицом вперёд
-  if(kit.shield) P.push({t: "disc", c: R([hl[0] - 0.02, hl[1] - 0.06, hl[2] + 0.05]), n: R([0, -1, 0]), u: R([1, 0, 0]), r: kit.shield.r, col: kit.shield.col, c2: kit.shield.c2});
-  return P;
-}
-
-function draw(g, P, X, Y){
-  // от дальнего к ближнему
-  const key = p => p.t === "cap" ? Math.max(depth(p.a), depth(p.b)) - 0.02 : p.t === "disc" ? depth(p.c) + 0.05 : p.t === "boot" ? depth(p.c) - 0.3 : depth(p.c);
-  P.sort((a, b) => key(a) - key(b));
-  const sc = ([x, y]) => [X + x * S, Y + y * S];
-  for(const p of P){
-    if(p.t === "cap"){
-      const [ax, ay] = sc(proj(p.a)), [bx, by] = sc(proj(p.b)), w = 2 * p.r * S;
-      // объём: свет справа сверху — светлее к правому краю поперёк конечности
-      const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l, sgn = nx > 0 ? 1 : -1;
-      const gr = g.createLinearGradient(ax - nx * w / 2 * sgn, ay - ny * w / 2 * sgn, ax + nx * w / 2 * sgn, ay + ny * w / 2 * sgn);
-      gr.addColorStop(0, shade(p.col, -0.35)); gr.addColorStop(0.55, p.col); gr.addColorStop(1, shade(p.col, 0.25));
-      g.lineCap = "round";
-      g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.strokeStyle = INK; g.lineWidth = w + 0.035 * S; g.stroke();
-      g.strokeStyle = gr; g.lineWidth = w; g.stroke();
-      if(p.tip){ g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + dx / l * 0.16 * S, by + dy / l * 0.16 * S); g.strokeStyle = INK; g.lineWidth = 0.07 * S; g.stroke(); g.strokeStyle = "#e2e4e5"; g.lineWidth = 0.04 * S; g.stroke(); }
-    } else if(p.t === "ball"){
-      const [cx, cy] = sc(proj(p.c)), r = p.r * S;
-      let col = p.col;
-      if(p.helm === "kettle" || p.helm === "nasal" || p.helm === "great") col = p.helm === "great" ? "#8f9498" : STEEL;
-      const gr = g.createRadialGradient(cx + r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r * 1.05);
-      gr.addColorStop(0, shade(col, 0.35)); gr.addColorStop(0.6, col); gr.addColorStop(1, shade(col, -0.4));
-      if(p.helm === "kettle"){   // поля шапели — диск вокруг головы
-        g.beginPath(); g.ellipse(cx, cy + r * 0.25, r * 1.55, r * 1.55 * 0.62, 0, 0, 6.283); g.fillStyle = shade(STEEL, -0.1); g.fill(); g.strokeStyle = INK; g.lineWidth = 0.025 * S; g.stroke();
-      }
-      g.beginPath(); g.arc(cx, cy, r, 0, 6.283); g.fillStyle = gr; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.03 * S; g.stroke();
-      if(p.helm === "nasal"){ g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx, cy + r * 0.2); g.strokeStyle = shade(STEEL, -0.35); g.lineWidth = 0.02 * S; g.stroke(); }
-      if(p.helm === "great"){ g.beginPath(); g.moveTo(cx - r * 0.7, cy + r * 0.15); g.lineTo(cx + r * 0.7, cy + r * 0.15); g.strokeStyle = INK; g.lineWidth = 0.02 * S; g.stroke(); }
-    } else if(p.t === "slice"){
-      const [cx, cy] = sc(proj(p.c)), rx = p.rx * S, ry = p.ry * S;
-      g.save(); g.translate(cx, cy); g.rotate(p.face);
-      g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 6.283);
-      g.fillStyle = p.top ? p.col : shade(p.col, -0.12); g.fill();
-      if(p.top){
-        g.strokeStyle = INK; g.lineWidth = 0.03 * S; g.stroke();
-        // сюрко: герб полосой по середине
-        if(p.kit.c2){ g.save(); g.clip(); g.fillStyle = p.kit.c2; g.fillRect(-0.035 * S, -ry, 0.07 * S, 2 * ry); g.restore(); }
-      } else { g.strokeStyle = shade(p.col, -0.45); g.lineWidth = 0.02 * S; g.stroke(); }
-      g.restore();
-    } else if(p.t === "boot"){
-      const [cx, cy] = sc(proj(p.c));
-      g.save(); g.translate(cx, cy); g.rotate(p.face); g.beginPath(); g.ellipse(0, -0.02 * S, 0.055 * S, 0.11 * S, 0, 0, 6.283);
-      g.fillStyle = p.col; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.025 * S; g.stroke(); g.restore();
-    } else if(p.t === "disc"){
-      // окружность в плоскости (u, вверх) — проекция; лицо видно, если нормаль смотрит к зрителю
-      const pts = [];
-      for(let i = 0; i < 32; i++){ const a = i / 32 * 6.283, q = [p.c[0] + p.u[0] * Math.cos(a) * p.r, p.c[1] + p.u[1] * Math.cos(a) * p.r, p.c[2] + Math.sin(a) * p.r]; pts.push(sc(proj(q))); }
-      const front = p.n[1] * K + 0 > -0.0001;   // нормаль к зрителю (y растёт к нему)
-      g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
-      g.fillStyle = front ? p.col : "#7a5a36"; g.fill();
-      if(front && p.c2){ g.save(); g.clip(); const [cx, cy] = sc(proj(p.c)); g.fillStyle = p.c2; g.fillRect(cx - 0.04 * S, cy - p.r * S * 2, 0.08 * S, p.r * S * 4); g.restore(); }
-      g.strokeStyle = shade(front ? p.col : "#7a5a36", -0.4); g.lineWidth = 0.04 * S; g.stroke(); g.strokeStyle = INK; g.lineWidth = 0.018 * S; g.stroke();
-      if(front){ const [cx, cy] = sc(proj(p.c)); g.beginPath(); g.arc(cx, cy, 0.05 * S, 0, 6.283); g.fillStyle = STEEL; g.fill(); g.strokeStyle = INK; g.lineWidth = 0.015 * S; g.stroke(); }
-    }
-  }
-}
-
-const RED = "#b0302a", BLUE = "#3a4fa0";
-const spear = (col, helm, shieldCol) => ({legs: "#5a4a3a", torso: col, arm: col, helm, weapon: "spear", hr: [0.16, -0.24, 1.05], hl: [-0.17, -0.22, 1.08],
-  shield: {r: 0.27, col: shieldCol || col, c2: "#ece6d6"}});
-const knight = col => ({legs: "#8e9296", torso: col, arm: "#9a9ea2", helm: "great", weapon: "sword", c2: "#ece6d6", hr: [0.17, -0.22, 1.06], hl: [-0.17, -0.22, 1.08],
-  shield: {r: 0.25, col, c2: "#d9b44a"}});
-const militia = () => ({legs: "#6a5a44", torso: "#8b7a5c", arm: "#8b7a5c", helm: "none", weapon: "spear", hr: [0.13, -0.26, 1.02], hl: [-0.1, -0.3, 1.05]});
-
-const c = document.getElementById("c"), W = 1400, H = 900;
-c.width = W * DPR; c.height = H * DPR; c.style.width = W + "px"; c.style.height = H + "px";
-const g = c.getContext("2d"); g.scale(DPR, DPR);
-g.fillStyle = "#6f7a45"; g.fillRect(0, 0, W, H);
-g.fillStyle = "#f0e6c8"; g.font = "bold 15px system-ui";
-g.fillText("Проба: косой вид — земля сверху, бойцы стоят (высота вверх по экрану). Повороты: 0°, 45°, 90°, 135°, 180°, 270°", 14, 24);
-// строй лицом вверх и повороты
-const faces = [0, 0.785, 1.571, 2.356, 3.1416, 4.712];
-function row(y0, mk, label){
-  g.fillStyle = "#f0e6c8"; g.font = "bold 13px system-ui"; g.fillText(label, 14, y0 - 1.9 * S);
-  faces.forEach((f, i) => {
-    const X = 90 + i * 1.1 * S + 40, Y = y0;
-    // тень на земле
-    g.beginPath(); g.ellipse(X - 0.12 * S, Y + 0.05 * S, 0.34 * S, 0.22 * S, 0, 0, 6.283); g.fillStyle = "rgba(24,18,8,.28)"; g.fill();
-    draw(g, man(mk(), f), X, Y);
+if(Q.get("k")) Object.defineProperty(window, "devicePixelRatio", {get: () => +Q.get("k")});
+const view = {s: +Q.get("s") || 110};
+let ctx;
+const SIDE = Q.get("side") || "#b0302a", POSE = Q.get("pose") || "rest";
+const ALL = [["militia", "militia", "Ополчение"], ["spear", "infantry", "Копейщики"], ["sword", "guard", "Мечники"],
+             ["pike", "pikemen", "Пикинёры"], ["bow", "archers", "Лучники"], ["crossbow", "crossbowmen", "Арбалетчики"]];
+const KITS = Q.get("kit") ? ALL.filter(k => Q.get("kit").split(",").includes(k[0])) : ALL;
+const FACES = [0, 0.785, 1.571, 2.356, 3.1416, 4.712];
+const S = view.s, ROW = 2.35 * S, COL = 1.15 * S, dpr = window.devicePixelRatio || 1;
+const c = document.getElementById("c"), W = Math.max(innerWidth, 130 + FACES.length * COL), H = 40 + KITS.length * ROW;
+c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
+ctx = c.getContext("2d"); setZoom();
+ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = "#6f7a45"; ctx.fillRect(0, 0, W, H);
+for(let i = 0; i < 4000; i++){ ctx.fillStyle = hash(i, 3) < 0.5 ? "rgba(60,70,30,.25)" : "rgba(150,150,90,.18)"; ctx.fillRect(hash(i, 1) * W, hash(i, 2) * H, 2, 2); }
+KITS.forEach(([look, tpl, name], r) => {
+  const y0 = 40 + r * ROW + 1.95 * S, kits = kitsOf({id: 300 + r * 17, col: SIDE, tpl});
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = "#f0e6c8"; ctx.font = "bold 14px system-ui"; ctx.fillText(name, 10, y0 - 1.6 * S);
+  FACES.forEach((f, i) => {
+    const k = kits[i % kits.length], X = 130 + (i + 0.5) * COL, B = [S * dpr, 0, 0, S * dpr, X * dpr, y0 * dpr];
+    const P = restPose(k, 0, POSE === "low" ? 1 : 0), t = i * 0.37;
+    const o = {W: P.W, Sh: P.Sh, step: POSE === "walk" ? Math.sin(t * 6.283) : 0};
+    if(POSE === "atk" && P.W){ const ap = 0.3 + 0.12 * i; const [r2, sy2] = swingAng(ap); o.W = THRUST.has(k.weapon) ? [P.W[0], P.W[1] - 0.1 + thrustOff(ap), 0, 1, 1] : [0.22, -0.08, r2, 1, sy2]; }
+    // тень на земле — от света справа сверху влево вниз
+    ctx.setTransform(B[0], 0, 0, B[3], B[4], B[5]); ctx.drawImage(SHADOW, -0.55, -0.3, 0.9, 0.6);
+    drawFigure(figure(k, 0, 0, f, o), B);
   });
-}
-row(300, () => spear(RED, "kettle", RED), "Копейщики");
-row(560, () => knight(BLUE), "Латники с мечом");
-row(820, () => militia(), "Ополченец");
+});
 if(Q.get("shot")) c.toBlob(b => fetch("/shot?file=" + encodeURIComponent(Q.get("shot")) + ".png", {method: "POST", body: b}).then(r => r.text()).then(t => document.title = "снимок: " + t));
 </script>

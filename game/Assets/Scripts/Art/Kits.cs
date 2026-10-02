@@ -11,6 +11,9 @@ namespace Journal.Art
         public string Body, Head, Back, Shield, Weapon, Side, Bard;   // имена частей атласа; null — нет
         public string Tabard, Arm, Hand;                               // сюрко (у кольчуги и лат), предплечье, кисть (В15)
         public string Armour;                                          // cloth, mail, leather, plate
+        // стоящий боец (В17): шлем и цвет капюшона или шапки (f — сторона, cN — своя ткань), что за спиной, герб сюрко, кожа
+        public string Helm, HelmCloth, BackKind, TabPaint; public int Leather;
+        public object Fig;                                             // части фигурки, найденные в атласе (FigKit смотрелки)
         public string ClothKey, ArmourKey;                            // для павшего: corpse/<ткань>/<броня>/<поза>
         public string HorseKey;                                        // horse/<масть>/<попона>[/<герб>]
         public string ShieldShape;
@@ -117,6 +120,9 @@ namespace Journal.Art
                     Back = back == "none" ? null : back == "pavise" ? "back/pavise/" + c2 : "back/" + back,
                     Weapon = weapon, Side = side, Bard = bard, Armour = armour,
                     Tabard = armour == "mail" || armour == "plate" ? $"tabard/{(Tabards.Contains(paint) ? paint : "plain")}/{c2}" : null,
+                    TabPaint = armour == "mail" || armour == "plate" ? (Tabards.Contains(paint) ? paint : "plain") : null,
+                    Helm = helm, HelmCloth = head.StartsWith("head/cap/") || head.StartsWith("head/hood/") ? head.Substring(head.LastIndexOf('/') + 1) : null,
+                    BackKind = back, Leather = armour == "leather" ? armourKey[7] - '0' : 0,
                     Arm = "arm/" + (armour == "cloth" ? cloth : armourKey),
                     Hand = armour == "plate" ? "hand/plate" : armour == "mail" ? "hand/glove" : "hand/skin",
                     HorseKey = $"horse/{coat}/{bard}" + (bard == "full" ? "/" + c2 : ""),
