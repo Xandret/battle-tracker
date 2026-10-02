@@ -14,6 +14,11 @@ const w = dom.window;
 w.confirm = () => true; w.alert = () => {};
 const ev = c => w.eval(c);
 const ok = (cond, msg) => { console.log((cond ? "  ✔ " : "  ✘ ") + msg); if(!cond) process.exitCode = 1; };
+// Интерфейс отдаёт движку Math.random (engineCtx в app.js), поэтому броски в проверке зависели от удачи.
+// Подменяем Math.random окна jsdom на генератор движка с зерном: прогон за прогоном — одни и те же броски
+// (CLAUDE.md, правило 1). Перезадать зерно можно перед любым разделом, чтобы он не зависел от разделов выше.
+const seedRng = seed => ev(`Math.random = Engine.mulberry32(${seed})`);
+seedRng(42);
 
 console.log("Запуск и шапка");
 ok(ev("typeof Engine") === "object", "движок загружен как объект Engine");
@@ -317,6 +322,11 @@ ev(`terrainMap = Engine.createTerrain(1000, 1000, ${T("field")}); terrainVersion
 ok(ev("panicActive()") === true && ev("mapRules.panicMorale") === false, "паника включена с правилами карты, «−100 БД» — выключено");
 const line = [0, 1, 2, 3].map(i => mkU("Звено " + i, "Лучники Севера", 20 + i * 11, 50, "document.getElementById('f_soldiers').value = '400'; document.getElementById('f_disc').value = '1';"));
 const foe7 = mkU("Враг рядом", "Лесные", 25, 55, "document.getElementById('f_soldiers').value = '400'; document.getElementById('f_disc').value = '1';");
+// Волна — три броска d100 против дисциплины 1: звено держится только при d100 = 1 (≈3 % на цепочку —
+// отсюда редкие падения до зерна). Зерно задаём заново здесь, чтобы броски не сдвигались, когда разделы
+// выше начнут тратить случайность иначе. Первый выход mulberry32(42) уходит на id записи журнала
+// в markFled, на проверки идут 45, 86, 67 — бегут все три.
+seedRng(42);
 ev(`markFled(${line[0]})`);
 ok(ev("log[0].title") === "🏳 Каскадная паника: бегство «Звено 0»", "волна паники — отдельной записью: " + ev("log[0].title"));
 ok(line.every(id => ev(`units.find(u => u.id === ${id}).status`) === "fled"), "вся цепочка побежала — волна за волной");
