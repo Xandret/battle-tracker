@@ -197,8 +197,18 @@ namespace BattleCore
             public double DetourWaitSec = 3, DetourCooldownSec = 10;                 // Г61: ждёт 3 с, потом обходит своего
             public double PushSpeedK = 1.5;         // расталкивание двигает фигурку за шаг не дальше её предела скорости × это: в давке у моста не протаскивает рывком
             public double FigTurnDegPerSec = 45;    // Г68: фигурка в охвате разворачивается к врагу не быстрее — капсула не сметает соседей
+            // Г70, Г71: бегство — толпой прочь от врага на норме отряда; фигурки бегут каждая сама, разбегаясь веером
+            public double FleeSpreadDeg = 12;       // разброс курса фигурок в толпе, ±
+            public double FleeSpeedJitter = 0.1;    // фигурка бежит на норме ± половина этого — толпа растягивается, в среднем ровно норма
+            public double FleeLookM = 400;          // от кого бежать: враги ближе этого (от центра до центра)
+            public double FleeEdgeM = 3;            // фигурка у края карты ближе этого — отряд ушёл с поля боя
+            public double FleeBlockM = 25, FleeBlockDeg = 70;   // враг ближе этого и в пределах ± этого от курса — путь перекрыт: бежит прочь от него
         }
         public MoveR Move = new MoveR();
+
+        // Г72: приказ «сплотить» — в игре (за столом решает мастер кнопкой «воспрял духом»). ЧЕРНОВИК ДО ГМа
+        public sealed class RallyR { public double FreeM = 150, Morale = 40; }   // врага нет ближе FreeM (от края до края) — бросок d100 ≤ дисциплина; успех — БД не ниже Morale
+        public RallyR Rally = new RallyR();
 
         // ── Штурм (этап 6б, Г46–Г51) — ЧЕРНОВИК ДО ГМа; как siege в rules.js ──
         public sealed class SiegeR

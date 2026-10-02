@@ -32,7 +32,7 @@ namespace BattleCore
         {
             if (a.M == b.M) return a.S.Returning || b.S.Returning ? Rel.Ghost : Rel.Same;   // из охвата — сквозь свой строй (Г68)
             if (!SameSide(a.M.P.U, b.M.P.U)) return Rel.Enemy;
-            return a.Archer || b.Archer ? Rel.Ghost : Rel.Friend;
+            return a.Archer || b.Archer || a.M.Fleeing || b.M.Fleeing ? Rel.Ghost : Rel.Friend;   // бегущие — сквозь своих (Г70)
         }
 
         // Ось тела фигурки в охвате (Г68) поворачивается к WH постепенно, а не рывком: капсула 15 м шириной,
@@ -44,7 +44,7 @@ namespace BattleCore
             foreach (var m in ms)
                 foreach (var s in m.Figs)
                 {
-                    double want = s.Wrap ? s.WH : m.P.Facing;
+                    double want = s.Wrap ? s.WH : m.Fleeing && !double.IsNaN(s.FleeH) ? s.FleeH : m.P.Facing;
                     if (!s.Turned)
                     {
                         if (!s.Wrap || Math.Abs(AxisDiff(want, m.P.Facing)) < 1e-9) continue;

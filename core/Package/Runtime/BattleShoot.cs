@@ -97,7 +97,7 @@ namespace BattleCore
         bool Facing(Mover s, Mover t) => Math.Abs(MoveSim.AngleDiff(s.P.Facing, MoveSim.HeadingOf(t.P.X - s.P.X, t.P.Y - s.P.Y))) <= FaceTolDeg;
         // Может ли s сейчас стрелять по t
         bool CanShoot(Mover s, Mover t) =>
-            Alive(s) && Alive(t) && Shooter(s) && Enemies(s.P.U, t.P.U) && !InMelee(s) && !TangledWithFriends(t, s)
+            Alive(s) && OnField(t) && Shooter(s) && Enemies(s.P.U, t.P.U) && !InMelee(s) && !TangledWithFriends(t, s)
             && (Units.IsCav(s.P.U) || Standing(s) && Facing(s, t)) && Gap(s, t) <= RangeVs(s, t);
 
         // ── приказ «стрелять по цели» (Г65): вне дальности — подойти на долю дальности и встать лицом к цели ──
@@ -204,7 +204,7 @@ namespace BattleCore
                 foreach (var w in v.Wins.ToList())
                 {
                     if (w.Open || w.Skipped || w.T0 >= t + dt - 1e-9) continue;
-                    if (!Alive(w.Att) || !Alive(w.Def)) { w.Skipped = true; continue; }
+                    if (!Alive(w.Att) || !OnField(w.Def)) { w.Skipped = true; continue; }
                     if (w.Counter && (w.Att.P.U.Morale < R.Morale.ShakenBelow || !CanShoot(w.Att, w.Def))) { w.Skipped = true; continue; }
                     OpenVolleyWin(w);
                 }
@@ -216,7 +216,7 @@ namespace BattleCore
                 grid.Clear();
                 foreach (var m in Movers)
                 {
-                    if (!Alive(m)) continue;
+                    if (!OnField(m)) continue;   // бегущих стрела тоже находит (Г70)
                     var tr = TroopOf(m);
                     PlaceBodies(m, tr);
                     foreach (var b in tr.Bodies) if (b.Alive) grid.Add(b);
@@ -274,7 +274,7 @@ namespace BattleCore
         {
             var RR = R.Ranged;
             const string mode = Modes.RangedForm;   // местность — физикой (Г38), а не режимом стола
-            w.Open = true;
+            w.Open = true; w.Att.P.U.Acted = true;   // «походил» — для усталости в конце хода (стол)
             w.U = MeleeSim.Fortune(w.Att.P.U, mode, Ctx);
             w.N0 = w.Att.P.U.Soldiers;
             w.LRoll = Dice.Roll(Ctx.Rng, R.Lethality.Die);
@@ -298,7 +298,7 @@ namespace BattleCore
             var w = ar.W; var RR = R.Ranged;
             ar.Done = true;
             bool ok = w.Counter ? CanShoot(w.Att, w.Def) : CanShoot(w.Att, w.Def) && w.V.A.Order != null && w.V.A.Order.Kind == OrderKind.Attack;
-            if (!ok || !Alive(w.Att) || !Alive(w.Def)) { w.Landed++; return; }
+            if (!ok || !Alive(w.Att) || !OnField(w.Def)) { w.Landed++; return; }
             // стрелы — по всему строю поровну; стрелу павшего выпускает живой сосед
             var shooters = TroopOf(w.Att).Bodies;
             PlaceBodies(w.Att, troops[w.Att]);
@@ -473,6 +473,7 @@ namespace BattleCore
                 var res = new StrikeResult { Casualties = cas, Killed = kv.Value.killed, Wounded = cas - kv.Value.killed };
                 Combat.CasualtyPatch(clone, res, new List<string>(), Ctx, out _).ApplyTo(def);
             }
+            foreach (var kv in w.Victims) if (kv.Value.cas > 0) AfterLoss(kv.Key, t);   // Г74: проверки после удара
             Details.Add($"{Js.Num(Js.R1(t - Clock))} с · {w.Att.P.U.Name} → {w.Def.P.U.Name}{(w.Counter ? " (ответ)" : "")}: стрел {w.Planned}, −{total}");
         }
     }

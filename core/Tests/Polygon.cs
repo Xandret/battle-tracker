@@ -23,6 +23,7 @@ static class Polygon
         }
         // бой (БД1): отряды живут в Battle, приказы — через Battle.Order; ходы считает Battle.Turn
         public Battle Battle;
+        public Action<int> Before;   // перед ходом i (с нуля): приказы между ходами (WEGO)
         public Mover Fighter(string tpl, int id, string name, double x, double y, double facing, int faction = 1, double men = 1000)
         {
             var t = Templates.Get(tpl);
@@ -231,6 +232,52 @@ static class Polygon
         wrap.Order(w1, new MoveOrder { Kind = OrderKind.Attack, TargetId = 5 });
         wrap.Order(w2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 5 });
         list.Add(wrap);
+
+        var flee = new Scene { Name = "Бой: бегство и паника", Turns = 4, Geo = MoveTests.Open(1800, 1100),
+            Note = "БД4 (Г70, Г71, Г73, Г74). После каждого удара с потерями — проверки, как подсказывает журнал стола: БД ≤ 40 — проверка БД, " +
+                   "БД на нуле — на побег. Провал — отряд бежит толпой прочь от врага на норме хода, сквозь своих, и уходит за край карты. " +
+                   "Слева гвардия ломает ополчение — сосед в 60 м видит бегство и тоже бежит (каскадная паника), дальние в 320 м не бросают. " +
+                   "Справа рыцари ломают пехоту и рубят бегущих — те не отвечают; кого обняли с трёх сторон, разбегается в открытую сторону." };
+        flee.Battle = new Battle(flee.Geo, R0, new EngineContext { Rng = new Mulberry32(3).Next });
+        Mover Weak(string tpl, int id, string name, double x, double y, double disc, double morale, int faction = 2)
+        {
+            var m = flee.Fighter(tpl, id, name, x, y, 0, faction: faction);
+            m.P.U.Discipline = disc; m.P.U.Morale = morale; return m;
+        }
+        Weak("militia", 2, "Враг: ополчение", 450, 560, 1, 70);
+        Weak("militia", 3, "Враг: сосед", 450 - 125 - 60, 560, 1, 70);
+        Weak("militia", 4, "Враг: дальние", 450 + 125 + 320, 560, 1, 70);
+        var fg = flee.Fighter("guard", 1, "Гвардия", 450, 560 - (4 + 0.5 + 4), 180);
+        Weak("infantry", 6, "Враг: пехота", 1450, 420, 1, 30);
+        var fk = flee.Fighter("knights", 5, "Рыцари", 1450, 420 - (4 + 0.5 + 7.5), 180);
+        flee.Order(fg, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        flee.Order(fk, new MoveOrder { Kind = OrderKind.Attack, TargetId = 6 });
+        list.Add(flee);
+
+        var rally = new Scene { Name = "Бой: сплотить", Turns = 7, Geo = MoveTests.Open(1000, 760),
+            Note = "БД4 (Г72): приказ «сплотить» бегущим. Пока враг ближе 150 м — ждут и бегут дальше; отошли — бросок d100 ≤ дисциплина: " +
+                   "успех — БД 40 и снова в строю там, где основная толпа, лицом к врагу; провал — бегут дальше. Иных приказов бегущий не слышит. " +
+                   "Пехота ломает новобранцев в упор и после первого хода встаёт. Слева новобранцам (дисциплина 55) каждый ход приказывают сплотиться — " +
+                   "бросок раз в ход, пока не выйдет; справа (дисциплина 20) приказа нет: бегут до края карты и уходят с поля." };
+        rally.Battle = new Battle(rally.Geo, R0, new EngineContext { Rng = new Mulberry32(11).Next });
+        Mover Recruits(int id, string name, double x, double disc)
+        {
+            var m = rally.Fighter("infantry", id, name, x, 330, 0, faction: 2);
+            m.P.U.Discipline = disc; m.P.U.Morale = 12; return m;
+        }
+        var rec1 = Recruits(2, "Новобранцы", 270, 55);
+        Recruits(4, "Новобранцы Б", 730, 20);
+        var r1 = rally.Fighter("infantry", 1, "Пехота", 270, 330 - (4 + 0.5 + 4), 180, men: 500);
+        var r2 = rally.Fighter("infantry", 3, "Пехота Б", 730, 330 - (4 + 0.5 + 4), 180, men: 500);
+        rally.Order(r1, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        rally.Order(r2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 4 });
+        rally.Before = turn =>
+        {
+            if (turn < 1) return;
+            if (turn == 1) { rally.Order(r1, new MoveOrder { Kind = OrderKind.Hold }); rally.Order(r2, new MoveOrder { Kind = OrderKind.Hold }); }
+            if (rec1.Fleeing) rally.Battle.Order(rec1, new MoveOrder { Kind = OrderKind.Rally });   // игрок приказывает каждый ход, пока бегут
+        };
+        list.Add(rally);
         return list;
     }
     static readonly Rules R0 = Rules.Base;
@@ -250,6 +297,7 @@ static class Polygon
             double?[][] was = Snap(ms); double clock = 0;
             for (int turn = 0; turn < sc.Turns; turn++)
             {
+                sc.Before?.Invoke(turn);
                 Action<double> rec = t =>
                 {
                     foreach (var m in ms)
@@ -301,14 +349,21 @@ static class Polygon
             var fights = new List<int[]> { new int[0] };
             var logs = new List<List<string>>();
             var stats = new List<object>();
+            // состояние отряда (БД4): плоский список смен [кадр, код, …]; 0 в строю, 1 бежит, 2 ушёл с поля весь,
+            // 3 бежит с приказом «сплотить» (ждёт, пока враг дальше 150 м), 4 сплотился
+            int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
+            var states = ms.Select(m => new List<int> { 0, State(m) }).ToList();
             for (int turn = 0; turn < sc.Turns; turn++)
             {
+                sc.Before?.Invoke(turn);
+                for (int i = 0; i < ms.Count; i++) if (states[i][states[i].Count - 1] != State(ms[i])) { states[i].Add(frames.Count - 1); states[i].Add(State(ms[i])); }
                 int k = 0;
                 Action<double> rec = t =>
                 {
                     if (++k % 4 != 0) return;
                     frames.Add(Snap(ms));
                     heads.Add(Heads(ms));
+                    for (int i = 0; i < ms.Count; i++) if (states[i][states[i].Count - 1] != State(ms[i])) { states[i].Add(frames.Count - 1); states[i].Add(State(ms[i])); }
                     soldiers.Add(ms.Select(m => Math.Round(m.P.U.Soldiers)).ToArray());
                     if (sc.Battle != null)
                         fights.Add(sc.Battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());
@@ -357,6 +412,7 @@ static class Polygon
                     Math.Round(a.T0, 2), Math.Round(a.X0, 1), Math.Round(a.Y0, 1), Math.Round(a.Z0, 1), Math.Round(a.VX, 1), Math.Round(a.VY, 1), Math.Round(a.VZ, 1),
                     Math.Round(a.T1, 2), Math.Round(a.X1, 1), Math.Round(a.Y1, 1), Math.Round(a.Z1, 1), idx[a.UnitId], a.End,
                 }).ToList(),
+                states = sc.Battle != null ? states : null,
             });
         }
         var json = JsonSerializer.Serialize(new { scenes, made = DateTime.Now.ToString("dd.MM.yyyy HH:mm") },
@@ -386,8 +442,8 @@ static class Polygon
         return a;
     }).ToArray();
 
-    // Курсы фигурок, развёрнутых не по строю (охват, Г68): [отряд, номер тела, курс°] — ось тела, повёрнутая
-    // в ту сторону, куда фигурка смотрит (к врагу в охвате, по строю — когда возвращается)
+    // Курсы фигурок, развёрнутых не по строю (охват, Г68; бегство своим курсом, Г70): [отряд, номер тела, курс°] —
+    // ось тела, повёрнутая в ту сторону, куда фигурка смотрит (к врагу в охвате, своим курсом в бегстве, по строю — когда возвращается)
     static List<double[]> Heads(List<Mover> ms)
     {
         var list = new List<double[]>();
@@ -396,7 +452,7 @@ static class Polygon
             {
                 var s = ms[i].Figs[k];
                 if (!s.Turned) continue;
-                double want = s.Wrap ? s.WH : ms[i].P.Facing, a = s.Axis;
+                double want = s.Wrap ? s.WH : ms[i].Fleeing && !double.IsNaN(s.FleeH) ? s.FleeH : ms[i].P.Facing, a = s.Axis;
                 if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
                 list.Add(new[] { i, s.Id, Math.Round(MoveSim.Norm(a), 1) });
             }

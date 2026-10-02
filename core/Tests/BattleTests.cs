@@ -127,6 +127,7 @@ static class BattleTests
         yield return ("потери (Г30): фигурки падают, строй смыкается — фронт как у фишки трекера", () =>
         {
             var (bt, a, b) = Duel("guard", "militia", 0.5, 11);
+            bt.MoraleChecks = false;   // строй, а не бегство: ополчение держится до конца (бегство — БД4, ниже)
             bt.Order(a, Attack(2));
             for (int turn = 0; turn < 2; turn++) bt.Turn();
             foreach (var m in new[] { a, b })
@@ -350,6 +351,141 @@ static class BattleTests
             }
             True(a.Figs.All(s => !s.Wrap && !s.Turned && !s.Returning), "охват снят");
             True(far < 1, $"дальше всех от своего места — {far:0.0} м");
+        });
+
+        // ── БД4: БД и бегство в ходу (Г70–Г74) ──
+        // B стоит в центре большой карты лицом вверх; A — в упор сверху; B ломается легко (БД, дисциплина — заданы)
+        (Battle bt, Mover a, Mover b) Breaking(string ta, string tb, double morale, double disc, uint seed, double menA = 1000, double w = 1200, double h = 1600)
+        {
+            var bt = new Battle(Open(w, h), R, new EngineContext { Rng = new Mulberry32(seed).Next });
+            var ub = Templates.Get(tb).Make(2, "Пехота", 1000, 2); ub.Morale = morale; ub.Discipline = disc;
+            var b = bt.Add(ub, w / 2, 400, 0);
+            var fa = Formation.Of(Templates.Get(ta).Make(1, "Враг", menA, 1), R);
+            var a = bt.Add(Templates.Get(ta).Make(1, "Враг", menA, 1), w / 2, 400 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+            bt.Order(a, Attack(2));
+            return (bt, a, b);
+        }
+
+        yield return ("проверки (Г74): после удара с потерями при БД ≤ 40 — проверка БД, провал — БД 0 и сразу проверка на побег", () =>
+        {
+            var (bt, a, b) = Breaking("knights", "infantry", 30, 1, 5);
+            var log = bt.Turn();
+            True(log.Any(l => l.Contains("Проверка БД: Пехота")), "проверка БД: " + string.Join(" | ", log));
+            True(log.Any(l => l.Contains("Проверка на побег: Пехота")), "проверка на побег: " + string.Join(" | ", log));
+            True(b.P.U.Status == "fled" && b.Fleeing, $"«Пехота» {b.P.U.Status}");
+        });
+
+        yield return ("проверки (Г74): дисциплина 60+ — «стоять насмерть», первый бросок на побег не считается", () =>
+        {
+            var (bt, a, b) = Breaking("knights", "infantry", 1, 70, 5);
+            var log = bt.Turn();
+            var first = log.FirstOrDefault(l => l.Contains("Проверка на побег: Пехота"));
+            True(first != null && first.Contains("Стоять насмерть") && !first.Contains("бегство"), "первый бросок: " + first);
+        });
+
+        yield return ("бегство (Г70, Г71): толпой прочь от врага на норме, сквозь своих, у края карты — ушёл с поля боя", () =>
+        {
+            var (bt, a, b) = Breaking("infantry", "infantry", 30, 1, 6, menA: 300, h: 900);
+            var res = Templates.Get("infantry").Make(3, "Резерв", 1000, 2); res.Discipline = 100;   // свои за спиной, не паникуют
+            var r = bt.Add(res, 600, 400 + 4 + 40 + 4, 0);
+            bt.Turn();
+            True(b.Fleeing, "побежали в первый ход");
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+            double y0 = b.P.Y, d0 = JsMath.Hypot(b.P.X - a.P.X, b.P.Y - a.P.Y);
+            bt.Turn();
+            double run = b.Moved, d1 = JsMath.Hypot(b.P.X - a.P.X, b.P.Y - a.P.Y);
+            True(run >= 80 && run <= 105, $"за ход толпа прошла {run:0} м, норма 100 (сквозь резерв — вполсилы, Г56)");
+            True(d1 > d0 + 80, $"от врага: было {d0:0} м, стало {d1:0}");
+            True(b.P.Y > r.P.Y + 30 && r.P.U.Status == "active", $"прошли сквозь резерв: толпа на {b.P.Y:0}, резерв на {r.P.Y:0}");
+            for (int i = 0; i < 6 && !b.Gone; i++) bt.Turn();
+            True(b.Gone && b.Figs.Count == 0 && b.P.U.Status == "fled" && b.P.U.Soldiers > 0, $"ушёл с поля: {b.Gone}, фигурок {b.Figs.Count}, бойцов {b.P.U.Soldiers:0}");
+        });
+
+        yield return ("преследование (Г70): рыцари рубят бегущую пехоту — та не отвечает", () =>
+        {
+            var (bt, a, b) = Breaking("knights", "infantry", 30, 1, 5);
+            bt.Turn();
+            True(b.Fleeing, "побежали");
+            double before = b.P.U.Soldiers;
+            bt.Turn();
+            True(b.P.U.Soldiers < before, $"потерь у бегущих нет: {before:0} → {b.P.U.Soldiers:0}");
+            True(!bt.Details.Any(l => l.Contains(" · Пехота → ")), "бегущие ударили: " + string.Join(" | ", bt.Details));
+        });
+
+        yield return ("каскадная паника (Г73): бегство роняет соседа ближе 150 м, дальнего не трогает", () =>
+        {
+            var bt = new Battle(Open(1600, 900), R, new EngineContext { Rng = new Mulberry32(3).Next });
+            var mil = Templates.Get("militia");
+            Unit Weak(int id, string name) { var u = mil.Make(id, name, 1000, 2); u.Discipline = 1; return u; }
+            var b = bt.Add(Weak(2, "Ополчение"), 800, 450, 0);
+            var near = bt.Add(Weak(3, "Сосед"), 800 - 125 - 60, 450, 0);
+            var far = bt.Add(Weak(4, "Дальние"), 800 + 125 + 300, 450, 0);
+            var a = bt.Add(Templates.Get("guard").Make(1, "Гвардия", 1000, 1), 800, 450 - (4 + 0.5 + 4), 180);
+            bt.Order(a, Attack(2));
+            var log = bt.Turn();
+            True(log.Any(l => l.Contains("«Ополчение» бежит")), "«Ополчение» побежало: " + string.Join(" | ", log));
+            True(near.P.U.Status == "fled" && near.Fleeing, "сосед в 60 м побежал: " + string.Join(" | ", log));
+            True(far.P.U.Status == "active", "дальние (300 м) не бросали");
+            True(log.Any(l => l.Contains("каскадная паника")), "волна — в журнале");
+        });
+
+        yield return ("сплотить (Г72): враг ближе 150 м — ждут; дальше — бросок d100 ≤ дисциплина; успех — БД 40 и строй", () =>
+        {
+            var (bt, a, b) = Breaking("infantry", "infantry", 30, 1, 6, menA: 300);
+            bt.Turn();
+            True(b.Fleeing, "побежали");
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+            b.P.U.Discipline = 100;
+            bt.Order(b, new MoveOrder { Kind = OrderKind.Rally });
+            bt.Order(b, new MoveOrder { Kind = OrderKind.Move, X = 0, Y = 0 });   // иных приказов бегущий не слышит
+            True(b.Fleeing && b.RallyPending && b.Order == null, "приказ «двигаться» бегущему не дошёл");
+            for (int i = 0; i < 4 && b.Fleeing; i++) bt.Turn();
+            True(!b.Fleeing && b.P.U.Status == "active" && b.P.U.Morale >= 40, $"сплотились: {b.P.U.Status}, БД {b.P.U.Morale}");
+            True(Bodies.MinGap(a, b) > R.Rally.FreeM, $"сплотились в {Bodies.MinGap(a, b):0} м от врага");
+            double far = double.MaxValue;
+            for (int i = 0; i < 8 && far >= 3; i++)   // отбившиеся за строем врага подходят в обход, а то и прорубаясь, — до восьми ходов
+            {
+                bt.Turn(); far = 0;
+                for (int k = 0; k < b.Figs.Count; k++) { b.P.ToWorld(b.P.Figs[k].X, b.P.Figs[k].Y, out var sx, out var sy); far = Math.Max(far, JsMath.Hypot(b.Figs[k].X - sx, b.Figs[k].Y - sy)); }
+            }
+            True(far < 3 && b.Order.Kind == OrderKind.Hold, $"строй собран: дальше всех от места {far:0.0} м");
+        });
+
+        yield return ("сплотить (Г72): провал броска — бежит дальше, приказ израсходован", () =>
+        {
+            var (bt, a, b) = Breaking("infantry", "infantry", 30, 1, 6, menA: 300);
+            bt.Turn();
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+            bt.Order(b, new MoveOrder { Kind = OrderKind.Rally });
+            var logs = new List<string>();
+            for (int i = 0; i < 4 && b.RallyPending; i++) logs.AddRange(bt.Turn());
+            True(b.Fleeing && !b.RallyPending && logs.Any(l => l.Contains("сплотить не вышло")), string.Join(" | ", logs));
+        });
+
+        yield return ("конец хода (стол): сломленный теряет дисциплину, иссякла — бежит без броска", () =>
+        {
+            var bt = new Battle(Open(), R, new EngineContext { Rng = new Mulberry32(2).Next });
+            var u = Templates.Get("infantry").Make(1, "Сломленные", 1000, 1);
+            u.Morale = 0; u.Broken = true; u.BreakGrace = 0; u.Discipline = 5;
+            var m = bt.Add(u, 500, 500, 0);
+            bt.Add(Templates.Get("infantry").Make(2, "Враг", 1000, 2), 500, 300, 180);
+            var log = bt.Turn();
+            True(u.Status == "fled" && m.Fleeing, $"«Сломленные» {u.Status}, дисциплина {u.Discipline}: " + string.Join(" | ", log));
+            True(log.Any(l => l.Contains("дисциплина иссякла")), string.Join(" | ", log));
+            double y0 = m.P.Y;
+            bt.Turn();
+            True(m.P.Y > y0 + 80, $"бегут прочь от врага: {y0:0} → {m.P.Y:0}");
+        });
+
+        yield return ("бегство: одно зерно — один исход", () =>
+        {
+            double[] Run()
+            {
+                var (bt, a, b) = Breaking("knights", "infantry", 30, 1, 5);
+                for (int i = 0; i < 3; i++) bt.Turn();
+                return new[] { a.P.U.Soldiers, b.P.U.Soldiers, b.P.X, b.P.Y }.Concat(b.Figs.SelectMany(f => new[] { f.X, f.Y })).ToArray();
+            }
+            True(Run().SequenceEqual(Run()), "повтор совпал");
         });
 
         yield return ("бой: одно зерно — один исход", () =>
