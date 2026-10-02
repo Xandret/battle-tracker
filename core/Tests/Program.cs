@@ -631,7 +631,7 @@ void BenchPaths(double gap, bool menBodies = false, bool reserve = false)
     double rigSum = 0; int rigN = 0, rigU = 0, rigK = 0; long arrowsDone = 0;
     void PrintProf()
     {
-        Console.WriteLine($"   фазы: движение {Prof.Sec(0):0.00} (бойцы: смыкание и курсы {Prof.Sec(10):0.00}, якоря {Prof.Sec(11):0.00}, желания {Prof.Sec(12):0.00}, взгляд {Prof.Sec(13):0.00}, шаг {Prof.Sec(14):0.00}, расталкивание и итог {Prof.Sec(15):0.00}), касания {Prof.Sec(1):0.00}, охват и пр. {Prof.Sec(2):0.00}, удары {Prof.Sec(3):0.00}, стрельба {Prof.Sec(4):0.00} (тела и сетка {Prof.Sec(16):0.00}, пуск и полёт {Prof.Sec(17):0.00}; стрел {bt.Volleys.Sum(v => v.Arrows) + arrowsDone}, подшагов полёта {Prof.N[0]}, поисков тел {Prof.N[1]}, тел проверено {Prof.N[2]}, подборов прицела {Prof.N[3]}), раскладка {Prof.Sec(5):0.00}");
+        Console.WriteLine($"   фазы: движение {Prof.Sec(0):0.00} (бойцы: смыкание и курсы {Prof.Sec(10):0.00}, якоря {Prof.Sec(11):0.00}, желания {Prof.Sec(12):0.00}, взгляд {Prof.Sec(13):0.00}, шаг {Prof.Sec(14):0.00}, расталкивание и итог {Prof.Sec(15):0.00}), касания {Prof.Sec(1):0.00}, охват и пр. {Prof.Sec(2):0.00}, удары {Prof.Sec(3):0.00}, стрельба {Prof.Sec(4):0.00} (тела и сетка {Prof.Sec(16):0.00}, пуск и полёт {Prof.Sec(17):0.00}; стрел {bt.Volleys.Sum(v => v.Arrows) + arrowsDone}, подшагов полёта {Prof.N[0]}, поисков тел {Prof.N[1]}, тел проверено {Prof.N[2]}, подборов прицела {Prof.N[3]}, тел в сетке за ход {Prof.N[4]}), раскладка {Prof.Sec(5):0.00}");
         Prof.Reset();
     }
     Console.WriteLine($"карта {geo.W:0} × {geo.H:0} м, {map.W * map.H} клеток; отрядов {bt.Movers.Count}, бойцов {men:0}; между линиями {gap:0} м; подготовка {setup.Elapsed.TotalSeconds:0.0} с");

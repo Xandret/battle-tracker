@@ -127,6 +127,17 @@ namespace BattleCore
         static readonly Dictionary<(Rules.BowR, int, int, int, int), (double theta, double speed, bool high)?> aimCache =
             new Dictionary<(Rules.BowR, int, int, int, int), (double, double, bool)?>();
         static readonly Dictionary<(Rules.BowR, int, int), double> peakCache = new Dictionary<(Rules.BowR, int, int), double>();
+        // Физический предел дальности лука (с полной силы, с высоты вылета на землю), м: до него стрела может долететь, дальше —
+        // нет; считается раз на лук перебором дальности по 10 м. Для отсева отрядов, которых стрела этого лука не достанет
+        static readonly Dictionary<Rules.BowR, double> maxRange = new Dictionary<Rules.BowR, double>();
+        public static double MaxRange(Rules.BowR bow, Rules.RangedR r, double launchH)
+        {
+            lock (maxRange) if (maxRange.TryGetValue(bow, out var m)) return m;
+            double v0 = V0(bow), k = DragK(bow, r), d = 50;
+            while (d < 2000 && Aim(v0, k, r.Gravity, d, -launchH, r.Dt) != null) d += 10;
+            lock (maxRange) maxRange[bow] = d;
+            return d;
+        }
         public static (double theta, double speed, bool high)? AimCached(Rules.BowR bow, Rules.RangedR r, double d, double dz,
                                                                          double front, double rankDepth, double launchH)
         {

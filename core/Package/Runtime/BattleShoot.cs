@@ -57,6 +57,7 @@ namespace BattleCore
         int nextShot;
         readonly Dictionary<Mover, Troop> troops = new Dictionary<Mover, Troop>();
         readonly BodyGrid grid = new BodyGrid();
+        readonly HashSet<Mover> hot = new HashSet<Mover>();   // отряды в досягаемости стреляющих на этом шаге
         readonly Dictionary<(Rules.BowR, int, int, int), double> flightCache = new Dictionary<(Rules.BowR, int, int, int), double>();
         readonly Func<double> look = new Mulberry32(20261001u).Next;   // случайность только для рисунка (Г67)
 
@@ -198,13 +199,24 @@ namespace BattleCore
             long ps = Prof.Now();
             if (busy)
             {
+                // в сетку — только тела отрядов, которых стрела может достать: в физическом пределе дальности лука от стреляющего
+                // (с запасом в полдиагонали обоих строёв); остальные 50 тысяч на большой карте расставлять незачем
+                hot.Clear();
+                foreach (var v in Volleys)
+                    foreach (var w in v.Wins)
+                    {
+                        if (!w.Open || w.Closed) continue;
+                        var s = w.Att;
+                        double reach = Ballistics.MaxRange(RR.Bows[w.Bow], RR, RR.LaunchHeight) + JsMath.Hypot(s.P.Fp.Front, s.P.Fp.Depth) / 2 + 20;
+                        foreach (var m in Movers)
+                            if (!hot.Contains(m) && OnField(m) && JsMath.Hypot(m.P.X - s.P.X, m.P.Y - s.P.Y) <= reach + JsMath.Hypot(m.P.Fp.Front, m.P.Fp.Depth) / 2) hot.Add(m);
+                    }
                 grid.Clear();
-                foreach (var m in Movers)
+                foreach (var m in hot)   // бегущих стрела тоже находит (Г70) — OnField
                 {
-                    if (!OnField(m)) continue;   // бегущих стрела тоже находит (Г70)
                     var tr = TroopOf(m);
                     PlaceBodies(m, tr);
-                    foreach (var b in tr.Bodies) if (b.Alive) grid.Add(b);
+                    foreach (var b in tr.Bodies) if (b.Alive) { grid.Add(b); Prof.N[4]++; }
                 }
             }
             Prof.Add(16, ref ps);
