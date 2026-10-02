@@ -25,7 +25,9 @@ namespace Journal.Play
         readonly List<(Tag t, Rect r)> placed = new List<(Tag, Rect)>();
         VisualElement root, hud, progressFill, speedGroup, detail, detailRows, ordersBar, sideTabs, cardsRow, tip, toast, over, logPanel, powerSeg1, powerSeg2;
         Label turnNumber, phaseText, phaseSub, detailName, detailType, detailOrder, detailPlan, tipName, tipLine1, tipLine2, toastText, overTitle, overSub, logTitle, powerName1, powerName2;
-        Button goButton, pauseButton, speed1, speed2, speed4, againButton;
+        Button goButton, pauseButton, speed1, speed2, speed4, againButton, menuButton, menuClose;
+        VisualElement menu, menuList; Label menuStatus;
+        bool menuBusy;
         Icon detailIcon;
         readonly Dictionary<string, VisualElement> orderBtn = new Dictionary<string, VisualElement>();
         readonly Dictionary<Mover, Card> cards = new Dictionary<Mover, Card>();
@@ -59,12 +61,45 @@ namespace Journal.Play
             goButton.clicked += () => pc.Go();
             pauseButton.clicked += () => pc.Paused = !pc.Paused;
             speed1.clicked += () => pc.Speed = 1; speed2.clicked += () => pc.Speed = 2; speed4.clicked += () => pc.Speed = 4;
-            againButton.clicked += () => pc.NewBattle();
+            menu = root.Q("menu"); menuList = root.Q("menuList"); menuStatus = root.Q<Label>("menuStatus");
+            menuButton = root.Q<Button>("menuButton"); menuClose = root.Q<Button>("menuClose");
+            againButton.clicked += ShowMenu;
+            menuButton.clicked += ShowMenu;
+            menuClose.clicked += () => menu.AddToClassList("hidden");
+            ShowMenu();   // в начале — выбор битвы (под меню уже стоит учебное поле)
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
             BuildOrders();
             pc.SetUiPicker(OverUi);
             viewer = FindAnyObjectByType<Journal.Viewer.BattleViewer>();
             if (viewer != null) viewer.OverExternalUi = OverUi;   // над панелями колесо и средняя кнопка камеру не двигают
+        }
+
+        // ── меню битв: учебное поле и сохранения трекера; большую битву строить ~секунду — сначала надпись, потом стройка ──
+        void ShowMenu()
+        {
+            menuList.Clear(); menuStatus.text = "";
+            foreach (var (name, note, make) in PlayScenarios.All())
+            {
+                var item = new VisualElement(); item.AddToClassList("menu-item");
+                if (pc.Game != null && pc.Game.Name == name) item.AddToClassList("is-current");
+                var n = new Label(name); n.AddToClassList("menu-item-name"); item.Add(n);
+                var d = new Label(note); d.AddToClassList("menu-item-note"); item.Add(d);
+                var mk = make; var nm = name;
+                item.RegisterCallback<ClickEvent>(_ =>
+                {
+                    if (menuBusy) return;
+                    menuBusy = true; menuStatus.text = $"Строю «{nm}»…";
+                    root.schedule.Execute(() =>
+                    {
+                        try { pc.NewBattle(mk); menu.AddToClassList("hidden"); }
+                        catch (System.Exception e) { Debug.LogException(e); menuStatus.text = "Не вышло: " + e.Message; }
+                        menuBusy = false;
+                    }).ExecuteLater(30);
+                });
+                menuList.Add(item);
+            }
+            menuClose.EnableInClassList("hidden", pc.Game == null || pc.Phase == PlayPhase.Over);
+            menu.RemoveFromClassList("hidden");
         }
 
         // Шрифт с кириллицей и засечками из системы (Palatino, Georgia…); нет — шрифт темы
@@ -116,8 +151,13 @@ namespace Journal.Play
         void LateUpdate()
         {
             if (pc?.Session == null || turnNumber == null) return;
+            pc.Blocked = !menu.ClassListContains("hidden");
             var s = pc.Session; var bt = pc.Battle;
-            if (shownGame != pc.Game) { shownGame = pc.Game; tags.Clear(); tagOf.Clear(); cardsCount = -1; logShown = -1; fittedFor = null; }   // новая битва
+            if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
+            {
+                shownGame = pc.Game; tags.Clear(); tagOf.Clear(); sideTabs.Clear(); cardsCount = -1; logShown = -1;
+                fittedFor = null; dockStable = 0; lastDockH = -1;
+            }
             Frame();
             Tags();
             bool orders = pc.Phase == PlayPhase.Orders, showing = pc.Phase == PlayPhase.Showing;
@@ -141,7 +181,7 @@ namespace Journal.Play
             Log(s);
             toast.EnableInClassList("hidden", Time.time > pc.ToastUntil || string.IsNullOrEmpty(pc.Toast));
             toastText.text = pc.Toast;
-            over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over);
+            over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over || !menu.ClassListContains("hidden"));
             if (pc.Phase == PlayPhase.Over) { overTitle.text = s.Outcome ?? "Битва окончена"; overSub.text = $"Ходов: {s.Turn - 1}"; }
         }
 
@@ -201,6 +241,8 @@ namespace Journal.Play
         void BuildCards(List<Mover> units)
         {
             cardsRow.Clear(); cards.Clear();
+            bool compact = units.Count > 10;   // много отрядов — мини-карточки в несколько рядов
+            cardsRow.EnableInClassList("is-compact", compact); bottomDock.EnableInClassList("is-wide", compact);
             cardsSide = pc.ActiveSide; cardsCount = units.Count;
             foreach (var m in units)
             {

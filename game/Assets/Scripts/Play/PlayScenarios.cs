@@ -1,8 +1,13 @@
 // ═══════════ PlayScenarios.cs — битвы для режима игры (И2) ═══════════
 // Учебное поле: два войска по пять отрядов, холм, лес, ручей с бродом — проверить приказы и ход.
+// Сохранения трекера (armiya_hodN.txt в game/Saves или на рабочем столе): армии и расстановка Алекса на его карте —
+// загрузка та же, что у смотрелки (SaveScene): стороны по логу боёв, бежавшие — снова в строю, приказов нет.
 // «Вторая битва при Пикшарпе» (Г6) — следующим шагом, когда сложится масштаб и засада.
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using BattleCore;
+using Journal.Viewer;
 
 namespace Journal.Play
 {
@@ -14,11 +19,36 @@ namespace Journal.Play
         public BattleSession Session;
         public readonly Dictionary<Mover, string> Tpl = new Dictionary<Mover, string>();   // шаблон — облик бойцов
         public readonly Dictionary<Mover, double> StartMen = new Dictionary<Mover, double>();
+        public readonly Dictionary<Mover, string> Color = new Dictionary<Mover, string>();  // цвет фракции (сохранение); нет — оттенок стороны
+        public byte[] Image;                                                                // картинка карты (сохранение); null — земля по клеткам
     }
 
     public static class PlayScenarios
     {
         static readonly Rules R = Rules.Base;
+
+        // меню битв: имя, подпись, как построить
+        public static List<(string Name, string Note, Func<PlayBattle> Make)> All()
+        {
+            var list = new List<(string, string, Func<PlayBattle>)> { ("Учебное поле", "5 на 5 через ручей с двумя бродами; холм, лес", () => Training()) };
+            foreach (var f in SaveScene.Find())
+                list.Add((SaveScene.Label(f), System.IO.Path.GetFileName(f) + " — твои армии и расстановка, бежавшие снова в строю", () => FromSave(f)));
+            return list;
+        }
+
+        public static PlayBattle FromSave(string path)
+        {
+            var sc = SaveScene.Make(path, 99);
+            var pb = new PlayBattle { Name = sc.Name, Note = sc.Note, Geo = sc.Geo, Battle = sc.Battle, Image = sc.Image };
+            pb.Session = new BattleSession(pb.Battle);
+            foreach (var kv in sc.SideNames) pb.Session.SideNames[kv.Key] = kv.Value;
+            foreach (var (m, _) in sc.Units)
+            {
+                pb.Tpl[m] = sc.Tpl[m]; pb.StartMen[m] = m.P.U.Soldiers;
+                if (sc.Color.TryGetValue(m, out var c) && c != null) pb.Color[m] = c;
+            }
+            return pb;
+        }
 
         public static PlayBattle Training(uint seed = 2026)
         {

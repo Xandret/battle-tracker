@@ -66,11 +66,22 @@
             <ui:Label name="toastText" text="" class="toast-text panel" />
         </ui:VisualElement>
 
+        <ui:Button name="menuButton" text="Битвы" class="menu-button" />
+
         <ui:VisualElement name="over" class="over hidden">
             <ui:VisualElement class="over-box panel">
                 <ui:Label name="overTitle" text="" class="over-title" />
                 <ui:Label name="overSub" text="" class="over-sub" />
                 <ui:Button name="againButton" text="НОВАЯ БИТВА" class="go-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="menu" class="menu hidden">
+            <ui:VisualElement class="menu-box panel">
+                <ui:Label text="Выбор битвы" class="menu-title" />
+                <ui:VisualElement name="menuList" class="menu-list" />
+                <ui:Label name="menuStatus" text="" class="menu-status" />
+                <ui:Button name="menuClose" text="Вернуться к битве" class="menu-close" />
             </ui:VisualElement>
         </ui:VisualElement>
     </ui:VisualElement>

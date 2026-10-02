@@ -166,6 +166,7 @@ namespace Journal.Viewer
             }
             string sideNames(int k) => string.Join(", ", s.Side.Where(p => p.Value == k && s.Units.Any(u => u.FactionId == p.Key && u.Status != "destroyed"))
                 .Select(p => s.Factions.TryGetValue(p.Key, out var f) ? f.Name : "№" + p.Key));
+            sc.SideNames[1] = sideNames(1); sc.SideNames[2] = sideNames(2);
             sc.Note = $"{Path.GetFileName(path)}: {placed} отрядов, {men:0} бойцов; {sideNames(1)} — против — {sideNames(2)}. " +
                       $"Карта {s.W:0} × {s.H:0} м ({s.Scale}). Бежавшие ({back}) — снова в строю; приказ — бить ближайшего врага.";
             sc.Before = turn => OrderNearest(sc);

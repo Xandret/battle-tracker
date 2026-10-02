@@ -652,3 +652,145 @@
     margin-left: 4px;
     color: #e0806a;
 }
+
+/* ── меню битв: учебное поле и сохранения трекера ── */
+.menu-button {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    height: 30px;
+    padding: 0 14px;
+    font-size: 13px;
+    -unity-font-style: bold;
+    color: var(--ink);
+    background-color: var(--panel);
+    border-width: 2px;
+    border-color: var(--edge);
+    border-radius: 5px;
+}
+
+.menu-button:hover {
+    border-color: var(--gold);
+    color: var(--gold-bright);
+}
+
+.menu {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.55);
+}
+
+.menu-box {
+    width: 520px;
+    padding: 20px 24px;
+    align-items: stretch;
+}
+
+.menu-title {
+    font-size: 24px;
+    -unity-font-style: bold;
+    color: var(--gold-bright);
+    -unity-text-align: middle-center;
+    margin-bottom: 12px;
+}
+
+.menu-item {
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    background-color: var(--panel-2);
+    border-width: 1px;
+    border-color: var(--edge-dark);
+    border-radius: 5px;
+    transition-duration: 0.1s;
+}
+
+.menu-item:hover {
+    border-color: var(--gold);
+    background-color: #3d3223;
+}
+
+.menu-item.is-current {
+    border-color: var(--gold-deep);
+}
+
+.menu-item-name {
+    font-size: 16px;
+    -unity-font-style: bold;
+    color: var(--ink);
+}
+
+.menu-item-note {
+    font-size: 12px;
+    color: var(--ink-dim);
+    white-space: normal;
+}
+
+.menu-status {
+    color: var(--gold-bright);
+    -unity-text-align: middle-center;
+    margin: 4px 0 8px 0;
+}
+
+.menu-close {
+    align-self: center;
+    height: 32px;
+    padding: 0 18px;
+    color: var(--ink-dim);
+    background-color: var(--panel-2);
+    border-width: 1px;
+    border-color: var(--edge-dark);
+    border-radius: 4px;
+}
+
+.menu-close:hover {
+    color: var(--ink);
+    border-color: var(--gold-deep);
+}
+
+/* ── много отрядов: мини-карточки в несколько рядов, низ — шире ── */
+.bottom-dock.is-wide {
+    right: 10px;
+}
+
+.cards-row.is-compact {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 4px;
+}
+
+.cards-row.is-compact > .card {
+    width: 46px;
+    height: 58px;
+    margin: 2px;
+    padding: 4px 2px 2px 2px;
+}
+
+.cards-row.is-compact .card-icon {
+    width: 22px;
+    height: 22px;
+}
+
+.cards-row.is-compact .card-name,
+.cards-row.is-compact .card-order,
+.cards-row.is-compact .card-state {
+    display: none;
+}
+
+.cards-row.is-compact .card-men {
+    font-size: 11px;
+}
+
+.cards-row.is-compact .bar {
+    height: 3px;
+    margin-top: 2px;
+}
+
+.cards-row.is-compact .card-flag {
+    top: 14px;
+    font-size: 8px;
+}

@@ -30,6 +30,7 @@ namespace Journal.Play
         public Mover Hover { get; private set; }
         public Mover UiHover { get; set; }                   // отряд под мышью на панели (табличка над ним, карточка)
         public bool ChargeMode { get; set; }                 // кнопка «Натиск»: следующая атака — с натиском
+        public bool Blocked { get; set; }                    // открыто меню — битва ввод не получает
         public float Speed { get; set; } = 1;
         public bool Paused { get; set; }
         public double ShowTime { get; private set; }         // время показа, с от начала битвы
@@ -41,8 +42,10 @@ namespace Journal.Play
         BattleViewer viewer;
         Recorder recorder;
         int stepInTurn;
-        // подсказки приказов: отряд → предпросмотр его приказа (новый или прежний)
+        // подсказки приказов: отряд → предпросмотр его приказа (новый или прежний). Предпросмотр — путь движком, 25–50 мс
+        // на отряд: главному — сразу, остальным — очередью, не дольше 6 мс за кадр (иначе приказ сорока отрядам — стоп-кадр)
         readonly Dictionary<Mover, OrderPreview> previews = new Dictionary<Mover, OrderPreview>();
+        readonly List<Mover> previewQueue = new List<Mover>();
         // приказ, который тянут ПКМ прямо сейчас: каждому выбранному — свой; путь движком — только главному (дорого)
         public bool Dragging { get; private set; }
         public Vector2 DragFrom { get; private set; }        // точки карты, м
@@ -67,14 +70,19 @@ namespace Journal.Play
             NewBattle();
         }
 
-        public void NewBattle()
+        Func<PlayBattle> lastMake = () => PlayScenarios.Training();
+        // новая битва: из меню — выбранная; «ещё раз» — та же
+        public void NewBattle(Func<PlayBattle> make = null)
         {
-            Game = PlayScenarios.Training();
-            recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99);
+            if (make != null) lastMake = make;
+            Game = lastMake();
+            recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
+                                    m => Game.Color.TryGetValue(m, out var c) ? c : null);
+            recorder.Rec.Image = Game.Image;
             recorder.Snap();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false;
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
-            previews.Clear();
+            previews.Clear(); previewQueue.Clear();
             if (viewer != null) { viewer.ShowGui = false; viewer.SetLive(recorder.Rec); viewer.Playing = false; }
             RefreshPreviews();
             Changed?.Invoke();
@@ -88,7 +96,7 @@ namespace Journal.Play
             Session.Go();
             Phase = PlayPhase.Showing; Paused = false;
             TurnStartTime = ShowTime; stepInTurn = 0;
-            previews.Clear();
+            previews.Clear(); previewQueue.Clear();
             Changed?.Invoke();
         }
 
@@ -96,6 +104,7 @@ namespace Journal.Play
         {
             if (Game == null) return;
             if (Phase == PlayPhase.Showing) AdvanceTurn();
+            else if (Phase == PlayPhase.Orders) DrainPreviews();
             HandleInput();
             if (viewer != null) viewer.T = ShowTime;
         }
@@ -158,7 +167,7 @@ namespace Journal.Play
             if (Phase != PlayPhase.Orders) { Say("Приказы — между ходами"); return false; }
             string why = Session.SetOrder(m, o);
             if (why != null) { if (!quiet) Say(Selection.Count > 1 ? $"«{m.P.U.Name}»: {why}" : why); return false; }
-            previews[m] = Battle.Preview(m, o);
+            QueuePreview(m);
             Changed?.Invoke();
             return true;
         }
@@ -169,7 +178,7 @@ namespace Journal.Play
         public void Cancel()
         {
             bool any = false;
-            foreach (var m in Selection) if (Session.Pending.Remove(m)) { RefreshPreview(m); any = true; }
+            foreach (var m in Selection) if (Session.Pending.Remove(m)) { QueuePreview(m); any = true; }
             if (any) Changed?.Invoke();
         }
         void ForGroup(Func<Mover, MoveOrder> make)
@@ -178,16 +187,34 @@ namespace Journal.Play
             foreach (var m in Selection.ToList())
             {
                 var why = Phase == PlayPhase.Orders ? Session.SetOrder(m, make(m)) : "приказы — между ходами";
-                if (why == null) { previews[m] = Battle.Preview(m, Session.Pending[m]); ok++; } else last = $"«{m.P.U.Name}»: {why}";
+                if (why == null) { QueuePreview(m); ok++; } else last = $"«{m.P.U.Name}»: {why}";
             }
             if (last != null) Say(Selection.Count > 1 && ok > 0 ? $"{last} (остальные — приняли)" : last);
             Changed?.Invoke();
         }
 
+        // конец хода — подсказки всем заново: сначала своей стороне, остальным — следом
         void RefreshPreviews()
         {
-            previews.Clear();
-            foreach (var m in Battle.Movers) RefreshPreview(m);
+            previews.Clear(); previewQueue.Clear();
+            foreach (var m in Battle.Movers.OrderBy(m => SideOf(m) == ActiveSide ? 0 : 1)) previewQueue.Add(m);
+        }
+        // новый приказ: старая подсказка неверна — убрать; главному отряду — сразу, прочим — в очередь
+        void QueuePreview(Mover m)
+        {
+            previews.Remove(m); previewQueue.Remove(m);
+            if (m == Selected) RefreshPreview(m); else previewQueue.Insert(0, m);
+        }
+        void DrainPreviews()
+        {
+            if (previewQueue.Count == 0) return;
+            float until = Time.realtimeSinceStartup + 0.006f;
+            while (previewQueue.Count > 0 && Time.realtimeSinceStartup < until)
+            {
+                var m = previewQueue[0]; previewQueue.RemoveAt(0);
+                RefreshPreview(m);
+            }
+            Changed?.Invoke();
         }
         void RefreshPreview(Mover m)
         {
@@ -244,7 +271,7 @@ namespace Journal.Play
         void HandleInput()
         {
             var mouse = Mouse.current; var kb = Keyboard.current;
-            if (!Application.isFocused) { CancelDrag(); BoxSelecting = leftDown = false; return; }
+            if (!Application.isFocused || Blocked) { CancelDrag(); BoxSelecting = leftDown = false; return; }
             bool ctrl = kb != null && (kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed);
             if (kb != null)
             {
