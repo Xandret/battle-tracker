@@ -38,6 +38,7 @@ namespace BattleCore
         // касается врага (Г27) и в какую сторону он (единичный вектор) — для выпадов передних бойцов (Г78)
         public bool Fighting; public double FightX, FightY, FoeX, FoeY;   // FoeX, FoeY — где касающаяся фигурка врага
         public double Hc, Hs, Hd;   // курс фигурки на деле (Soldiers.FigHeading): косинус, синус, градусы — на шаг бойцов
+        public long SeatKey = -1;   // В14: состав и размер, при которых бойцы рассажены, — не изменились, пересаживать незачем
         public double X, Y, Vx, Vy;
         public double Dvx, Dvy, Vmax;
         public int BlockedBy; public bool BlockedByEnemy, Slowed;

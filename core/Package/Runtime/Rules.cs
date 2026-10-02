@@ -221,6 +221,13 @@ namespace BattleCore
             public double PushShare = 0.5;    // перекрытие убирается за шаг на эту долю
             public double LungeM = 0.4, LungeAmpM = 0.35, LungeSec = 1.4;   // Г78: передние в схватке — шаг к врагу и выпады
             public double FleeSpread = 1.6, FleeWanderM = 0.5;               // бегущая толпа: места шире, бойцы виляют
+            // В14: новое место дальше ReseatM — боец идёт к нему шагом: не быстрее ReseatMps сверх хода своей фигурки и без
+            // подтягивания MaxLagM (иначе дальний перескакивал бы)
+            public double ReseatM = 1.2, ReseatMps = 1.4;
+            public double ReseatRunM = 6, ReseatRunMps = 4;   // отстал от места дальше ReseatRunM — догоняет трусцой; бегущая толпа бежит как бежала
+            // В14: смыкание между фигурками — раз в BalanceSec каждая фигурка, где излишек (бойцов сверх раскладки стола) меньше,
+            // чем у соседки, на BalanceDiff и больше, берёт у неё одного ближнего бойца; одна потеря строй не дёргает
+            public double BalanceSec = 1.0; public int BalanceDiff = 2;
         }
         public MenR Men = new MenR();
 

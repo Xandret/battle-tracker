@@ -163,6 +163,51 @@ static class MenTests
             True(Math.Abs(seen - table) < 0.15, $"доля убитых {seen:0.00}, у стола {table:0.00}");
         });
 
+        yield return ("замена павших (В14): на место павшего шагает стоящий за ним, остальные почти не двигаются, из других фигурок не идут", () =>
+        {
+            var bt = new Battle(MoveTests.Open(600, 600), R, new EngineContext { Rng = new Mulberry32(1).Next });
+            var m = bt.Add(Templates.Get("infantry").Make(1, "A", 1000, 1), 300, 300, 0);
+            var front = m.Men.Where(x => x.Row == 0).OrderBy(x => Math.Abs(x.X - 300) + Math.Abs(x.Y - 300)).First();   // в середине передней шеренги
+            var before = m.Men.ToDictionary(x => x, x => (Soldiers.HomeOf(m, x), x.Fig));
+            front.Alive = false; m.P.U.Soldiers -= 1;
+            bt.Relayout(m);
+            int far = 0, moved = 0, other = 0;
+            foreach (var x in m.Men.Where(x => x.Alive))
+            {
+                var (h0, f0) = before[x]; var h1 = Soldiers.HomeOf(m, x);
+                double d = JsMath.Hypot(h1.x - h0.x, h1.y - h0.y);
+                if (d > 1.6) far++;
+                if (d > 0.6) moved++;   // больше полушага: вышедший вперёд и пересевшие в крайней фигурке, что сузилась (Г30)
+                if (x.Fig != f0) other++;
+            }
+            var info = string.Join("; ", m.Men.Where(x => x.Alive).Select(x => (x, d: JsMath.Hypot(Soldiers.HomeOf(m, x).x - before[x].Item1.x, Soldiers.HomeOf(m, x).y - before[x].Item1.y))).Where(q => q.d > 0.6)
+                .Select(q => $"№{q.x.Id} ряд {q.x.Row} фигурка {m.Figs.IndexOf(q.x.Fig)}{(q.x.Fig == front.Fig ? "*" : "")} {q.d:0.00} м"));
+            True(far == 0 && other == 0 && moved <= 2, $"ушли дальше 1,6 м: {far}, сменили фигурку: {other}, сдвинулись: {moved} — {info}");
+        });
+
+        yield return ("замена павших (В14): в бою на новое место идут шагом — никто не перескакивает и не бежит сверх хода фигурки", () =>
+        {
+            var (bt, a, b) = Duel("infantry", "infantry", 0.5, 7);
+            var pos = new Dictionary<Man, (double x, double y, double fx, double fy, FigState f)>();
+            double worst = 0; Man who = null;
+            bt.Turn(t =>
+            {
+                foreach (var m in new[] { a, b })
+                    foreach (var x in m.Men)
+                    {
+                        if (!x.Alive || x.Fig == null) continue;
+                        if (x.Reseat && pos.TryGetValue(x, out var p) && p.f == x.Fig && !x.Fig.Fighting)
+                        {
+                            double d = JsMath.Hypot(x.X - p.x - (x.Fig.X - p.fx), x.Y - p.y - (x.Fig.Y - p.fy));
+                            if (d > worst) { worst = d; who = x; }
+                        }
+                        pos[x] = (x.X, x.Y, x.Fig.X, x.Fig.Y, x.Fig);
+                    }
+            });
+            double lim = (R.Men.ReseatRunMps + 2.5) * R.Move.Dt;   // трусцой (отставший далеко) плюс толкотня
+            True(worst <= lim, $"боец №{who?.Id} сдвинулся за шаг на {worst:0.00} м сверх своей фигурки (предел {lim:0.00})");
+        });
+
         yield return ("бойцы: одно зерно — один исход", () =>
         {
             double[] Run()

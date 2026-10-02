@@ -709,7 +709,107 @@ function deadsOf(ui){
 }
 function agentsOf(ui){
   agScene();
-  return AG[ui] || (AG[ui] = buildAgents(ui));
+  if(AG[ui]) return AG[ui];
+  const E = engineMen();   // бойцы движка (В14) — как в игре; данных нет — свои, как раньше
+  if(!E || E.failed) return AG[ui] = buildAgents(ui);
+  if(!E.ready) return NO_MEN;   // распаковываются — через миг перерисуем
+  return AG[ui] = buildFromEngine(ui, E);
+}
+const NO_MEN = {n: 0, figMen: () => [], deadSeed: new Map(), dropped: []};
+
+// ── Бойцы движка (В14): полигон рисует тех же бойцов, что считает движок и показывает игра ──
+// S.men — раз в every кадров по отряду и номеру бойца: тело, смещение от тела в его осях (int16 по 0,05 м; в старых
+// полигонах — int8 по 0,1 м), курс к телу (2°);
+// разница с прошлым отсчётом побайтно, gzip, base64 (Polygon.cs, MenFrame). Распаковка — один раз на сцену, в фоне;
+// между отсчётами смещение от тела плавно меняется, а тело идёт по своим кадрам — бойцы не отстают от фигурок.
+let MEN_DEC = null, MEN_DEC_SCENE = null;
+function engineMen(){
+  if(!S.men || typeof DecompressionStream === "undefined") return null;
+  if(MEN_DEC_SCENE === S) return MEN_DEC;
+  MEN_DEC_SCENE = S; MEN_DEC = {ready: false};
+  const scene = S, M = S.men, mine = MEN_DEC;
+  (async () => {
+    const bin = Uint8Array.from(atob(M.z), c => c.charCodeAt(0));
+    const raw = new Uint8Array(await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const B = M.bytes || 5, U = M.n.length, per = M.n.map(n => B * n);
+    const out = M.n.map(n => new Uint8Array(M.frames * B * n));   // отряд → [отсчёт × боец × B], уже без разниц
+    let o = 0;
+    for(let fi = 0; fi < M.frames; fi++)
+      for(let u = 0; u < U; u++){
+        const dst = out[u], base = fi * per[u], prev = (fi - 1) * per[u];
+        for(let b = 0; b < per[u]; b++) dst[base + b] = fi === 0 ? raw[o + b] : (dst[prev + b] + raw[o + b]) & 255;
+        o += per[u];
+      }
+    if(o > raw.length){ mine.failed = true; if(S === scene){ AG_SCENE = null; draw(); } return; }
+    Object.assign(mine, {ready: true, every: M.every, bytes: B, n: M.n, frames: M.frames, data: out});
+    if(S === scene){ AG_SCENE = null; if(typeof draw === "function") draw(); }
+  })().catch(() => { mine.failed = true; });
+  return MEN_DEC;
+}
+function buildFromEngine(ui, E){
+  const u = S.units[ui], F = S.frames, N = F.length, Nm = E.n[ui], D = E.data[ui], every = E.every, last = E.frames - 1;
+  const horse = lookOf(u) === "lance" || lookOf(u) === "barded", rd = u.rd || 1;
+  const fd = u.fd || (u.fd = Math.max(1, ...u.figs.map(q => Math.round(q[1] / rd))));
+  const pos = new Float32Array(N * Nm * 2), face = new Float32Array(N * Nm), fig = new Int16Array(N * Nm).fill(-1), rank = new Uint8Array(N * Nm), phase = new Float32Array(N * Nm);
+  const hd = new Map();   // курс тела от движка (охват, бегство своим курсом); иначе — курс отряда
+  if(S.heads) S.heads.forEach((list, f) => { if(list) for(const [u2, id, a] of list) if(u2 === ui) hd.set(f * 65536 + id, a); });
+  const headAt = (f, k) => { const h = hd.get(f * 65536 + k); return h !== undefined ? h : F[f][ui] ? F[f][ui][2] : 0; };
+  const s8 = v => v > 127 ? v - 256 : v, s16 = v => v > 32767 ? v - 65536 : v, B = E.bytes;
+  // отсчёт a, боец i: тело (или −1), смещение, курс к телу
+  const rec = (a, i) => { const o = (a * Nm + i) * B, body = D[o] | D[o + 1] << 8; if(body === 65535) return null;
+    return B === 7 ? [body, s16(D[o + 2] | D[o + 3] << 8) / 20, s16(D[o + 4] | D[o + 5] << 8) / 20, s8(D[o + 6]) * 2] : [body, s8(D[o + 2]) / 10, s8(D[o + 3]) / 10, s8(D[o + 4]) * 2]; };
+  // смещение от тела в мире — в миг отсчёта, по курсу тела в этот миг; между отсчётами ведём уже его (курс бегущей
+  // фигурки бывает перевёрнут на 180° — повернуть большое смещение чужим курсом значит пронести бойца сквозь тело)
+  const off = (a, R) => { const f = Math.min(N - 1, a * every), h = headAt(f, R[0]) * Math.PI / 180, c = Math.cos(h), s = Math.sin(h);
+    return [R[1] * c - R[2] * s, R[1] * s + R[2] * c, headAt(f, R[0]) + R[3]]; };
+  const bodyAt = (f, k) => { const p = F[f][ui]; return p && p[4 + 2 * k] != null ? [p[4 + 2 * k], p[5 + 2 * k]] : null; };
+  const seeds = new Array(Nm), ph = new Float64Array(Nm), px = new Float64Array(Nm).fill(NaN), py = new Float64Array(Nm);
+  for(let i = 0; i < Nm; i++){ seeds[i] = u.id * 7919 + (i + 1) * 31; ph[i] = hash(seeds[i], 5); }
+  for(let f = 0; f < N; f++){
+    const a = Math.min(last, Math.floor(f / every)), b = Math.min(last, a + 1), q = b > a ? (f - a * every) / every : 0;
+    for(let i = 0; i < Nm; i++){
+      const o = f * Nm + i, A = rec(a, i);
+      if(!A){ px[i] = NaN; continue; }
+      const Bq = rec(b, i), Bs = Bq && Bq[0] === A[0] ? Bq : null;
+      let k = A[0], w, h;
+      const body = bodyAt(f, k), wa = off(a, A);
+      if(Bs && body){
+        const wb = off(b, Bs);
+        w = [body[0] + wa[0] + (wb[0] - wa[0]) * q, body[1] + wa[1] + (wb[1] - wa[1]) * q];
+        h = wa[2] + angD(wb[2] * Math.PI / 180, wa[2] * Math.PI / 180) * 180 / Math.PI * q;
+      } else {
+        // перешёл в другую фигурку (или тело пропало) — ведём по месту в мире от отсчёта к отсчёту
+        const ba = bodyAt(Math.min(N - 1, a * every), A[0]), Bw = Bq || A, bb = bodyAt(Math.min(N - 1, b * every), Bw[0]), wb = off(b, Bw);
+        const pa = ba && [ba[0] + wa[0], ba[1] + wa[1]], pb = bb && [bb[0] + wb[0], bb[1] + wb[1]];
+        w = !Bq ? pa : pa && pb ? [pa[0] + (pb[0] - pa[0]) * q, pa[1] + (pb[1] - pa[1]) * q] : pa || pb;   // к следующему отсчёту его нет — стоит, где был
+        if(!w){ px[i] = NaN; continue; }
+        if(q >= 0.5 && Bq) k = Bq[0];
+        h = q < 0.5 ? wa[2] : wb[2];
+        if(!bodyAt(f, k)){ px[i] = NaN; continue; }   // тела уже нет — пал или ушёл
+      }
+      pos[o * 2] = w[0]; pos[o * 2 + 1] = w[1]; face[o] = h * Math.PI / 180; fig[o] = k;
+      const g = u.figs[k], dy = Bs ? A[2] + (Bs[2] - A[2]) * q : A[2];
+      rank[o] = Math.min(255, (g ? g[3] || 0 : 0) * fd + Math.max(0, Math.floor((dy + (g ? g[1] : 2) / 2) / rd)));
+      // фаза шага — по пройденному
+      if(!isNaN(px[i])){ const d = Math.hypot(w[0] - px[i], w[1] - py[i]), v = d / S.dt; ph[i] += d / (horse ? strideOf(v) : v > 2.6 ? 2.4 : 1.4); }
+      px[i] = w[0]; py[i] = w[1]; phase[o] = ph[i];
+    }
+  }
+  // павший — тот самый боец движка (Death.ManId): тело в его снаряжении
+  const deadSeed = new Map();
+  if(S.dead) S.dead.forEach((d, di) => { if(d[3] === ui && d[7] > 0 && d[7] <= Nm) deadSeed.set(di, seeds[d[7] - 1]); });
+  // брошенное на бегу (В11): где побежали — там и бросили
+  const dropped = [];
+  for(let f = 1; f < N; f++) if(fleeing(stateAt(ui, f)) && !fleeing(stateAt(ui, f - 1)))
+    for(let i = 0; i < Nm; i++){ const o = f * Nm + i; if(fig[o] >= 0 && drops(seeds[i])) dropped.push([pos[o * 2], pos[o * 2 + 1], face[o] + (hash(seeds[i], 22) - 0.5) * 2.5, seeds[i], f]); }
+  let lastF = -1, lastL = null;
+  const figMen = fi => {
+    if(fi === lastF) return lastL;
+    lastF = fi; lastL = [];
+    for(let id = 0; id < Nm; id++){ const k = fig[fi * Nm + id]; if(k >= 0) (lastL[k] || (lastL[k] = [])).push(id); }
+    return lastL;
+  };
+  return {n: Nm, pos, face, fig, rank, phase, seed: seeds, figMen, deadSeed, dropped, engine: true};
 }
 function buildAgents(ui){
   const u = S.units[ui], F = S.frames, N = F.length, pm = u.pm || 1, rd = u.rd || 1, {H, nb} = headsOf(ui);

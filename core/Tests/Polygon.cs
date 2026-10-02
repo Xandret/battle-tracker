@@ -467,16 +467,16 @@ static class Polygon
         return a;
     }).ToArray();
 
-    // Бойцы (Г75) по кадрам: каждый MenEvery-й кадр, по отряду, по номеру бойца 1…n — 5 байт: номер тела (uint16 LE,
-    // 65535 — бойца нет: пал, ушёл или ещё не было), смещение от тела в его осях dx (вправо вдоль фронта), dy (назад)
-    // — int8 по 0,1 м, курс бойца минус курс тела — int8 по 2°. Всё подряд (кадр → отряд → боец); каждый кадр, кроме
+    // Бойцы (Г75) по кадрам: каждый MenEvery-й кадр, по отряду, по номеру бойца 1…n — MenBytes = 7 байт: номер тела
+    // (uint16 LE, 65535 — бойца нет: пал, ушёл или ещё не было), смещение от тела в его осях dx (вправо вдоль фронта),
+    // dy (назад) — int16 LE по 0,05 м (до ±1600 м: бегущая толпа растягивается), курс бойца минус курс тела — int8 по 2°. Всё подряд (кадр → отряд → боец); каждый кадр, кроме
     // первого, — разница с прошлым побайтно (b − b_прошл) mod 256: стоящие бойцы дают нули, gzip их почти не хранит.
     // Сжато gzip, base64. n — сколько номеров у отряда; курс тела — как у фигурки на рисунке (по строю или из heads)
-    const int MenEvery = 2;
+    const int MenEvery = 2, MenBytes = 7;
     static byte[][] MenFrame(List<Mover> ms) => ms.Select(m =>
     {
-        var a = new byte[5 * m.NextManId];
-        for (int i = 0; i < m.NextManId; i++) { a[5 * i] = 0xFF; a[5 * i + 1] = 0xFF; }
+        var a = new byte[MenBytes * m.NextManId];
+        for (int i = 0; i < m.NextManId; i++) { a[MenBytes * i] = 0xFF; a[MenBytes * i + 1] = 0xFF; }
         foreach (var man in m.Men)
         {
             if (!man.Alive || man.Fig == null || man.Id < 1 || man.Id > m.NextManId) continue;
@@ -484,10 +484,12 @@ static class Polygon
             double wx = man.X - s.X, wy = man.Y - s.Y;
             double lx = wx * Math.Cos(hr) + wy * Math.Sin(hr), ly = -(wx * Math.Sin(hr) - wy * Math.Cos(hr));
             sbyte Q(double v) => (sbyte)Math.Max(-127, Math.Min(127, Math.Round(v)));
-            int o = 5 * (man.Id - 1);
+            short W(double v) => (short)Math.Max(-32767, Math.Min(32767, Math.Round(v)));
+            int o = MenBytes * (man.Id - 1);
             a[o] = (byte)(s.Id & 0xFF); a[o + 1] = (byte)((s.Id >> 8) & 0xFF);
-            a[o + 2] = (byte)Q(lx * 10); a[o + 3] = (byte)Q(ly * 10);
-            a[o + 4] = (byte)Q(MoveSim.AngleDiff(h, man.Facing) / 2);
+            short qx = W(lx * 20), qy = W(ly * 20);
+            a[o + 2] = (byte)(qx & 0xFF); a[o + 3] = (byte)((qx >> 8) & 0xFF); a[o + 4] = (byte)(qy & 0xFF); a[o + 5] = (byte)((qy >> 8) & 0xFF);
+            a[o + 6] = (byte)Q(MoveSim.AngleDiff(h, man.Facing) / 2);
         }
         return a;
     }).ToArray();
@@ -495,23 +497,23 @@ static class Polygon
     {
         if (men.Count == 0 || men[0].Length == 0) return null;
         int units = men[0].Length;
-        var n = Enumerable.Range(0, units).Select(u => men.Max(f => f[u].Length / 5)).ToArray();
+        var n = Enumerable.Range(0, units).Select(u => men.Max(f => f[u].Length / MenBytes)).ToArray();
         if (n.All(v => v == 0)) return null;
         using var raw = new MemoryStream();
-        var prev = Enumerable.Range(0, units).Select(u => new byte[5 * n[u]]).ToArray();
+        var prev = Enumerable.Range(0, units).Select(u => new byte[MenBytes * n[u]]).ToArray();
         using (var gz = new System.IO.Compression.GZipStream(raw, System.IO.Compression.CompressionLevel.Optimal, true))
             for (int fi = 0; fi < men.Count; fi++)
                 for (int u = 0; u < units; u++)
                 {
-                    var cur = new byte[5 * n[u]];
+                    var cur = new byte[MenBytes * n[u]];
                     Array.Copy(men[fi][u], cur, men[fi][u].Length);
-                    for (int i = men[fi][u].Length / 5; i < n[u]; i++) { cur[5 * i] = 0xFF; cur[5 * i + 1] = 0xFF; }
+                    for (int i = men[fi][u].Length / MenBytes; i < n[u]; i++) { cur[MenBytes * i] = 0xFF; cur[MenBytes * i + 1] = 0xFF; }
                     var outb = new byte[cur.Length];
                     for (int b = 0; b < cur.Length; b++) outb[b] = fi == 0 ? cur[b] : (byte)(cur[b] - prev[u][b]);
                     gz.Write(outb, 0, outb.Length);
                     prev[u] = cur;
                 }
-        return new { every = MenEvery, n, frames = men.Count, delta = true, z = Convert.ToBase64String(raw.ToArray()) };
+        return new { every = MenEvery, bytes = MenBytes, n, frames = men.Count, delta = true, z = Convert.ToBase64String(raw.ToArray()) };
     }
 
     // Курсы фигурок, развёрнутых не по строю (охват, Г68; бегство своим курсом, Г70): [отряд, номер тела, курс°] —
