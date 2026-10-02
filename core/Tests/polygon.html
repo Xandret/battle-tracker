@@ -754,7 +754,7 @@ function draw(){
       u.figs.forEach(([w, d], k) => {
         if(f[4 + 2 * k] == null) return;   // тело выбыло (Г30)
         const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
-        ctx.save(); ctx.translate(x, y); ctx.rotate(HD.get(i * 100000 + k) ?? h);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(figHead(i, k) ?? HD.get(i * 100000 + k) ?? h);   // курс фигурки — куда идёт (В10)
         const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
         ctx.fillRect(-W / 2, -D / 2, W, D); if(view.s > 2) ctx.strokeRect(-W / 2, -D / 2, W, D);
         ctx.restore();

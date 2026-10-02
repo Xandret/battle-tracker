@@ -477,77 +477,251 @@ function engage(F, a, b){
   }
 }
 
-// ── Фигурка: бойцы по сетке pm × rd, спереди назад; в неполном ряду — по центру ──
-function drawMen(u, [w, d, men, rank], fx, fy, h, col, moving, t, k){
-  const pm = u.pm || 1, rd = u.rd || 1, look = lookOf(u), horse = look === "lance" || look === "barded";
-  const cols = Math.max(1, Math.round(w / pm)), rows = Math.max(1, Math.round(d / rd));
-  if(!u.fd) u.fd = Math.max(...u.figs.map(q => Math.round(q[1] / rd)));
-  setZoom(); prepFrameMen();
-  const kits = kitsOf(u), parts = view.s >= PARTS_FROM, ui = S.units.indexOf(u);
-  const eng = MEL.get(ui) ? MEL.get(ui).get(k) : undefined, fire = FIRE.has(ui * 100000 + k);
-  ctx.save(); ctx.translate(X(fx), Y(fy)); ctx.rotate(h); ctx.scale(view.s, view.s);
-  const T0 = ctx.getTransform(), B = [T0.a, T0.b, T0.c, T0.d, T0.e, T0.f];
-  const M = [];
-  let left = Math.round(men ?? cols * rows);
-  for(let j = 0; j < rows && left > 0; j++){
-    const n = Math.min(cols, left), off = (cols - n) / 2; left -= n;
-    const manRank = (rank ?? 0) * u.fd + j;
-    for(let i = 0; i < n; i++){
-      const seed = u.id * 7919 + k * 64 + j * 8 + i;
-      const r1 = hash(seed, 1), r2 = hash(seed, 2);
-      M.push({x: -w / 2 + (off + i + 0.5) * pm + (r1 - 0.5) * 0.12 * pm, y: -d / 2 + (j + 0.5) * rd + (r2 - 0.5) * 0.12 * rd,
-        seed, rank: manRank, kit: kits[Math.floor(hash(seed, 4) * kits.length)]});
+// ── Бойцы поштучно (В10): у каждого своё место, к нему идут шагом, а не прыгают ──
+// Тела (фигурки по 10 бойцов) двигает движок; бойцов внутри рисунок ведёт сам — один раз на сцену, по всем кадрам
+// с начала (поэтому ползунок можно двигать куда угодно). У бойца — место в своей фигурке: ряды спереди назад,
+// неполный задний ряд — по середине. К месту он идёт не быстрее 1,6 нормы отряда. Павший — тот, кто ближе всех к
+// месту гибели из данных движка: тело ложится там, где он стоял. На его место шагает стоящий позади, освободившееся
+// в заднем ряду занимает последний. Тело пропало — его бойцы идут на свободные места в ближайших фигурках.
+// Курс фигурки — куда она идёт (колонна по мосту смотрит вдоль моста); стоит — курс отряда; отряд, что пятится
+// или шагает вбок (Г54), не разворачивается. Курс тела от движка (охват, бегство — heads) главнее.
+let AG = [], HEADS = [], DEADS = [], AG_SCENE = null;
+const angD = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));   // a − b в (−π, π]
+const turnTo = (a, b, max) => { const d = angD(b, a); return a + Math.max(-max, Math.min(max, d)); };
+function agScene(){ if(AG_SCENE !== S){ AG_SCENE = S; AG = []; HEADS = []; DEADS = []; } }
+function headsOf(ui){
+  agScene();
+  if(HEADS[ui]) return HEADS[ui];
+  const F = S.frames, N = F.length;
+  let nb = 0; for(const fr of F) if(fr[ui]) nb = Math.max(nb, (fr[ui].length - 4) >> 1);
+  const H = new Float32Array(N * nb).fill(NaN), hd = new Map(), maxTurn = 3.2 * S.dt;   // поворот до ~180°/с
+  if(S.heads) S.heads.forEach((list, f) => { if(list) for(const [u2, id, a] of list) if(u2 === ui) hd.set(f * 65536 + id, a * Math.PI / 180); });
+  for(let k = 0; k < nb; k++){
+    let cur = NaN;
+    for(let f = 0; f < N; f++){
+      const p = F[f][ui];
+      if(!p || p[4 + 2 * k] == null){ cur = NaN; continue; }
+      const uh = p[2] * Math.PI / 180;
+      let want = hd.get(f * 65536 + k);
+      if(want === undefined){
+        want = uh;
+        const fa = Math.max(0, f - 2), fb = Math.min(N - 1, f + 2), a = F[fa][ui], b = F[fb][ui];
+        if(fb > fa && a && b && a[4 + 2 * k] != null && b[4 + 2 * k] != null){
+          const dt = (fb - fa) * S.dt, dx = b[4 + 2 * k] - a[4 + 2 * k], dy = b[5 + 2 * k] - a[5 + 2 * k];
+          const ux = b[0] - a[0], uy = b[1] - a[1], stepping = Math.sqrt(ux * ux + uy * uy) / dt > 0.3 && Math.abs(angD(Math.atan2(ux, -uy), uh)) > 1.05;
+          if(!stepping && Math.sqrt(dx * dx + dy * dy) / dt > 0.6){ const mh = Math.atan2(dx, -dy); if(Math.abs(angD(mh, uh)) < 2.6) want = mh; }
+        }
+      }
+      cur = isNaN(cur) ? want : turnTo(cur, want, maxTurn);
+      H[f * nb + k] = cur;
     }
   }
-  if(!parts){   // издали: готовый спрайт, лёгкое покачивание на ходу
-    for(const m of M){ const bob = moving ? Math.sin(t * 11 + hash(m.seed, 3) * 6.283) * 0.05 : 0; put(compSpr(m.kit, m.rank), mT(B, m.x, m.y + bob)); }
+  return HEADS[ui] = {H, nb};
+}
+// курс фигурки сейчас, рад (для плашек издали); undefined — тела нет
+function figHead(ui, k){
+  const {H, nb} = headsOf(ui);
+  if(k >= nb) return undefined;
+  const N = S.frames.length, fi = Math.min(Math.floor(frame), N - 1), f1 = Math.min(fi + 1, N - 1), a = H[fi * nb + k], b = H[f1 * nb + k];
+  if(isNaN(a)) return undefined;
+  return isNaN(b) ? a : a + angD(b, a) * (frame - fi);
+}
+// павшие отряда по кадрам: кадр → [[x, y, номер в S.dead], …]
+function deadsOf(ui){
+  agScene();
+  if(DEADS[ui]) return DEADS[ui];
+  const m = new Map();
+  if(S.dead) S.dead.forEach((d, i) => { if(d[3] !== ui) return; let l = m.get(d[2]); if(!l) m.set(d[2], l = []); l.push([d[0], d[1], i]); });
+  return DEADS[ui] = m;
+}
+function agentsOf(ui){
+  agScene();
+  return AG[ui] || (AG[ui] = buildAgents(ui));
+}
+function buildAgents(ui){
+  const u = S.units[ui], F = S.frames, N = F.length, pm = u.pm || 1, rd = u.rd || 1, {H, nb} = headsOf(ui);
+  const nf = Math.min(nb, u.figs.length);   // тела со старта; новые (редко) — без своих бойцов
+  const fd = u.fd || (u.fd = Math.max(...u.figs.map(q => Math.round(q[1] / rd))));
+  const G = u.figs.slice(0, nf).map(g => { const cols = Math.max(1, Math.round(g[0] / pm)), rows = Math.max(1, Math.round(g[1] / rd)); return {w: g[0], d: g[1], cols, cap: cols * rows, rank: g[3] || 0}; });
+  const men = [], f0 = F[0][ui];
+  for(let k = 0; k < nf; k++){
+    if(!f0 || f0[4 + 2 * k] == null) continue;
+    const n = Math.min(G[k].cap, Math.round(u.figs[k][2] ?? G[k].cap));
+    for(let s = 0; s < n; s++){
+      const seed = u.id * 7919 + k * 64 + Math.floor(s / G[k].cols) * 8 + s % G[k].cols;
+      men.push({id: men.length, fig: k, slot: s, seed, x: 0, y: 0, face: 0, alive: true, jx: (hash(seed, 1) - 0.5) * 0.12 * pm, jy: (hash(seed, 2) - 0.5) * 0.12 * rd});
+    }
+  }
+  const Nm = men.length, pos = new Float32Array(N * Nm * 2), face = new Float32Array(N * Nm), fig = new Int16Array(N * Nm).fill(-1), rank = new Uint8Array(N * Nm);
+  const fs = G.map(() => []);   // фигурка → её бойцы по местам (место = номер в списке, без дыр)
+  const full = G.map((g, k) => Math.min(g.cap, Math.round(u.figs[k][2] ?? g.cap)));   // сколько бойцов в фигурке по строю
+  let dirty = false;            // были потери или пропали тела — строй смыкается, пока есть кому
+  for(const m of men) fs[m.fig][m.slot] = m;
+  const deadSeed = new Map();   // номер в S.dead → зерно павшего бойца: тело на земле — в его снаряжении
+  // выбыл: на его место встаёт стоящий позади, и так до заднего ряда; дырку там занимает последний в фигурке
+  function vacate(m){
+    const k = m.fig; m.fig = -1;
+    if(k < 0) return;
+    const L = fs[k], cols = G[k].cols;
+    let v = m.slot;
+    while(v + cols < L.length){ L[v] = L[v + cols]; L[v].slot = v; v += cols; }
+    const last = L.pop();
+    if(v < L.length){ L[v] = last; last.slot = v; }
+  }
+  const join = (m, k) => { m.fig = k; m.slot = fs[k].length; fs[k].push(m); };
+  const FC = new Float64Array(nf), FS = new Float64Array(nf), FH = new Float64Array(nf), FV = new Float64Array(nf);
+  const dead = deadsOf(ui), vmax = Math.max(4, (u.norm || 100) / (S.turnSec || 15) * 1.6) * S.dt;
+  for(let f = 0; f < N; f++){
+    const fr = F[f][ui], live = k => k >= 0 && k < nf && fr && fr[4 + 2 * k] != null;
+    for(let k = 0; k < nf; k++) if(fs[k].length && !live(k)){ for(const m of fs[k]) m.fig = -1; fs[k] = []; dirty = true; }   // тело пропало
+    // павший — ближайший к месту гибели боец из фигурок рядом
+    for(const [x, y, i] of dead.get(f) || []){
+      let best = null, bd = 1e18;
+      for(let r = 15; !best && r < 1e5; r *= 4){
+        for(let k = 0; k < nf; k++){
+          if(!fs[k].length || !live(k) || Math.abs(fr[4 + 2 * k] - x) > r || Math.abs(fr[5 + 2 * k] - y) > r) continue;
+          for(const m of fs[k]){ const d = (m.x - x) ** 2 + (m.y - y) ** 2; if(d < bd){ bd = d; best = m; } }
+        }
+      }
+      if(!best) for(const m of men) if(m.alive && m.fig < 0){ const d = (m.x - x) ** 2 + (m.y - y) ** 2; if(d < bd){ bd = d; best = m; } }
+      if(best){ vacate(best); best.alive = false; deadSeed.set(i, best.seed); dirty = true; }
+    }
+    if(fr) for(const o of men){   // без места — в ближайшую фигурку; в полную — лишним рядом, если свободная далеко
+      if(!o.alive || o.fig >= 0) continue;
+      let best = -1, bc = 1e18;
+      for(let k = 0; k < nf; k++){
+        if(!live(k)) continue;
+        const over = fs[k].length - full[k], c = Math.hypot(fr[4 + 2 * k] - o.x, fr[5 + 2 * k] - o.y) + (over >= 0 ? 4 + 3 * over : 0);
+        if(c < bc){ bc = c; best = k; }
+      }
+      if(best >= 0) join(o, best);
+    }
+    // смыкание между фигурками (Г30): где не хватает людей, туда переходит задний боец соседа (до 30 м), если у соседа
+    // людей больше; брешь закрывают соседи, а нехватка по цепочке уходит туда, где движок убирает тела, — к краям
+    if(fr && dirty){
+      let moved = 0;
+      for(let k = 0; k < nf; k++){
+        if(!live(k) || fs[k].length >= full[k]) continue;
+        let best = -1, bd = 900;
+        for(let j = 0; j < nf; j++){
+          if(j === k || !live(j) || !(fs[j].length > full[j] || fs[j].length >= fs[k].length + 2)) continue;
+          const d = (fr[4 + 2 * j] - fr[4 + 2 * k]) ** 2 + (fr[5 + 2 * j] - fr[5 + 2 * k]) ** 2;
+          if(d < bd){ bd = d; best = j; }
+        }
+        if(best >= 0){ join(fs[best].pop(), k); moved++; }
+      }
+      if(!moved) dirty = false;
+    }
+    // по фигурке: курс, его синус и косинус, шаг тела за кадр (боец не медленнее своего тела) — раз на кадр
+    const pf = f ? F[f - 1][ui] : null;
+    for(let k = 0; k < nf; k++){
+      if(!fs[k].length || !live(k)) continue;
+      const h = H[f * nb + k], bx = fr[4 + 2 * k], by = fr[5 + 2 * k];
+      FC[k] = Math.cos(h); FS[k] = Math.sin(h); FH[k] = h;
+      const qx = pf && pf[4 + 2 * k] != null ? bx - pf[4 + 2 * k] : 0, qy = pf && pf[5 + 2 * k] != null ? by - pf[5 + 2 * k] : 0;
+      FV[k] = Math.max(vmax, Math.sqrt(qx * qx + qy * qy) * 1.25 + 0.3);
+    }
+    for(const m of men){
+      const o = f * Nm + m.id;
+      if(!m.alive) continue;
+      if(m.fig < 0){ pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; face[o] = m.face; continue; }
+      const k = m.fig, g = G[k], n = fs[k].length, h = FH[k], c = FC[k], s = FS[k];
+      const row = Math.floor(m.slot / g.cols), inRow = Math.max(1, Math.min(g.cols, n - row * g.cols)), i = m.slot - row * g.cols;
+      const lx = -g.w / 2 + ((g.cols - inRow) / 2 + i + 0.5) * pm + m.jx, ly = -g.d / 2 + (row + 0.5) * rd + m.jy;
+      const tx = fr[4 + 2 * k] + lx * c - ly * s, ty = fr[5 + 2 * k] + lx * s + ly * c;
+      if(f === 0){ m.x = tx; m.y = ty; m.face = h; }
+      else {
+        const dx = tx - m.x, dy = ty - m.y, d = Math.sqrt(dx * dx + dy * dy), vm = FV[k];
+        if(d > vm){ m.x += dx / d * vm; m.y += dy / d * vm; } else { m.x = tx; m.y = ty; }
+        // далеко от места — бежит туда и смотрит, куда бежит; на месте — как фигурка
+        const want = d - vm > 0.6 ? Math.atan2(dx, -dy) : h;
+        if(want !== m.face) m.face = turnTo(m.face, want, 0.7);
+      }
+      pos[o * 2] = m.x; pos[o * 2 + 1] = m.y; face[o] = m.face; fig[o] = k; rank[o] = Math.min(255, g.rank * fd + row);
+    }
+  }
+  let lastF = -1, lastL = null;
+  const figMen = fi => {   // кто в какой фигурке в кадре fi
+    if(fi === lastF) return lastL;
+    lastF = fi; lastL = [];
+    for(let id = 0; id < Nm; id++){ const k = fig[fi * Nm + id]; if(k >= 0) (lastL[k] || (lastL[k] = [])).push(id); }
+    return lastL;
+  };
+  return {n: Nm, pos, face, fig, rank, seed: men.map(m => m.seed), figMen, deadSeed};
+}
+
+// ── Фигурка: её бойцы — с их местами, курсом и снаряжением; анимация — по каждому ──
+function drawMen(u, figShape, fx, fy, h, col, moving, t, k){
+  const look = lookOf(u), horse = look === "lance" || look === "barded", rd = u.rd || 1, N = S.frames.length;
+  setZoom(); prepFrameMen();
+  const ui = S.units.indexOf(u), ag = agentsOf(ui), fi = Math.min(Math.floor(frame), N - 1), ids = ag.figMen(fi)[k];
+  if(!ids || !ids.length) return;
+  const f1 = Math.min(fi + 1, N - 1), q = frame - fi, Nm = ag.n, kits = kitsOf(u), parts = view.s >= PARTS_FROM;
+  const eng = MEL.get(ui) ? MEL.get(ui).get(k) : undefined, fire = FIRE.has(ui * 100000 + k);
+  ctx.save(); ctx.translate(X(0), Y(0)); ctx.scale(view.s, view.s);
+  const T0 = ctx.getTransform(), B = [T0.a, T0.b, T0.c, T0.d, T0.e, T0.f];
+  const M = ids.map(id => {
+    const o0 = fi * Nm + id, alive1 = ag.fig[f1 * Nm + id] >= 0, o1 = alive1 ? f1 * Nm + id : o0;
+    const x0 = ag.pos[o0 * 2], y0 = ag.pos[o0 * 2 + 1], x1 = ag.pos[o1 * 2], y1 = ag.pos[o1 * 2 + 1], a0 = ag.face[o0];
+    return {x: x0 + (x1 - x0) * q, y: y0 + (y1 - y0) * q, face: a0 + angD(ag.face[o1], a0) * q, sp: Math.hypot(x1 - x0, y1 - y0) / S.dt,
+      seed: ag.seed[id], rank: ag.rank[o0], kit: kits[Math.floor(hash(ag.seed[id], 4) * kits.length)]};
+  });
+  if(view.s < 6){   // совсем издали (2–3 px на бойца): плечи и головы точками — две заливки на фигурку
+    const pb = new Path2D(), ph = new Path2D();
+    for(const m of M){ pb.moveTo(m.x + 0.27, m.y); pb.ellipse(m.x, m.y, 0.27, 0.15, m.face, 0, 6.283); ph.moveTo(m.x + 0.12, m.y); ph.arc(m.x, m.y, 0.12, 0, 6.283); }
+    ctx.fillStyle = GREY ? mix(CLOTH[0], col, 0.3) : col; ctx.fill(pb); ctx.fillStyle = "#9a9a94"; ctx.fill(ph);
     ctx.restore(); return;
   }
-  // рукопашная: кто ближе к врагу — бьёт, остальные напирают и смотрят туда же
+  if(!parts){   // издали: готовый спрайт, лёгкое покачивание на ходу
+    for(const m of M){ const bob = m.sp > 0.8 ? Math.sin(t * 11 + hash(m.seed, 3) * 6.283) * 0.05 : 0; put(compSpr(m.kit, m.rank), mT(mR(mT(B, m.x, m.y), m.face), 0, bob)); }
+    ctx.restore(); return;
+  }
+  // рукопашная: кто ближе к врагу — бьёт, остальные напирают и поворачиваются туда же
   if(eng !== undefined){
-    const al = eng - h, ca = Math.cos(al), sa = Math.sin(al);
+    const ca = Math.cos(eng), sa = Math.sin(eng), toward = eng + Math.PI / 2;
     let top = -1e9; for(const m of M) top = Math.max(top, m.x * ca + m.y * sa);
-    const face = Math.atan2(Math.sin(al + Math.PI / 2), Math.cos(al + Math.PI / 2));
-    for(const m of M){ m.atk = m.x * ca + m.y * sa > top - 1.6 * rd; m.face = m.atk ? face : face * 0.5; }
+    for(const m of M){ m.atk = m.x * ca + m.y * sa > top - 1.6 * rd; m.face = m.atk ? toward : m.face + angD(toward, m.face) * 0.5; }
   }
   // стрельба (В6): стрелок, ближайший к точке вылета стрелы, натягивает лук перед ней и отпускает в миг вылета
   const shoot = look === "bow" || look === "crossbow";
   let active = false;
   if(shoot && S.arrows){
-    const A = S.arrows, idx = S._arrU[ui], ch = Math.cos(h), sh = Math.sin(h), fr = Math.hypot(w, d) / 2 + 1.5;
-    const back = look === "crossbow" ? 2.6 : 0.3;
-    const i0 = lowerT0(A, idx, t - back);
-    active = lowerT0(A, idx, t - 3) < idx.length && A[idx[lowerT0(A, idx, t - 3)]][0] < t + 3;
-    for(let q = i0; q < idx.length && A[idx[q]][0] <= t + 0.8; q++){
-      const a = A[idx[q]], dx = a[1] - fx, dy = a[2] - fy;
-      if(Math.abs(dx) > fr || Math.abs(dy) > fr) continue;
-      const lx = dx * ch + dy * sh, ly = -dx * sh + dy * ch;
+    const A = S.arrows, idx = S._arrU[ui], fr = Math.hypot(figShape[0], figShape[1]) / 2 + 3, back = look === "crossbow" ? 2.6 : 0.3;
+    const j3 = lowerT0(A, idx, t - 3);
+    active = j3 < idx.length && A[idx[j3]][0] < t + 3;
+    for(let qq = lowerT0(A, idx, t - back); qq < idx.length && A[idx[qq]][0] <= t + 0.8; qq++){
+      const a = A[idx[qq]];
+      if(Math.abs(a[1] - fx) > fr || Math.abs(a[2] - fy) > fr) continue;
       let best = null, bd = 1.5;
-      for(const m of M){ const dd = Math.hypot(m.x - lx, m.y - ly); if(dd < bd){ bd = dd; best = m; } }
+      for(const m of M){ const dd = Math.hypot(m.x - a[1], m.y - a[2]); if(dd < bd){ bd = dd; best = m; } }
       if(best && (best.shot === undefined || Math.abs(t - a[0]) < Math.abs(best.shot))) best.shot = t - a[0];
     }
   }
-  // тени — до бойцов, чтобы не ложились на соседа; смещение влево вниз в мире, в осях строя — повёрнуто обратно
-  {
-    const so = horse ? 0.45 : 0.2, wx = SH_X * so, wy = SH_Y * so, ch = Math.cos(h), sh = Math.sin(h);
-    const lx = wx * ch + wy * sh, ly = -wx * sh + wy * ch, sw = 0.66, shh = horse ? 2.0 : 0.48, sy = horse ? 0.12 : 0.02;
-    for(const m of M) put({c: SHADOW, x: -sw / 2, y: -shh / 2, w: sw, h: shh}, mT(B, m.x + lx, m.y + sy + ly));
+  // тени — до бойцов, чтобы не ложились на соседа; смещение влево вниз в мире
+  if(view.s >= 10){
+    const so = horse ? 0.45 : 0.2, sw = 0.66, shh = horse ? 2.0 : 0.48, sy = horse ? 0.12 : 0.02;
+    if(view.s < 20){   // одной заливкой на фигурку: перекрытия не темнеют
+      const pth = new Path2D();
+      for(const m of M){ const x = m.x + SH_X * so - Math.sin(m.face) * sy, y = m.y + SH_Y * so + Math.cos(m.face) * sy; pth.moveTo(x + sw * 0.4, y); pth.ellipse(x, y, sw * 0.4, shh * 0.4, m.face, 0, 6.283); }
+      ctx.setTransform(B[0], B[1], B[2], B[3], B[4], B[5]); ctx.fillStyle = "rgba(24,18,8,.2)"; ctx.fill(pth);
+    } else {
+      const sp = {c: SHADOW, x: -sw / 2, y: -shh / 2, w: sw, h: shh};
+      for(const m of M) put(sp, mT(mR(mT(B, m.x + SH_X * so, m.y + SH_Y * so), m.face), 0, sy));
+    }
   }
-  const freq = 1.6 + Math.min(1, (u.norm || 100) / 250);   // шагов в секунду: конница чаще
   for(const m of M){
-    const kit = m.kit, s = m.seed, ph0 = hash(s, 5);
-    let rot = (m.face || 0), ox = 0, oy = 0, step = 0;
-    let ap = -1;   // доля круга удара
-    if(m.atk){ ap = frac(t / (1.1 + 0.9 * hash(s, 7)) + hash(s, 8)); }
-    if(moving && !m.atk){ const ph = (t * freq + ph0) * 6.283; step = Math.sin(ph); rot += 0.07 * step; }
-    else if(!m.atk){ rot += 0.035 * Math.sin(t * 0.9 + ph0 * 6.283) + (m.face === undefined ? glance(t, s) : 0); ox = 0.02 * Math.sin(t * 0.6 + ph0 * 9); }
+    const kit = m.kit, s = m.seed, ph0 = hash(s, 5), walking = m.sp > 0.8;
+    let rot = 0, ox = 0, oy = 0, step = 0, ap = -1;   // ap — доля круга удара
+    if(m.atk) ap = frac(t / (1.1 + 0.9 * hash(s, 7)) + hash(s, 8));
+    if(walking && !m.atk){ const fq = m.sp > 4 ? 2.6 : m.sp > 1.6 ? 2 : 1.5; step = Math.sin((t * fq + ph0) * 6.283); rot += 0.07 * step; }
+    else if(!m.atk){ rot += 0.035 * Math.sin(t * 0.9 + ph0 * 6.283) + (eng === undefined ? glance(t, s) : 0); ox = 0.02 * Math.sin(t * 0.6 + ph0 * 9); }
     if(eng !== undefined && !m.atk) oy = -0.03 - 0.03 * Math.sin(t * 3 + ph0 * 6.283);          // задние напирают
-    const P = restPose(kit, m.rank);
+    const P = restPose(kit, m.rank), base = mR(mT(B, m.x, m.y), m.face);
     if(horse){
-      const run = moving || m.atk, gp = t * 2.4 + ph0;
-      const Mm = mR(mT(B, m.x, m.y), 0);
-      put(horseSpr(kit, run ? Math.floor(frac(gp) * 4) : -1), Mm);
-      const Mr = mR(mT(Mm, ox, 0.02 + (run ? Math.sin(gp * 12.566) * 0.03 : 0)), rot * 0.35);
+      const run = walking || m.atk, gp = t * 2.4 + ph0;
+      if(!run){ put(compSpr(kit, m.rank), mR(base, rot * 0.2)); continue; }   // стоит — одним спрайтом
+      put(horseSpr(kit, Math.floor(frac(gp) * 4)), base);
+      const Mr = mR(mT(base, ox, 0.02 + (run ? Math.sin(gp * 12.566) * 0.03 : 0)), rot * 0.35);
       put(bodySpr(kit), Mr);
       if(P.Sh) put(shieldSpr(kit.shield), mP(Mr, P.Sh));
       let W = P.W;
@@ -561,23 +735,26 @@ function drawMen(u, [w, d, men, rank], fx, fy, h, col, moving, t, k){
     if(shoot && !m.atk){
       if(m.shot !== undefined){
         const dt = m.shot;
-        if(look === "bow"){ bowSt = dt < -0.45 ? 1 : dt < -0.2 ? 2 : dt < 0 ? 3 : dt < 0.22 ? 4 : 1; }
-        else { xb = dt < 0 ? 0 : dt < 0.25 ? 1 : 2; }
+        if(look === "bow") bowSt = dt < -0.45 ? 1 : dt < -0.2 ? 2 : dt < 0 ? 3 : dt < 0.22 ? 4 : 1;
+        else xb = dt < 0 ? 0 : dt < 0.25 ? 1 : 2;
       } else if(active){ bowSt = hash(s, 14) < 0.5 ? 1 : 0; xb = hash(s, 14) < 0.5 ? 0 : 2; }
       if(bowSt >= 2) rot -= 0.14;
       if(xb === 2){ lean = 0.05; rot += 0.15 * Math.sin(t * 5 + ph0 * 6); }
       if(xb === 1) oy += 0.04;
     }
-    if(m.atk && ap >= 0){ const strike = ap > 0.3 && ap < 0.55 ? 1 : 0; oy -= 0.06 * strike; rot += THRUST.has(kit.weapon) ? 0 : 0.18 * Math.sin(ap * 6.283); }
-    const Mm = mR(mT(B, m.x + ox, m.y + oy - lean), rot);
+    if(m.atk && ap >= 0){ oy -= ap > 0.3 && ap < 0.55 ? 0.06 : 0; rot += THRUST.has(kit.weapon) ? 0 : 0.18 * Math.sin(ap * 6.283); }
+    const Mm = mR(mT(base, ox, oy - lean), rot);
     // ноги: на ходу и в бою шагают
     const st = step || (m.atk ? Math.sin(ap * 6.283) * 0.6 : 0);
-    if(st && view.s >= 10){ const bt = bootSpr(); put(bt, mT(Mm, -0.09, 0.03 + 0.12 * st)); put(bt, mT(Mm, 0.09, 0.03 - 0.12 * st)); }
+    if(st && view.s >= 14){ const bt = bootSpr(); put(bt, mT(Mm, -0.09, 0.03 + 0.12 * st)); put(bt, mT(Mm, 0.09, 0.03 - 0.12 * st)); }
+    // кто стоит или идёт и ничего не делает — один готовый спрайт; по частям — кто бьёт, стреляет, прикрывается щитом
+    const raise = fire && !m.atk && P.Sh && kit.shield.shape !== "buckler" && hash(s, 13) < 0.85;
+    if(!m.atk && !raise && bowSt < 2 && bowSt !== 4 && !xb){ put(compSpr(kit, m.rank), Mm); continue; }
     put(bodySpr(kit), Mm);
     // щит: под стрелами — над головой
     if(P.Sh){
       let Sh = P.Sh;
-      if(fire && !m.atk && kit.shield.shape !== "buckler" && hash(s, 13) < 0.85) Sh = [-0.03, -0.05, -0.1, 1, 0.9];
+      if(raise) Sh = [-0.03, -0.05, -0.1, 1, 0.9];
       else if(m.atk) Sh = [Sh[0] + 0.04, Sh[1] - 0.06, Sh[2] + 0.15, Sh[3], Sh[4]];
       put(shieldSpr(kit.shield), mP(Mm, Sh));
     }
@@ -660,10 +837,11 @@ function drawDead(){
   prepMenScene(); setZoom();
   const now = frame, near = view.s >= MEN_FROM, t = frame * S.dt, r = cv.getBoundingClientRect(), [vx0, vy0, vx1, vy1] = viewBox(r, 2);
   ctx.fillStyle = BLOOD;
+  const pool = new Path2D();   // вся кровь — одной заливкой
   for(const [x, y, fi, ui, fc, dir, part] of S.dead){
     if(fi > now) continue;
     const px = X(x), py = Y(y);
-    if(!near){ ctx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6); continue; }
+    if(!near){ pool.rect(px - 0.8, py - 0.8, 1.6, 1.6); continue; }
     if(x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
     const seed = (fi * 131 + ui * 7919 + Math.round(x * 13) + Math.round(y * 7)) | 0;
     const g = Math.min(1, 0.25 + (now - fi) * S.dt / 1.2), a = dir * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
@@ -671,19 +849,35 @@ function drawDead(){
     for(let k = 0; k < 3; k++){
       const rr = (0.15 + 0.13 * hash(seed, k)) * big * g * view.s, off = (0.3 + 0.35 * hash(seed, k + 7)) * g;   // лужа — под телом, ближе к груди
       const ox = (ca * off + (hash(seed, k + 3) - 0.5) * 0.3) * view.s, oy = (sa * off + (hash(seed, k + 5) - 0.5) * 0.3) * view.s;
-      ctx.beginPath(); ctx.ellipse(px + ox, py + oy, rr, rr * (0.65 + 0.35 * hash(seed, k + 9)), a, 0, 6.283); ctx.fill();
+      pool.moveTo(px + ox + rr, py + oy); pool.ellipse(px + ox, py + oy, rr, rr * (0.65 + 0.35 * hash(seed, k + 9)), a, 0, 6.283);
     }
     const n = 2 + Math.floor(hash(seed, 11) * 4);
     for(let k = 0; k < n; k++){
       const dd = (0.55 + 1.3 * hash(seed, 20 + k)) * g, sp = (hash(seed, 30 + k) - 0.5) * 0.8;
-      ctx.beginPath(); ctx.arc(px + Math.cos(a + sp) * dd * view.s, py + Math.sin(a + sp) * dd * view.s, Math.max(0.6, (0.05 + 0.08 * hash(seed, 40 + k)) * view.s), 0, 6.283); ctx.fill();
+      const bx = px + Math.cos(a + sp) * dd * view.s, by = py + Math.sin(a + sp) * dd * view.s, br = Math.max(0.6, (0.05 + 0.08 * hash(seed, 40 + k)) * view.s);
+      pool.moveTo(bx + br, by); pool.arc(bx, by, br, 0, 6.283);
     }
   }
+  ctx.fill(pool);
   if(!near) return;
-  for(const [x, y, fi, ui, fc, dir, part] of S.dead){
-    if(fi > now || x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+  if(view.s < 7){   // издали тела — пятна цвета своей стороны, одна заливка на отряд
+    const by = new Map();
+    for(const [x, y, fi, ui, fc, dir] of S.dead){
+      if(fi > now || x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+      let p = by.get(ui); if(!p) by.set(ui, p = new Path2D());
+      const a = dir * Math.PI / 180, cx = X(x + Math.cos(a) * 0.55), cy = Y(y + Math.sin(a) * 0.55);
+      p.moveTo(cx + 0.8 * view.s, cy); p.ellipse(cx, cy, 0.8 * view.s, 0.24 * view.s, a, 0, 6.283);
+    }
+    by.forEach((p, ui) => { ctx.fillStyle = mix(S.units[ui].col, "#8b8781", 0.55); ctx.fill(p); });
+    drawStuck(r, t);
+    return;
+  }
+  S.dead.forEach((dd, di) => {
+    const [x, y, fi, ui, fc, dir, part] = dd;
+    if(fi > now || x < vx0 || x > vx1 || y < vy0 || y > vy1) return;
     const u = S.units[ui], kits = kitsOf(u), seed = (fi * 131 + ui * 7919 + Math.round(x * 13) + Math.round(y * 7)) | 0;
-    const kit = kits[Math.floor(hash(seed, 50) * kits.length)], v = Math.floor(hash(seed, 51) * 4);
+    const man = agentsOf(ui).deadSeed.get(di);   // павший — тот самый боец: тело в его снаряжении (В10)
+    const kit = kits[Math.floor(hash(man ?? seed, man === undefined ? 50 : 4) * kits.length)], v = Math.floor(hash(seed, 51) * 4);
     const p = Math.min(1, (t - fi * S.dt) / 0.35), e = 1 - (1 - p) * (1 - p), a = dir * Math.PI / 180 + (hash(seed, 52) - 0.5) * 0.5;
     ctx.save(); ctx.translate(X(x), Y(y)); ctx.rotate(a + Math.PI / 2); ctx.scale(view.s, view.s);
     if(part === 3 && kit.horse){
@@ -695,7 +889,7 @@ function drawDead(){
     const sp = corpseSpr(kit, v); ctx.drawImage(sp.c, sp.x, sp.y - 0.8, sp.w, sp.h);
     if(part === 0 && p >= 1){ ctx.fillStyle = BLOOD; ctx.globalAlpha = 0.8; ctx.beginPath(); ctx.arc(0, -1.36, 0.1, 0, 6.283); ctx.fill(); }
     ctx.restore();
-  }
+  });
   drawStuck(r, t);
 }
 
