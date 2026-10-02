@@ -25,6 +25,11 @@ namespace BattleCore
         public Body Body;            // мишень для стрел (Г33) — та же точка
         public bool Reseat;          // В14: идёт на новое место (дальше ReseatM) — шагом, без подтягивания
         public double ViaX = double.NaN, ViaY;   // Б1: к месту напрямик не пройти (вода, стена) — идёт к этой клетке по карте отряда
+        // Б2 (Г83): с кем бьётся (враг в досягаемости, null — ни с кем), когда последний раз ударил и когда принял удар на
+        // щит (часы боя, NaN — не было) — для рисунка; NextSwing, SwingN — ритм ударов
+        public Man Foe;
+        public double SwingAt = double.NaN, ParryAt = double.NaN, NextSwing = double.NaN;
+        public int SwingN;
     }
 
     public static class Soldiers
@@ -113,10 +118,17 @@ namespace BattleCore
             foreach (var man in m.Men)
             {
                 if (man.Fig != null && idx.TryGetValue(man.Fig, out int k)) { members[k].Add(man); continue; }
-                // фигурки нет — к ближайшей
-                int best = 0; double bd = double.MaxValue;
-                for (int q = 0; q < nk; q++) { double d = (m.Figs[q].X - man.X) * (m.Figs[q].X - man.X) + (m.Figs[q].Y - man.Y) * (m.Figs[q].Y - man.Y); if (d < bd) { bd = d; best = q; } }
-                members[best].Add(man);
+                // фигурки нет — к ближайшей; у бойцов-тел (Б1) — к ближайшей, где бойцов меньше двух её норм: иначе колонна,
+                // рядом с которой убрали несколько крайних, набирает сотню бойцов в хвост
+                int best = -1, any = 0; double bd = double.MaxValue, ad = double.MaxValue;
+                for (int q = 0; q < nk; q++)
+                {
+                    double d = (m.Figs[q].X - man.X) * (m.Figs[q].X - man.X) + (m.Figs[q].Y - man.Y) * (m.Figs[q].Y - man.Y);
+                    if (d < ad) { ad = d; any = q; }
+                    if (r.Move.MenBodies && members[q].Count >= 2 * Math.Max(1, Math.Round(P.Figs[q].Men))) continue;
+                    if (d < bd) { bd = d; best = q; }
+                }
+                members[best >= 0 ? best : any].Add(man);
             }
             for (int k = 0; k < nk; k++) SeatFigure(m, k, members[k], r);
             m.MenVersion++;

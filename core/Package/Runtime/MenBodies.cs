@@ -28,7 +28,7 @@ namespace BattleCore
         [ThreadStatic] static double[] tUx, tUy, tHalf, tRad, tX0, tY0, tDvx, tDvy, tVmax, tCap, tReach;
         [ThreadStatic] static double[] tX, tY;       // где боец сейчас — плотным массивом (сетка и расталкивание)
         [ThreadStatic] static List<int> gUsed;       // занятые клетки сетки
-        [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием
+        [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
         [ThreadStatic] static int[] gNext, gHead;
@@ -36,11 +36,16 @@ namespace BattleCore
         const int ViaEvery = 5;                      // как часто боец проверяет, пройти ли к месту напрямик, шагов
 
         enum Rel { Same, Ghost, Friend, Enemy }
+        // Сквозь свой строй (Г68): колонна, что возвращается из охвата или идёт в охват к своему месту у врага (дальше
+        // WrapSolidM от него и ещё не бьётся). Иначе колонны охвата сбиваются в давку у углов строя врага — бойцов в десять раз
+        // больше, чем было фигурок
+        const double WrapSolidM = 3;
+        static bool Through(FigState s) => s.Returning || s.Wrap && !s.Fighting && JsMath.Hypot(s.WX - s.AX, s.WY - s.AY) > WrapSolidM;
         static bool SameSide(Unit a, Unit b) => a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId;
         static Rel RelOf(int i, int j)
         {
             Mover a = tM[i], b = tM[j];
-            if (a == b) return tMan[i].Fig.Returning || tMan[j].Fig.Returning ? Rel.Ghost : Rel.Same;   // из охвата — сквозь свой строй (Г68)
+            if (a == b) return (tFlag[i] & 8) != 0 || (tFlag[j] & 8) != 0 ? Rel.Ghost : Rel.Same;
             if (!SameSide(a.P.U, b.P.U)) return Rel.Enemy;
             return (tFlag[i] & 1) != 0 || (tFlag[j] & 1) != 0 || a.Fleeing || b.Fleeing ? Rel.Ghost : Rel.Friend;
         }
@@ -74,12 +79,25 @@ namespace BattleCore
                         else if (MoveSim.Free(F, s.AX, ny)) nx = s.AX;
                         else { nx = s.AX; ny = s.AY; }
                     }
+                    bool held = false;
                     if (s.MenN > 0)
                     {
-                        double ex = nx - s.X, ey = ny - s.Y, el = JsMath.Hypot(ex, ey);
-                        if (el > M.AnchorLeadM) { nx = s.X + ex * M.AnchorLeadM / el; ny = s.Y + ey * M.AnchorLeadM / el; }
+                        // где был бы якорь при этих бойцах на их местах: середина бойцов минус средний сдвиг их мест — иначе
+                        // колонна с бойцами только спереди (потери) или с лишними рядами сзади (перебор) сама себя тащит
+                        double bx = s.X - (s.MLx * s.Hc - s.MLy * s.Hs), by = s.Y - (s.MLx * s.Hs + s.MLy * s.Hc);
+                        double ex = nx - bx, ey = ny - by, el = JsMath.Hypot(ex, ey);
+                        if (el > M.AnchorLeadM) { nx = bx + ex * M.AnchorLeadM / el; ny = by + ey * M.AnchorLeadM / el; held = true; }
                     }
-                    s.AVx = (nx - s.AX) / dt; s.AVy = (ny - s.AY) / dt; s.AX = nx; s.AY = ny;
+                    double avx = (nx - s.AX) / dt, avy = (ny - s.AY) / dt;
+                    if (held)
+                    {
+                        // якорь держат бойцы: бойцам передаём только ту часть его хода, что идёт куда он сам хочет. Иначе петля:
+                        // бойцов отжали назад — якорь за ними — бойцы прибавляют его ход к своему — колонна разгоняется прочь
+                        double il = JsMath.Hypot(vx, vy), along = il > 1e-9 ? (avx * vx + avy * vy) / il : 0;
+                        along = Math.Max(0, Math.Min(il, along));
+                        avx = il > 1e-9 ? vx / il * along : 0; avy = il > 1e-9 ? vy / il * along : 0;
+                    }
+                    s.AVx = avx; s.AVy = avy; s.AX = nx; s.AY = ny;
                 }
             }
             if (n == 0) { Finish(ms, dt, r, 0); return; }
@@ -115,10 +133,18 @@ namespace BattleCore
                         lx += Math.Sin(time * 2 * Math.PI / (2 + hu) + hu * 6.283) * MR.FleeWanderM;
                     }
                     double hx = s.AX + lx * s.Hc - ly * s.Hs, hy = s.AY + lx * s.Hs + ly * s.Hc;
-                    if (s.Fighting && man.Row == 0 && !m.Fleeing)
+                    // выпады (Г78): у кого свой противник (Б2) — к нему; передние бьющейся колонны без него — к врагу колонны
+                    var foe = man.Foe;
+                    if (!m.Fleeing && (foe != null && foe.Alive || s.Fighting && man.Row == 0))
                     {
                         double lunge = MR.LungeM + MR.LungeAmpM * Math.Sin(time * 2 * Math.PI / MR.LungeSec + hu * 6.283);
-                        hx += s.FightX * lunge; hy += s.FightY * lunge;
+                        double ux = s.FightX, uy = s.FightY;
+                        if (foe != null && foe.Alive)
+                        {
+                            double fx = foe.X - man.X, fy = foe.Y - man.Y, fl = JsMath.Hypot(fx, fy);
+                            if (fl > 1e-9) { ux = fx / fl; uy = fy / fl; }
+                        }
+                        hx += ux * lunge; hy += uy * lunge;
                     }
                     double cx = (hx - man.X) / MR.Tau, cy = (hy - man.Y) / MR.Tau;
                     // В14: новое или далёкое место — шагом или трусцой сверх хода колонны
@@ -143,6 +169,9 @@ namespace BattleCore
                     }
                     // шагом — только на новое место после потерь (Reseat ставит раскладка, В14); перестроение строя и отставание —
                     // в полную силу: мгновенного подтягивания у тел нет, так что «далёкий — трусцой» тут не нужен
+                    // колонна в охвате идёт к своему месту у врага — бойцы бегут с ней, пересадка шагом тут не к месту: якорь
+                    // впереди на AnchorLeadM, и «далеко от места» не кончалось бы, пока колонна идёт
+                    if (man.Reseat && (s.Wrap || s.Returning)) man.Reseat = false;
                     if (man.Reseat)
                     {
                         if (far < MR.ReseatM / 2) man.Reseat = false;
@@ -159,7 +188,7 @@ namespace BattleCore
                     tUx[c] = Math.Sin(fh); tUy[c] = -Math.Cos(fh); tHalf[c] = half; tRad[c] = rad;
                     tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax;
                     tCap[c] = Math.Max(vmax, 1) * dt * M.PushSpeedK;
-                    tFlag[c] = (byte)(archer ? 1 : 0); tBlocked[c] = 0; tBlockedEnemy[c] = false;
+                    tFlag[c] = (byte)((archer ? 1 : 0) | (Through(s) ? 8 : 0)); tBlocked[c] = 0; tBlockedEnemy[c] = false;
                     tReach[c] = half + rad + Math.Max(JsMath.Hypot(vx, vy), JsMath.Hypot(man.Vx, man.Vy)) * laF + M.MenYieldM;
                     if (half + rad > maxBody) maxBody = half + rad;
                     c++;
@@ -253,29 +282,29 @@ namespace BattleCore
         static void Finish(IList<Mover> ms, double dt, Rules r, int c)
         {
             var M = r.Move;
-            foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
+            foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.MLx = 0; s.MLy = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i]; var s = man.Fig;
-                s.X += man.X; s.Y += man.Y; s.Vx += man.Vx; s.Vy += man.Vy; s.MenN++;
+                s.X += man.X; s.Y += man.Y; s.Vx += man.Vx; s.Vy += man.Vy; s.MenN++; s.MLx += man.Lx; s.MLy += man.Ly;
                 if (tBlocked[i] != 0) { s.BlockedBy = tBlocked[i]; s.BlockedByEnemy = tBlockedEnemy[i]; }
                 if ((tFlag[i] & 2) != 0) s.Slowed = true;
             }
             foreach (var m in ms)
                 foreach (var s in m.Figs)
                 {
-                    if (s.MenN > 0) { s.X /= s.MenN; s.Y /= s.MenN; s.Vx /= s.MenN; s.Vy /= s.MenN; }
+                    if (s.MenN > 0) { s.X /= s.MenN; s.Y /= s.MenN; s.Vx /= s.MenN; s.Vy /= s.MenN; s.MLx /= s.MenN; s.MLy /= s.MenN; }
                     else { s.X = s.AX; s.Y = s.AY; s.Vx = s.AVx; s.Vy = s.AVy; }
                 }
-            // пробка: как у фигурок (Bodies, шаг 4), только доля — бойцов
-            var men = new int[ms.Count]; var blk = new int[ms.Count];
+            // пробка: как у фигурок (Bodies, шаг 4) — доля упёршихся колонн. Колонна упёрлась, если упёрся хоть один её боец
+            // или она бьётся (Fighting — касается врага, Б2): по доле бойцов удар во фланг не останавливал строй — упираются
+            // только головы колонн, а колонны в охвате стоят на своих местах у врага, ни во что не упираясь
             Dictionary<int, (int n, bool enemy)>[] count = null;
             for (int i = 0; i < c; i++)
             {
-                int mi = tMi[i]; men[mi]++;
+                int mi = tMi[i];
                 int by = tBlocked[i];
                 if (by == 0 || by == tM[i].IgnoreHoldBy) continue;   // кого обходим (Г61) — не держит
-                blk[mi]++;
                 if (count == null) count = new Dictionary<int, (int n, bool enemy)>[ms.Count];
                 var cm = count[mi] ?? (count[mi] = new Dictionary<int, (int n, bool enemy)>());
                 cm[by] = ((cm.TryGetValue(by, out var e) ? e.n : 0) + 1, tBlockedEnemy[i]);
@@ -283,9 +312,15 @@ namespace BattleCore
             for (int mi = 0; mi < ms.Count; mi++)
             {
                 var m = ms[mi];
-                int nb = blk[mi], nm = men[mi];
+                int nb = 0, nm = 0;
+                foreach (var s in m.Figs)
+                {
+                    if (s.MenN == 0) continue;
+                    nm++;
+                    if (s.Fighting || s.BlockedBy != 0 && s.BlockedBy != m.IgnoreHoldBy) nb++;
+                }
                 bool active = m.Order != null && m.Track != null && !m.Done;
-                if (nb > 0)
+                if (nb > 0 && count?[mi] != null)
                 {
                     int main = 0, best = -1; bool enemy = false;
                     foreach (var kv in count[mi]) if (kv.Value.n > best || kv.Value.n == best && kv.Key < main) { best = kv.Value.n; main = kv.Key; enemy = kv.Value.enemy; }

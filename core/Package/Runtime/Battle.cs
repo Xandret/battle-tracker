@@ -156,6 +156,7 @@ namespace BattleCore
             foreach (var m in Movers) if (m.Fleeing) EdgeCheck(m, t + dt);
             if (k % contactEvery == 0) { Contacts(t); Envelop(); TryRally(t); foreach (var m in Movers) if (m.Fleeing) OwnFleeCourses(m); }
             Strike(t, dt);
+            if (MenMode) MenSwings(t, dt);   // Б2: павшие — от ударов бойцов
             Shoot(t, dt);
             foreach (var v in Volleys) if (!shotThisTurn.Contains(v)) shotThisTurn.Add(v);
             if ((k + 1) % contactEvery == 0) foreach (var m in Movers) Relayout(m);
@@ -231,6 +232,9 @@ namespace BattleCore
             double total = 0;
             var colMen = new Dictionary<int, double>();
             var colSector = new Dictionary<int, (double d, string s)>();
+            // Б2: доли сектора колонны — по её касающимся бойцам (сколько стоят перед строем врага, сбоку, сзади)
+            var colCount = new Dictionary<int, (double front, double flank, double rear)>();
+            menSec.TryGetValue((x, y), out var msec);
             for (int k = 0; k < x.P.Figs.Count; k++)
             {
                 var f = x.P.Figs[k];
@@ -238,6 +242,12 @@ namespace BattleCore
                 colMen[f.File] = (colMen.TryGetValue(f.File, out var c) ? c : 0) + f.Men;
                 if (touch[k].ky < 0) continue;
                 if (!mine.TryGetValue(f.File, out var own) || own.foe != y) continue;   // колонна бьёт ближайшего врага (Г69)
+                if (msec != null && k < msec.Length)
+                {
+                    var was = colCount.TryGetValue(f.File, out var cc) ? cc : (0, 0, 0);
+                    colCount[f.File] = (was.front + msec[k].front, was.flank + msec[k].flank, was.rear + msec[k].rear);
+                    continue;
+                }
                 // сектор — по тому, где фигурка стоит относительно строя врага: прямо перед ним — фронт, прямо за — тыл
                 y.P.ToLocal(x.Figs[k].X, x.Figs[k].Y, out var lx, out var ly);
                 double ex = Math.Abs(lx) - y.P.Fp.Front / 2;
@@ -245,6 +255,13 @@ namespace BattleCore
                 if (!colSector.TryGetValue(f.File, out var cs) || touch[k].d < cs.d) colSector[f.File] = (touch[k].d, sec);
             }
             double eng = 0, front = 0, flank = 0, rear = 0;
+            foreach (var kv in colCount)
+            {
+                double men = colMen[kv.Key], all = kv.Value.front + kv.Value.flank + kv.Value.rear;
+                if (all <= 0) continue;
+                eng += men;
+                front += men * kv.Value.front / all; flank += men * kv.Value.flank / all; rear += men * kv.Value.rear / all;
+            }
             foreach (var kv in colSector)
             {
                 double men = colMen[kv.Key];
@@ -259,8 +276,9 @@ namespace BattleCore
         {
             frontFigs.Clear(); touches.Clear(); colFoe.Clear();
             foreach (var m in Movers) foreach (var s in m.Figs) s.Fighting = false;
-            // 1) касания фигурок у всех пар врагов поблизости
-            for (int i = 0; i < Movers.Count; i++)
+            // 1) касания фигурок у всех пар врагов поблизости; при бойцах-телах — касания бойцов (Б2)
+            if (MenMode) MenTouches();
+            else for (int i = 0; i < Movers.Count; i++)
                 for (int j = i + 1; j < Movers.Count; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
@@ -560,8 +578,8 @@ namespace BattleCore
         {
             int n = (int)Math.Max(0, Js.Round(m.P.U.Soldiers)) - m.LeftMen;
             if (n >= m.LaidMen) return;
-            int melee = Math.Max(0, m.LaidMen - n - m.ShotDown);
-            m.ShotDown = 0;
+            int melee = Math.Max(0, m.LaidMen - n - m.ShotDown - m.StruckDown);
+            m.ShotDown = 0; m.StruckDown = 0;
             if (melee > 0) MeleeDeaths(m, melee);
             m.LaidMen = n;
             int keep = n <= 0 ? 0 : (int)Math.Ceiling(n / MenPerFigure);
@@ -717,15 +735,22 @@ namespace BattleCore
         // Численность в схватке тает по ходу окна удара, а убитые и раненые пишутся, когда окно закрылось, — пока итогов
         // нет, доля ожидаемая: летальность стола со средним броском (Base + (Die + 1)/2 ÷ (опыт ÷ ExpDiv)).
         // Только для рисунка (раненый ползёт): численность и правила не меняются
-        readonly Dictionary<Mover, (double k, double w)> meleeSeen = new Dictionary<Mover, (double k, double w)>();
-        void MeleeDeaths(Mover m, int n)
+        readonly Dictionary<Mover, (double k, double w, double share)> meleeSeen = new Dictionary<Mover, (double k, double w, double share)>();
+        // Доля убитых среди павших: по итогам последнего закрытого окна (прирост убитых и раненых отряда); итогов ещё
+        // не было — ожидаемая летальность стола
+        double KilledShare(Mover m)
         {
             var mu = m.P.U; var Lt = R.Lethality;
-            meleeSeen.TryGetValue(m, out var seen);
+            if (!meleeSeen.TryGetValue(m, out var seen))
+                seen = (0, 0, Js.Clamp(Lt.Base + (Lt.Die + 1) / 2.0 / (Math.Max(1, mu.Exp) / Lt.ExpDiv), 0, 100) / 100);
             double dk = mu.TotKilled - seen.k, dw = mu.TotWounded - seen.w;
-            meleeSeen[m] = (mu.TotKilled, mu.TotWounded);
-            double expected = Js.Clamp(Lt.Base + (Lt.Die + 1) / 2.0 / (Math.Max(1, mu.Exp) / Lt.ExpDiv), 0, 100) / 100;
-            double killedShare = dk + dw > 1e-9 ? Math.Max(0, Math.Min(1, dk / (dk + dw))) : expected;
+            if (dk + dw > 1e-9) seen = (mu.TotKilled, mu.TotWounded, Math.Max(0, Math.Min(1, dk / (dk + dw))));
+            meleeSeen[m] = seen;
+            return seen.share;
+        }
+        void MeleeDeaths(Mover m, int n)
+        {
+            double killedShare = KilledShare(m);
             // Г78: падают те, кто у врага — бойцы касающихся фигурок, ближние к фигурке врага (по тому, где стоят, а не по
             // месту в строю: пересаженный вперёд ещё идёт), чуть вперемешку (хешем); никто не касается — ближайшие к врагу
             var alive = m.Men.Where(x => x.Alive && x.Fig != null).ToList();
@@ -741,15 +766,23 @@ namespace BattleCore
                     if (d < best) { best = d; foe = e; }
                 }
             }
+            // Б2: ударов не хватило — первыми те, кого бьют, потом касающиеся врага
+            var hit = MenMode ? StruckAt(m) : null;
+            if (MenMode) MenMelee.Fallback += n;
             double Score(Man x)
             {
                 double jit = MoveSim.Hash01(m.P.U.Id, x.Id, 15) * 1.5;
+                if (hit != null)
+                {
+                    if (hit.Contains(x)) return jit;
+                    if (x.Foe != null && x.Foe.Alive) return 10 + jit;
+                }
                 if (x.Fig.Fighting) return JsMath.Hypot(x.X - x.Fig.FoeX, x.Y - x.Fig.FoeY) + jit;
                 return 1000 + (foe == null ? 0 : JsMath.Hypot(x.X - foe.P.X, x.Y - foe.P.Y)) + jit;
             }
             foreach (var x in alive.OrderBy(Score).ThenBy(x => x.Id).Take(n))
             {
-                x.Alive = false;
+                x.Alive = false; x.Foe = null;
                 double dir = foe != null ? Math.Atan2(x.Y - foe.P.Y, x.X - foe.P.X) * 180 / Math.PI : (x.Facing + 90);   // от врага — за спину
                 double u = look();
                 Deaths.Add(new Death
@@ -832,6 +865,8 @@ namespace BattleCore
             var P = x.P; var Q = y.P;
             double figW = P.Figs.Max(q => q.Width), figD = P.Figs.Max(q => q.Depth), mg = 0.5;
             double F = Q.Fp.Front / 2, D = Q.Fp.Depth / 2, off = figD / 2 + mg;
+            // Б2: колонна бойцов бьётся, только касаясь врага, — место ближе на досягаемость, бойцов остановит стена (Г89)
+            if (MenMode) off = figD / 2 - R.Men.ReachM;
             var slots = new List<(double lx, double ly, double nx, double ny, double face)>();
             void Edge(bool alongX, double fixedV, double half, double nx, double ny, double face)
             {
@@ -849,6 +884,7 @@ namespace BattleCore
             // каждая занимает одно место, ближайшее к себе
             var mine = new HashSet<FigState>(kept.Concat(cols).SelectMany(c => c.Select(k => x.Figs[k])));
             var busy = new bool[slots.Count];
+            double ox = F + off + figW, oy = D + off + figW;
             foreach (var m in Movers)
             {
                 if (m == y) continue;
@@ -856,6 +892,7 @@ namespace BattleCore
                 {
                     if (mine.Contains(s)) continue;
                     Q.ToLocal(s.X, s.Y, out var lx, out var ly);
+                    if (Math.Abs(lx) > ox || Math.Abs(ly) > oy) continue;   // вне обвода с запасом в фигурку — ни одного места не занимает
                     int i = Nearest(Enumerable.Range(0, slots.Count), lx, ly);
                     if (i >= 0 && JsMath.Hypot(slots[i].lx - lx, slots[i].ly - ly) < figW * 0.75) busy[i] = true;
                 }
@@ -975,8 +1012,8 @@ namespace BattleCore
             var P = m.P;
             int n = (int)Math.Max(0, Js.Round(P.U.Soldiers));
             if (n == m.LaidMen) return;
-            int melee = Math.Max(0, m.LaidMen - n - m.ShotDown);
-            m.ShotDown = 0;
+            int melee = Math.Max(0, m.LaidMen - n - m.ShotDown - m.StruckDown);
+            m.ShotDown = 0; m.StruckDown = 0;
             if (melee > 0) MeleeDeaths(m, melee);
             m.LaidMen = n;
             int oldCols = m.Cols, oldNominal = m.NominalCols;

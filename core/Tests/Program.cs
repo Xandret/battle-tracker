@@ -283,6 +283,10 @@ if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests
 if (args.Length > 0 && args[0] == "b1-cross") { MenBodyProbe.Cross(); return 0; }
 if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0; }
 if (args.Length > 0 && args[0] == "b1-bench") { MenBodyBench.Run(); return 0; }
+if (args.Length > 0 && args[0] == "battle-men") { BattleTests.Use = MenBodyTests.RB; foreach (var (n, r) in BattleTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
+if (args.Length > 0 && args[0] == "b2") { MenMeleeProbe.Run(args.Length > 1 ? args[1] : null); return 0; }
+if (args.Length > 0 && args[0] == "b2-knights") { MenMeleeKnights.Run(); return 0; }
+if (args.Length > 0 && args[0] == "b2-flank") { MenMeleeFlank.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b1-ov") { MenBodyProbe3.Overlaps(); return 0; }
 if (args.Length > 0 && args[0] == "b1") { foreach (var (n, r) in MenBodyTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
 if (args.Length > 0 && args[0] == "men") { foreach (var (n, r) in MenTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }

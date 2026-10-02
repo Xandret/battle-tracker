@@ -55,6 +55,7 @@ namespace BattleCore
         // Б1 (MenBodies): якорь колонны — где она хочет быть (её ведут Desire и FleeDesire); X, Y — середина её живых бойцов
         public double AX, AY, AVx, AVy;
         public int MenN;   // живых бойцов в колонне на прошлом шаге (Б1)
+        public double MLx, MLy;   // Б1: средний сдвиг мест живых бойцов от якоря (оси колонны) — колонна после потерь несимметрична
     }
 
     public sealed class Mover
@@ -99,6 +100,7 @@ namespace BattleCore
         public int LeftMen;                      // ушли за край карты (живы, но в этой битве их нет); LaidMen — только те, кто на поле
         public double FleeHeading, FleeX, FleeY, FleeSince;
         public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
+        public int StruckDown;                   // Б2: пало от ударов бойцов с последней раскладки — тоже уже не стоят (Г83)
         public List<(double x, double y)> Fallen = new List<(double x, double y)>();
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
