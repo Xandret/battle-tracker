@@ -339,9 +339,12 @@ namespace Journal.Viewer
         }
 
         // ── кадр ──
-        struct ManP { public float X, Y, Face, Sp, Ph, Shot; public int Seed, Rank, Fig; public bool Atk, Vis; public Kit Kit; }
+        // Ap — фаза удара из движка (Б2; −1 — считать по своему ритму), Parry — сколько секунд назад принял удар на щит (−1 — нет)
+        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis; public Kit Kit; }
         readonly List<ManP> M = new List<ManP>();
         readonly Dictionary<int, float> figTop = new Dictionary<int, float>();
+        readonly HashSet<long> fallenNow = new HashSet<long>();
+        readonly Dictionary<int, (float h, float sw, float nx, float pa)> mel0 = new Dictionary<int, (float, float, float, float)>(), mel1 = new Dictionary<int, (float, float, float, float)>();
         readonly List<(float x, float y, float face, float reach, float ap)> sparks = new List<(float, float, float, float, float)>();
 
         public void Draw(double t, Color32[] unitCol, Rect view, float ppm)
@@ -353,6 +356,10 @@ namespace Journal.Viewer
             bool In(float x, float y, float pad) => x > view.xMin - pad && x < view.xMax + pad && y > view.yMin - pad && y < view.yMax + pad;
             IndexArrows();
             PrepFrame(f0, t32, In);
+            // павшие между кадрами (Б2: в миг удара) — уже лежат, живыми их не рисуем
+            fallenNow.Clear();
+            for (int i = rec.Dead.Count - 1; i >= 0 && rec.Dead[i].Frame > f0; i--)
+                if (rec.Dead[i].Frame == f0 + 1 && rec.Dead[i].T <= t32 && rec.Dead[i].Man > 0) fallenNow.Add((long)rec.Dead[i].Unit << 32 | (uint)rec.Dead[i].Man);
             DrawDead(t, f0, unitCol, In);
             DrawDropped(f0, unitCol, In);
             // ── бойцы ──
@@ -397,15 +404,17 @@ namespace Journal.Viewer
                     x += (x1 - x) * q; y += (y1 - y) * q; h += Mathf.DeltaAngle(h, m1.Xyh[3 * id + 2]) * q;
                     if (m1.Ph != null && id < m1.Ph.Length) ph += (m1.Ph[id] - ph) * q;
                 }
+                if (fallenNow.Count > 0 && fallenNow.Contains((long)ui << 32 | (uint)id)) continue;
                 int fig = m0.Fig[id], seed = info.Id * 7919 + id;
                 bool vis = In(x, y, 6); anyVis |= vis;
-                M.Add(new ManP { X = x, Y = y, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN,
+                M.Add(new ManP { X = x, Y = y, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Id = id, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN, Ap = -1, Parry = -1,
                     Rank = (fig < info.Figs.Count ? (int)info.Figs[fig][3] : 0) * fd + m0.Row[id], Kit = ks[(int)(H(seed, 4) * ks.Length)] });
             }
             if (!anyVis) return;
             // рукопашная: в теле у врага бьют передние (ближе к врагу, чем 1,6 шеренги от самого переднего); остальные напирают
             var ef = flee ? null : eng[ui];
-            if (ef != null && ef.Count > 0)
+            if (rec.MenMelee) MenMelee(m0, m1, q, t);
+            else if (ef != null && ef.Count > 0)
             {
                 figTop.Clear();
                 foreach (var m in M) if (ef.TryGetValue(m.Fig, out var a)) { float pr = m.X * Mathf.Cos(a) + m.Y * Mathf.Sin(a); figTop[m.Fig] = figTop.TryGetValue(m.Fig, out var tp) ? Mathf.Max(tp, pr) : pr; }
@@ -463,13 +472,46 @@ namespace Journal.Viewer
             }
         }
 
+        // ── рукопашная по бойцам (Б2): противник, удар и щит — из движка ──
+        // Боец смотрит на своего противника; удар проигрывается вокруг своего времени в движке: замах — до (по NextSwing),
+        // вспышка — в миг удара (тогда же падает ударенный), возврат — после; принял удар на щит — щит рывком навстречу
+        void MenMelee(MenFrame m0, MenFrame m1, float q, float t)
+        {
+            Fill(mel0, m0); Fill(mel1, m1);
+            if (mel0.Count == 0 && mel1.Count == 0) return;
+            for (int i = 0; i < M.Count; i++)
+            {
+                var m = M[i];
+                bool a0 = mel0.TryGetValue(m.Id, out var e0), a1 = mel1.TryGetValue(m.Id, out var e1);
+                if (!a0 && !a1) continue;
+                float h = a0 && a1 && !float.IsNaN(e0.h) && !float.IsNaN(e1.h) ? e0.h + Mathf.DeltaAngle(e0.h, e1.h) * q : a0 && !float.IsNaN(e0.h) ? e0.h : a1 ? e1.h : float.NaN;
+                if (!float.IsNaN(h)) m.Face = h * Mathf.Deg2Rad;
+                // ближний удар к t: −0,45 с — замах, 0 — удар, +0,55 с — возврат
+                float best = float.NaN;
+                void Try(float T) { if (float.IsNaN(T)) return; float d = t - T; if (d >= -0.45f && d <= 0.55f && (float.IsNaN(best) || Mathf.Abs(d) < Mathf.Abs(t - best))) best = T; }
+                if (a0) { Try(e0.sw); Try(e0.nx); }
+                if (a1) { Try(e1.sw); Try(e1.nx); }
+                if (!float.IsNaN(best)) { m.Atk = true; m.Ap = 0.45f + (t - best); m.Blow = Mathf.RoundToInt(best * 20); }
+                float pa = a1 && !float.IsNaN(e1.pa) && e1.pa <= t ? e1.pa : a0 ? e0.pa : float.NaN;
+                if (!float.IsNaN(pa) && t - pa >= 0 && t - pa < 0.35f) m.Parry = t - pa;
+                M[i] = m;
+            }
+        }
+        static void Fill(Dictionary<int, (float, float, float, float)> d, MenFrame f)
+        {
+            d.Clear();
+            if (f?.Eng == null) return;
+            for (int k = 0; k < f.Eng.Length; k++) d[f.Eng[k]] = (f.EngH[k], f.EngSw[k], f.EngNx[k], f.EngPa[k]);
+        }
+
         // ── один боец: как в drawMen полигона ──
         void DrawMan(ManP m, string look, bool horse, bool flee, bool cheer, bool engaged, bool fireHere, bool shoot, bool active, float low, float t, Color32 col, float ppm)
         {
             var kit = m.Kit; int s = m.Seed; float ph0 = H(s, 5); bool walking = m.Sp > 0.8f;
             var prm = new Vector4(kit.ClothKey == "f" ? kit.Tone : 0, 0, 0, 0); var neutral = Vector4.zero;
             float rot = 0, ox = 0, oy = 0, step = 0, ap = -1; int blow = 0;
-            if (m.Atk) { float per = 1.1f + 0.9f * H(s, 7), u0 = t / per + H(s, 8); ap = Frac(u0); blow = Mathf.FloorToInt(u0); }
+            if (m.Atk && m.Ap >= 0) { ap = m.Ap; blow = m.Blow; }   // Б2: удар — когда он в движке
+            else if (m.Atk) { float per = 1.1f + 0.9f * H(s, 7), u0 = t / per + H(s, 8); ap = Frac(u0); blow = Mathf.FloorToInt(u0); }
             if (walking && !m.Atk) { step = Mathf.Sin(m.Ph * 6.283f); rot += (m.Sp > 2.6f ? 0.11f : 0.07f) * step; }   // бегом плечи ходят сильнее
             else if (!m.Atk) { rot += 0.035f * Mathf.Sin(t * 0.9f + ph0 * 6.283f) + (engaged ? 0 : Glance(t, s)); ox = 0.02f * Mathf.Sin(t * 0.6f + ph0 * 9); }
             if (engaged && !m.Atk) oy = -0.03f - 0.03f * Mathf.Sin(t * 3 + ph0 * 6.283f);   // задние напирают
@@ -551,6 +593,7 @@ namespace Journal.Viewer
             if (Sh != null)
             {
                 if (raise) Sh = new[] { -0.03f, -0.05f, -0.1f, 1, 0.9f };
+                else if (m.Parry >= 0) { float c = 1 - m.Parry / 0.35f; c = c * c; Sh = new[] { Sh[0] + 0.07f * c, Sh[1] - 0.14f * c, Sh[2] + 0.4f * c, Sh[3], Sh[4] }; }   // Б2: принял удар
                 else if (m.Atk) { float c = Mathf.Max(0, Mathf.Sin((ap + 0.5f) * 6.283f)); Sh = new[] { Sh[0] + 0.04f + 0.05f * c, Sh[1] - 0.06f - 0.09f * c, Sh[2] + 0.15f + 0.2f * c, Sh[3], Sh[4] }; }
             }
             // оружие
@@ -631,9 +674,9 @@ namespace Journal.Viewer
             for (int i = 0; i < rec.Dead.Count; i++)
             {
                 var dd = rec.Dead[i];
-                if (dd.Frame > f0 || !In(dd.X, dd.Y, 3)) continue;
+                if (dd.Frame > f0 + 1 || dd.Frame == f0 + 1 && !(dd.T <= t) || !In(dd.X, dd.Y, 3)) continue;   // Б2: лежит с мига удара
                 int seed = dd.Frame * 131 + dd.Unit * 7919 + Mathf.RoundToInt(dd.X * 13) + Mathf.RoundToInt(dd.Y * 7);
-                float age = (float)(t - dd.Frame * rec.Dt), grow = Mathf.Min(1, 0.25f + age / 1.2f), a = dd.Dir * Mathf.Deg2Rad;
+                float age = (float)(t - dd.T), grow = Mathf.Min(1, 0.25f + age / 1.2f), a = dd.Dir * Mathf.Deg2Rad;
                 float big = dd.Part == 3 ? 1.7f : dd.Part == 0 ? 0.65f : dd.Part == 2 ? 0.85f : 1;
                 for (int k = 0; k < 3; k++)
                 {

@@ -16,11 +16,15 @@ namespace Journal.Viewer
         public double Men, PerMan, RankDepth, Front, Depth;
         public readonly List<double[]> Figs = new List<double[]>();   // по номеру тела: [ширина, глубина, бойцов, ряд]
     }
-    // павший: часть 0 голова, 1 корпус, 2 ноги, 3 конь; Man — номер бойца (0 — неизвестен); Killed — убит (иначе ранен, Г39, В13)
-    public struct DeadRec { public float X, Y, Facing, Dir; public int Frame, Unit, Part, Man; public bool Killed; }
+    // павший: часть 0 голова, 1 корпус, 2 ноги, 3 конь; Man — номер бойца (0 — неизвестен); Killed — убит (иначе ранен, Г39, В13);
+    // T — когда пал (часы боя; Б2 — в миг удара), Frame — первый кадр, где его уже нет в строю
+    public struct DeadRec { public float X, Y, Facing, Dir, T; public int Frame, Unit, Part, Man; public bool Killed; }
     // бойцы отряда в кадре (Г75): по номеру бойца — x, y, курс°; NaN — нет (пал, ушёл, ещё не было); фигурка и ряд;
     // Ph — фаза шага (В13): круги шага, набранные по пройденному пути — ноги не скользят при смене скорости
-    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; }
+    // Рукопашная по бойцам (Б2, только при MenBodies): кто в схватке — Eng (номера бойцов), курс на противника EngH (°, NaN —
+    // противника нет), прошлый удар EngSw, следующий по ритму EngNx, удар на щит EngPa (часы боя; NaN — не было).
+    // Только сцепившиеся — запись не растёт на всё войско
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng; public float[] EngH, EngSw, EngNx, EngPa; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
 
     public sealed class Recording
@@ -42,6 +46,7 @@ namespace Journal.Viewer
         public readonly List<List<string>> Logs = new List<List<string>>();
         public double Seconds => (Frames.Count - 1) * Dt;
         public bool Done;                                                                            // досчитана; иначе дописывается по ходу счёта
+        public bool MenMelee;                                                                        // рукопашная по бойцам (Б2): удары — из движка
 
         // Где отряд нарисован в момент t: рамка вокруг его бойцов по осям курса (середина, курс°, фронт, глубина, м).
         // Отбившихся одиночек не считаем — 2–98% по каждой оси. Бойцов в записи нет — центр и строй из кадра.
@@ -108,7 +113,8 @@ namespace Journal.Viewer
             var R = Rules.Base;
             ms = movers.ToList(); this.battle = battle;
             if (battle != null && battle.ArrowLog == null) battle.ArrowLog = new List<ArrowTrace>();
-            Rec = new Recording { Name = name, Note = note, Map = geo.Map, W = geo.W, H = geo.H, TurnSec = R.Move.TurnSec, Turns = turns };
+            Rec = new Recording { Name = name, Note = note, Map = geo.Map, W = geo.W, H = geo.H, TurnSec = R.Move.TurnSec, Turns = turns,
+                MenMelee = battle != null && battle.R.Move.MenBodies };
             for (int i = 0; i < ms.Count; i++)
             {
                 var m = ms[i]; var u = m.P.U; idx[u.Id] = i;
@@ -121,6 +127,24 @@ namespace Journal.Viewer
             Rec.States = ms.Select(m => new List<int> { 0, State(m) }).ToArray();
         }
         static int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
+        // кто из бойцов отряда в схватке (Б2): с противником или только что бил либо принял удар на щит
+        readonly List<int> eId = new List<int>(); readonly List<float> eH = new List<float>(), eSw = new List<float>(), eNx = new List<float>(), ePa = new List<float>();
+        void MeleeOf(Mover m, MenFrame mf, int n)
+        {
+            double now = battle.Clock;
+            eId.Clear(); eH.Clear(); eSw.Clear(); eNx.Clear(); ePa.Clear();
+            foreach (var man in m.Men)
+            {
+                if (!man.Alive || man.Id >= n) continue;
+                var foe = man.Foe != null && man.Foe.Alive ? man.Foe : null;
+                if (foe == null && !(now - man.SwingAt < 0.6) && !(now - man.ParryAt < 0.6)) continue;
+                eId.Add(man.Id);
+                eH.Add(foe != null ? (float)(Math.Atan2(foe.X - man.X, -(foe.Y - man.Y)) * 180 / Math.PI) : float.NaN);
+                eSw.Add((float)man.SwingAt); eNx.Add(foe != null ? (float)man.NextSwing : float.NaN); ePa.Add((float)man.ParryAt);
+            }
+            if (eId.Count == 0) return;
+            mf.Eng = eId.ToArray(); mf.EngH = eH.ToArray(); mf.EngSw = eSw.ToArray(); mf.EngNx = eNx.ToArray(); mf.EngPa = ePa.ToArray();
+        }
 
         public void Snap()
         {
@@ -176,6 +200,7 @@ namespace Journal.Viewer
                     g.xy[2 * id] = (float)man.X; g.xy[2 * id + 1] = (float)man.Y;
                     mf.Ph[id] = g.ph[id];
                 }
+                if (rec.MenMelee) MeleeOf(m, mf, n);
                 return mf;
             }).ToArray());
             int fr = rec.Frames.Count - 1;
@@ -185,7 +210,8 @@ namespace Journal.Viewer
             {
                 var d = battle.Deaths[seenDead];
                 int part = d.Part == "head" ? 0 : d.Part == "legs" ? 2 : d.Part == "horse" ? 3 : 1;
-                rec.Dead.Add(new DeadRec { X = (float)d.X, Y = (float)d.Y, Frame = fr, Unit = idx[d.UnitId], Facing = (float)d.Facing, Dir = (float)d.Dir, Part = part, Man = d.ManId, Killed = d.Killed });
+                float dt0 = fr * (float)rec.Dt, dT = d.T > 0 && d.T <= dt0 + 1e-3 ? (float)d.T : dt0;   // время из движка, не позже кадра
+                rec.Dead.Add(new DeadRec { X = (float)d.X, Y = (float)d.Y, T = dT, Frame = fr, Unit = idx[d.UnitId], Facing = (float)d.Facing, Dir = (float)d.Dir, Part = part, Man = d.ManId, Killed = d.Killed });
             }
             for (int i = 0; i < ms.Count; i++) if (rec.States[i][rec.States[i].Count - 1] != State(ms[i])) { rec.States[i].Add(fr); rec.States[i].Add(State(ms[i])); }
             // стрелы — в запись сразу на вылете (конец ещё не известен: T1 = ∞, смотрелка ведёт её по броску), долетела —

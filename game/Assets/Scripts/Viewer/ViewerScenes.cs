@@ -55,7 +55,7 @@ namespace Journal.Viewer
     public static class ViewerScenes
     {
         static Rules R => Rules.Base;
-        static Battle NewBattle(Geo geo, uint seed) => new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next });
+        static Battle NewBattle(Geo geo, uint seed, Rules r = null) => new Battle(geo, r ?? R, new EngineContext { Rng = new Mulberry32(seed).Next });
 
         // Имена — для списка в смотрелке; сцена строится заново при каждом выборе (в фоне, не в кадре)
         public static readonly (string Name, Func<SceneDef> Make)[] All = Builtin()
@@ -70,7 +70,8 @@ namespace Journal.Viewer
             ("Бой: сплотить", Rally),
             ("Река: брод и мост", River),
             ("Рода войск", Parade),
-            ("Облик: анимации", Anim),
+            ("Облик: анимации", () => Anim()),
+            ("Бойцы: рукопашная (Б2)", () => Anim(true)),
         };
 
         static SceneDef Shoot()
@@ -188,12 +189,18 @@ namespace Journal.Viewer
             return sc;
         }
         // Облик (В13): анимации пачки 1 — как сцена «Облик: анимации» полигона (core/Tests/Polygon.cs)
-        static SceneDef Anim()
+        // menBodies — те же отряды при рукопашной по бойцам (Б2, переключатель MenBodies, черновик чата механики): у каждого бойца
+        // свой противник, удар в своём ритме, падает тот, кого ударили, — смотрелка играет удары и щит по движку
+        static SceneDef Anim(bool menBodies = false)
         {
-            var sc = new SceneDef { Name = "Облик: анимации", Turns = 3, Geo = SceneDef.Open(1300, 800),
-                Note = "В13. Пикинёры опускают пики в 30 м от врага; арбалетчики взводят через стремя; пехота рубит ополчение — " +
+            var sc = new SceneDef { Name = menBodies ? "Бойцы: рукопашная (Б2)" : "Облик: анимации", Turns = 3, Geo = SceneDef.Open(1300, 800),
+                Note = menBodies ? "Б2. Рукопашная по бойцам: каждый бьётся со своим противником — удар в миг удара в движке, ударенный падает тогда же; " +
+                       "не попал в потери — принял на щит и отшатнулся." :
+                       "В13. Пикинёры опускают пики в 30 м от врага; арбалетчики взводят через стремя; пехота рубит ополчение — " +
                        "удары сбоку и сверху, щит навстречу, вспышки; рыцари шагом и рысью выходят на 40 м и встают; раненые ползут." };
-            sc.Battle = NewBattle(sc.Geo, 13);
+            Rules r = null;
+            if (menBodies) { r = new Rules(); r.Move.MenBodies = true; }
+            sc.Battle = NewBattle(sc.Geo, 13, r);
             sc.Fighter("infantry", 2, "Враг: пехота", 190, 420, 0, faction: 2, men: 400);
             var pk = sc.Fighter("pikemen", 1, "Пикинёры", 190, 420 - 170, 180, men: 400);
             sc.Fighter("infantry", 4, "Враг: пехота Б", 520, 420, 0, faction: 2, men: 400);
