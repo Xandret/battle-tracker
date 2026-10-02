@@ -38,7 +38,7 @@ http.createServer((req, res) => {
   }
   // файлы: собранный полигон и скрипт выгрузки
   const rel = decodeURIComponent(url.pathname).replace(/^\/+/, "") || "polygon.html";
-  const base = rel === "atlas-export.js" || /^men-[\w-]+\.html$/.test(rel) || /^polygon-men[\w-]*\.js$/.test(rel) ? toolsDir : serveDir;   // галерея бойцов — из исходника
+  const base = rel === "atlas-export.js" || /^(men|build)-[\w-]+\.html$/.test(rel) || /^polygon-(men|build)[\w-]*\.js$/.test(rel) ? toolsDir : serveDir;   // пробы бойцов и построек — из исходника
   const file = path.join(base, rel);
   if (!file.startsWith(base) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end("нет"); return; }
   res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream" });
