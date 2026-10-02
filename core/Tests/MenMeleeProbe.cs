@@ -134,3 +134,72 @@ static class MenMeleeKnights
         }
     }
 }
+
+// Б2: смешиваются ли строи — сколько бойцов зашло за передний край врага (в его рамке) и как глубоко
+static class MenMeleeMix
+{
+    public static void Run()
+    {
+        foreach (var r in new[] { Rules.Base, MenBodyTests.RB })
+        {
+            // как сцена «Облик: анимации» (пехота рубит ополчение): по 400, в упор
+            var bt = new Battle(MoveTests.Open(1000, 1000), r, new EngineContext { Rng = new Mulberry32(13).Next });
+            var TA = Templates.Get("infantry"); var TB = Templates.Get("militia");
+            var b = bt.Add(TB.Make(2, TB.Name, 400, 2), 500, 500, 0);
+            var a = bt.Add(TA.Make(1, TA.Name, 400, 1), 500, 500 - (4 + 0.5 + 4), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            Console.WriteLine(r.Move.MenBodies ? "— бойцы —" : "— фигурки —");
+            int k = 0;
+            // передний край по живым бойцам: B смотрит вверх (−y), A — вниз; граница — середина между краями
+            for (int t = 0; t < 2; t++)
+                bt.Turn(_ =>
+                {
+                    if (++k % 25 != 0 && k != 190) return;
+                    var am = a.Men.Where(x => x.Alive).ToList(); var bm = b.Men.Where(x => x.Alive).ToList();
+                    // линия схватки — медиана y передних бойцов: A — самые южные 10% , B — самые северные 10%
+                    double aFront = am.Select(x => x.Y).OrderByDescending(v => v).Take(Math.Max(1, am.Count / 10)).Average();
+                    double bFront = bm.Select(x => x.Y).OrderBy(v => v).Take(Math.Max(1, bm.Count / 10)).Average();
+                    double line = (aFront + bFront) / 2;
+                    // зашли за линию: A южнее линии, B севернее — глубже 1 м
+                    var aIn = am.Where(x => x.Y > line + 1).Select(x => x.Y - line).ToList();
+                    var bIn = bm.Where(x => x.Y < line - 1).Select(x => line - x.Y).ToList();
+                    // соседи-враги: у скольких бойцов A ближайший сосед (до 1,2 м) — враг, а враг стоит «за ним» по курсу A
+                    int Inside(List<Man> mine, List<Man> foes)
+                    {
+                        int n = 0;
+                        foreach (var x in mine)
+                        {
+                            double fx = Math.Sin(x.Facing * Math.PI / 180), fy = -Math.Cos(x.Facing * Math.PI / 180);
+                            bool ahead = false, behind = false;
+                            foreach (var e in foes)
+                            {
+                                double dx = e.X - x.X, dy = e.Y - x.Y;
+                                if (dx * dx + dy * dy > 1.5 * 1.5) continue;
+                                double along = dx * fx + dy * fy;
+                                if (along > 0.3) ahead = true; else if (along < -0.3) behind = true;
+                            }
+                            if (ahead && behind) n++;
+                        }
+                        return n;
+                    }
+                    if (r.Move.MenBodies && (k == 190))
+                    {
+                        Console.WriteLine($"  карта {k * r.Move.Dt:0.0} с (x 488…512, y 489…505, клетка 0,5 м; a — пехота, b — ополчение, * — оба), ополчение {b.P.U.Status} БД {b.P.U.Morale:0}:");
+                        for (double y = 489; y < 505; y += 0.5)
+                        {
+                            var sb = new System.Text.StringBuilder("   ");
+                            for (double x = 488; x < 512; x += 0.5)
+                            {
+                                bool ha = am.Any(q => q.X >= x && q.X < x + 0.5 && q.Y >= y && q.Y < y + 0.5), hb = bm.Any(q => q.X >= x && q.X < x + 0.5 && q.Y >= y && q.Y < y + 0.5);
+                                sb.Append(ha && hb ? '*' : ha ? 'a' : hb ? 'b' : '.');
+                            }
+                            Console.WriteLine(sb);
+                        }
+                    }
+                    Console.WriteLine($"  {k * r.Move.Dt:0.0} с: внутри чужого строя (враг и впереди, и позади ближе 1,5 м): A {Inside(am, bm)}, B {Inside(bm, am)}");
+                    if (k % 50 != 0) return;
+                    Console.WriteLine($"  {k * r.Move.Dt:0.0} с: линия y {line:0.0}; A за линией глубже 1 м: {aIn.Count} (макс {(aIn.Count > 0 ? aIn.Max() : 0):0.0} м), B за линией: {bIn.Count} (макс {(bIn.Count > 0 ? bIn.Max() : 0):0.0} м); потери A {400 - a.P.U.Soldiers:0} B {400 - b.P.U.Soldiers:0}");
+                });
+        }
+    }
+}
