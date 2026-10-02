@@ -415,6 +415,8 @@ namespace Journal.Play
                 float tUp = Mathf.Min(sh > 1e-3f ? bw / 2 / sh : float.MaxValue, ch > 1e-3f ? bd / 2 / ch : float.MaxValue);
                 var spt = viewer.MapToScreen(new Vector2(x, y - tUp));
                 float sx = spt.x, top = spt.y;
+                // знамя (Banners) стоит в строю и торчит вверх на ~27 px — табличка над ним, а не на нём
+                if (!m.Fleeing || m.RallyPending) top = Mathf.Max(top, viewer.MapToScreen(Journal.Viewer.Banners.Base(x, y, hd, Mathf.Min(bd, (float)m.P.Fp.Depth))).y + Journal.Viewer.Banners.TopPx(ppm) + 2);
                 var pp = RuntimePanelUtils.ScreenToPanel(root.panel, new Vector2(sx, Screen.height - top));
                 // таблички соседей не налезают: занятое место — выше, пока не свободно
                 float w = float.IsNaN(t.Root.resolvedStyle.width) ? 60 : t.Root.resolvedStyle.width, th = 20, ty = pp.y - 4;

@@ -42,6 +42,7 @@ namespace Journal.Viewer
         Color32[] unitCol, unitColRaw;   // цвет стороны: для плашек (в линейном пространстве) и для шейдера бойцов (как есть)
         Color32[] unitEdge;              // обводка плашки: тёмная у светлых цветов, светлая у тёмных — чтобы отряд читался на любой земле
         MenView menView;
+        Banners banners;                 // знамёна над отрядами (Г7, В11) — и издали, и вблизи
         const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — плашки
         readonly List<Rect> uiRects = new List<Rect>();
         bool dragging; Vector2 dragFrom; Vector3 camFrom;
@@ -97,6 +98,7 @@ namespace Journal.Viewer
             units.AddComponent<MeshFilter>().sharedMesh = unitsMesh;
             var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
             menView = new MenView(transform);
+            banners = new Banners(transform);
         }
         void Start()
         {
@@ -123,7 +125,7 @@ namespace Journal.Viewer
                 if (pendingScene >= 0) { int p = pendingScene; pendingScene = -1; Load(p); }
             }
             HandleInput();
-            if (rec == null || rec.Frames.Count == 0) { unitsMesh.Clear(); menView?.Hide(); return; }
+            if (rec == null || rec.Frames.Count == 0) { unitsMesh.Clear(); menView?.Hide(); banners?.Hide(); return; }
             // живая запись (ход ещё считается) — играем до последнего готового кадра и ждём; досчитанная — стоп в конце
             if (playing) { t += Time.deltaTime * speed; if (t >= rec.Seconds) { t = rec.Seconds; if (rec.Done) playing = false; } }
             DrawUnits();
@@ -339,10 +341,12 @@ namespace Journal.Viewer
             V.Clear(); C.Clear(); I.Clear();
             // близко — бойцы из рисунка полигона (MenView); плашки, павшие и стрелы ниже — только издали
             float ppm = Screen.height / (2 * cam.orthographicSize);
+            var cp = cam.transform.position; float vh = cam.orthographicSize, vw = vh * cam.aspect;
+            var viewRect = new Rect(cp.x - vw, -cp.y - vh, 2 * vw, 2 * vh);
+            banners?.Draw(rec, t, unitColRaw, Lin, viewRect, ppm);
             if (menView != null && menView.Ok && ppm >= MenFrom)
             {
-                var p = cam.transform.position; float hh = cam.orthographicSize, hw = hh * cam.aspect;
-                menView.Draw(t, unitColRaw, new Rect(p.x - hw, -p.y - hh, 2 * hw, 2 * hh), ppm);
+                menView.Draw(t, unitColRaw, viewRect, ppm);
                 unitsMesh.Clear();
                 return;
             }
