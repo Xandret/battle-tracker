@@ -211,7 +211,9 @@ namespace BattleCore
             // колонны для боя — середина её живых бойцов. Выключено — по-старому: фигурки-капсулы (Г56–Г58)
             public bool MenBodies = false;
             public double AnchorLeadM = 1.5;        // якорь уходит от середины своих бойцов не дальше: упёрлись — встаёт и он
-            public double HorseHalfShare = 0.4;     // тело конного — капсула вдоль курса: полудлина — эта доля глубины шеренги
+            // тело конного — капсула вдоль курса: полудлина — эта доля глубины шеренги. 0,25: при шеренге 3 м и ширине 1,5 м капсула
+            // 2,85 × 1,35 м — кони в строю не внахлёст (при 0,4 было 3,75 м: строй всё время расталкивал сам себя)
+            public double HorseHalfShare = 0.25;
             public double NarrowWidenSec = 2;       // после перестроения в узости шире — не раньше
             public double MenYieldM = 0.25;
             public double FriendYieldShare = 0.8;   // свои разных отрядов перекрылись — уступающий отходит на эту долю, идущий первым — на остаток         // взгляд вперёд бойца: ближе этого к чужому через LookAheadSec — уступает
@@ -242,6 +244,13 @@ namespace BattleCore
             // ритм ±25%. Удар — попадание, если у врага есть неотданные потери окна стола; иначе принят на щит, и ударенный
             // отшатывается со скоростью RecoilMps
             public double ReachM = 1.0, SwingSec = 1.6, RecoilMps = 0.6; public int PikeRanks = 4;
+            // Г94 (Алекс): у бойца свой курс тела — поворачивается не быстрее TurnDegPerSec; вбок и назад относительно курса — не
+            // быстрее Side/Back (конь назад почти не ходит — сперва развернётся). Дальше FaceMoveM от места или быстрее FaceMoveMps —
+            // лицом по ходу; у места — по колонне; в схватке — на противника; бегущий — по ходу
+            public double FootTurnDegPerSec = 360, HorseTurnDegPerSec = 120;
+            public double FootSideMps = 1.5, FootBackMps = 1.0, HorseSideMps = 0.5, HorseBackMps = 0.3;
+            public double FaceMoveM = 1.5, FaceMoveMps = 1.5;
+            public double PushMaxMps = 6;   // Г94: толкотня двигает бойца не быстрее этого — без рывков
         }
         public MenR Men = new MenR();
 

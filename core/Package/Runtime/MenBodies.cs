@@ -129,6 +129,10 @@ namespace BattleCore
                 bool horse = BattleMap.IsHorse(m.P.U), archer = m.P.U.Type == "archer";
                 double rad = MR.BodyShare * Math.Min(f.PerMan, f.RankDepth), half = horse ? M.HorseHalfShare * f.RankDepth : 0;
                 double time = m.Steps * dt;
+                // Г81: отступающая пехота пятится лицом к врагу; конь назад не пятится — развернётся (Г94)
+                bool backing = !horse && m.Order != null && m.Order.Kind == OrderKind.Retreat && !m.Done;
+                double turn = (horse ? MR.HorseTurnDegPerSec : MR.FootTurnDegPerSec) * dt;
+                double backMax = horse ? MR.HorseBackMps : MR.FootBackMps, sideMax = horse ? MR.HorseSideMps : MR.FootSideMps;
                 foreach (var man in m.Men)
                 {
                     if (!man.Alive || man.Fig == null) continue;
@@ -189,12 +193,36 @@ namespace BattleCore
                         }
                     }
                     double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * MR.SpeedK, v = JsMath.Hypot(vx, vy);
-                    if (v > vmax) { vx *= vmax / v; vy *= vmax / v; }
-                    double fh = man.Facing * Math.PI / 180;
+                    if (v > vmax) { vx *= vmax / v; vy *= vmax / v; v = vmax; }
+                    // Г94: курс тела — к нужному не быстрее turn за шаг; вбок и назад относительно курса — медленно
+                    double want;
+                    if (m.Fleeing) want = v > 0.5 ? MoveSim.HeadingOf(vx, vy) : man.Facing;
+                    else if (foe != null && foe.Alive) want = MoveSim.HeadingOf(foe.X - man.X, foe.Y - man.Y);
+                    else if (!backing && (far > MR.FaceMoveM || v > MR.FaceMoveMps || man.Vx * man.Vx + man.Vy * man.Vy > MR.FaceMoveMps * MR.FaceMoveMps))
+                    {
+                        // по ходу. Ещё бежит, а хочет стоять или назад от своего хода — сперва тормозит, глядя по своему ходу, потом
+                        // разворачивается: иначе конь на скаку смотрел бы уже назад, а нёсся вперёд — «задом»
+                        bool braking = man.Vx * man.Vx + man.Vy * man.Vy > MR.FaceMoveMps * MR.FaceMoveMps && (v < 0.5 || vx * man.Vx + vy * man.Vy < 0);
+                        want = braking ? MoveSim.HeadingOf(man.Vx, man.Vy) : MoveSim.HeadingOf(vx, vy);
+                    }
+                    else want = s.Hd;
+                    double dh = MoveSim.AngleDiff(man.Facing, want);
+                    man.Facing = MoveSim.Norm(Math.Abs(dh) <= turn ? want : man.Facing + Math.Sign(dh) * turn);
+                    double fh = man.Facing * Math.PI / 180, ufx = Math.Sin(fh), ufy = -Math.Cos(fh);
+                    double fwd = vx * ufx + vy * ufy, side = -vx * ufy + vy * ufx;   // вперёд и вправо (вправо — (−ufy, ufx))
+                    double back = backing ? vmax : backMax;
+                    if (fwd < -back) fwd = -back;
+                    if (side > sideMax) side = sideMax; else if (side < -sideMax) side = -sideMax;
+                    vx = ufx * fwd - ufy * side; vy = ufy * fwd + ufx * side;
                     tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly;
-                    tUx[c] = Math.Sin(fh); tUy[c] = -Math.Cos(fh); tHalf[c] = half; tRad[c] = rad;
+                    // капсула коня для толкотни лежит вдоль колонны (бегущего — по курсу): развернуть разом длинные тела в плотном
+                    // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
+                    double ph = m.Fleeing ? fh : s.Hd * Math.PI / 180;
+                    tUx[c] = Math.Sin(ph); tUy[c] = -Math.Cos(ph); tHalf[c] = half; tRad[c] = rad;
                     tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax;
-                    tCap[c] = Math.Max(vmax, 1) * dt * M.PushSpeedK;
+                    // расталкивание — не быстрее PushMaxMps, как бы ни был скор сам боец: иначе конь на полном ходу, врезавшись,
+                    // отлетал на 2,8 м за шаг — рывок
+                    tCap[c] = Math.Min(Math.Max(vmax, 1), MR.PushMaxMps) * dt * M.PushSpeedK;
                     tFlag[c] = (byte)((archer ? 1 : 0) | (Through(s) ? 8 : 0)); tBlocked[c] = 0; tBlockedEnemy[c] = false;
                     tReach[c] = half + rad + Math.Max(JsMath.Hypot(vx, vy), JsMath.Hypot(man.Vx, man.Vy)) * laF + M.MenYieldM;
                     if (half + rad > maxBody) maxBody = half + rad;
@@ -280,7 +308,7 @@ namespace BattleCore
                 var man = tMan[i];
                 man.X = tX[i]; man.Y = tY[i];
                 if ((tFlag[i] & 4) != 0) { man.Vx = (man.X - tX0[i]) / dt; man.Vy = (man.Y - tY0[i]) / dt; }
-                man.Facing = tM[i].Fleeing && man.Vx * man.Vx + man.Vy * man.Vy > 0.25 ? MoveSim.HeadingOf(man.Vx, man.Vy) : man.Fig.Hd;
+                // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает
             }
             Finish(ms, dt, r, c);
         }

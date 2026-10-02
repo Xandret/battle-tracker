@@ -349,3 +349,76 @@ static class MenG44Probe
         });
     }
 }
+
+// Г94: кто из коней «пятится» быстро на отступлении
+static class MenTurnProbe
+{
+    public static void Run()
+    {
+        var RB = MenBodyTests.RB;
+        var bt = new Battle(MoveTests.Open(800, 800), RB, new EngineContext { Rng = new Mulberry32(5).Next });
+        var t = Templates.Get("knights");
+        var m = bt.Add(t.Make(1, t.Name, 300, 1), 400, 300, 180);
+        bt.Order(m, new MoveOrder { Kind = OrderKind.Retreat, X = double.NaN, Y = double.NaN });   // точки нет — прямо назад (Г81)
+        Console.WriteLine($"приказ: {m.Order?.Kind} к {m.Order?.X:0},{m.Order?.Y:0}; рамка {m.P.X:0},{m.P.Y:0} курс {m.P.Facing:0}");
+        int k = 0; double worst = 0;
+        var prev = m.Men.ToDictionary(x => x, x => (x.X, x.Y));
+        bt.Turn(_ =>
+        {
+            k++;
+            foreach (var x in m.Men)
+            {
+                if (!x.Alive) continue;
+                double h = x.Facing * Math.PI / 180, back = -(x.Vx * Math.Sin(h) - x.Vy * Math.Cos(h));
+                var p = prev[x]; double jump = JsMath.Hypot(x.X - p.X, x.Y - p.Y) / RB.Move.Dt;
+                prev[x] = (x.X, x.Y);
+                if (k * RB.Move.Dt >= 0.5 && back > worst && back > 1) { worst = back; Console.WriteLine($"  {k * RB.Move.Dt:0.00} с: боец {x.Id} назад {back:0.0} м/с, скорость {x.Vx:0.0},{x.Vy:0.0} (по смещению {jump:0.0}), курс {x.Facing:0}, колонна курс {x.Fig.Hd:0}, якорь {x.Fig.AX:0.0},{x.Fig.AY:0.0}, сам {x.X:0.0},{x.Y:0.0}, reseat {x.Reseat}"); }
+            }
+            if (k % 40 == 0) Console.WriteLine($"  {k * RB.Move.Dt:0.0} с: рамка {m.P.X:0},{m.P.Y:0.0}, курс бойцов: по ходу (около 0°) {m.Men.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 0)) < 45)}, к врагу (около 180°) {m.Men.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) < 45)}");
+        });
+    }
+}
+
+// Г94: кто из коней в бою (охват рыцарей) уходит назад за 0,5 с и почему
+static class MenTurnBattleProbe
+{
+    public static void Run()
+    {
+        var RB = MenBodyTests.RB;
+        var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(301).Next });
+        var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+        var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+        var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), RB);
+        var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        var win = new Dictionary<Man, (double X, double Y, double F)>();
+        int frame = 0, total = 0, back = 0, printed = 0;
+        var why = new Dictionary<string, int>();
+        bt.Turn(_ =>
+        {
+            if (++frame % 10 != 0) return;
+            var near = new HashSet<(int, int)>();
+            foreach (var y in b.Men) if (y.Alive) near.Add(((int)Math.Floor(y.X / 3), (int)Math.Floor(y.Y / 3)));
+            bool Close(Man x) { int cx = (int)Math.Floor(x.X / 3), cy = (int)Math.Floor(x.Y / 3); for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) if (near.Contains((cx + i, cy + j))) return true; return false; }
+            foreach (var x in a.Men)
+            {
+                if (!x.Alive) continue;
+                if (win.TryGetValue(x, out var w) && x.Foe == null && !Close(x))
+                {
+                    double a0 = w.F * Math.PI / 180, dx = x.X - w.X, dy = x.Y - w.Y;
+                    double bk = -(dx * Math.Sin(a0) - dy * Math.Cos(a0)) / 0.5;
+                    total++;
+                    if (bk > 1)
+                    {
+                        back++;
+                        var s = x.Fig; string k = (s.Wrap ? (s.Fighting ? "охват, бьётся" : "охват, идёт") : s.Returning ? "возврат" : s.Fighting ? "в строю, бьётся" : "в строю") + (bk > 3 ? " (>3 м/с)" : "");
+                        why[k] = why.TryGetValue(k, out var c) ? c + 1 : 1;
+                        if (k.StartsWith("охват, идёт") && printed++ < 8) Console.WriteLine($"  {frame * RB.Move.Dt:0.0} с: боец {x.Id} назад {bk:0.0} м/с, курс был {w.F:0} стал {x.Facing:0}, сдвиг {dx:0.0},{dy:0.0}; колонна: {k}, курс колонны {s.Hd:0}, хочет {s.Dvx:0.0},{s.Dvy:0.0}, идёт {s.AVx:0.0},{s.AVy:0.0}; reseat {x.Reseat}; сквозь своих {s.Wrap && !s.Fighting && s.GoalM > 3}, GoalM {s.GoalM:0.0}, скорость {x.Vx:0.0},{x.Vy:0.0}");
+                    }
+                }
+                win[x] = (x.X, x.Y, x.Facing);
+            }
+        });
+        Console.WriteLine($"окон {total}, назад {back}: " + string.Join(", ", why.Select(kv => $"{kv.Key} {kv.Value}")));
+    }
+}
