@@ -7,8 +7,7 @@ using BattleCore;
 
 static class MenBodyTests
 {
-    public static readonly Rules RB = MakeRules();
-    static Rules MakeRules() { var r = new Rules(); r.Move.MenBodies = true; return r; }
+    public static readonly Rules RB = Rules.Base;   // с 03.10.2026 бойцы-тела — умолчание (Г92); старый режим — Rules.Figures
     static void True(bool ok, string what) { if (!ok) throw new Exception(what); }
 
     static Mover Unit(string tpl, int id, double x, double y, double facing, double men = 1000, int faction = 1, Rules r = null)

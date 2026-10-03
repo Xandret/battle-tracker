@@ -307,7 +307,7 @@ namespace BattleCore
                         var s = x.Figs[k]; var q = y.Figs[ky];
                         double dx = q.X - s.X, dy = q.Y - s.Y, d = JsMath.Hypot(dx, dy);
                         if (d < 1e-9) continue;
-                        s.Fighting = true; s.FightX = dx / d; s.FightY = dy / d; s.FoeX = q.X; s.FoeY = q.Y;   // для выпадов передних бойцов (Г78)
+                        s.Fighting = true; s.FightX = dx / d; s.FightY = dy / d; s.FoeX = q.X; s.FoeY = q.Y; s.FoeId = y.P.U.Id;   // для выпадов передних бойцов (Г78)
                     }
                 if (!colFoe.TryGetValue(x, out var cf)) colFoe[x] = cf = new Dictionary<int, (Mover foe, double d)>();
                 for (int k = 0; k < kv.Value.Length; k++)
@@ -826,7 +826,10 @@ namespace BattleCore
             foreach (var x in Movers)
             {
                 var foes = Fights.Where(f => !f.Over && f.Touching && (f.A == x || f.B == x)).Select(f => f.Other(x)).ToList();
-                if (foes.Count == 0 || x.P.Figs.Count == 0 || !Alive(x))   // бегущий никого не охватывает (Г70)
+                // Г81: отступающий не охватывает и кольца не держит — колонны к своим местам, иначе (при бойцах-телах, где
+                // бьющаяся колонна держит место у врага) отряд не оторвался бы от врага
+                bool leaving = x.Order != null && x.Order.Kind == OrderKind.Retreat && !x.Done;
+                if (foes.Count == 0 || leaving || x.P.Figs.Count == 0 || !Alive(x))   // бегущий никого не охватывает (Г70)
                 {
                     foreach (var s in x.Figs) { s.Wrap = false; s.WFoe = null; }
                     continue;

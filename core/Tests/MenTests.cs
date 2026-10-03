@@ -7,7 +7,11 @@ using BattleCore;
 
 static class MenTests
 {
-    static readonly Rules R = Rules.Base;
+    public static Rules Use = Rules.Base;
+    static Rules R => Use;
+    // Г92: умолчание — бойцы-тела. Тесты именно старого режима (фигурки-капсулы, живые бойцы внутри них) — в обёртке Figs,
+    // пока его код не убран (Г97)
+    static Action Figs(Action run) => () => { var was = Use; Use = Rules.Figures; try { run(); } finally { Use = was; } };
     static void True(bool ok, string what) { if (!ok) throw new Exception(what); }
 
     // как далеко бойцы от своих мест (без выпадов): наибольшее и среднее
@@ -36,7 +40,7 @@ static class MenTests
 
     public static IEnumerable<(string Name, Action Run)> All()
     {
-        yield return ("бойцы (Г75): по бойцу на человека, у каждого своё место; стоящий отряд — каждый на месте", () =>
+        yield return ("бойцы (Г75): по бойцу на человека, у каждого своё место; стоящий отряд — каждый на месте", Figs(() =>
         {
             var geo = MoveTests.Open(600, 600);
             var m = MoveTests.Unit("infantry", 1, 300, 300, 0);
@@ -45,9 +49,9 @@ static class MenTests
             MoveSim.Turn(new[] { m }, geo, R);
             var (mx, _) = Lag(m);
             True(mx < 0.05, $"стоят дальше {mx:0.00} м от мест");
-        });
+        }));
 
-        yield return ("бойцы (Г76): на марше с поворотом отстают, но не дальше 2,5 м; встали — снова на местах", () =>
+        yield return ("бойцы (Г76): на марше с поворотом отстают, но не дальше 2,5 м; встали — снова на местах", Figs(() =>
         {
             var geo = MoveTests.Open(800, 800);
             var m = MoveTests.Unit("infantry", 1, 200, 600, 0);
@@ -59,9 +63,9 @@ static class MenTests
             MoveSim.Turn(new[] { m }, geo, R);
             var (mx, _) = Lag(m);
             True(m.Done && mx < 0.3, $"встали: дальше всех {mx:0.00} м");
-        });
+        }));
 
-        yield return ("толкотня (Г77): бойцы друг на друга не налезают — ни свои, ни враги в схватке", () =>
+        yield return ("толкотня (Г77): бойцы друг на друга не налезают — ни свои, ни враги в схватке", Figs(() =>
         {
             var (bt, a, b) = Duel("infantry", "infantry", 0.5, 3);
             bt.Turn();
@@ -77,9 +81,9 @@ static class MenTests
                                 if (p.x.Id != q.x.Id || p.Item2 != q.Item2)
                                     if (JsMath.Hypot(p.x.X - q.x.X, p.x.Y - q.x.Y) < rad) close++;
             True(close == 0, $"пар бойцов ближе {rad:0.00} м: {close / 2}");
-        });
+        }));
 
-        yield return ("схватка (Г78): передние касающихся фигурок выходят к врагу; падают — те, кто у врага", () =>
+        yield return ("схватка (Г78): передние касающихся фигурок выходят к врагу; падают — те, кто у врага", Figs(() =>
         {
             var (bt, a, b) = Duel("infantry", "infantry", 0.5, 4);
             double forward = 0; int n = 0, seen = 0, near = 0, deaths = 0;
@@ -106,7 +110,7 @@ static class MenTests
             True(ds.Count > 0 && ds.All(d => d.ManId > 0), "у каждого павшего — номер бойца");
             True(near >= 0.9 * deaths, $"у врага пало {near} из {deaths}");
             True(ds.All(d => !b.Men.Any(x => x.Id == d.ManId && x.Alive)), "павший снова в строю");
-        });
+        }));
 
         yield return ("стрелы (Г75): падает тот самый боец, в которого попали, — там, где стоял", () =>
         {
@@ -163,7 +167,7 @@ static class MenTests
             True(Math.Abs(seen - table) < 0.15, $"доля убитых {seen:0.00}, у стола {table:0.00}");
         });
 
-        yield return ("замена павших (В14): на место павшего шагает стоящий за ним, остальные почти не двигаются, из других фигурок не идут", () =>
+        yield return ("замена павших (В14): на место павшего шагает стоящий за ним, остальные почти не двигаются, из других фигурок не идут", Figs(() =>
         {
             var bt = new Battle(MoveTests.Open(600, 600), R, new EngineContext { Rng = new Mulberry32(1).Next });
             var m = bt.Add(Templates.Get("infantry").Make(1, "A", 1000, 1), 300, 300, 0);
@@ -183,9 +187,9 @@ static class MenTests
             var info = string.Join("; ", m.Men.Where(x => x.Alive).Select(x => (x, d: JsMath.Hypot(Soldiers.HomeOf(m, x).x - before[x].Item1.x, Soldiers.HomeOf(m, x).y - before[x].Item1.y))).Where(q => q.d > 0.6)
                 .Select(q => $"№{q.x.Id} ряд {q.x.Row} фигурка {m.Figs.IndexOf(q.x.Fig)}{(q.x.Fig == front.Fig ? "*" : "")} {q.d:0.00} м"));
             True(far == 0 && other == 0 && moved <= 2, $"ушли дальше 1,6 м: {far}, сменили фигурку: {other}, сдвинулись: {moved} — {info}");
-        });
+        }));
 
-        yield return ("замена павших (В14): в бою на новое место идут шагом — никто не перескакивает и не бежит сверх хода фигурки", () =>
+        yield return ("замена павших (В14): в бою на новое место идут шагом — никто не перескакивает и не бежит сверх хода фигурки", Figs(() =>
         {
             var (bt, a, b) = Duel("infantry", "infantry", 0.5, 7);
             var pos = new Dictionary<Man, (double x, double y, double fx, double fy, FigState f)>();
@@ -206,7 +210,7 @@ static class MenTests
             });
             double lim = (R.Men.ReseatRunMps + 2.5) * R.Move.Dt;   // трусцой (отставший далеко) плюс толкотня
             True(worst <= lim, $"боец №{who?.Id} сдвинулся за шаг на {worst:0.00} м сверх своей фигурки (предел {lim:0.00})");
-        });
+        }));
 
         yield return ("бойцы: одно зерно — один исход", () =>
         {

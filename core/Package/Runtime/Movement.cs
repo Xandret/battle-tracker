@@ -36,7 +36,7 @@ namespace BattleCore
     {
         public int Id;   // постоянный номер тела в отряде: место в строю (индекс) меняется — обмены, потери, — а тело то же
         // касается врага (Г27) и в какую сторону он (единичный вектор) — для выпадов передних бойцов (Г78)
-        public bool Fighting; public double FightX, FightY, FoeX, FoeY;   // FoeX, FoeY — где касающаяся фигурка врага
+        public bool Fighting; public double FightX, FightY, FoeX, FoeY; public int FoeId;   // FoeX, FoeY — где касающаяся фигурка врага; FoeId — её отряд
         public double Hc, Hs, Hd;   // курс фигурки на деле (Soldiers.FigHeading): косинус, синус, градусы — на шаг бойцов
         public long SeatKey = -1;   // В14: состав и размер, при которых бойцы рассажены, — не изменились, пересаживать незачем
         public double X, Y, Vx, Vy;
@@ -187,6 +187,18 @@ namespace BattleCore
 
         static double LegHeading(Track t, int leg) =>
             HeadingOf(t.Points[leg + 1].x - t.Points[leg].x, t.Points[leg + 1].y - t.Points[leg].y);
+        // куда отряд хочет идти — единичный вектор текущего отрезка его пути; false — пути нет или уже на месте
+        internal static bool WantDir(Mover m, out double ux, out double uy)
+        {
+            ux = uy = 0;
+            if (m.Track == null || m.OnSpot || m.Track.Points.Count < 2) return false;
+            var at = m.Track.At(m.Along);
+            int leg = at.piece >= 0 ? m.Track.Pieces[at.piece].Leg : 0;
+            if (leg + 1 >= m.Track.Points.Count) leg = m.Track.Points.Count - 2;
+            double dx = m.Track.Points[leg + 1].x - m.Track.Points[leg].x, dy = m.Track.Points[leg + 1].y - m.Track.Points[leg].y, l = JsMath.Hypot(dx, dy);
+            if (l < 1e-9) return false;
+            ux = dx / l; uy = dy / l; return true;
+        }
         // сколько нормы до конца отрезка ломаной leg
         static double LegEndCost(Track t, int leg)
         {

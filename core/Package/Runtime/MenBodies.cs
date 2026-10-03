@@ -29,6 +29,7 @@ namespace BattleCore
         [ThreadStatic] static double[] tX, tY;       // где боец сейчас — плотным массивом (сетка и расталкивание)
         [ThreadStatic] static double[] tLx, tLy;     // сдвиг места бойца от якоря на этом шаге (с растяжкой бегущей толпы) — для RefX, RefY
         [ThreadStatic] static List<int> gUsed;       // занятые клетки сетки
+        static readonly List<int> leaving = new List<int>();   // Г81: враги, от которых отряд уходит из схватки (на шаг, по отряду)
         [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through),
                                                      // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь, 128 — ждёт своей очереди (старт волной, Г84)
         [ThreadStatic] static Rules.MenR tMR;
@@ -163,7 +164,7 @@ namespace BattleCore
                 double rad = MR.BodyShare * Math.Min(f.PerMan, f.RankDepth), half = horse ? M.HorseHalfShare * f.RankDepth : 0;
                 double time = m.Steps * dt;
                 // Г81: отступающая пехота пятится лицом к врагу; конь назад не пятится — развернётся (Г94)
-                bool backing = !horse && m.Order != null && m.Order.Kind == OrderKind.Retreat && !m.Done;
+                bool retreating = m.Order != null && m.Order.Kind == OrderKind.Retreat && !m.Done, backing = !horse && retreating;
                 double turn = (horse ? MR.HorseTurnDegPerSec : MR.FootTurnDegPerSec) * dt;
                 double backMax = horse ? MR.HorseBackMps : MR.FootBackMps, sideMax = horse ? MR.HorseSideMps : MR.FootSideMps;
                 bool uRigid = unitRigid[mi];
@@ -198,9 +199,10 @@ namespace BattleCore
                         lx += Math.Sin(time * 2 * Math.PI / (2 + hu) + hu * 6.283) * MR.FleeWanderM * ramp;
                     }
                     double hx = s.AX + lx * s.Hc - ly * s.Hs, hy = s.AY + lx * s.Hs + ly * s.Hc;
-                    // выпады (Г78): у кого свой противник (Б2) — к нему; передние бьющейся колонны без него — к врагу колонны
+                    // выпады (Г78): у кого свой противник (Б2) — к нему; передние бьющейся колонны без него — к врагу колонны.
+                    // Отступающий (Г81) не выпадает: шаг к врагу — это упор в него, и отряд сам себя держал бы в схватке
                     var foe = man.Foe;
-                    if (!m.Fleeing && (foe != null && foe.Alive || s.Fighting && man.Row == 0))
+                    if (!m.Fleeing && !retreating && (foe != null && foe.Alive || s.Fighting && man.Row == 0))
                     {
                         double lunge = MR.LungeM + MR.LungeAmpM * Math.Sin(time * 2 * Math.PI / MR.LungeSec + hu * 6.283);
                         double ux = s.FightX, uy = s.FightY;
@@ -212,6 +214,9 @@ namespace BattleCore
                         hx += ux * lunge; hy += uy * lunge;
                     }
                     double cx = (hx - man.X) / MR.Tau, cy = (hy - man.Y) / MR.Tau;
+                    // отступающий (Г81) к врагу не шагает, даже если место чуть впереди (якорь ушёл за выпадами): шаг к врагу —
+                    // упор в него, и отряд держал бы сам себя в схватке
+                    if (retreating && s.Fighting) { double ad = cx * s.FightX + cy * s.FightY; if (ad > 0) { cx -= ad * s.FightX; cy -= ad * s.FightY; } }
                     // В14: новое или далёкое место — шагом или трусцой сверх хода колонны
                     double far = JsMath.Hypot(hx - man.X, hy - man.Y);
                     // к месту напрямик не пройти (строй сложился у моста, а боец за водой) — по карте направлений отряда,
@@ -476,13 +481,21 @@ namespace BattleCore
             {
                 var m = ms[mi];
                 int nb = 0, nm = 0;
+                bool active = m.Order != null && m.Track != null && !m.Done;
+                // схватка держит отряд, только пока он идёт на врага (атака, подход); отступающий (Г81) или уходящий от врага,
+                // с которым бьётся, не держится ни схваткой, ни упором в этого врага (тот теснит его, а не стоит на пути) —
+                // как фигурки (Г58), его держат лишь тела на пути: свои и другой враг
+                double wx = 0, wy = 0; bool wantKnown = active && MoveSim.WantDir(m, out wx, out wy);
+                leaving.Clear();
+                if (wantKnown) foreach (var s in m.Figs) if (s.Fighting && s.FightX * wx + s.FightY * wy < -0.3 && !leaving.Contains(s.FoeId)) leaving.Add(s.FoeId);
                 foreach (var s in m.Figs)
                 {
                     if (s.MenN == 0) continue;
                     nm++;
-                    if (s.Fighting || s.BlockedBy != 0 && s.BlockedBy != m.IgnoreHoldBy) nb++;
+                    bool fightHolds = s.Fighting && !(wantKnown && s.FightX * wx + s.FightY * wy < -0.3);
+                    bool blockHolds = s.BlockedBy != 0 && s.BlockedBy != m.IgnoreHoldBy && !(s.BlockedByEnemy && leaving.Contains(s.BlockedBy));
+                    if (fightHolds || blockHolds) nb++;
                 }
-                bool active = m.Order != null && m.Track != null && !m.Done;
                 if (nb > 0 && count?[mi] != null)
                 {
                     int main = 0, best = -1; bool enemy = false;
@@ -633,7 +646,9 @@ namespace BattleCore
             var F = tM[i].Field;
             if (F != null && !MoveSim.Free(F, nx, ny) && MoveSim.Free(F, tX[i], tY[i])) return;   // в воду и в стену не выталкиваем
             tX[i] = nx; tY[i] = ny; tFlag[i] |= 4;
-            if (other >= 0) { tBlocked[i] = tM[other].P.U.Id; tBlockedEnemy[i] = enemy; }
+            // упёрся — если толкнули против его хода; толчок стоящего или туда, куда он и шёл (враг напирает на отступающего,
+            // Г81), — не упор
+            if (other >= 0 && dx * tDvx[i] + dy * tDvy[i] < 0) { tBlocked[i] = tM[other].P.U.Id; tBlockedEnemy[i] = enemy; }
         }
 
         // Г57 поштучно: идёт ли первым отряд бойца i перед своим отрядом бойца j — как Bodies.First: решается при первой

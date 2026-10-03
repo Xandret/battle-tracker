@@ -336,11 +336,14 @@ static class Polygon
     static readonly Rules R0 = Rules.Base;
 
     // Прыжки (жалоба Алекса 02.10.2026: «фигурки телепортируются, упёршись»): тело (по ссылке) или фигурка в кадре
-    // полигона (по номеру тела) сдвинулись за шаг дальше, чем за шаг можно пройти (45 м/с). Возвращает строки прыжков
+    // полигона (по номеру тела) сдвинулись за шаг дальше, чем за шаг можно пройти (45 м/с). Возвращает строки прыжков.
+    // При бойцах-телах (Г92) тела — бойцы: проверяются они; колонна — середина своих живых бойцов, при павших и пересадке
+    // она смещается скачком, это не тело (бойцы в кадре полигона записаны смещением от неё — на рисунке стоят где стояли)
     public static List<string> Jumps(params string[] only)
     {
         var R = Rules.Base; var found = new List<string>();
         double lim = 30 * R.Move.Dt * 1.5;
+        bool menMode = R.Move.MenBodies; var prevMan = new Dictionary<Man, (double x, double y)>();
         foreach (var sc in Scenes())
         {
             if (only.Length > 0 && !only.Contains(sc.Name)) continue;
@@ -353,6 +356,18 @@ static class Polygon
                 sc.Before?.Invoke(turn);
                 Action<double> rec = t =>
                 {
+                    if (menMode)
+                    {
+                        foreach (var m in ms)
+                            foreach (var man in m.Men)
+                            {
+                                if (!man.Alive) { prevMan.Remove(man); continue; }
+                                if (prevMan.TryGetValue(man, out var p) && JsMath.Hypot(man.X - p.x, man.Y - p.y) > lim)
+                                    found.Add($"{sc.Name}, {clock + t:0.00} с: боец «{m.P.U.Name}» №{man.Id} — {JsMath.Hypot(man.X - p.x, man.Y - p.y):0.0} м за шаг");
+                                prevMan[man] = (man.X, man.Y);
+                            }
+                        return;
+                    }
                     foreach (var m in ms)
                         foreach (var s in m.Figs)
                         {
