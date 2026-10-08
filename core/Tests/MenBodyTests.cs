@@ -48,6 +48,17 @@ static class MenBodyTests
         return (s, fr, en);
     }
 
+    // Г87: стычка с заданным k человек в теле, без проверок БД (сравниваем механику, не бегство)
+    static (Battle bt, Mover a, Mover b) DuelK(string ta, string tb, double dist, uint seed, int k, double w = 1000, double h = 1000)
+    {
+        var bt = new Battle(MoveTests.Open(w, h), RB, new EngineContext { Rng = new Mulberry32(seed).Next }) { BodyK = k, MoraleChecks = false };
+        var TA = Templates.Get(ta); var TB = Templates.Get(tb);
+        var b = bt.Add(TB.Make(2, "B", 1000, 2), w / 2, h * 0.57, 0);
+        var fa = Formation.Of(TA.Make(1, "A", 1000, 1), RB);
+        var a = bt.Add(TA.Make(1, "A", 1000, 1), w / 2, h * 0.57 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+        return (bt, a, b);
+    }
+
     public static IEnumerable<(string Name, Action Run)> All()
     {
         yield return ("Б1 (Г85): фигурки — колонны во всю глубину строя, около 10 человек", () =>
@@ -475,6 +486,71 @@ static class MenBodyTests
             }
             finally { BattleTests.Use = was; }
             True(bad.Count == 0, string.Join("\n      ", bad));
+        });
+
+        // ── Г87: укрупнение — одно тело = k человек одного ряда в глубину ──
+        yield return ("Г87: укрупнение — тела по рядам своего файла, людей и строй те же (конница при k = 4: 4 + 1, пехота 4 + 4, стрелки при k = 2: 2 + 2 + 1)", () =>
+        {
+            foreach (var (tpl, k, bodies, sizes) in new[] { ("knights", 4, 400, "1×200 4×200"), ("infantry", 4, 250, "4×250"), ("archers", 2, 600, "1×200 2×400") })
+            {
+                var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(1).Next }) { BodyK = k };
+                var T = Templates.Get(tpl);
+                var b = bt.Add(T.Make(2, "B", 1000, 2), 500, 500, 0);
+                bt.BeginTurn();
+                var f = RB.Map.Formation.TryGetValue(b.P.U.Type, out var ff) ? ff : RB.Map.Formation["infantry"];
+                True(b.Men.Count == bodies && b.Men.Sum(x => x.Men) == 1000, $"{tpl}: тел {b.Men.Count}, людей {b.Men.Sum(x => x.Men)}");
+                var got = string.Join(" ", b.Men.GroupBy(x => x.Men).OrderBy(g => g.Key).Select(g => $"{g.Key}×{g.Count()}"));
+                True(got == sizes, $"{tpl}: тела по размеру {got}, надо {sizes}");
+                var rows = new Dictionary<int, int>();   // люди тел по рядам — как места бойцов (Formation.MenPositions)
+                foreach (var man in b.Men)
+                    for (int i = 0; i < man.Men; i++)
+                    {
+                        int band = (int)Math.Floor((man.Y - 500 + (i - (man.Men - 1) / 2.0) * f.RankDepth + b.P.Fp.Depth / 2) / f.RankDepth);
+                        rows[band] = rows.TryGetValue(band, out var c) ? c + 1 : 1;
+                    }
+                var want = Formation.MenPositions(b.P.U, RB).GroupBy(q => q.rank).ToDictionary(g => g.Key, g => g.Count());
+                True(rows.Count == want.Count && want.All(kv => rows.TryGetValue(kv.Key, out var c) && c == kv.Value),
+                     $"{tpl}: людей по рядам {string.Join(",", rows.OrderBy(q => q.Key).Select(q => q.Key + ":" + q.Value))}, надо {string.Join(",", want.OrderBy(q => q.Key).Select(q => q.Key + ":" + q.Value))}");
+            }
+        });
+
+        yield return ("Г87: укрупнение — потери стола те же (±10%): пехота в упор и лучники со 100 м при k = 4 как при k = 1; тело падает, когда выбыл последний его человек", () =>
+        {
+            (double melee, double shot, int deaths, int lost) Run(int k)
+            {
+                double melee = 0, shot = 0; int deaths = 0, lost = 0;
+                for (uint s = 1; s <= 6; s++)
+                {
+                    var (bt, a, b) = DuelK("infantry", "infantry", 0.5, s + 7000, k);
+                    bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                    bt.Turn(); bt.Turn();
+                    melee += (1000 - b.P.U.Soldiers) / 6.0;
+                    deaths += bt.Deaths.Count(d => d.UnitId == 2); lost += 1000 - (int)Math.Round(b.P.U.Soldiers);
+                    True(b.Men.Where(x => x.Alive).All(x => x.Lost < x.Men) && b.Men.Where(x => !x.Alive).All(x => x.Lost >= x.Men), "тело живо, пока выбыли не все его люди");
+                    var (bt2, a2, b2) = DuelK("archers", "infantry", 100, s + 9000, k, 2000, 1400);
+                    bt2.Order(a2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                    bt2.Turn(); bt2.Order(a2, new MoveOrder { Kind = OrderKind.Hold }); bt2.Turn();
+                    shot += (1000 - b2.P.U.Soldiers) / 6.0;
+                }
+                return (melee, shot, deaths, lost);
+            }
+            var r1 = Run(1); var r4 = Run(4);
+            True(Math.Abs(r4.melee / r1.melee - 1) <= 0.1, $"рукопашная: k=1 {r1.melee:0}, k=4 {r4.melee:0}");
+            True(Math.Abs(r4.shot / r1.shot - 1) <= 0.1, $"стрелы: k=1 {r1.shot:0}, k=4 {r4.shot:0}");
+            True(Math.Abs(r4.deaths - r4.lost) <= 6, $"павших записано {r4.deaths}, выбыло {r4.lost}");
+        });
+
+        yield return ("Г87: k — по численности на поле: 50 000 человек при пороге 40 000 — k = 2 и тел вдвое меньше; 10 000 — k = 1", () =>
+        {
+            var T = Templates.Get("infantry");
+            var bt = new Battle(MoveTests.Open(7000, 3000), RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            bt.Add(T.Make(1, "A", 25000, 1), 3500, 1200, 180); bt.Add(T.Make(2, "B", 25000, 2), 3500, 1800, 0);
+            bt.BeginTurn();
+            True(bt.BodyK == 2 && bt.Movers.Sum(m => m.Men.Count) == 25000 && bt.Movers.Sum(m => m.Men.Sum(x => x.Men)) == 50000, $"k = {bt.BodyK}, тел {bt.Movers.Sum(m => m.Men.Count)}");
+            var small = new Battle(MoveTests.Open(2000, 1000), RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            small.Add(T.Make(1, "A", 5000, 1), 1000, 300, 180); small.Add(T.Make(2, "B", 5000, 2), 1000, 700, 0);
+            small.BeginTurn();
+            True(small.BodyK == 1 && small.Movers.Sum(m => m.Men.Count) == 10000, $"k = {small.BodyK}, тел {small.Movers.Sum(m => m.Men.Count)}");
         });
     }
 }

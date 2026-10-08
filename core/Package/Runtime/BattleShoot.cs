@@ -145,6 +145,7 @@ namespace BattleCore
                 int rows = Math.Max(1, (int)Math.Round(fg.Depth / f.RankDepth));
                 var b = man.Body ??= new Body { Man = man };
                 b.Owner = P; b.Horse = horse; b.Alive = true;
+                b.Sub = man.Men; b.SubStep = f.RankDepth;   // Г87: тело из k человек — k мишеней по его рядам
                 b.File = fg.File; b.Rank = fg.Rank * rows + man.Row; b.FrontDist = fg.Y + man.Ly + P.Fp.Depth / 2;
                 tr.Bodies.Add(b);
             }
@@ -315,11 +316,13 @@ namespace BattleCore
             if (targets.Count == 0) { w.Landed++; return; }
             double srx = Math.Cos(sh.Facing * Math.PI / 180), sry = Math.Sin(sh.Facing * Math.PI / 180);
             Body tgt = null, fallback = null; int tgtIdx = -1, fbIdx = -1; double fbSide = double.MaxValue;
+            int kk = w.Def.BodyK;
             for (int tries = 0; tries < 40 && tgt == null; tries++)
             {
                 int ci = (int)Math.Floor(Ctx.Rng() * targets.Count);
                 var c = targets[ci];
                 if (!c.Alive) continue;
+                if (kk > 1 && Ctx.Rng() * kk >= c.Sub) continue;   // Г87: мишень — человек, не тело: тело из k человек выбирается в k раз чаще остатка
                 double side = Math.Abs((c.X - sh.X) * srx + (c.Y - sh.Y) * sry);
                 if (side <= RR.TargetSideM) { tgt = c; tgtIdx = ci; }
                 else if (side < fbSide) { fbSide = side; fallback = c; fbIdx = ci; }
@@ -334,6 +337,11 @@ namespace BattleCore
             // сбивает прицел — на этом стоит сверка стрельбы со столом
             var tf = tgt.Man?.Fig;
             double vx = tf?.Vx ?? 0, vy = tf?.Vy ?? 0, px = tgt.X, py = tgt.Y;
+            if (tgt.Sub > 1)   // Г87: целит в одного из людей тела (ряды вдоль его курса), а не в середину тела
+            {
+                double off = (Math.Floor(Ctx.Rng() * tgt.Sub) - (tgt.Sub - 1) / 2.0) * tgt.SubStep, tth = tgt.Facing * Math.PI / 180;
+                px -= Math.Sin(tth) * off; py += Math.Cos(tth) * off;
+            }
             (double theta, double speed, bool high)? aim = null;
             double tof = 0;
             for (int it = 0; it < 3; it++)
@@ -402,7 +410,7 @@ namespace BattleCore
             if (Math.Min(z0, z1) <= Math.Max(GroundZ(x0, y0), g1) + RR.RiderTop + 0.1)
             {
                 var near = new List<Body>();
-                grid.Near(x0, y0, x1, y1, RR.HorseLength / 2 + 0.2, near);
+                grid.Near(x0, y0, x1, y1, RR.HorseLength / 2 + grid.MaxHalf + 0.2, near);
                 Prof.N[1]++; Prof.N[2] += near.Count;
                 Body best = null; string bestPart = null; double bestT = tEnd + 1e-9;
                 foreach (var body in near)
@@ -441,8 +449,7 @@ namespace BattleCore
             double pOut = 1 / Math.Max(R.Defense.MinDivisor, eq / R.Defense.RangedEqDiv);
             if (D.Cmdr != null && D.Cmdr.BuffDef != 0) pOut *= Math.Max(0, 1 - D.Cmdr.BuffDef / 100);
             if (Ctx.Rng() >= pOut) return false;
-            body.Alive = false;
-            if (body.Man != null) body.Man.Alive = false;   // падает тот самый боец (Г75)
+            if (body.Man != null) body.Man.Wound(); else body.Alive = false;   // падает тот самый боец (Г75); Г87 — один из k
             victim.P.U.Soldiers -= 1;
             victim.ShotDown++;
             double wPart = RR.PartLethality[part];

@@ -98,6 +98,7 @@ namespace BattleCore
         public int LaidMen = -1;
         public int NextFigId;                    // номер для следующего нового тела (FigState.Id)
         public List<Man> Men = new List<Man>();  // живые бойцы (Г75); MenVersion — меняется при каждой раскладке
+        public int BodyK = 1;                    // Г87: людей в одном бойце-теле (ставит бой перед первым ходом)
         public int NextManId, MenVersion;
         // Бегство (БД4, Г70–Г72): толпа без строя — каждая фигурка бежит сама к FleeX, FleeY (край карты прочь от врага)
         public bool Fleeing, Gone, RallyPending, Rallied;

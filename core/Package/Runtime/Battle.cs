@@ -47,6 +47,8 @@ namespace BattleCore
         public List<Fight> Fights = new List<Fight>();
         public double Clock;                 // часы боя, с — с начала первого хода
         public double MenPerFigure = 10;
+        public int BodyK;                    // Г87: людей в бойце-теле; 0 — выбрать по численности на поле перед первым ходом
+        bool bodyKFixed;
         public double BurstSec = 2, ContactEverySec = 0.5, FightEndSec = 2, ReplanSec = 1, ReplanMoveM = 5;
         public List<string> Details = new List<string>();   // окна ударов этого хода: «8,2 с · A → B (натиск): −40»
         public bool MoraleChecks = true;     // БД4: проверки БД и на побег в ходу; сверка обмена ударами со столом — без них
@@ -61,7 +63,23 @@ namespace BattleCore
         {
             var m = Mover.Place(u, x, y, facing, R, MenPerFigure);
             Movers.Add(m);
+            if (bodyKFixed) ApplyBodyK(m);
             return m;
+        }
+        // Г87: одно тело = k человек, k = ⌈всего людей на поле / Men.BodyThresholdMen⌉ — одно на битву, решается перед первым
+        // ходом по всем добавленным отрядам (или задано BodyK); отряд, добавленный позже, получает то же k
+        void FixBodyK()
+        {
+            bodyKFixed = true;
+            if (!MenMode) return;
+            if (BodyK <= 0) BodyK = Math.Max(1, (int)Math.Ceiling(Movers.Sum(m => Math.Max(0, m.P.U.Soldiers)) / Math.Max(1, R.Men.BodyThresholdMen)));
+            foreach (var m in Movers) ApplyBodyK(m);
+        }
+        void ApplyBodyK(Mover m)
+        {
+            if (m.BodyK == BodyK || BodyK <= 0) return;
+            m.BodyK = BodyK;
+            Soldiers.Assign(m, R, spawn: true);
         }
         public Mover ById(int id) => Movers.FirstOrDefault(m => m.P.U.Id == id);
         static bool Enemies(Unit a, Unit b) => !(a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId);
@@ -131,6 +149,7 @@ namespace BattleCore
         public double StepTime => Math.Max(0, stepK) * R.Move.Dt;
         public void BeginTurn()
         {
+            if (!bodyKFixed) FixBodyK();
             stepsInTurn = MoveSim.StepsPerTurn(R);
             turnStart = Clock;
             MoveSim.BeginTurn(Movers);
@@ -792,17 +811,23 @@ namespace BattleCore
                 if (x.Fig.Fighting) return JsMath.Hypot(x.X - x.Fig.FoeX, x.Y - x.Fig.FoeY) + jit;
                 return 1000 + (foe == null ? 0 : JsMath.Hypot(x.X - foe.P.X, x.Y - foe.P.Y)) + jit;
             }
-            foreach (var x in alive.OrderBy(Score).ThenBy(x => x.Id).Take(n))
+            int left = n;
+            foreach (var x in alive.OrderBy(Score).ThenBy(x => x.Id))
             {
-                x.Alive = false; x.Foe = null;
-                double dir = foe != null ? Math.Atan2(x.Y - foe.P.Y, x.X - foe.P.X) * 180 / Math.PI : (x.Facing + 90);   // от врага — за спину
-                double u = look();
-                Deaths.Add(new Death
+                if (left <= 0) break;
+                // Г87: тело из k человек принимает потери по одной, пока не падёт; каждая — павший на месте тела
+                while (left > 0 && x.Alive)
                 {
-                    X = x.X, Y = x.Y, T = curT, Facing = x.Facing + (look() - 0.5) * 60, Dir = dir + (look() - 0.5) * 50,
-                    UnitId = m.P.U.Id, ManId = x.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs",
-                    Killed = MoveSim.Hash01(m.P.U.Id, x.Id, 16) < killedShare,
-                });
+                    x.Wound(); left--;
+                    double dir = foe != null ? Math.Atan2(x.Y - foe.P.Y, x.X - foe.P.X) * 180 / Math.PI : (x.Facing + 90);   // от врага — за спину
+                    double u = look();
+                    Deaths.Add(new Death
+                    {
+                        X = x.X, Y = x.Y, T = curT, Facing = x.Facing + (look() - 0.5) * 60, Dir = dir + (look() - 0.5) * 50,
+                        UnitId = m.P.U.Id, ManId = x.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs",
+                        Killed = MoveSim.Hash01(m.P.U.Id, x.Id, 16) < killedShare,
+                    });
+                }
             }
         }
 
@@ -886,7 +911,7 @@ namespace BattleCore
             {
                 if (!Alive(x) || x.P.Figs.Count == 0) continue;
                 var f = R.Map.Formation.TryGetValue(x.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
-                double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth);
+                double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth) + Soldiers.BodyHalf(x, R);   // Г87: голова капсулы
                 for (int k = 0; k < x.Figs.Count && k < x.P.Figs.Count; k++)
                 {
                     var s = x.Figs[k];

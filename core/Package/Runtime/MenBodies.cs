@@ -161,7 +161,7 @@ namespace BattleCore
                 if (m.Men.Count == 0) continue;
                 var f = r.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : r.Map.Formation["infantry"];
                 bool horse = BattleMap.IsHorse(m.P.U), archer = m.P.U.Type == "archer";
-                double rad = MR.BodyShare * Math.Min(f.PerMan, f.RankDepth), half = horse ? M.HorseHalfShare * f.RankDepth : 0;
+                double rad = MR.BodyShare * Math.Min(f.PerMan, f.RankDepth), halfBase = Soldiers.BodyHalf(m, r, 1);   // Г87: k человек — капсула вдоль колонны (по людям тела)
                 double time = m.Steps * dt;
                 // Г81: отступающая пехота пятится лицом к врагу; конь назад не пятится — развернётся (Г94)
                 bool retreating = m.Order != null && m.Order.Kind == OrderKind.Retreat && !m.Done, backing = !horse && retreating;
@@ -174,7 +174,7 @@ namespace BattleCore
                     var s = man.Fig;
                     bool down = man.DownLeft > 0;
                     if (down) man.DownLeft = Math.Max(0, man.DownLeft - dt);
-                    double lx = man.Lx, ly = man.Ly, hu = man.Hu;
+                    double lx = man.Lx, ly = man.Ly, hu = man.Hu, half = halfBase + (man.Men - 1) * f.RankDepth / 2;
                     // старт волной (Iron Kings): колонна тронулась — первыми те, чьи места ближе к цели хода (вперёд — передний ряд,
                     // задом или вбок — соответствующий край), каждый следующий ряд через WaveRowSec; ждущий стоит. Считать от ряда 0
                     // нельзя: на отступлении передний ряд врезался бы в ещё ждущие задние и толкотня отбрасывала его назад
