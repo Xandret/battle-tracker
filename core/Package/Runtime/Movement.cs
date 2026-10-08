@@ -37,6 +37,9 @@ namespace BattleCore
         public int Id;   // постоянный номер тела в отряде: место в строю (индекс) меняется — обмены, потери, — а тело то же
         // касается врага (Г27) и в какую сторону он (единичный вектор) — для выпадов передних бойцов (Г78)
         public bool Fighting; public double FightX, FightY, FoeX, FoeY; public int FoeId;   // FoeX, FoeY — где касающаяся фигурка врага; FoeId — её отряд
+        public double FightT = double.NegativeInfinity;   // когда колонна последний раз касалась врага (часы боя)
+        public double WSeekT = double.NegativeInfinity;   // когда колонна в охвате в последний раз сама выбрала бойца врага целью (WrapToFoes)
+        public Man WSeekMan;                               // тот боец врага: пока жив и близко, цель колонны — он, место у рамки её не перебивает
         public double Hc, Hs, Hd;   // курс фигурки на деле (Soldiers.FigHeading): косинус, синус, градусы — на шаг бойцов
         public long SeatKey = -1;   // В14: состав и размер, при которых бойцы рассажены, — не изменились, пересаживать незачем
         public double X, Y, Vx, Vy;
@@ -57,7 +60,7 @@ namespace BattleCore
         public int MenN;   // живых бойцов в колонне на прошлом шаге (Б1)
         // Б1: где был бы якорь по бойцам (каждый: где стоит минус сдвиг его места); пересаживающийся (В14) не упёрся, а идёт
         // шагом — он за нынешнее место якоря. RefN — сколько бойцов
-        public double RefX, RefY; public int RefN;
+        public double RefX, RefY; public int RefN; public double RefAllX, RefAllY; public int LagN;   // RefAll — по всем бойцам, LagN — отставших дальше LagRefM
         public bool Moving; public double StartT, StopT = double.NegativeInfinity;   // якорь идёт; когда тронулся и когда встал (новая колонна стояла «всегда») — для старта волной
         public double GoalM;      // Б3: сколько якорю до места (в строю или в охвате) — далёкая колонна перестраивается сквозь своих
     }
@@ -98,6 +101,8 @@ namespace BattleCore
         public int LaidMen = -1;
         public int NextFigId;                    // номер для следующего нового тела (FigState.Id)
         public List<Man> Men = new List<Man>();  // живые бойцы (Г75); MenVersion — меняется при каждой раскладке
+        public int BodyK = 1;                    // Г87: людей в одном бойце-теле (ставит бой перед первым ходом)
+        public bool InMelee;                     // отряд касается врага (ставит бой на шаге касаний) — колонны в охвате идут шагом
         public int NextManId, MenVersion;
         // Бегство (БД4, Г70–Г72): толпа без строя — каждая фигурка бежит сама к FleeX, FleeY (край карты прочь от врага)
         public bool Fleeing, Gone, RallyPending, Rallied;
@@ -490,8 +495,11 @@ namespace BattleCore
                 }
                 else if (s.Wrap)
                 {
-                    // охват: к точке у врага, без скорости места в строю
+                    // охват: к точке у врага, без скорости места в строю; отряд уже в схватке — шагом, не вскачь (иначе колонна,
+                    // потерявшая касание, летит к новой цели галопом и мечется между бойцами врага)
                     dvx = (gx - px) / M.SlotTau; dvy = (gy - py) / M.SlotTau;
+                    // планка — у цели: далеко от места идёт как шла, за метр до места — не быстрее планки плюс метр в секунду на метр пути
+                    if (m.InMelee) vmax = Math.Min(vmax, (BattleMap.IsHorse(u) ? r.Men.WrapFightHorseMps : r.Men.WrapFightFootMps) + JsMath.Hypot(gx - px, gy - py) * r.Men.WrapFightSlope);
                 }
                 else
                 {

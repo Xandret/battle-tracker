@@ -47,6 +47,8 @@ namespace BattleCore
         public List<Fight> Fights = new List<Fight>();
         public double Clock;                 // часы боя, с — с начала первого хода
         public double MenPerFigure = 10;
+        public int BodyK;                    // Г87: людей в бойце-теле; 0 — выбрать по численности на поле перед первым ходом
+        bool bodyKFixed;
         public double BurstSec = 2, ContactEverySec = 0.5, FightEndSec = 2, ReplanSec = 1, ReplanMoveM = 5;
         public List<string> Details = new List<string>();   // окна ударов этого хода: «8,2 с · A → B (натиск): −40»
         public bool MoraleChecks = true;     // БД4: проверки БД и на побег в ходу; сверка обмена ударами со столом — без них
@@ -61,7 +63,23 @@ namespace BattleCore
         {
             var m = Mover.Place(u, x, y, facing, R, MenPerFigure);
             Movers.Add(m);
+            if (bodyKFixed) ApplyBodyK(m);
             return m;
+        }
+        // Г87: одно тело = k человек, k = ⌈всего людей на поле / Men.BodyThresholdMen⌉ — одно на битву, решается перед первым
+        // ходом по всем добавленным отрядам (или задано BodyK); отряд, добавленный позже, получает то же k
+        void FixBodyK()
+        {
+            bodyKFixed = true;
+            if (!MenMode) return;
+            if (BodyK <= 0) BodyK = Math.Max(1, (int)Math.Ceiling(Movers.Sum(m => Math.Max(0, m.P.U.Soldiers)) / Math.Max(1, R.Men.BodyThresholdMen)));
+            foreach (var m in Movers) ApplyBodyK(m);
+        }
+        void ApplyBodyK(Mover m)
+        {
+            if (m.BodyK == BodyK || BodyK <= 0) return;
+            m.BodyK = BodyK;
+            Soldiers.Assign(m, R, spawn: true);
         }
         public Mover ById(int id) => Movers.FirstOrDefault(m => m.P.U.Id == id);
         static bool Enemies(Unit a, Unit b) => !(a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId);
@@ -131,6 +149,7 @@ namespace BattleCore
         public double StepTime => Math.Max(0, stepK) * R.Move.Dt;
         public void BeginTurn()
         {
+            if (!bodyKFixed) FixBodyK();
             stepsInTurn = MoveSim.StepsPerTurn(R);
             turnStart = Clock;
             MoveSim.BeginTurn(Movers);
@@ -307,7 +326,7 @@ namespace BattleCore
                         var s = x.Figs[k]; var q = y.Figs[ky];
                         double dx = q.X - s.X, dy = q.Y - s.Y, d = JsMath.Hypot(dx, dy);
                         if (d < 1e-9) continue;
-                        s.Fighting = true; s.FightX = dx / d; s.FightY = dy / d; s.FoeX = q.X; s.FoeY = q.Y; s.FoeId = y.P.U.Id;   // для выпадов передних бойцов (Г78)
+                        s.Fighting = true; s.FightX = dx / d; s.FightY = dy / d; s.FoeX = q.X; s.FoeY = q.Y; s.FoeId = y.P.U.Id; s.FightT = t;   // для выпадов передних бойцов (Г78)
                     }
                 if (!colFoe.TryGetValue(x, out var cf)) colFoe[x] = cf = new Dictionary<int, (Mover foe, double d)>();
                 for (int k = 0; k < kv.Value.Length; k++)
@@ -792,17 +811,23 @@ namespace BattleCore
                 if (x.Fig.Fighting) return JsMath.Hypot(x.X - x.Fig.FoeX, x.Y - x.Fig.FoeY) + jit;
                 return 1000 + (foe == null ? 0 : JsMath.Hypot(x.X - foe.P.X, x.Y - foe.P.Y)) + jit;
             }
-            foreach (var x in alive.OrderBy(Score).ThenBy(x => x.Id).Take(n))
+            int left = n;
+            foreach (var x in alive.OrderBy(Score).ThenBy(x => x.Id))
             {
-                x.Alive = false; x.Foe = null;
-                double dir = foe != null ? Math.Atan2(x.Y - foe.P.Y, x.X - foe.P.X) * 180 / Math.PI : (x.Facing + 90);   // от врага — за спину
-                double u = look();
-                Deaths.Add(new Death
+                if (left <= 0) break;
+                // Г87: тело из k человек принимает потери по одной, пока не падёт; каждая — павший на месте тела
+                while (left > 0 && x.Alive)
                 {
-                    X = x.X, Y = x.Y, T = curT, Facing = x.Facing + (look() - 0.5) * 60, Dir = dir + (look() - 0.5) * 50,
-                    UnitId = m.P.U.Id, ManId = x.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs",
-                    Killed = MoveSim.Hash01(m.P.U.Id, x.Id, 16) < killedShare,
-                });
+                    x.Wound(); left--;
+                    double dir = foe != null ? Math.Atan2(x.Y - foe.P.Y, x.X - foe.P.X) * 180 / Math.PI : (x.Facing + 90);   // от врага — за спину
+                    double u = look();
+                    Deaths.Add(new Death
+                    {
+                        X = x.X, Y = x.Y, T = curT, Facing = x.Facing + (look() - 0.5) * 60, Dir = dir + (look() - 0.5) * 50,
+                        UnitId = m.P.U.Id, ManId = x.Id, Part = u < 0.25 ? "head" : u < 0.8 ? "torso" : "legs",
+                        Killed = MoveSim.Hash01(m.P.U.Id, x.Id, 16) < killedShare,
+                    });
+                }
             }
         }
 
@@ -826,6 +851,7 @@ namespace BattleCore
             foreach (var x in Movers)
             {
                 var foes = Fights.Where(f => !f.Over && f.Touching && (f.A == x || f.B == x)).Select(f => f.Other(x)).ToList();
+                x.InMelee = foes.Count > 0;
                 // Г81: отступающий не охватывает и кольца не держит — колонны к своим местам, иначе (при бойцах-телах, где
                 // бьющаяся колонна держит место у врага) отряд не оторвался бы от врага
                 bool leaving = x.Order != null && x.Order.Kind == OrderKind.Retreat && !x.Done;
@@ -880,17 +906,22 @@ namespace BattleCore
         // убраны, Г30): место привязано к рамке врага, а бьются бойцы с бойцами. Такая колонна подходит к ближнему живому врагу
         // (не дальше WrapSeekM) — встаёт головой к нему, стена остановит (Г89). Фигурки касались за 5 м и этого не замечали
         const double WrapSeekM = 8;
+        // колонна в охвате держится за выбранного бойца врага (WrapToFoes), пока он жив и не дальше WrapSeekM + 2 м от якоря
+        bool SeekHolds(FigState s) => R.Men.WrapSeekSticky && s.WSeekMan != null && s.WSeekMan.Alive && s.Wrap && JsMath.Hypot(s.WSeekMan.X - s.AX, s.WSeekMan.Y - s.AY) <= WrapSeekM + 2
+                                      && curT - Math.Max(s.WSeekT, s.FightT) < R.Men.WrapSeekHoldSec;
         void WrapToFoes()
         {
             foreach (var x in Movers)
             {
                 if (!Alive(x) || x.P.Figs.Count == 0) continue;
                 var f = R.Map.Formation.TryGetValue(x.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
-                double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth);
+                double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth) + Soldiers.BodyHalf(x, R);   // Г87: голова капсулы
                 for (int k = 0; k < x.Figs.Count && k < x.P.Figs.Count; k++)
                 {
                     var s = x.Figs[k];
                     if (!s.Wrap || s.Fighting || s.WFoe == null || s.MenN == 0 || JsMath.Hypot(s.WX - s.AX, s.WY - s.AY) > 1.5) continue;
+                    if (curT - s.FightT < R.Men.WrapRetargetSec) continue;   // только что билась — касание вернётся само, нового врага не ищет
+                    if (SeekHolds(s)) continue;   // выбранный боец врага жив и рядом — цель та же (иначе колонна мечется между бойцами врага)
                     Man best = null; double bd = WrapSeekM;
                     foreach (var e in s.WFoe.Men)
                     {
@@ -901,7 +932,7 @@ namespace BattleCore
                     if (best == null) continue;
                     double ux = (best.X - s.AX) / Math.Max(1e-9, JsMath.Hypot(best.X - s.AX, best.Y - s.AY)), uy = (best.Y - s.AY) / Math.Max(1e-9, JsMath.Hypot(best.X - s.AX, best.Y - s.AY));
                     double back = x.P.Figs[k].Depth / 2 + 2 * rad + 0.2;   // голова колонны — вплотную к врагу
-                    s.WX = best.X - ux * back; s.WY = best.Y - uy * back; s.WH = MoveSim.HeadingOf(ux, uy);
+                    s.WX = best.X - ux * back; s.WY = best.Y - uy * back; s.WH = MoveSim.HeadingOf(ux, uy); s.WSeekT = curT; s.WSeekMan = best;
                 }
             }
         }
@@ -913,8 +944,17 @@ namespace BattleCore
             var P = x.P; var Q = y.P;
             double figW = P.Figs.Max(q => q.Width), figD = P.Figs.Max(q => q.Depth), mg = 0.5;
             double F = Q.Fp.Front / 2, D = Q.Fp.Depth / 2, off = figD / 2 + mg;
-            // Б2: колонна бойцов бьётся, только касаясь врага, — место ближе на досягаемость, бойцов остановит стена (Г89)
-            if (MenMode) off = figD / 2 - R.Men.ReachM;
+            // Б2: колонна бойцов бьётся, только касаясь врага. Место — чтобы передний боец колонны касался врага, а не давил в него
+            // (08.10.2026: место на метр внутри строя врага тянуло переднего коня пружиной в стену, стена выталкивала — кони качались
+            // туда-сюда раз в 4 с): середина колонны от края врага = полглубины − полшеренги (до середины переднего бойца) − полудлина
+            // капсулы коня (она тянется к врагу; у тела из k человек — то же, его середина глубже ровно на столько же) + радиус тела
+            // + полдосягаемости
+            if (MenMode && !R.Men.WrapStandoffTouch) off = figD / 2 - R.Men.ReachM;
+            else if (MenMode)
+            {
+                var fx = R.Map.Formation.TryGetValue(x.P.U.Type, out var fxx) ? fxx : R.Map.Formation["infantry"];
+                off = figD / 2 - fx.RankDepth / 2 - Soldiers.BodyHalf(x, R, 1) + R.Men.BodyShare * Math.Min(fx.PerMan, fx.RankDepth) + R.Men.ReachM / 2;
+            }
             var slots = new List<(double lx, double ly, double nx, double ny, double face)>();
             void Edge(bool alongX, double fixedV, double half, double nx, double ny, double face)
             {
@@ -952,6 +992,7 @@ namespace BattleCore
                 foreach (int k in col)
                 {
                     var s = x.Figs[k];
+                    if (s.WFoe != y) s.WSeekMan = null;   // другой враг — прежняя цель-боец не в счёт
                     s.Wrap = true; s.WFoe = y; s.WSlotX = sl.lx; s.WSlotY = sl.ly; s.WNx = sl.nx; s.WNy = sl.ny; s.WBehind = behind; s.WH = MoveSim.Norm(sl.face);
                 }
                 Route(x, col, figW, figD, mg);
@@ -967,7 +1008,17 @@ namespace BattleCore
             // 2) кто шёл к своему месту — держит его; 3) остальные — по близости к врагу
             var order = cols.OrderBy(c => x.Figs[c[0]].WFoe == y ? 0 : 1)
                             .ThenBy(c => JsMath.Hypot(x.Figs[c[0]].X - Q.X, x.Figs[c[0]].Y - Q.Y)).ToList();
+            // сперва те, чьё прежнее место ещё свободно, — остаются на нём (иначе соседи меняются местами каждые полсекунды)
+            var later = new List<List<int>>();
             foreach (var col in order)
+            {
+                var head = x.Figs[col[0]];
+                if (head.WFoe != y) { later.Add(col); continue; }
+                int same = Nearest(free, head.WSlotX, head.WSlotY);
+                if (same >= 0 && JsMath.Hypot(slots[same].lx - head.WSlotX, slots[same].ly - head.WSlotY) < figW * 0.5) { free.Remove(same); Take(col, same, 0); }
+                else later.Add(col);
+            }
+            foreach (var col in later)
             {
                 var head = x.Figs[col[0]];
                 bool had = head.WFoe == y;
@@ -994,6 +1045,7 @@ namespace BattleCore
             for (int r = 0; r < byDepth.Count; r++)
             {
                 var s = x.Figs[byDepth[r]];
+                if (SeekHolds(s)) continue;   // сама выбрала бойца врага целью, он жив и рядом — место у рамки её не перебивает (иначе цель прыгает туда-сюда)
                 double tx = sx + nx * (behind + r) * figD, ty = sy + ny * (behind + r) * figD;
                 var (gx, gy) = AroundCorner(Q, s, tx, ty, figW, figD, mg);
                 Q.ToWorld(gx, gy, out var wx, out var wy);

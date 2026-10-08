@@ -16,6 +16,7 @@ namespace BattleCore
         public int File, Rank;          // место в строю: колонна и шеренга
         public bool Horse, Alive = true;
         public Man Man;                 // живой боец (Г75), если мишень — он
+        public int Sub = 1; public double SubStep;   // Г87: тело из Sub человек в глубину — Sub одиночных мишеней через SubStep вдоль курса
     }
 
     public static class Ballistics
@@ -224,11 +225,26 @@ namespace BattleCore
         public static bool Hit(Body b, Rules.RangedR r, double x0, double y0, double z0, double x1, double y1, double z1,
                                out double t, out string part)
         {
+            // Г87: тело из Sub человек в глубину — Sub одиночных мишеней через SubStep вдоль курса (та же геометрия, что у
+            // Sub бойцов на своих местах, — потери стола не меняются); попадание — самое раннее по пути стрелы
+            if (b.Sub <= 1) return HitOne(b, b.X, b.Y, r, x0, y0, z0, x1, y1, z1, out t, out part);
+            t = 2; part = null;
+            double th = b.Facing * Math.PI / 180, fx = Math.Sin(th), fy = -Math.Cos(th);
+            for (int i = 0; i < b.Sub; i++)
+            {
+                double off = (i - (b.Sub - 1) / 2.0) * b.SubStep;   // вперёд по курсу — минус (ряд 0 впереди)
+                if (HitOne(b, b.X - fx * off, b.Y - fy * off, r, x0, y0, z0, x1, y1, z1, out double ti, out string pi) && ti < t) { t = ti; part = pi; }
+            }
+            return part != null;
+        }
+        static bool HitOne(Body b, double bx, double by, Rules.RangedR r, double x0, double y0, double z0, double x1, double y1, double z1,
+                           out double t, out string part)
+        {
             t = 2; part = null;
             double g = b.Ground;
             if (!b.Horse)
             {
-                if (!Circle(x0, y0, x1, y1, b.X, b.Y, r.BodyRadius, out var tA, out var tB)) return false;
+                if (!Circle(x0, y0, x1, y1, bx, by, r.BodyRadius, out var tA, out var tB)) return false;
                 if (!ZEnter(tA, tB, z0, z1, g, g + r.BodyHeight, out t)) return false;
                 double h = z0 + (z1 - z0) * t - g;
                 part = h >= r.HeadFrom ? "head" : h >= r.TorsoFrom ? "torso" : "legs";
@@ -237,15 +253,15 @@ namespace BattleCore
             bool hit = false;
             // конь — коробка вдоль фасинга
             double th = b.Facing * Math.PI / 180, rx = Math.Cos(th), ry = Math.Sin(th), fx = Math.Sin(th), fy = -Math.Cos(th);
-            double u0 = (x0 - b.X) * rx + (y0 - b.Y) * ry, u1 = (x1 - b.X) * rx + (y1 - b.Y) * ry;
-            double w0 = (x0 - b.X) * fx + (y0 - b.Y) * fy, w1 = (x1 - b.X) * fx + (y1 - b.Y) * fy;
+            double u0 = (x0 - bx) * rx + (y0 - by) * ry, u1 = (x1 - bx) * rx + (y1 - by) * ry;
+            double w0 = (x0 - bx) * fx + (y0 - by) * fy, w1 = (x1 - bx) * fx + (y1 - by) * fy;
             double sA = 0, sB = 1;
             if (Slab(u0, u1, -r.HorseWidth / 2, r.HorseWidth / 2, ref sA, ref sB) &&
                 Slab(w0, w1, -r.HorseLength / 2, r.HorseLength / 2, ref sA, ref sB) &&
                 ZEnter(sA, sB, z0, z1, g, g + r.HorseHeight, out var th1))
             { t = th1; part = "horse"; hit = true; }
             // всадник — цилиндр над конём
-            if (Circle(x0, y0, x1, y1, b.X, b.Y, r.BodyRadius, out var cA, out var cB) &&
+            if (Circle(x0, y0, x1, y1, bx, by, r.BodyRadius, out var cA, out var cB) &&
                 ZEnter(cA, cB, z0, z1, g + r.HorseHeight, g + r.RiderTop, out var th2) && th2 < t)
             {
                 t = th2; hit = true;
@@ -261,8 +277,9 @@ namespace BattleCore
         const double Cell = 2;
         readonly Dictionary<long, List<Body>> map = new Dictionary<long, List<Body>>();
         static long Key(int ix, int iy) => ((long)ix << 32) ^ (uint)iy;
+        public double MaxHalf;   // Г87: самое длинное тело в сетке (полудлина) — запас поиска у стрелы
 
-        public void Clear() => map.Clear();
+        public void Clear() { map.Clear(); MaxHalf = 0; }
         public void Move(Body b, double x, double y)
         {
             long k = Key((int)Math.Floor(b.X / Cell), (int)Math.Floor(b.Y / Cell));
@@ -272,6 +289,7 @@ namespace BattleCore
         }
         public void Add(Body b)
         {
+            if ((b.Sub - 1) * b.SubStep / 2 > MaxHalf) MaxHalf = (b.Sub - 1) * b.SubStep / 2;
             long k = Key((int)Math.Floor(b.X / Cell), (int)Math.Floor(b.Y / Cell));
             if (!map.TryGetValue(k, out var l)) map[k] = l = new List<Body>();
             l.Add(b);

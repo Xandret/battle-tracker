@@ -30,7 +30,8 @@ namespace BattleCore
         // сетка бойцов на касание: голова клетки — словарь (поле большое, бойцов мало), «следующий» — массив
         readonly Dictionary<long, int> mgHead = new Dictionary<long, int>();
         Man[] mgMan = new Man[0]; int[] mgNext = new int[0], mgMover = new int[0], mgFig = new int[0];
-        double[] mgUx = new double[0], mgUy = new double[0];
+        double[] mgUx = new double[0], mgUy = new double[0];   // курс бойца — куда смотрит пика
+        double[] mgAx = new double[0], mgAy = new double[0];   // ось капсулы тела — вдоль колонны (бегущего — по курсу), как у толкотни (Г87)
         static long CellKey(int cx, int cy) => ((long)cx << 32) ^ (uint)cy;
 
         // Г90: натиск готов — кони с разбега пешему врагу не уступают. Те же условия, что у натиска стола (Г29, К29): приказ
@@ -75,7 +76,7 @@ namespace BattleCore
                     menSec[(x, y)] = new (int, int, int)[x.Figs.Count]; menSec[(y, x)] = new (int, int, int)[y.Figs.Count];
                 }
             // 2) тела бойцов этих отрядов — в сетку
-            var rad = new double[nm]; var half = new double[nm]; var rankD = new double[nm]; var pike = new bool[nm];
+            var rad = new double[nm]; var half = new double[nm]; var halfBase = new double[nm]; var rankD = new double[nm]; var pike = new bool[nm];
             int c = 0; double maxBody = 0;
             for (int mi = 0; mi < nm; mi++)
             {
@@ -83,7 +84,7 @@ namespace BattleCore
                 if (!any[mi]) { foreach (var man in m.Men) man.Foe = null; continue; }
                 var f = R.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
                 rad[mi] = MR.BodyShare * Math.Min(f.PerMan, f.RankDepth);
-                half[mi] = BattleMap.IsHorse(m.P.U) ? R.Move.HorseHalfShare * f.RankDepth : 0;
+                half[mi] = Soldiers.BodyHalf(m, R); halfBase[mi] = Soldiers.BodyHalf(m, R, 1);   // Г87: тело из k человек — капсула вдоль колонны; half — самое длинное
                 rankD[mi] = f.RankDepth; pike[mi] = Units.IsPike(m.P.U);
                 bodyOf[m] = (rad[mi], half[mi], rankD[mi], pike[mi]);
                 maxBody = Math.Max(maxBody, rad[mi] + half[mi]);
@@ -93,7 +94,7 @@ namespace BattleCore
             if (mgMan.Length < c)
             {
                 int cap = c * 2;
-                mgMan = new Man[cap]; mgNext = new int[cap]; mgMover = new int[cap]; mgFig = new int[cap]; mgUx = new double[cap]; mgUy = new double[cap];
+                mgMan = new Man[cap]; mgNext = new int[cap]; mgMover = new int[cap]; mgFig = new int[cap]; mgUx = new double[cap]; mgUy = new double[cap]; mgAx = new double[cap]; mgAy = new double[cap];
             }
             double cell = 2 * maxBody + reach;
             mgHead.Clear(); c = 0;
@@ -107,7 +108,8 @@ namespace BattleCore
                 {
                     if (!man.Alive || man.Fig == null || !idx.TryGetValue(man.Fig, out int k)) { man.Foe = null; continue; }
                     double h = man.Facing * Math.PI / 180;   // курс тела (Г94) — куда смотрит пика
-                    mgMan[c] = man; mgMover[c] = mi; mgFig[c] = k; mgUx[c] = Math.Sin(h); mgUy[c] = -Math.Cos(h);
+                    double ah = m.Fleeing ? h : man.Fig.Hd * Math.PI / 180;   // капсула тела (k человек, конь) лежит вдоль колонны
+                    mgMan[c] = man; mgMover[c] = mi; mgFig[c] = k; mgUx[c] = Math.Sin(h); mgUy[c] = -Math.Cos(h); mgAx[c] = Math.Sin(ah); mgAy[c] = -Math.Cos(ah);
                     long key = CellKey((int)Math.Floor(man.X / cell), (int)Math.Floor(man.Y / cell));
                     mgNext[c] = mgHead.TryGetValue(key, out int head) ? head : -1;
                     mgHead[key] = c;
@@ -140,7 +142,7 @@ namespace BattleCore
                             double extraJ = pike[yj] && oj.Row < MR.PikeRanks && oj.DownLeft <= 0 ? MR.PikeTipM + oj.Row * rankD[yj] : 0;
                             double ex = oj.X - man.X, ey = oj.Y - man.Y, lim = rad[xi] + half[xi] + rad[yj] + half[yj] + reach + Math.Max(extra, extraJ);
                             if (ex * ex + ey * ey > lim * lim) continue;
-                            double gap = Gap(i, rad[xi], half[xi], j, rad[yj], half[yj], out double dx, out double dy);
+                            double gap = Gap(i, rad[xi], halfBase[xi] + (man.Men - 1) * rankD[xi] / 2, j, rad[yj], halfBase[yj] + (oj.Men - 1) * rankD[yj] / 2, out double dx, out double dy);
                             bool can = gap <= reach;
                             double dl = Math.Sqrt(dx * dx + dy * dy);
                             // пика — только вперёд: враг в пределах FrontMax от курса пикинёра; чья пика достаёт — с тем и бьётся (у острия)
@@ -178,8 +180,8 @@ namespace BattleCore
             Man a = mgMan[i], b = mgMan[j];
             dx = b.X - a.X; dy = b.Y - a.Y;
             if (hi == 0 && hj == 0) return Math.Sqrt(dx * dx + dy * dy) - ri - rj;
-            double d2 = Bodies.SegSeg(a.X - mgUx[i] * hi, a.Y - mgUy[i] * hi, a.X + mgUx[i] * hi, a.Y + mgUy[i] * hi,
-                                      b.X - mgUx[j] * hj, b.Y - mgUy[j] * hj, b.X + mgUx[j] * hj, b.Y + mgUy[j] * hj,
+            double d2 = Bodies.SegSeg(a.X - mgAx[i] * hi, a.Y - mgAy[i] * hi, a.X + mgAx[i] * hi, a.Y + mgAy[i] * hi,
+                                      b.X - mgAx[j] * hj, b.Y - mgAy[j] * hj, b.X + mgAx[j] * hj, b.Y + mgAy[j] * hj,
                                       out _, out _, out _, out _);
             return Math.Sqrt(d2) - ri - rj;
         }
@@ -204,7 +206,7 @@ namespace BattleCore
                 var d = a.Foe;
                 if (!a.Alive || d == null || !d.Alive) continue;   // пал раньше в этом же шаге
                 a.SwingAt = at; a.SwingN++; MenMelee.Swings++;
-                a.NextSwing = at + MR.SwingSec * (0.75 + 0.5 * MoveSim.Hash01(am.P.U.Id, a.Id * 97 + a.SwingN, 19));
+                a.NextSwing = at + MR.SwingSec * (0.75 + 0.5 * MoveSim.Hash01(am.P.U.Id, a.Id * 97 + a.SwingN, 19)) / Math.Max(1, a.Men - a.Lost);   // Г87: тело бьёт за своих людей
                 double dx = d.X - a.X, dy = d.Y - a.Y, dl = JsMath.Hypot(dx, dy);
                 double ux = dl > 1e-9 ? dx / dl : 0, uy = dl > 1e-9 ? dy / dl : 0;
                 // противник назначен на касании (раз в ContactEverySec) — с тех пор мог отойти: дальше досягаемости — мимо
@@ -221,11 +223,11 @@ namespace BattleCore
         // Сколько людей стол уже снял, а бойцы ещё стоят
         int Owed(Mover m) => m.LaidMen - ((int)Math.Max(0, Js.Round(m.P.U.Soldiers)) - m.LeftMen) - m.ShotDown - m.StruckDown;
 
-        // Боец пал от удара: лицом к врагу, кровь — по удару (от врага). Убит или ранен — как у павших в раскладке
+        // Боец пал от удара: лицом к врагу, кровь — по удару (от врага). Убит или ранен — как у павших в раскладке.
+        // Г87: тело из k человек — выбыл один из них (павший на месте тела), тело падает с последним
         void Fell(Mover m, Man x, double t, double ux, double uy)
         {
-            x.Alive = false; x.Foe = null;
-            if (x.Body != null) x.Body.Alive = false;
+            x.Wound();
             double u = look();
             Deaths.Add(new Death
             {

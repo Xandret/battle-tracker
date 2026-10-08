@@ -36,6 +36,17 @@ namespace BattleCore
         public double RLx, RLy; public bool WasRigid;
         public bool Thaw;   // Г86: на жёсткого налез чужой боец — на следующем шаге оттаивает (иначе, как стена, уносит застрявшего с собой)
         public int Knocks;   // Г90: скольких сбил конь за этот натиск (больше ChargeKnocks — натиск его кончился)
+        // Г87: тело из Men человек (одного ряда в глубину); Lost — сколько из них выбыло. Потеря — Wound(): падает всё тело,
+        // когда выбыл последний. Рисунок: Men − Lost спутников за телом
+        public int Men = 1, Lost;
+        public bool Wound()
+        {
+            Lost++;
+            if (Lost < Men) return false;
+            Alive = false; Foe = null;
+            if (Body != null) Body.Alive = false;
+            return true;
+        }
     }
 
     public static class Soldiers
@@ -58,21 +69,37 @@ namespace BattleCore
         }
 
         static Rules.FormationR Grid(Unit u, Rules r) => r.Map.Formation.TryGetValue(u.Type, out var f) ? f : r.Map.Formation["infantry"];
+        // Г87: тел на men человек при k человек в теле; полудлина капсулы тела вдоль колонны (конь — своя, плюс k − 1 рядов)
+        internal static int BodiesOf(double men, int k) => (int)Math.Ceiling(Math.Max(0, Math.Round(men)) / Math.Max(1, k));
+        internal static double BodyHalf(Mover m, Rules r) => BodyHalf(m, r, m.BodyK);   // самое длинное тело отряда
+        internal static double BodyHalf(Mover m, Rules r, int men)   // тело из men человек (остаток короче)
+        {
+            var f = Grid(m.P.U, r);
+            return (BattleMap.IsHorse(m.P.U) ? r.Move.HorseHalfShare * f.RankDepth : 0) + (Math.Max(1, men) - 1) * f.RankDepth / 2;
+        }
 
         // Места бойцов в фигурке k на count бойцов: сетка шагом PerMan × RankDepth, ряды спереди назад, неполный ряд —
-        // по центру; бойцов больше, чем сетка, — лишние встают рядами сзади
+        // по центру; бойцов больше, чем сетка, — лишние встают рядами сзади. Г87: тело из kk человек занимает kk рядов —
+        // стоит посередине них, его ряд — номер первого из них (ряды в людях: пики, волна, бегство считают так же)
         static List<(double ox, double oy, int row)> SlotsOf(Mover m, int k, Rules r, int count)
         {
-            var fg = m.P.Figs[k]; var f = Grid(m.P.U, r);
+            var fg = m.P.Figs[k]; var f = Grid(m.P.U, r); int kk = Math.Max(1, m.BodyK);
             int cols = Math.Max(1, (int)Math.Round(fg.Width / f.PerMan));
             int left = count;
             var list = new List<(double, double, int)>();
             for (int j = 0; left > 0; j++)
             {
-                int n = Math.Min(cols, left); double off = (cols - n) / 2.0; left -= n;
-                for (int i = 0; i < n; i++) list.Add((-fg.Width / 2 + (off + i + 0.5) * f.PerMan, -fg.Depth / 2 + (j + 0.5) * f.RankDepth, j));
+                int n = Math.Min(cols, left); double off = kk > 1 ? 0 : (cols - n) / 2.0; left -= n;   // тела (kk > 1) — в своих файлах, без центровки
+                for (int i = 0; i < n; i++) list.Add((-fg.Width / 2 + (off + i + 0.5) * f.PerMan, -fg.Depth / 2 + (j * kk + (kk - 1) / 2.0 + 0.5) * f.RankDepth, j * kk));
             }
             return list;
+        }
+
+        // Г87: место тела в файле file, блок рядов block (центр блока из k рядов; остаток тело сдвинет само в Seat)
+        static (double ox, double oy, int row) SlotAt(Mover m, int k, Rules r, int file, int block)
+        {
+            var fg = m.P.Figs[k]; var f = Grid(m.P.U, r); int kk = Math.Max(1, m.BodyK);
+            return (-fg.Width / 2 + (file + 0.5) * f.PerMan, -fg.Depth / 2 + (block * kk + (kk - 1) / 2.0 + 0.5) * f.RankDepth, block * kk);
         }
 
         static void World(Mover m, FigState s, double lx, double ly, out double x, out double y)
@@ -87,6 +114,7 @@ namespace BattleCore
             man.Fig = s; man.Row = sl.row;
             man.Lx = sl.ox + (MoveSim.Hash01(m.P.U.Id, man.Id, 11) - 0.5) * M.Jitter * f.PerMan;
             man.Ly = sl.oy + (MoveSim.Hash01(m.P.U.Id, man.Id, 12) - 0.5) * M.Jitter * f.RankDepth;
+            man.Ly += (man.Men - Math.Max(1, m.BodyK)) / 2.0 * f.RankDepth;   // Г87: остаточное тело (людей меньше k) — посередине своих рядов
             World(m, s, man.Lx, man.Ly, out var hx, out var hy);
             if (JsMath.Hypot(hx - man.X, hy - man.Y) > M.ReseatM) man.Reseat = true;
         }
@@ -100,11 +128,27 @@ namespace BattleCore
             var P = m.P;
             if (spawn)
             {
-                m.Men.Clear();
+                m.Men.Clear(); int kk = Math.Max(1, m.BodyK);
                 for (int k = 0; k < P.Figs.Count; k++)
-                    foreach (var sl in SlotsOf(m, k, r, (int)Math.Round(P.Figs[k].Men)))
+                {
+                    // Г87: люди фигурки по файлам (полные ряды, неполный последний — по центру, как MenPositions); в каждом файле
+                    // тела по kk человек рядами, последнее — остаток. Места — по файлу и блоку рядов, в порядке SlotsOf
+                    var fgr = Grid(m.P.U, r); int cols = Math.Max(1, (int)Math.Round(P.Figs[k].Width / fgr.PerMan));
+                    int menTotal = (int)Math.Round(P.Figs[k].Men), full = menTotal / cols, rem = menTotal % cols, off = (cols - rem) / 2;
+                    var inFile = new int[cols];
+                    for (int i = 0; i < cols; i++) inFile[i] = full + (i >= off && i < off + rem ? 1 : 0);
+                    var bodies = new List<(int file, int block, int men)>();
+                    for (int block = 0; ; block++)
                     {
-                        var man = new Man { Id = ++m.NextManId };
+                        bool any = false;
+                        for (int i = 0; i < cols; i++) { int left = inFile[i] - block * kk; if (left > 0) { bodies.Add((i, block, Math.Min(kk, left))); any = true; } }
+                        if (!any) break;
+                    }
+                    var slots = SlotsOf(m, k, r, bodies.Count);
+                    for (int bi = 0; bi < bodies.Count; bi++)
+                    {
+                        var sl = kk > 1 ? SlotAt(m, k, r, bodies[bi].file, bodies[bi].block) : slots[bi];
+                        var man = new Man { Id = ++m.NextManId, Men = bodies[bi].men };
                         man.Hu = MoveSim.Hash01(m.P.U.Id, man.Id, 13);
                         Seat(m, man, m.Figs[k], sl, r);
                         World(m, m.Figs[k], man.Lx, man.Ly, out man.X, out man.Y);
@@ -112,6 +156,7 @@ namespace BattleCore
                         man.Facing = FigHeading(m, m.Figs[k]);
                         m.Men.Add(man);
                     }
+                }
                 m.MenVersion++;
                 return;
             }
@@ -131,7 +176,7 @@ namespace BattleCore
                 {
                     double d = (m.Figs[q].X - man.X) * (m.Figs[q].X - man.X) + (m.Figs[q].Y - man.Y) * (m.Figs[q].Y - man.Y);
                     if (d < ad) { ad = d; any = q; }
-                    if (r.Move.MenBodies && members[q].Count >= 2 * Math.Max(1, Math.Round(P.Figs[q].Men))) continue;
+                    if (r.Move.MenBodies && members[q].Count >= 2 * Math.Max(1, BodiesOf(P.Figs[q].Men, m.BodyK))) continue;
                     if (d < bd) { bd = d; best = q; }
                 }
                 members[best >= 0 ? best : any].Add(man);
@@ -167,9 +212,9 @@ namespace BattleCore
             var carry = new List<(Man man, double lx)>();
             for (int j = 0; j < rows.Count; j++)
             {
-                var slots = rows[j];
+                var slots = rows[j]; int rowKey = slots[0].row;   // Г87: ряд тела — номер его первого ряда в людях
                 var pool = new List<(Man man, double lx)>(carry); carry.Clear();
-                if (buckets.TryGetValue(j, out var own)) { pool.AddRange(own); buckets.Remove(j); }
+                if (buckets.TryGetValue(rowKey, out var own)) { pool.AddRange(own); buckets.Remove(rowKey); }
                 if (pool.Count < slots.Count)
                 {
                     // пустые места: каждый из ряда занимает ближайшее к себе свободное
@@ -221,14 +266,15 @@ namespace BattleCore
             for (int k = 0; k < nk; k++) idx[m.Figs[k]] = k;
             var members = Enumerable.Range(0, nk).Select(_ => new List<Man>()).ToList();
             foreach (var man in m.Men) if (man.Alive && man.Fig != null && idx.TryGetValue(man.Fig, out int k)) members[k].Add(man);
-            int Surplus(int k) => members[k].Count - (int)Math.Round(P.Figs[k].Men);
+            int Surplus(int k) => members[k].Count - BodiesOf(P.Figs[k].Men, m.BodyK);
+            bool Still(int k) => !r.Men.BalanceStillOnly || !(m.Figs[k].Wrap || m.Figs[k].Returning);   // колонна в манёвре (охват, возврат) бойцами не меняется — иначе их места прыгают
             bool moved = false;
             foreach (int d in Enumerable.Range(0, nk).OrderBy(k => P.Figs[k].Rank).ThenBy(k => P.Figs[k].Y).ThenBy(k => P.Figs[k].X))
             {
                 int best = -1; double bd = double.MaxValue;
                 for (int q = 0; q < nk; q++)
                 {
-                    if (q == d || members[q].Count == 0 || Surplus(q) - Surplus(d) < r.Men.BalanceDiff) continue;
+                    if (q == d || members[q].Count == 0 || Surplus(q) - Surplus(d) < r.Men.BalanceDiff || !Still(q) || !Still(d)) continue;
                     double lim = 1.6 * Math.Max(Math.Max(P.Figs[q].Width, P.Figs[q].Depth), Math.Max(P.Figs[d].Width, P.Figs[d].Depth));
                     double dist = JsMath.Hypot(m.Figs[q].X - m.Figs[d].X, m.Figs[q].Y - m.Figs[d].Y);
                     if (dist <= lim && dist < bd) { bd = dist; best = q; }
