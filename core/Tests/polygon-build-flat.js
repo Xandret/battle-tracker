@@ -439,8 +439,10 @@ function bWell(g, x, y, seed = 131){
 // плоскость крыльев условно завалена к зрителю (o.lean, доля; Алекс выбрал вариант «как мельница выглядит в жизни»):
 // крест виден сам, тень — от настоящего положения крыльев. o.lean = 0 — честный вид сверху
 function bWindmill(g, x, y, t = 0, seed = 141, o = {}){
-  const face = o.face ?? -0.4, lean = o.lean ?? 0.75, sun = bSun(face), HUB = 12, HY = -3.9, L = 9, W = 2.0, TW = 0.3, rot = t * 0.9;
-  // крылья — с завалом плоскости к зрителю; остальное — строго сверху
+  const face = o.face ?? -0.4, lean = o.lean ?? 0, sun = bSun(face), HUB = 12, HY = -4.6, L = 9, W = 2.0, TW = 0.3, rot = t * 0.9;
+  // строго сверху (Г96, отзыв Алекса 08.10: завал к зрителю «выглядит 3-дшно, ветряк проходит сквозь строение»): плоскость
+  // крыльев стоит отвесно перед шатром — сверху крылья видны узкой полосой, что ходит в длину по мере поворота; вал вынесен
+  // за галерею (4,6 м от оси), крылья её не задевают; что они крутятся, видно по тени-кресту на земле. lean > 0 — старый вид
   const top = ([px, py, pz]) => [px * bUp(pz), py - lean * (pz - HUB)], up = ([px, py, pz]) => [px * bUp(pz), py], shd = ([px, py, pz]) => [px + sun[0] * pz, py + sun[1] * pz];
   // точка крыла: r — вдоль маха от вала, n — поперёк, на ведомую сторону (решётка там); решётка развёрнута на TW назад
   const sail = (i, map) => {
@@ -465,7 +467,7 @@ function bWindmill(g, x, y, t = 0, seed = 141, o = {}){
     // тени: башня; водило с подкосами и крылья — по высоте
     bShadow(g, () => { g.beginPath(); g.arc(0, 0, 3.4, 0, 6.283); }, 10);
     const S = [0, 1, 2, 3].map(i => sail(i, shd));
-    bCast(g, () => { bSub(g, bSeg(shd([0, 2.6, 10]), [0, 9.6], 0.36)); for(const sx of [-1, 1]) bSub(g, bSeg(shd([sx * 1.8, 1.8, 10]), shd([0, 6.4, 4.5]), 0.2)); for(const q of S){ bSub(g, q.cloth); bSub(g, q.stock); bSub(g, q.board); } }, 0.3);
+    bCast(g, () => { bSub(g, bSeg(shd([0, 2.6, 10]), [0, 9.6], 0.36)); for(const sx of [-1, 1]) bSub(g, bSeg(shd([sx * 1.8, 1.8, 10]), shd([0, 6.4, 4.5]), 0.2)); for(const q of S){ bSub(g, q.cloth); bSub(g, q.stock); bSub(g, q.board); } }, 0.42);
     bLines(g, S.flatMap(q => q.bars), "rgba(28,22,12,.2)", 0.5);
     // галерея: доски по кругу, перила
     ring(3.05, 4.15); g.fillStyle = B_WOOD_L; g.fill("evenodd"); bGrain(g, 0.35);
