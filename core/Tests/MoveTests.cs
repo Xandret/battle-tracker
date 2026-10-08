@@ -5,7 +5,11 @@ using BattleCore;
 
 static class MoveTests
 {
-    static Rules R => Rules.Base;
+    public static Rules Use = Rules.Base;
+    static Rules R => Use;
+    // Г92: умолчание — бойцы-тела. Тесты именно старого режима (фигурки-капсулы, живые бойцы внутри них) — в обёртке Figs,
+    // пока его код не убран (Г97)
+    static Action Figs(Action run) => () => { var was = Use; Use = Rules.Figures; try { run(); } finally { Use = was; } };
     static void Eq<T>(T actual, T expected, string what)
     {
         if (!EqualityComparer<T>.Default.Equals(actual, expected)) throw new Exception($"{what}: ожидалось «{expected}», получено «{actual}»");
@@ -218,7 +222,7 @@ static class MoveTests
             True(log[0].Contains("недобрал"), "журнал говорит про недобор: " + log[0]);
         });
 
-        yield return ("движение (Г52): цель сзади — кругом за 1 с, фигурки не сходят с мест", () =>
+        yield return ("движение (Г52): цель сзади — кругом за 1 с, фигурки не сходят с мест", Figs(() =>
         {
             var geo = Open(600, 800);
             var m = Unit("infantry", 1, 300, 200, 0);
@@ -234,7 +238,7 @@ static class MoveTests
             True(moved < 0.01, $"за разворот фигурки сдвинулись на {moved:0.000} м");
             Near(m.P.Facing, 180, 1e-6, "смотрит на юг");
             True(m.Spent > 90, $"нормы {m.Spent:0.0} — разворот почти не стоит хода");
-        });
+        }));
 
         yield return ("движение (Г54): шаг вбок — без поворота, на половине скорости", () =>
         {
@@ -249,7 +253,7 @@ static class MoveTests
             Near(arrivedAt, 25 / top + top / acc, 0.2, "время на 25 м боком");
         });
 
-        yield return ("движение: фигурки встают на свои места и не заходят в воду", () =>
+        yield return ("движение: фигурки встают на свои места и не заходят в воду", Figs(() =>
         {
             var geo = Open(600, 600);
             Terrain.PaintDisc(geo.Map, "t", 60, 60, 20, Terrain.Id("water"));
@@ -265,7 +269,7 @@ static class MoveTests
             Eq(wet, 0, "кадров с фигуркой в воде");
             True(m.Done, "дошёл в обход озера");
             True(SlotGap(m) < 0.05, $"фигурка дальше всех от места — {SlotGap(m):0.000} м");
-        });
+        }));
 
         yield return ("движение: одно и то же — один исход", () =>
         {
@@ -282,7 +286,7 @@ static class MoveTests
         });
 
         // ── шаг 2: тела, толкотня, уступание (Г56–Г58) ──
-        yield return ("тела (Г57): на перекрёстке первым идёт тот, кто раньше подошёл; второй пропускает, сквозь не проходит", () =>
+        yield return ("тела (Г57): на перекрёстке первым идёт тот, кто раньше подошёл; второй пропускает, сквозь не проходит", Figs(() =>
         {
             var geo = Open(900, 700);
             var a = Unit("infantry", 1, 300, 300, 90);    // уже у перекрёстка, идёт на восток
@@ -299,7 +303,7 @@ static class MoveTests
             }
             True(worst > -0.3, $"тела перекрылись на {-worst:0.00} м");
             True(logs.Any(l => l.StartsWith("«Вторые»") && l.Contains("пропускал «Первые»")), "журнал: вторые пропускали первых — " + string.Join(" | ", logs));
-        });
+        }));
 
         yield return ("тела (Г57): подошли одновременно — первым идёт тот, у кого дисциплина выше", () =>
         {
@@ -316,7 +320,7 @@ static class MoveTests
             }
         });
 
-        yield return ("тела (Г57): свой стоящий отряд — уже на месте: сквозь него не идут и не толкают", () =>
+        yield return ("тела (Г57): свой стоящий отряд — уже на месте: сквозь него не идут и не толкают", Figs(() =>
         {
             var geo = Open(600, 700);
             var stand = Unit("infantry", 1, 300, 250, 0); stand.P.U.Name = "Стоят";
@@ -330,7 +334,7 @@ static class MoveTests
             True(worst > -0.3, $"перекрылись на {-worst:0.00} м");
             True(Bodies.MinGap(stand, go) < 3, $"идущие встали вплотную: зазор {Bodies.MinGap(stand, go):0.0} м");
             True(logs.Any(l => l.Contains("пропускал «Стоят»")), "журнал: пробка — " + string.Join(" | ", logs));
-        });
+        }));
 
         yield return ("тела (Г56): лучники отходят сквозь свою пехоту на половине скорости, пехоту не толкают", () =>
         {
@@ -347,7 +351,7 @@ static class MoveTests
             True(moved() < 0.2, $"пехоту сдвинули на {moved():0.00} м");
         });
 
-        yield return ("тела (Г58): упираются во врага и стоят, стоящего врага не теснят", () =>
+        yield return ("тела (Г58): упираются во врага и стоят, стоящего врага не теснят", Figs(() =>
         {
             var geo = Open(600, 700);
             var foe = Unit("infantry", 1, 300, 200, 180, faction: 2); foe.P.U.Name = "Враг";
@@ -362,7 +366,7 @@ static class MoveTests
             double gap = Bodies.MinGap(foe, go);
             True(gap >= -0.3 && gap <= R.Map.MeleeGap, $"в контакте — зазор {gap:0.0} м, «вплотную» до {R.Map.MeleeGap} м");
             True(logs.Any(l => l.Contains("упёрся во врага «Враг»")), "журнал: упёрся — " + string.Join(" | ", logs));
-        });
+        }));
 
         yield return ("тела: перепутанный строй собирается за секунды — места перераспределяются", () =>
         {
@@ -416,7 +420,7 @@ static class MoveTests
             Eq(narrowest, m.NominalCols, "колонн у озера");
         });
 
-        yield return ("узости (Г59, Г60): мост 15 м — в колонну по 2, перестроение медленнее, за мостом — снова линия", () =>
+        yield return ("узости (Г59, Г60): мост 15 м — в колонну по 2, перестроение медленнее, за мостом — снова линия", Figs(() =>
         {
             var geo = Open(800, 700);
             Terrain.PaintRect(geo.Map, "t", 0, 56, 159, 63, Terrain.Id("water"));     // река 40 м поперёк
@@ -430,9 +434,9 @@ static class MoveTests
             Eq(m.Cols, m.NominalCols, "за мостом — снова линия");
             Eq(wet, 0, "кадров с фигуркой в воде");
             True(logs.Any(l => l.Contains("колонна по 2")) && logs.Any(l => l.Contains("перестроение")), "журнал: колонна и перестроение — " + string.Join(" | ", logs));
-        });
+        }));
 
-        yield return ("взгляд вперёд (Г59): между двумя близкими воротами колонна не разворачивается", () =>
+        yield return ("взгляд вперёд (Г59): между двумя близкими воротами колонна не разворачивается", Figs(() =>
         {
             var geo = Open(800, 800);
             foreach (int row in new[] { 60, 68 })   // две стены поперёк, ворота 10 м, между стенами 35 м
@@ -446,9 +450,9 @@ static class MoveTests
             Until(new[] { m }, geo, 14, t => { if (m.Cols != seq[seq.Count - 1]) seq.Add(m.Cols); });
             True(m.Done, "прошёл обе стены");
             True(seq.Count == 3 && seq[1] <= 2 && seq[2] == m.NominalCols, "сузился один раз и развернулся один раз: " + string.Join(" → ", seq));
-        });
+        }));
 
-        yield return ("мелкое препятствие (Г59): дом на пути — строй не делает крюк, фигурки огибают его с двух сторон", () =>
+        yield return ("мелкое препятствие (Г59): дом на пути — строй не делает крюк, фигурки огибают его с двух сторон", Figs(() =>
         {
             var geo = Open(800, 700);
             Terrain.PaintRect(geo.Map, "t", 79, 59, 80, 60, Terrain.Id("building"));   // дом 10 × 10 м прямо на пути
@@ -462,9 +466,9 @@ static class MoveTests
             Eq(narrowest, m.NominalCols, "перед домом не перестраивался");
             Eq(inside, 0, "кадров с фигуркой в доме");
             True(SlotGap(m) < 0.1, $"за домом сомкнулись: {SlotGap(m):0.00} м");
-        });
+        }));
 
-        yield return ("обход своих (Г61): свой стоит на пути — ждёт 3 с и обходит; стоящего не толкают", () =>
+        yield return ("обход своих (Г61): свой стоит на пути — ждёт 3 с и обходит; стоящего не толкают", Figs(() =>
         {
             var geo = Open(900, 800);
             var stand = Unit("infantry", 1, 450, 400, 0); stand.P.U.Name = "Стоят";
@@ -477,9 +481,9 @@ static class MoveTests
             True(logs.Any(l => l.Contains("обошёл «Стоят»")), "журнал: обход — " + string.Join(" | ", logs));
             True(moved() < 0.3, $"стоящих сдвинули на {moved():0.00} м");
             True(worst > -0.3, $"перекрылись на {-worst:0.00} м");
-        });
+        }));
 
-        yield return ("обход своих (Г61): встречные лоб в лоб — уступающий обходит, оба доходят", () =>
+        yield return ("обход своих (Г61): встречные лоб в лоб — уступающий обходит, оба доходят", Figs(() =>
         {
             var geo = Open(900, 900);
             var a = Unit("infantry", 1, 450, 700, 0); a.P.U.Name = "Север";
@@ -490,7 +494,7 @@ static class MoveTests
             True(a.Done && b.Done, "оба на месте: " + string.Join(" | ", logs));
             True(logs.Any(l => l.Contains("обошёл")), "журнал: кто-то обходил — " + string.Join(" | ", logs));
             True(worst > -0.5, $"перекрылись на {-worst:0.00} м");
-        });
+        }));
 
         yield return ("тела: несколько отрядов — одно и то же, один исход", () =>
         {

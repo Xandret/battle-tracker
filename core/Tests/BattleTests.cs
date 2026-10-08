@@ -5,8 +5,11 @@ using BattleCore;
 
 static class BattleTests
 {
-    public static Rules Use = Rules.Base;   // Б2: тот же набор с бойцами-телами — dotnet run --project Tests -- battle-men
+    public static Rules Use = Rules.Base;   // Г92: умолчание — бойцы-тела; тот же набор на фигурках-капсулах — dotnet run --project Tests -- battle-figs
     static Rules R => Use;
+    // Г92: умолчание — бойцы-тела. Тесты именно старого режима (фигурки-капсулы, живые бойцы внутри них) — в обёртке Figs,
+    // пока его код не убран (Г97)
+    static Action Figs(Action run) => () => { var was = Use; Use = Rules.Figures; try { run(); } finally { Use = was; } };
     static void True(bool ok, string what) { if (!ok) throw new Exception(what); }
 
     static Geo Open(double w = 1000, double h = 1000) => MoveTests.Open(w, h);
@@ -287,7 +290,7 @@ static class BattleTests
             True(game >= 0.7 * table && game <= 1.1 * table, $"стол {table:0}, бой в движении {game:0}");
         });
 
-        yield return ("охват (Г68, Г63): пехота во фланг пехоте — что не влезло во фланг, огибает; атакованный сам не заворачивает и отвечает слабее стола", () =>
+        yield return ("охват (Г68, Г63): пехота во фланг пехоте — что не влезло во фланг, огибает; атакованный сам не заворачивает и отвечает слабее стола", Figs(() =>
         {
             const int N = 20, NT = 1000;
             var inf = Templates.Get("infantry");
@@ -310,7 +313,7 @@ static class BattleTests
             True(wrapA > 10 && wrapB == 0, $"в охвате фигурок: у атакующего {wrapA}, у атакованного {wrapB}");
             // охват идёт секунды — за первый ход стоящий теряет меньше стола, но не меньше 70%; ответ — слабее стола (Г63)
             True(gB >= 0.7 * tB && gB <= 1.15 * tB && gA < tA, $"стол {tA:0}/{tB:0}, бой в движении {gA:0}/{gB:0}");
-        });
+        }));
 
         yield return ("двое на одного (Г69): колонны защитника делятся между врагами, ответ — один на круг на всех", () =>
         {

@@ -4,7 +4,7 @@
 // dotnet run --project Tests -- calibrate [ходов рукопашной] [ходов стрельбы] — сверка модели со столом: shared/calibration/*
 // (или calibrate-melee / calibrate-ranged по отдельности)
 // dotnet run --project Tests -- polygon — полигон движения (Г55): core/polygon/polygon.html
-// dotnet run -c Release --project Tests -- bench-paths [зазор между линиями, м] [men] — замер путей (FlowField) на карте 4000 × 3000 м; men — бойцы-тела
+// dotnet run -c Release --project Tests -- bench-paths [зазор между линиями, м] [figs] — замер путей (FlowField) на карте 4000 × 3000 м; figs — старые фигурки-капсулы
 using System.Text.Json;
 using BattleCore;
 
@@ -134,11 +134,11 @@ Test("строй в метрах совпадает с трекером (battlem
     Eq((F("infantry", 500).Front, F("infantry", 500).Depth), (63.0, 8.0), "потери сужают фронт");
     Eq((F("infantry", 3).Front, F("infantry", 3).Depth), (1.0, 3.0), "горстка в одну колонну");
 });
-Test("раскладка на фигурки (Г32): 1000 пехоты по 10 — квадратики 5 × 2, 4 ряда по 25", () =>
+Test("раскладка на фигурки (Г32, старый режим тел — Rules.Figures): 1000 пехоты по 10 — квадратики 5 × 2, 4 ряда по 25", () =>
 {
     var u = new Unit { Id = 7, Type = "infantry", Soldiers = 1000 };
-    Eq(Formation.Shape(u, 10, Rules.Base), (5, 2), "форма пехоты");
-    var figs = Formation.Layout(u, 10, Rules.Base);
+    Eq(Formation.Shape(u, 10, Rules.Figures), (5, 2), "форма пехоты");
+    var figs = Formation.Layout(u, 10, Rules.Figures);
     Eq(figs.Count, 100, "фигурок");
     Eq(figs.Sum(f => f.Men), 1000.0, "бойцов всего");
     Eq(figs.Max(f => f.Rank), 3, "последний ряд квадратиков");
@@ -148,14 +148,14 @@ Test("раскладка на фигурки (Г32): 1000 пехоты по 10 �
     Eq((front[0].Width, front[0].Depth, front[0].Men), (5.0, 2.0, 10.0), "квадратик 5 × 2 м");
     Eq(front.Min(f => f.X - f.Width / 2), -62.5, "левый край строя");
     Eq(front[0].Y, -3.0, "передний ряд — у переднего края (шеренги 1–2)");
-    var half = Formation.Layout(new Unit { Type = "infantry", Soldiers = 500 }, 10, Rules.Base);
+    var half = Formation.Layout(new Unit { Type = "infantry", Soldiers = 500 }, 10, Rules.Figures);
     Eq(half.Sum(f => f.Men), 500.0, "500 бойцов");
     Eq(half.Where(f => f.Rank == 0).Sum(f => f.Width), 63.0, "потери сужают фронт — как фишка трекера");
-    Eq(Formation.Layout(u, 1, Rules.Base).Count, 1000, "1:1 — по фигурке на бойца");
-    Eq(Formation.Shape(new Unit { Type = "pike", Soldiers = 1000 }, 10, Rules.Base), (5, 2), "пикинёры: 10 шеренг — тоже 5 × 2");
-    Eq(Formation.Shape(new Unit { Type = "archer", Soldiers = 1000 }, 10, Rules.Base), (2, 5), "стрелки: 5 шеренг — колонки 2 × 5");
-    Eq(Formation.Shape(new Unit { Type = "cavalry", Soldiers = 1000 }, 10, Rules.Base), (10, 1), "конница: 5 шеренг — 10 всадников в ряд");
-    Eq(Formation.Layout(new Unit { Type = "cavalry", Soldiers = 1000 }, 10, Rules.Base).Count, 100, "конница 5 × 200 по 10");
+    Eq(Formation.Layout(u, 1, Rules.Figures).Count, 1000, "1:1 — по фигурке на бойца");
+    Eq(Formation.Shape(new Unit { Type = "pike", Soldiers = 1000 }, 10, Rules.Figures), (5, 2), "пикинёры: 10 шеренг — тоже 5 × 2");
+    Eq(Formation.Shape(new Unit { Type = "archer", Soldiers = 1000 }, 10, Rules.Figures), (2, 5), "стрелки: 5 шеренг — колонки 2 × 5");
+    Eq(Formation.Shape(new Unit { Type = "cavalry", Soldiers = 1000 }, 10, Rules.Figures), (10, 1), "конница: 5 шеренг — 10 всадников в ряд");
+    Eq(Formation.Layout(new Unit { Type = "cavalry", Soldiers = 1000 }, 10, Rules.Figures).Count, 100, "конница 5 × 200 по 10");
 });
 Test("масштаб фигурок под битву (Г24)", () =>
 {
@@ -278,12 +278,12 @@ Test("баллистика сверх стола: вблизи смертоно�
 });
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
-if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400, args.Contains("men"), args.Contains("reserve")); return 0; }
+if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400, args.Contains("figs"), args.Contains("reserve")); return 0; }
 if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "b1-cross") { MenBodyProbe.Cross(); return 0; }
 if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0; }
 if (args.Length > 0 && args[0] == "b1-bench") { MenBodyBench.Run(); return 0; }
-if (args.Length > 0 && args[0] == "battle-men") { BattleTests.Use = MenBodyTests.RB; foreach (var (n, r) in BattleTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
+if (args.Length > 0 && args[0] == "battle-figs") { BattleTests.Use = Rules.Figures; foreach (var (n, r) in BattleTests.All()) { var sw = System.Diagnostics.Stopwatch.StartNew(); try { r(); Console.WriteLine($"✓ {n} ({sw.Elapsed.TotalSeconds:0.0} с)"); } catch (Exception e) { Console.WriteLine($"✘ {n}: {e.Message} ({sw.Elapsed.TotalSeconds:0.0} с)"); } } return 0; }
 if (args.Length > 0 && args[0] == "b2") { MenMeleeProbe.Run(args.Length > 1 ? args[1] : null); return 0; }
 if (args.Length > 0 && args[0] == "b3-rally") { MenRallyProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b3-unwrap") { MenUnwrapProbe.Run(); return 0; }
@@ -294,6 +294,7 @@ if (args.Length > 0 && args[0] == "g90-depth") { MenChargeDepthProbe.Run(); retu
 if (args.Length > 0 && args[0] == "g90") { MenChargeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g86") { MenRigidProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "g94") { MenTurnProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "g81") { MenRetreatProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b3-flee") { MenFleeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-mix") { MenMeleeMix.Run(); return 0; }
 if (args.Length > 0 && args[0] == "b2-knights") { MenMeleeKnights.Run(); return 0; }
@@ -584,11 +585,11 @@ void CalibrateRanged(int RUNS)
 // Замер путей (dotnet run -c Release --project Tests -- bench-paths [зазор, м]): синтетический бой на карте 4000 × 3000 м
 // (река с бродами и мостом, рощи, кусты), 20 отрядов по 1500 — 30 тыс. бойцов, две стороны в линию в gap м друг от друга.
 // Перед каждым ходом каждому, кто в строю и не в схватке, — «атаковать ближайшего врага» (как сцена из сохранения). 2 хода.
-// dotnet run -c Release --project Tests -- bench-paths [зазор] [men] [reserve] — men: бойцы-тела (MenBodies), иначе фигурки;
+// dotnet run -c Release --project Tests -- bench-paths [зазор] [figs] [reserve] — figs: старые фигурки-капсулы (Rules.Figures), иначе бойцы-тела;
 // reserve: за каждой линией ещё 10 отрядов в 400 м — резерв на марше вдали от врага (замер Г86)
-void BenchPaths(double gap, bool menBodies = false, bool reserve = false)
+void BenchPaths(double gap, bool figures = false, bool reserve = false)
 {
-    var R = menBodies ? MenBodyTests.RB : Rules.Base;
+    var R = figures ? Rules.Figures : Rules.Base;
     var setup = System.Diagnostics.Stopwatch.StartNew();
     var map = MapGen.Generate("river", new Dictionary<string, object>
     {

@@ -631,3 +631,32 @@ static class MenRigidProbe
             });
     }
 }
+
+// Г81 при бойцах-телах: отступление из схватки по шагам — кто держит отряд (dotnet run --project Tests -- g81)
+static class MenRetreatProbe
+{
+    public static void Run()
+    {
+        var R = Rules.Base;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(4).Next });
+        var T = Templates.Get("infantry");
+        var b = bt.Add(T.Make(2, "B", 1000, 2), 500, 500, 0);
+        var fa = Formation.Of(T.Make(1, "A", 1000, 1), R);
+        var a = bt.Add(T.Make(1, "A", 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+        bt.Order(b, new MoveOrder { Kind = OrderKind.Hold });
+        bt.Turn();
+        Console.WriteLine($"сошлись: {bt.Fights.Any(f => f.Touching)}; B y={b.P.Y:0.0} facing={b.P.Facing:0}");
+        double y0 = b.P.Y;
+        bt.Order(b, new MoveOrder { Kind = OrderKind.Retreat, X = double.NaN, Y = double.NaN });
+        Console.WriteLine($"приказ: track={(b.Track == null ? "нет" : b.Track.Cost.ToString("0"))} onSpot={b.OnSpot} done={b.Done} note={b.Note} order=({b.Order?.X:0},{b.Order?.Y:0}) side={b.Side}");
+        double last = -1;
+        bt.Turn(t =>
+        {
+            if (t - last < 1 - 1e-9) return; last = t;
+            int fight = b.Figs.Count(s => s.Fighting), blocked = b.Figs.Count(s => s.BlockedBy != 0), foeMen = b.Men.Count(x => x.Alive && x.Foe != null);
+            double my = b.Men.Where(x => x.Alive).Average(x => x.Y), ay = b.Figs.Average(s => s.AY);
+            Console.WriteLine($"{t,5:0.0} с: y={b.P.Y - y0,6:0.0} бойцы y={my - y0,6:0.0} якоря y={ay - y0,6:0.0} Vs={b.Vs:0.00} held={b.Held} hold={b.HoldLeft:0.00} blocker={b.LastBlockerName}/{b.LastBlockerEnemy} reform={b.Reforming} done={b.Done} onSpot={b.OnSpot} колонн в схватке {fight}, упёрлись {blocked}, бойцов с противником {foeMen}");
+        });
+    }
+}
