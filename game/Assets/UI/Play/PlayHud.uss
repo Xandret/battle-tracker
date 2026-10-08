@@ -1483,3 +1483,165 @@
 .oc-name { flex-grow: 1; flex-basis: 0; font-size: 13px; color: var(--ink); overflow: hidden; }
 .oc-num { width: 70px; -unity-text-align: middle-right; font-size: 13px; color: var(--ink); }
 .oc-state { width: 110px; padding-left: 12px; font-size: 12px; color: var(--ink-dim); }
+
+/* ── главное меню (заставка и пауза) ── */
+.hud.is-bare .top-bar, .hud.is-bare .bottom-dock, .hud.is-bare .log-panel, .hud.is-bare .tags, .hud.is-bare .feed,
+.hud.is-bare .detail, .hud.is-bare .tip, .hud.is-bare .menu-button {
+    display: none;
+}
+
+.main-menu {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(10, 8, 6, 0.78);
+}
+
+.main-menu.is-pause {
+    background-color: rgba(10, 8, 6, 0.55);
+}
+
+.main-box {
+    width: 420px;
+    align-items: stretch;
+    padding: 30px 36px 22px 36px;
+    background-color: var(--panel);
+    border-width: 2px;
+    border-color: var(--edge);
+    border-radius: 6px;
+}
+
+.main-title {
+    font-size: 34px;
+    -unity-font-style: bold;
+    color: var(--gold-bright);
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.main-sub {
+    font-size: 14px;
+    color: var(--ink-dim);
+    -unity-text-align: middle-center;
+    margin-bottom: 22px;
+}
+
+.main-button {
+    height: 46px;
+    margin: 5px 0;
+    font-size: 19px;
+    color: var(--ink);
+    background-color: var(--panel-2);
+    border-width: 1px;
+    border-color: var(--edge-dark);
+    border-radius: 5px;
+    transition-duration: 0.1s;
+}
+
+.main-button:hover {
+    border-color: var(--gold);
+    background-color: #3d3223;
+}
+
+.main-button.is-gold {
+    color: #1d160c;
+    background-color: var(--gold);
+    border-color: var(--gold-bright);
+    -unity-font-style: bold;
+}
+
+.main-button.is-gold:hover { background-color: var(--gold-bright); }
+
+.main-button.is-quiet { color: var(--ink-dim); margin-top: 14px; }
+
+.main-hint {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+/* ── настройки ── */
+.settings-box {
+    width: 560px;
+    padding: 20px 26px;
+    align-items: stretch;
+}
+
+.set-head {
+    font-size: 15px;
+    -unity-font-style: bold;
+    color: var(--gold);
+    margin: 12px 0 4px 0;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--edge-dark);
+}
+
+.set-field {
+    margin: 4px 0;
+    color: var(--ink);
+}
+
+.set-field Label { color: var(--ink); min-width: 220px; }
+
+.set-value { color: var(--gold-bright); min-width: 50px; -unity-text-align: middle-right; }
+
+.set-note {
+    font-size: 12px;
+    color: var(--ink-faint);
+    white-space: normal;
+    margin: 2px 0 4px 0;
+}
+
+/* ── бой своими армиями ── */
+.ab-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.ab-row > .ab-drop { flex-grow: 1; }
+
+.ab-drop { margin: 3px 0; color: var(--ink); }
+
+.ab-drop Label { color: var(--ink-dim); min-width: 70px; }
+
+.ab-sum { color: var(--ink-dim); font-size: 12px; margin-left: 8px; -unity-text-align: middle-left; }
+
+.ab-map {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.ab-map > .ab-drop { width: 300px; }
+
+.ab-seed { color: var(--ink-faint); font-size: 12px; margin: 0 10px; }
+
+/* ── поля в тон окнам: выпадающие списки, галочки, ползунок (вместо светлых по умолчанию) ── */
+.unity-base-popup-field__input {
+    background-color: #2b241a;
+    border-color: var(--edge-dark);
+    border-radius: 3px;
+    color: var(--ink);
+}
+
+.unity-base-popup-field__input:hover { border-color: var(--gold-deep); }
+.unity-base-popup-field__text { color: var(--ink); }
+.unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--gold); }
+
+.unity-toggle__checkmark {
+    background-color: #2b241a;
+    border-color: var(--edge);
+    -unity-background-image-tint-color: var(--gold-bright);
+}
+
+.unity-toggle__label, .unity-toggle__text { color: var(--ink); }
+
+.unity-base-slider__dragger { background-color: var(--gold); border-color: var(--gold-deep); }
+.unity-base-slider__tracker { background-color: #2b241a; border-color: var(--edge-dark); }

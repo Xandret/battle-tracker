@@ -56,6 +56,107 @@ namespace Journal.Play
             return pb;
         }
 
+        // ── своя армия против армии: файлы армий (формат трекера, редактор «Армии»), по фракции на сторону ──
+        // Отряды — какие отмечены (null — все в строю у фракции); стороны движку — 1 и 2 (как у сохранения: FactionId —
+        // сторона), номера отрядов второй стороны сдвинуты, чтобы не совпали с первой. Расстановка — сама: в линию лицом
+        // к врагу, пехота в центре, конница по флангам, стрелки на 70 м впереди; не влезает в ширину карты — следующая
+        // линия позади. Между армиями ~520 м. Карта — шаблон генератора (поле, лес, холмы, река, пустыня).
+        public sealed class ArmyPick { public string Path; public int? FactionId; public ICollection<int> Units; }
+
+        public static PlayBattle FromArmies(ArmyPick a, ArmyPick b, string mapId, uint seed)
+        {
+            var picks = new[] { a, b };
+            var sides = new List<(Unit u, string tpl, string style, string color)>[2];
+            var names = new string[2];
+            for (int k = 0; k < 2; k++)
+            {
+                var f = Journal.Armies.ArmyFile.Load(picks[k].Path);
+                var fac = f.Faction(picks[k].FactionId);
+                names[k] = (string)fac?["name"] ?? "Без фракции";
+                string color = (string)fac?["color"];
+                sides[k] = new List<(Unit, string, string, string)>();
+                foreach (var e in f.UnitsOf(picks[k].FactionId))
+                {
+                    var u = SaveScene.UnitOf(e);
+                    if (u.Status == "destroyed" || u.Soldiers < 1) continue;
+                    if (picks[k].Units != null && !picks[k].Units.Contains(u.Id)) continue;
+                    u.Status = "active"; u.Broken = false;
+                    u.Id += k * 100000; u.FactionId = k + 1;
+                    sides[k].Add((u, Journal.Art.KitSets.TplOf(Journal.Armies.ArmyFile.KitOf(e)), Journal.Armies.ArmyFile.StyleOf(e), color));
+                }
+                if (sides[k].Count == 0) throw new InvalidOperationException($"у стороны «{names[k]}» нет отрядов в строю");
+            }
+            // ширина карты — под самую широкую линию, но не уже шаблона
+            double widest = sides.Max(L => L.Sum(x => Formation.Of(x.u, R).Front + 25));
+            var input = new Dictionary<string, object> { ["widthM"] = Math.Max(1600, Math.Min(7000, widest + 500)), ["depthM"] = 1300.0 };
+            var map = MapGen.Generate(mapId, input, seed);
+            var geo = new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) };
+            var tmpl = MapGen.Get(mapId);
+            var pb = new PlayBattle
+            {
+                Name = $"{names[0]} против {names[1]}", Geo = geo,
+                Note = $"Карта «{tmpl?.Name ?? mapId}» {geo.W:0} × {geo.H:0} м, зерно {seed}. Армии расставлены сами: пехота в центре, конница по флангам, стрелки впереди.",
+                Battle = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next }),
+            };
+            pb.Session = new BattleSession(pb.Battle);
+            pb.Session.SideNames[1] = names[0]; pb.Session.SideNames[2] = names[1];
+            for (int k = 0; k < 2; k++) Deploy(pb, sides[k], k + 1);
+            return pb;
+        }
+
+        static void Deploy(PlayBattle pb, List<(Unit u, string tpl, string style, string color)> list, int side)
+        {
+            double W = pb.Geo.W, H = pb.Geo.H, dir = side == 1 ? 1 : -1, facing = side == 1 ? 0 : 180;
+            bool Ranged(Unit u) => u.Weapon == "ranged" || u.Type == "archer";
+            var ranged = list.Where(x => Ranged(x.u)).ToList();
+            var cav = list.Where(x => !Ranged(x.u) && x.u.Type == "cavalry").ToList();
+            var foot = list.Where(x => !Ranged(x.u) && x.u.Type != "cavalry").OrderByDescending(x => x.u.Soldiers).ToList();
+            // главная линия: половина конницы, пехота, другая половина конницы
+            var main = cav.Where((_, i) => i % 2 == 0).Concat(foot).Concat(cav.Where((_, i) => i % 2 == 1)).ToList();
+            Line(pb, main, H / 2 + dir * 260, dir, facing, side);
+            Line(pb, ranged, H / 2 + dir * 190, dir, facing, side);
+        }
+
+        // ряд отрядов по центру карты на высоте y; не влез — следующий ряд дальше от врага
+        static void Line(PlayBattle pb, List<(Unit u, string tpl, string style, string color)> row, double y, double dir, double facing, int side)
+        {
+            double W = pb.Geo.W, gap = 25, maxW = W - 200;
+            int i = 0;
+            while (i < row.Count)
+            {
+                var take = new List<(Unit u, string tpl, string style, string color)>(); double w = 0, depth = 0;
+                while (i < row.Count)
+                {
+                    var fp = Formation.Of(row[i].u, R);
+                    if (take.Count > 0 && w + gap + fp.Front > maxW) break;
+                    w += (take.Count > 0 ? gap : 0) + fp.Front; depth = Math.Max(depth, fp.Depth); take.Add(row[i]); i++;
+                }
+                double x = W / 2 - w / 2;
+                foreach (var t in take)
+                {
+                    var fp = Formation.Of(t.u, R);
+                    double cx = x + fp.Front / 2, cy = y;
+                    for (int s = 0; s < 12 && Blocked(pb.Geo, cx, cy); s++) cy += dir * 20;   // в воде или скалах — сдвинуть назад
+                    var m = pb.Battle.Add(t.u, cx, cy, facing);
+                    pb.Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold });
+                    pb.Tpl[m] = t.tpl; pb.StartMen[m] = t.u.Soldiers;
+                    if (t.style != null) pb.Style[m] = t.style;
+                    if (t.color != null) pb.Color[m] = t.color;
+                    x += fp.Front + gap;
+                }
+                y += dir * (depth + 30);
+            }
+        }
+
+        // непроходимая клетка (вода, скалы, стены, здания) — по правилам местности
+        static bool Blocked(Geo g, double x, double y)
+        {
+            var m = g.Map; int cx = (int)(x / m.Cell), cy = (int)(y / m.Cell);
+            if (cx < 0 || cy < 0 || cx >= m.W || cy >= m.H) return false;
+            int t = m.T[cy * m.W + cx]; if (t == 0) t = 1;
+            return Terrain.ById.TryGetValue(t, out var tt) && R.Map.Terrain.TryGetValue(tt.Key, out var tr) && tr.Move == null;
+        }
+
         public static PlayBattle Training(uint seed = 2026)
         {
             var map = Terrain.Create(1600, 1100, Terrain.Id("field"));

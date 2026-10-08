@@ -67,15 +67,18 @@ namespace Journal.Armies
             Path = path; Dirty = false;
         }
 
-        // Где искать: game/Saves (в .gitignore) и рабочий стол — сохранения трекера (armiya*.txt) и всё .txt/.json в Saves
+        // Где искать: game/Saves (в .gitignore) и рабочий стол — сохранения трекера (armiya*.txt) и всё .txt/.json в Saves;
+        // extra — файлы, открытые раньше из других папок (игра помнит последние)
         public static string SavesDir => System.IO.Path.Combine(Directory.GetCurrentDirectory(), "Saves");
-        public static List<string> Find()
+        public static List<string> Find(IEnumerable<string> extra = null)
         {
             var list = new List<string>();
+            if (extra != null) list.AddRange(extra.Where(File.Exists));
             if (Directory.Exists(SavesDir)) list.AddRange(Directory.GetFiles(SavesDir).Where(p => p.EndsWith(".txt") || p.EndsWith(".json")));
             var desk = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             if (Directory.Exists(desk)) list.AddRange(Directory.GetFiles(desk, "armiya*.txt"));
-            return list.Distinct().OrderBy(p => p.StartsWith(SavesDir) ? 0 : 1).ThenBy(System.IO.Path.GetFileName).ToList();
+            return list.GroupBy(p => System.IO.Path.GetFullPath(p).ToLowerInvariant()).Select(g => g.First())
+                .OrderBy(p => p.StartsWith(SavesDir) ? 0 : 1).ThenBy(System.IO.Path.GetFileName).ToList();
         }
 
         // ── данные ──

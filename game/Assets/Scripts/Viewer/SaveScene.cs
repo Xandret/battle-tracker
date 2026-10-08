@@ -81,7 +81,7 @@ namespace Journal.Viewer
 
         static double Num(JToken e, string k, double def = 0) { var v = e[k]; return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : def; }
         static int? Int(JToken e, string k) { var v = e[k]; return v != null && v.Type == JTokenType.Integer ? (int)v : (int?)null; }
-        static Unit UnitOf(JToken e) => new Unit
+        public static Unit UnitOf(JToken e) => new Unit   // отряд трекера (JSON) → отряд движка; тем же читает и бой своих армий
         {
             Id = (int)e["id"], Name = (string)e["name"] ?? "", Type = (string)e["type"] ?? "infantry", Weapon = (string)e["weapon"] ?? "melee",
             FactionId = Int(e, "factionId"), SubfactionId = Int(e, "subfactionId"), CommanderId = Int(e, "commanderId"),

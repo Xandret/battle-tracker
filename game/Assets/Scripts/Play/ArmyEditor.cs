@@ -21,7 +21,8 @@ namespace Journal.Play
     {
         public readonly VisualElement Root;
         public bool Visible => !Root.ClassListContains("hidden");
-        public event Action<string> PlayFile;        // «В бой» с этим файлом (когда будет расстановка — шаг 3)
+        public event Action<string> PlayFile;        // «В бой ⚔» с этим файлом — выбор противника и карты (ArmyBattlePanel)
+        public event Action Closed;                   // окно закрыли — игра возвращается в главное меню
 
         ArmyFile file;
         int? factionId;                               // выбранная фракция (null — без фракции)
@@ -55,6 +56,7 @@ namespace Journal.Play
             Btn(top, "Сохранить", Save, "is-gold");
             saveAsName = new TextField { isDelayed = false }; saveAsName.AddToClassList("army-saveas"); saveAsName.tooltip = "Имя файла в game/Saves"; top.Add(saveAsName);
             Btn(top, "Сохранить как", SaveAs);
+            Btn(top, "В бой ⚔", ToBattle, "is-gold");
             var sp = new VisualElement(); sp.style.flexGrow = 1; top.Add(sp);
             Btn(top, "Закрыть ✕", () => Confirm("close", "Есть несохранённые правки — «Сохранить» или нажми «Закрыть» ещё раз, чтобы выйти без них", Hide));
             filePopup = Div("army-files hidden", Root);
@@ -86,7 +88,15 @@ namespace Journal.Play
             else if (file == null) SetFile(ArmyFile.New());
             Rebuild();
         }
-        public void Hide() { FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); }
+        public void Hide() { FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); Closed?.Invoke(); }
+        // в бой этой армией: сначала на диск (бой читает файл), потом выбор противника и карты
+        void ToBattle()
+        {
+            if (file.Path == null) { Say("Сначала «Сохранить как» — бой берёт армию из файла", true); return; }
+            if (file.Dirty) { try { file.Save(); } catch (Exception e) { Say("Не сохранилось: " + e.Message, true); return; } }
+            FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden");
+            PlayFile?.Invoke(file.Path);
+        }
 
         void SetFile(ArmyFile f)
         {
@@ -107,13 +117,19 @@ namespace Journal.Play
         {
             if (!filePopup.ClassListContains("hidden")) { filePopup.AddToClassList("hidden"); return; }
             filePopup.Clear();
-            var list = ArmyFile.Find();
+            var pick = Div("army-file-row", filePopup); Lbl(pick, "📂 Открыть файл…", "army-file-name"); Lbl(pick, "любая папка", "army-file-where");
+            pick.RegisterCallback<ClickEvent>(_ => Confirm("pick", "Есть несохранённые правки — нажми ещё раз, чтобы открыть другой файл без них", () =>
+            {
+                var f = FileDialog.OpenSave(FileDialog.LastDir());
+                if (f != null) { FileDialog.Remember(f); TryOpen(f); }
+            }));
+            var list = ArmyFile.Find(FileDialog.Recent());
             if (list.Count == 0) Lbl(filePopup, "Файлов нет: положи сохранения трекера в game/Saves или на рабочий стол (armiya_hodN.txt)", "army-note");
             foreach (var p in list)
             {
                 var row = Div("army-file-row", filePopup);
                 Lbl(row, Path.GetFileName(p), "army-file-name");
-                Lbl(row, p.StartsWith(ArmyFile.SavesDir) ? "game/Saves" : "рабочий стол", "army-file-where");
+                Lbl(row, p.StartsWith(ArmyFile.SavesDir) ? "game/Saves" : Path.GetDirectoryName(p), "army-file-where");
                 var pp = p;
                 row.RegisterCallback<ClickEvent>(_ => Confirm("open:" + pp, "Есть несохранённые правки — нажми на файл ещё раз, чтобы открыть без них", () => TryOpen(pp)));
             }

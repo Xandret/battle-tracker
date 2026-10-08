@@ -44,6 +44,8 @@ namespace Journal.Play
         // отряда копятся с прошлых битв кампании — итог считает разницу); EndedByPlayer — битву остановили кнопкой
         public readonly Dictionary<Mover, (double Men, double Killed, double Wounded)> AtStart = new Dictionary<Mover, (double, double, double)>();
         public bool EndedByPlayer { get; private set; }
+        public bool Chosen { get; private set; }             // битву выбрал игрок (а не поле-заставка при запуске)
+        public event Action MenuRequested;                   // Esc без выбора и без протяжки — главное меню (пауза)
         public TurnSummary LastSummary => Summaries.Count > 0 ? Summaries[Summaries.Count - 1] : null;
         TurnSummary current;
 
@@ -82,13 +84,13 @@ namespace Journal.Play
         // новая битва: из меню — выбранная; «ещё раз» — та же
         public void NewBattle(Func<PlayBattle> make = null)
         {
-            if (make != null) lastMake = make;
+            if (make != null) { lastMake = make; Chosen = true; }
             Game = lastMake();
             recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
                                     m => Game.Color.TryGetValue(m, out var c) ? c : null, m => Game.Style.TryGetValue(m, out var st) ? st : null);
             recorder.Rec.Image = Game.Image;
             recorder.Snap();
-            Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false;
+            Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
             Summaries.Clear(); current = null; EndedByPlayer = false;
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
@@ -298,7 +300,7 @@ namespace Journal.Play
             {
                 if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) Go();
                 if (kb.spaceKey.wasPressedThisFrame && Phase == PlayPhase.Showing) Paused = !Paused;
-                if (kb.escapeKey.wasPressedThisFrame) { if (Dragging) CancelDrag(); else Select(null); }
+                if (kb.escapeKey.wasPressedThisFrame) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
                 if (ctrl && kb.aKey.wasPressedThisFrame) SelectMany(Battle.Movers.Where(m => SideOf(m) == ActiveSide));
                 if (Selection.Count > 0 && Phase == PlayPhase.Orders && !ctrl)
                 {

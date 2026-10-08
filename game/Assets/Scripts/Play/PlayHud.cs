@@ -29,6 +29,7 @@ namespace Journal.Play
         Button goButton, pauseButton, speed1, speed2, speed4, againButton, menuButton, menuClose;
         VisualElement menu, menuList; Label menuStatus;
         LineupPanel lineup;                 // состав битвы из сохранения трекера (Г98)
+        MainMenu mainMenu; SettingsPanel settings; ArmyBattlePanel armyBattle;   // главное меню, настройки, бой своими армиями
         VisualElement overTable; object overBuilt;   // итог битвы «кто сколько потерял» — строится раз на конец битвы
         ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
         bool menuBusy;
@@ -70,13 +71,24 @@ namespace Journal.Play
             menu = root.Q("menu"); menuList = root.Q("menuList"); menuStatus = root.Q<Label>("menuStatus");
             menuButton = root.Q<Button>("menuButton"); menuClose = root.Q<Button>("menuClose");
             againButton.clicked += ShowMenu;
-            menuButton.clicked += ShowMenu;
-            menuClose.clicked += () => menu.AddToClassList("hidden");
+            menuButton.clicked += ShowMain;
+            menuButton.text = "Меню";
+            menuClose.clicked += () => { menu.AddToClassList("hidden"); ShowMain(); };
+            menuClose.text = "Назад";
+            GameSettings.Init(GetComponent<UIDocument>());
             armies = new ArmyEditor(hud);
             lineup = new LineupPanel(hud, (path, ids) => { pc.NewBattle(() => PlayScenarios.FromSave(path, ids)); menu.AddToClassList("hidden"); }, ShowMenu);
+            armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed)); menu.AddToClassList("hidden"); }, ShowMenu);
+            settings = new SettingsPanel(hud, ShowMain);
+            settings.Changed += ApplySettings;
+            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), settings.Show, Quit);
+            armies.Closed += ShowMain;
+            armies.PlayFile += path => armyBattle.Show(path);
+            pc.MenuRequested += () => { ShowMain(); escHandled = true; };   // тот же Esc не должен сразу закрыть меню
+            ApplySettings();
             overTable = new ScrollView(ScrollViewMode.Vertical); overTable.AddToClassList("over-table");
             againButton.parent.Insert(againButton.parent.IndexOf(againButton), overTable);
-            ShowMenu();   // в начале — выбор битвы (под меню уже стоит учебное поле)
+            ShowMain();   // в начале — главное меню (под ним — поле-заставка)
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
             feed = root.Q("feed");
             summaryBox = new VisualElement(); summaryBox.AddToClassList("sum-box"); logPanel.Add(summaryBox);
@@ -126,6 +138,12 @@ namespace Journal.Play
                 end.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); pc.EndBattle(); });
                 menuList.Insert(0, end);
             }
+            // своя армия против армии: армии из редактора «Армии» (или из сохранений трекера), расстановка — сама
+            var ab = new VisualElement(); ab.AddToClassList("menu-item"); ab.AddToClassList("menu-armies");
+            var abn = new Label("⚔ Своя армия против армии"); abn.AddToClassList("menu-item-name"); ab.Add(abn);
+            var abd = new Label("Армии из редактора «Армии»: на каждую сторону — файл и фракция, кто выйдет; карта — поле, лес, холмы, река, пустыня."); abd.AddToClassList("menu-item-note"); ab.Add(abd);
+            ab.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); armyBattle.Show(); });
+            menuList.Insert(menuList.childCount > 0 && menuList[0].ClassListContains("menu-end") ? 1 : 0, ab);
             // сохранения трекера: открыть файл где угодно или из недавних — дальше выбор состава
             var open = new VisualElement(); open.AddToClassList("menu-item"); open.AddToClassList("menu-open");
             var on = new Label("📂 Открыть сохранение трекера…"); on.AddToClassList("menu-item-name"); open.Add(on);
@@ -146,14 +164,36 @@ namespace Journal.Play
                 item.RegisterCallback<ClickEvent>(_ => OpenLineup(ff));
                 menuList.Add(item);
             }
-            // редактор армий: фракции, полководцы, отряды — в файле сохранения трекера
-            var army = new VisualElement(); army.AddToClassList("menu-item"); army.AddToClassList("menu-armies");
-            var an = new Label("⚑ Армии"); an.AddToClassList("menu-item-name"); army.Add(an);
-            var ad = new Label("Фракции, полководцы и отряды: создать, править, клонировать; стиль и снаряжение. Файлы — те же, что у трекера."); ad.AddToClassList("menu-item-note"); army.Add(ad);
-            army.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); armies.Show(); });
-            menuList.Add(army);
-            menuClose.EnableInClassList("hidden", pc.Game == null || pc.Phase == PlayPhase.Over);
             menu.RemoveFromClassList("hidden");
+        }
+
+        // Esc в окне — на шаг назад: настройки, выбор битвы, состав → главное меню; главное меню в бою → к битве
+        bool escHandled;
+        void Back()
+        {
+            if (armies.Visible) return;   // у редактора армий свои правки — закрывается его кнопкой
+            if (mainMenu.Visible) { if (mainMenu.CanContinue) mainMenu.Hide(); return; }
+            ShowMain();
+        }
+
+        // главное меню: при запуске и по Esc / «Меню» в бою; «Продолжить» — когда идёт выбранная игроком битва
+        void ShowMain()
+        {
+            menu.AddToClassList("hidden"); lineup.Hide(); armyBattle.Hide(); settings.Hide();
+            mainMenu.Show(pc.Game != null && pc.Chosen && pc.Phase != PlayPhase.Over);
+        }
+        void ApplySettings()
+        {
+            tags.style.display = GameSettings.Tags ? DisplayStyle.Flex : DisplayStyle.None;
+            if (pc.Phase == PlayPhase.Orders) pc.Speed = GameSettings.Speed;
+        }
+        static void Quit()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
 
         void OpenLineup(string f)
@@ -245,7 +285,11 @@ namespace Journal.Play
         void LateUpdate()
         {
             if (pc?.Session == null || turnNumber == null) return;
-            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible;
+            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible;
+            hud.EnableInClassList("is-bare", !pc.Chosen);   // поле-заставка за главным меню — без панелей битвы
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null && kb.escapeKey.wasPressedThisFrame && pc.Blocked && !escHandled) Back();
+            escHandled = false;
             if (viewer != null) viewer.InputBlocked = pc.Blocked;   // набор текста в окнах не двигает камеру
             var s = pc.Session; var bt = pc.Battle;
             if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
@@ -278,7 +322,7 @@ namespace Journal.Play
             Feed();
             toast.EnableInClassList("hidden", Time.time > pc.ToastUntil || string.IsNullOrEmpty(pc.Toast));
             toastText.text = pc.Toast;
-            over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over || !menu.ClassListContains("hidden") || lineup.Visible);
+            over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over || !menu.ClassListContains("hidden") || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || armies.Visible);
             if (pc.Phase == PlayPhase.Over)
             {
                 overTitle.text = pc.EndedByPlayer ? "Итог битвы" : s.Outcome ?? "Битва окончена";
