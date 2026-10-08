@@ -278,7 +278,7 @@ Test("баллистика сверх стола: вблизи смертоно�
 });
 
 // ── карта 6а: общие сценарии с трекером (правило 7) — shared/golden/map.json, см. MapCases.cs ──
-if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400, args.Contains("figs"), args.Contains("reserve"), args.Where(a => a.Length > 1 && a[0] == 'k' && char.IsDigit(a[1])).Select(a => int.Parse(a.Substring(1))).FirstOrDefault()); return 0; }
+if (args.Length > 0 && args[0] == "bench-paths") { BenchPaths(args.Length > 1 ? double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 400, args.Contains("figs"), args.Contains("reserve"), args.Where(a => a.Length > 1 && a[0] == 'k' && char.IsDigit(a[1])).Select(a => int.Parse(a.Substring(1))).FirstOrDefault(), args.Where(a => a.StartsWith("rows")).Select(a => int.Parse(a.Substring(4))).FirstOrDefault()); return 0; }
 if (args.Length > 0 && args[0] == "orders") { foreach (var (n, r) in OrdersTests.All()) { try { r(); Console.WriteLine("✓ " + n); } catch (Exception e) { Console.WriteLine("✘ " + n + ": " + e.Message); } } return 0; }
 if (args.Length > 0 && args[0] == "b1-cross") { MenBodyProbe.Cross(); return 0; }
 if (args.Length > 0 && args[0] == "b1-river") { MenBodyProbe2.River(); return 0; }
@@ -588,15 +588,16 @@ void CalibrateRanged(int RUNS)
 // Замер путей (dotnet run -c Release --project Tests -- bench-paths [зазор, м]): синтетический бой на карте 4000 × 3000 м
 // (река с бродами и мостом, рощи, кусты), 20 отрядов по 1500 — 30 тыс. бойцов, две стороны в линию в gap м друг от друга.
 // Перед каждым ходом каждому, кто в строю и не в схватке, — «атаковать ближайшего врага» (как сцена из сохранения). 2 хода.
-// dotnet run -c Release --project Tests -- bench-paths [зазор] [figs] [reserve] [kN] — figs: старые фигурки-капсулы (Rules.Figures), иначе бойцы-тела; kN — людей в теле (Г87; без него — по численности);
+// dotnet run -c Release --project Tests -- bench-paths [зазор] [figs] [reserve] [kN] [rowsN] — figs: старые фигурки-капсулы (Rules.Figures), иначе бойцы-тела; kN — людей в теле (Г87; без него — по численности);
+// rowsN — линий на сторону по 10 отрядов (15 тыс.), через 400 м; rows5 — 150 тыс. на карте 4000 × 5400 м (замер Г97);
 // reserve: за каждой линией ещё 10 отрядов в 400 м — резерв на марше вдали от врага (замер Г86)
-void BenchPaths(double gap, bool figures = false, bool reserve = false, int bodyK = 0)
+void BenchPaths(double gap, bool figures = false, bool reserve = false, int bodyK = 0, int rows = 0)
 {
     var R = figures ? Rules.Figures : Rules.Base;
     var setup = System.Diagnostics.Stopwatch.StartNew();
     var map = MapGen.Generate("river", new Dictionary<string, object>
     {
-        ["widthM"] = 4000.0, ["depthM"] = 3000.0, ["width"] = "mid", ["direction"] = "along", ["fords"] = 2.0, ["bridges"] = 1.0,
+        ["widthM"] = 4000.0, ["depthM"] = 3000.0 + Math.Max(0, rows - 2) * 800, ["width"] = "mid", ["direction"] = "along", ["fords"] = 2.0, ["bridges"] = 1.0,
     }, 11);
     var geo = new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) };
     var bt = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(16).Next }) { BodyK = bodyK };   // Г87: kN — людей в теле (0 — по численности)
@@ -616,7 +617,7 @@ void BenchPaths(double gap, bool figures = false, bool reserve = false, int body
     }
     int id = 0;
     for (int side = 1; side <= 2; side++)
-    for (int row = 0; row < (reserve ? 2 : 1); row++)
+    for (int row = 0; row < Math.Max(rows, reserve ? 2 : 1); row++)
     {
         double line = geo.H / 2 + (side == 1 ? -gap / 2 - row * 400 : gap / 2 + row * 400), cursor = 100;
         for (int k = 0; k < 10; k++)
