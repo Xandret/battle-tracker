@@ -612,6 +612,32 @@ static class MenBodyTests
             True(inside == 0, $"бойцов в клетках дома за марш: {inside}");
             True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
         });
+
+        yield return ("Б5: сквозь своих — проход 30 м между двумя стоящими своими отрядами: строй в 125 м сужает ряды, проходит, никого не продавливает и за проходом снова линия (раньше — стоял упёршись и не проходил)", () =>
+        {
+            var geo = MoveTests.Open(800, 900); var T = Templates.Get("infantry");
+            var bt = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            var l = bt.Add(T.Make(2, "Слева", 600, 1), 400 - 15 - 37.5, 450, 0);
+            var rr = bt.Add(T.Make(3, "Справа", 600, 1), 400 + 15 + 37.5, 450, 0);
+            bt.Order(l, new MoveOrder { Kind = OrderKind.Hold }); bt.Order(rr, new MoveOrder { Kind = OrderKind.Hold });
+            var m = bt.Add(T.Make(1, "Сквозь", 1000, 1), 400, 700, 0);
+            bt.Order(m, new MoveOrder { X = 400, Y = 200, Facing = 0 });
+            int turns = 0, minCols = m.Cols, overlap = 0;
+            for (int t = 0; t < 8 && !m.Done; t++)
+            {
+                turns++;
+                bt.Turn(tt =>
+                {
+                    minCols = Math.Min(minCols, m.Cols);
+                    foreach (var x in m.Men) foreach (var q in new[] { l, rr }) { q.P.ToLocal(x.X, x.Y, out var lx, out var ly); if (Math.Abs(lx) < q.P.Fp.Front / 2 - 0.3 && Math.Abs(ly) < q.P.Fp.Depth / 2 - 0.3) overlap++; }
+                });
+            }
+            double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            True(m.Done && turns <= 7, $"не прошёл за {turns} ходов (стоял упёршись {m.HeldSec:0.0} с)");
+            True(minCols <= 30 && m.Cols == m.NominalCols, $"колонн в проходе {minCols}, в конце {m.Cols} из {m.NominalCols}");
+            True(overlap == 0, $"бойцов внутри строя своих: {overlap}");
+            True(fin < 0.5, $"за проходом не собрался: до мест {fin:0.00} м");
+        });
     }
 }
 

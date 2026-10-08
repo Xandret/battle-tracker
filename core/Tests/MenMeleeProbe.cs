@@ -1008,7 +1008,7 @@ static class MenForestProbe
 {
     public static void Run(string[] opts)
     {
-        var R = new Rules(); if (opts.Contains("notrees")) R.Men.TreesPerCell = 0;
+        var R = new Rules(); if (opts.Contains("notrees")) R.Men.TreesPerCell = 0; if (opts.Contains("noswap")) R.Men.SwapGainM = 1e9;
         foreach (var o in opts) { if (o.Length > 1 && o[0] == 't' && char.IsDigit(o[1])) R.Men.TreesPerCell = int.Parse(o.Substring(1)); if (o.StartsWith("j")) R.Men.TreeJitterM = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); }
         Console.WriteLine($"деревьев на клетку {R.Men.TreesPerCell}, сдвиг до {R.Men.TreeJitterM} м");
         foreach (var tpl in new[] { "infantry", "knights" })
@@ -1138,6 +1138,73 @@ static class MenWheelProbe
             double lagAvg = 0; int far = 0;
             for (int k = 0; k < m.Figs.Count; k++) { m.P.ToWorld(m.P.Figs[k].X, m.P.Figs[k].Y, out var sx, out var sy); double d = JsMath.Hypot(sx - m.Figs[k].X, sy - m.Figs[k].Y); lagAvg += d / m.Figs.Count; if (d > 8) far++; }
             Console.WriteLine($"{t,5:0.0}: курс {m.P.Facing,5:0.0} Vs={m.Vs:0.00} застряло {m.FarLagN}, отстало {m.LagColsN} из {m.Figs.Count}; дальше 8 м {far}, отставание ср {lagAvg:0.0} м; скорость бойцов ср {vmen:0.0}; |V колонн| ср {m.Figs.Average(s => Math.Sqrt(s.Vx * s.Vx + s.Vy * s.Vy)):0.0}, норма потрачена {m.Spent:0.0}");
+        });
+    }
+}
+
+// Б5, часть 3: проход между стоящими своими — сужение рядов (dotnet run --project Tests -- gap [nogap] [gN])
+static class MenGapProbe
+{
+    public static void Run(string[] opts)
+    {
+        var R = new Rules(); if (opts.Contains("nogap")) R.Move.FriendGapCols = 999; if (opts.Contains("noswap")) R.Men.SwapGainM = 1e9;
+        var geo = MoveTests.Open(800, 900);
+        var T = Templates.Get("infantry");
+        var bt = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(1).Next });
+        double gap = opts.Where(o => o.StartsWith("g")).Select(o => double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture)).DefaultIfEmpty(30).First();
+        var l = bt.Add(T.Make(2, "Слева", 600, 1), 400 - gap / 2 - 75 / 2.0, 450, 0);   // 600 пехоты: фронт 75 м
+        var rr = bt.Add(T.Make(3, "Справа", 600, 1), 400 + gap / 2 + 75 / 2.0, 450, 0);
+        bt.Order(l, new MoveOrder { Kind = OrderKind.Hold }); bt.Order(rr, new MoveOrder { Kind = OrderKind.Hold });
+        var m = bt.Add(T.Make(1, "Сквозь", 1000, 1), 400, 700, 0);   // фронт 125 м, проход gap м
+        bt.Order(m, new MoveOrder { X = 400, Y = 200, Facing = 0 });
+        int turns = 0, minCols = m.Cols; int overlap = 0, checks = 0;
+        for (int t = 0; t < 8 && !m.Done; t++)
+        {
+            turns++;
+            bt.Turn(tt =>
+            {
+                if (m.Cols < minCols) minCols = m.Cols;
+                foreach (var x in m.Men)
+                {
+                    checks++;
+                    foreach (var q in new[] { l, rr }) { q.P.ToLocal(x.X, x.Y, out var lx, out var ly); if (Math.Abs(lx) < q.P.Fp.Front / 2 - 0.3 && Math.Abs(ly) < q.P.Fp.Depth / 2 - 0.3) overlap++; }
+                }
+            });
+            double off = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            Console.WriteLine($"   ход {turns}: y={m.P.Y:0}, колонн {m.Cols} из {m.NominalCols} (минимум за ход {minCols}), стоял упёршись {m.HeldSec:0.0} с, обход={m.IgnoreHoldBy != 0}, до мест в среднем {off:0.00} м, пересаживаются {m.Men.Count(x => x.Reseat)}");
+            minCols = m.Cols;
+        }
+        double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+        Console.WriteLine($"проход {gap} м между своими: {(m.Done ? "дошёл" : "не дошёл")} за {turns} ходов; колонн минимум {minCols} из {m.NominalCols}; бойцов внутри чужого строя {overlap} из {checks}; в конце до мест {fin:0.00} м");
+    }
+}
+
+// След одного бойца конницы в сцене «Озеро, лес, холм» (прыжки 2,3 м за шаг у леса): dotnet run --project Tests -- lake [номер] [от] [до]
+static class MenLakeTrace
+{
+    public static void Run(string[] opts)
+    {
+        int id = opts.Length > 0 ? int.Parse(opts[0]) : 77; double t0 = opts.Length > 1 ? double.Parse(opts[1], System.Globalization.CultureInfo.InvariantCulture) : 6.0, t1 = opts.Length > 2 ? double.Parse(opts[2], System.Globalization.CultureInfo.InvariantCulture) : 7.0;
+        var R = new Rules(); if (opts.Contains("nowait")) R.Move.FrameWaitM = 1e9; var geo = MoveTests.Open(1000, 800); var g = geo.Map;
+        Terrain.PaintDisc(g, "t", 100, 80, 15, Terrain.Id("water"));
+        Terrain.PaintRect(g, "t", 135, 25, 185, 75, Terrain.Id("forest"));
+        Terrain.PaintDisc(g, "z", 40, 55, 22, 1); Terrain.PaintDisc(g, "z", 40, 55, 11, 2);
+        Terrain.PaintSegment(g, "t", 0, 140, 200, 140, 1, Terrain.Id("road"));
+        var T = Templates.Get("knights");
+        var m = Mover.Place(T.Make(2, "Конница у леса", 1000, 1), 800, 720, 0, R);
+        MoveSim.Give(m, new MoveOrder { X = 800, Y = 60, Facing = 0 }, geo, R);
+        var man = m.Men.First(x => x.Id == id);
+        double px = man.X, py = man.Y;
+        MoveSim.Turn(new[] { m }, geo, R, t =>
+        {
+            double d = JsMath.Hypot(man.X - px, man.Y - py);
+            if (t >= t0 && t <= t1)
+            {
+                var hm = Soldiers.HomeOf(m, man); var s = man.Fig;
+                int cell = (int)(man.Y / Terrain.CellM) * g.W + (int)(man.X / Terrain.CellM);
+                Console.WriteLine($"{t,5:0.00}: ({man.X:0.00},{man.Y:0.00}) шаг {d:0.00} м V=({man.Vx:0.0},{man.Vy:0.0}) место ({hm.x:0.0},{hm.y:0.0}) до места {JsMath.Hypot(hm.x - man.X, hm.y - man.Y):0.0} клетка {Terrain.NameOf(g.T[cell])} жёсткий={man.WasRigid} пересадка={man.Reseat} via={(!double.IsNaN(man.ViaX) ? "да" : "нет")} колонна №{s.Id} якорь ({s.AX:0.0},{s.AY:0.0}) AV=({s.AVx:0.0},{s.AVy:0.0}) курс {man.Facing:0}; рамка Vs={m.Vs:0.0} y={m.P.Y:0.0} застряло {m.FarLagN} отстало {m.LagColsN}");
+            }
+            px = man.X; py = man.Y;
         });
     }
 }

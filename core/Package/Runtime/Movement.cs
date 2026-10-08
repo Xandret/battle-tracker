@@ -243,7 +243,7 @@ namespace BattleCore
             int every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt)), narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
             var prev = new List<(double x, double y)[]>();
             foreach (var m in ms) m.NarrowSince += M.Dt;
-            if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, r);   // узости впереди (Г59)
+            if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, ms, r);   // узости впереди (Г59); Б5 — и проходы между своими
             foreach (var m in ms)
             {
                 prev.Add(Slots(m.P));
@@ -574,12 +574,40 @@ namespace BattleCore
         // узости: узость в q метрах впереди — в счёт, если q не больше полуглубины колонны + NarrowAheadM. Позади
         // центра — пока хвост строя в узости, строй не разворачивается. Шире — только если по всему окну хватает
         // места: между двумя близкими узостями колонна так и идёт, не разворачиваясь.
-        static void Narrow(Mover m, Rules r)
+        // стоящие свои рядом — для узости между ними (Б5): не бегут, не в схватке, не мы
+        static readonly List<Mover> friendsNear = new List<Mover>();
+        static void Narrow(Mover m, IList<Mover> ms, Rules r)
         {
             var F = m.Field; var T = m.Track; var M = r.Move; var P = m.P;
             if (F == null || T == null || T.Pieces.Count == 0 || P.Figs.Count == 0) return;
             int n = P.Figs.Count;
             double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
+            friendsNear.Clear();
+            if (M.MenBodies)
+            {
+                double near = m.NominalFp.Front + M.NarrowAheadM + 60;
+                foreach (var q in ms)
+                {
+                    if (q == m || q.Fleeing || q.P.Figs.Count == 0 || !MenBodies.SameSidePublic(m.P.U, q.P.U)) continue;
+                    if (!(q.Order == null || q.Done || q.Vs < 0.1)) continue;   // идущий — не стена: с ним разберётся очередь (Г57)
+                    if (JsMath.Hypot(q.P.X - m.P.X, q.P.Y - m.P.Y) > near + JsMath.Hypot(q.P.Fp.Front, q.P.Fp.Depth) / 2) continue;
+                    friendsNear.Add(q);
+                }
+            }
+            // свободно вбок от точки (x, y) поперёк (dx, dy) до стоящего своего — как Corridor по карте, шагом полметра
+            double FriendProbe(double x, double y, double px, double py, double max)
+            {
+                for (double s = 0.5; s <= max; s += 0.5)
+                {
+                    double qx = x + px * s, qy = y + py * s;
+                    foreach (var q in friendsNear)
+                    {
+                        q.P.ToLocal(qx, qy, out var lx, out var ly);
+                        if (Math.Abs(lx) <= q.P.Fp.Front / 2 + M.FriendGapMarginM && Math.Abs(ly) <= q.P.Fp.Depth / 2 + M.FriendGapMarginM) return s - 0.5;
+                    }
+                }
+                return max;
+            }
             int ColsFor(double width) => Math.Max(1, Math.Min(m.NominalCols, (int)Math.Floor((width * (1 + M.NarrowSlack) - 2 * M.NarrowMarginM) / fw)));
             double LeadFor(int cols) => Math.Ceiling(n / (double)cols) * fd / 2 + M.NarrowAheadM;
             double s = T.MetersAt(m.Along), half = m.NominalFp.Front / 2 + M.NarrowMarginM;
@@ -592,6 +620,13 @@ namespace BattleCore
             {
                 var (x, y, dx, dy) = T.AtMeters(Math.Min(q, T.Length));
                 var (l, rr) = F.Corridor(x, y, dx, dy, half);
+                if (friendsNear.Count > 0)
+                {
+                    // проход между стоящими своими: сужаемся, только если в него войдёт не меньше FriendGapCols колонн — иначе
+                    // это стена, а не проход: ждём и обходим (Г61)
+                    double fl = FriendProbe(x, y, -dy, dx, l), fr = FriendProbe(x, y, dy, -dx, rr);
+                    if (fl + fr < l + rr && ColsFor(fl + fr) >= M.FriendGapCols) { l = fl; rr = fr; }
+                }
                 int c = ColsFor(l + rr);
                 if (c < want && (q <= s || q - s <= LeadFor(c))) want = c;
             }

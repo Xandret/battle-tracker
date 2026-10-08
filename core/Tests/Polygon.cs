@@ -363,7 +363,10 @@ static class Polygon
                             {
                                 if (!man.Alive) { prevMan.Remove(man); continue; }
                                 if (prevMan.TryGetValue(man, out var p) && JsMath.Hypot(man.X - p.x, man.Y - p.y) > lim)
-                                    found.Add($"{sc.Name}, {clock + t:0.00} с: боец «{m.P.U.Name}» №{man.Id} — {JsMath.Hypot(man.X - p.x, man.Y - p.y):0.0} м за шаг");
+                                {
+                                    int cell = (int)(man.Y / Terrain.CellM) * sc.Geo.Map.W + (int)(man.X / Terrain.CellM);
+                                    found.Add($"{sc.Name}, {clock + t:0.00} с: боец «{m.P.U.Name}» №{man.Id} — {JsMath.Hypot(man.X - p.x, man.Y - p.y):0.0} м за шаг (клетка {Terrain.NameOf(sc.Geo.Map.T[cell])}, жёсткий={man.WasRigid}, пересадка={man.Reseat}, лежит={man.DownLeft > 0}, ряд {man.Row}, из ({p.x:0.0},{p.y:0.0}) в ({man.X:0.0},{man.Y:0.0}))");
+                                }
                                 prevMan[man] = (man.X, man.Y);
                             }
                         return;

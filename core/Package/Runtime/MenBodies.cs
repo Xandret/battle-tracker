@@ -50,6 +50,7 @@ namespace BattleCore
         const double LagRefM = 3;   // боец дальше этого от своего места якорь не держит (догоняет, а не упёрся)
         static bool Through(FigState s) => s.Returning || (s.Wrap ? !s.Fighting && s.GoalM > WrapSolidM : !s.Fighting && s.GoalM > ReformThroughM);
         static bool SameSide(Unit a, Unit b) => a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId;
+        internal static bool SameSidePublic(Unit a, Unit b) => SameSide(a, b);
         static Rel RelOf(int i, int j)
         {
             if (tMi[i] < 0 || tMi[j] < 0) return Rel.Tree;
