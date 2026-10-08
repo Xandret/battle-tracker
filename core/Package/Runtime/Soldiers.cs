@@ -267,13 +267,14 @@ namespace BattleCore
             var members = Enumerable.Range(0, nk).Select(_ => new List<Man>()).ToList();
             foreach (var man in m.Men) if (man.Alive && man.Fig != null && idx.TryGetValue(man.Fig, out int k)) members[k].Add(man);
             int Surplus(int k) => members[k].Count - BodiesOf(P.Figs[k].Men, m.BodyK);
+            bool Still(int k) => !r.Men.BalanceStillOnly || !(m.Figs[k].Wrap || m.Figs[k].Returning);   // колонна в манёвре (охват, возврат) бойцами не меняется — иначе их места прыгают
             bool moved = false;
             foreach (int d in Enumerable.Range(0, nk).OrderBy(k => P.Figs[k].Rank).ThenBy(k => P.Figs[k].Y).ThenBy(k => P.Figs[k].X))
             {
                 int best = -1; double bd = double.MaxValue;
                 for (int q = 0; q < nk; q++)
                 {
-                    if (q == d || members[q].Count == 0 || Surplus(q) - Surplus(d) < r.Men.BalanceDiff) continue;
+                    if (q == d || members[q].Count == 0 || Surplus(q) - Surplus(d) < r.Men.BalanceDiff || !Still(q) || !Still(d)) continue;
                     double lim = 1.6 * Math.Max(Math.Max(P.Figs[q].Width, P.Figs[q].Depth), Math.Max(P.Figs[d].Width, P.Figs[d].Depth));
                     double dist = JsMath.Hypot(m.Figs[q].X - m.Figs[d].X, m.Figs[q].Y - m.Figs[d].Y);
                     if (dist <= lim && dist < bd) { bd = dist; best = q; }

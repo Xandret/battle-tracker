@@ -676,7 +676,8 @@ static class MenScaleProbe
     public static void Run(string[] opts)
     {
         var R = Rules.Base;
-        if (opts.Length > 0 && int.TryParse(opts[0], out var th)) { R = new Rules(); R.Men.BodyThresholdMen = th; }
+        if (opts.Length > 0) { R = new Rules(); foreach (var o in opts) { if (int.TryParse(o, out var th)) R.Men.BodyThresholdMen = th; if (o == "nocap") { R.Men.WrapFightHorseMps = 100; R.Men.WrapFightFootMps = 100; } if (o == "lunge1") R.Men.HorseLungeK = 1; if (o == "noseek") { R.Men.WrapSeekSticky = false; R.Men.WrapRetargetSec = 0; } if (o == "nohold") R.Men.LagMajorityHold = false; } }
+        bool only = opts.Contains("melee");
         void Case(string title, int turns, int seeds, string ta, string tb, double dist, bool charge, bool shoot)
         {
             foreach (int k in new[] { 1, 2, 4 })
@@ -730,6 +731,7 @@ static class MenScaleProbe
         }
         Case("пехота на пехоту в упор, 2 хода", 2, 8, "infantry", "infantry", 0.5, false, false);
         Case("рыцари натиском со 150 м, 2 хода", 2, 8, "knights", "infantry", 150, true, false);
+        if (only) return;
         Case("пикинёры на пехоту в упор, 1 ход", 1, 8, "pikemen", "infantry", 0.5, false, false);
         Case("лучники по пехоте со 100 м, 2 хода", 2, 8, "archers", "infantry", 100, false, true);
         Case("лучники по рыцарям со 100 м, 2 хода", 2, 8, "archers", "knights", 100, false, true);
@@ -799,6 +801,202 @@ static class MenScaleHitProbe
                     if (bestPart != null) { hits++; parts[bestPart] = parts.TryGetValue(bestPart, out var c) ? c + 1 : 1; }
                 }
             Console.WriteLine($"{tpl} k={k}: тел {bodies.Count}, стрел {shots}, попаданий {hits} ({100.0 * hits / shots:0.0}%): {string.Join(", ", parts.OrderBy(p => p.Key).Select(p => $"{p.Key} {p.Value}"))}; y тел {bodies.Min(q => q.Y) - 500:0.0}…{bodies.Max(q => q.Y) - 500:0.0}");
+        }
+    }
+}
+
+// Дёрганье в схватке (жалоба чата облика 08.10.2026): сдвиг бойцов бьющихся колонн за 0,2 с, доля рывков, развороты туда-обратно
+// (dotnet run --project Tests -- jerk)
+static class MenJerkProbe
+{
+    public static void Run(string[] opts)
+    {
+        var R = Rules.Base; double bigLim = opts.Length > 0 ? double.Parse(opts[0], System.Globalization.CultureInfo.InvariantCulture) : 2.0;
+        void Case(string title, string ta, string tb, double dist, bool charge)
+        {
+            double sum = 0; int n = 0, fast = 0, flips = 0; double worst = 0;
+            int foeMen = 0, fightMen = 0; var big = new Dictionary<string, int>(); var flipBy = new Dictionary<string, int>(); double bigHome = 0; int bigN = 0;
+            for (uint s = 1; s <= 3; s++)
+            {
+                var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(s + 300).Next }) { MoraleChecks = false };
+                var TA = Templates.Get(ta); var TB = Templates.Get(tb);
+                var b = bt.Add(TB.Make(2, "B", 600, 2), 500, 570, 0);
+                var fa = Formation.Of(TA.Make(1, "A", 600, 1), R);
+                var a = bt.Add(TA.Make(1, "A", 600, 1), 500, 570 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+                bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = charge });
+                var prev = new Dictionary<Man, (double x, double y)>(); var prevD = new Dictionary<Man, (double x, double y)>();
+                double last = -1;
+                for (int t = 0; t < 2; t++)
+                    bt.Turn(tt =>
+                    {
+                        if (tt - last < 0.2 - 1e-9) return; last = tt;
+                        foreach (var man in a.Men)
+                        {
+                            if (!man.Alive || man.Fig == null) { prev.Remove(man); prevD.Remove(man); continue; }
+                            if (man.Fig.Fighting && prev.TryGetValue(man, out var p))
+                            {
+                                double dx = man.X - p.x, dy = man.Y - p.y, d = Math.Sqrt(dx * dx + dy * dy);
+                                sum += d; n++; if (d > 0.6) fast++; if (d > worst) worst = d;
+                                if (d > bigLim)
+                                {
+                                    var hm = Soldiers.HomeOf(a, man); double hd = Math.Sqrt((hm.x - man.X) * (hm.x - man.X) + (hm.y - man.Y) * (hm.y - man.Y));
+                                    string why = man.DownLeft > 0 ? "лежит" : man.Reseat ? "пересадка" : man.Fig.Wrap ? "охват" : man.Fig.Returning ? "возврат" : hd > 3 ? "далеко от места" : man.Foe != null ? "с противником" : "прочее";
+                                    big[why] = big.TryGetValue(why, out var c0) ? c0 + 1 : 1;
+                                    bigHome += hd; bigN++;
+                                }
+                                if (prevD.TryGetValue(man, out var pd) && d > 0.3 && Math.Sqrt(pd.x * pd.x + pd.y * pd.y) > 0.3 && dx * pd.x + dy * pd.y < 0)
+                                {
+                                    flips++;
+                                    string fw = man.DownLeft > 0 ? "лежит" : man.Reseat ? "пересадка" : man.Fig.Wrap ? "охват" : man.Fig.Returning ? "возврат" : man.Foe != null ? "с противником" : "прочее";
+                                    flipBy[fw] = flipBy.TryGetValue(fw, out var c1) ? c1 + 1 : 1;
+                                }
+                                prevD[man] = (dx, dy);
+                                fightMen++; if (man.Foe != null) foeMen++;
+                            }
+                            prev[man] = (man.X, man.Y);
+                        }
+                    });
+                last = -1;
+            }
+            Console.WriteLine($"{title}: сдвиг за 0,2 с в среднем {sum / Math.Max(1, n):0.00} м, больше 0,6 м — {100.0 * fast / Math.Max(1, n):0.0}%, до {worst:0.0} м; развороты {100.0 * flips / Math.Max(1, n):0.0}% ({string.Join(", ", flipBy.OrderByDescending(q => q.Value).Select(q => q.Key + " " + q.Value))}); с противником {100.0 * foeMen / Math.Max(1, fightMen):0}% бойцов бьющихся колонн; рывки > {bigLim} м: {bigN} ({string.Join(", ", big.OrderByDescending(q => q.Value).Select(q => q.Key + " " + q.Value))}), до места в среднем {bigHome / Math.Max(1, bigN):0.0} м");
+        }
+        Case("рыцари натиском на пехоту (150 м)", "knights", "infantry", 150, true);
+        Case("рыцари на пехоту в упор", "knights", "infantry", 0.5, false);
+        Case("рыцари на рыцарей в упор", "knights", "knights", 0.5, false);
+        Case("пехота на пехоту в упор", "infantry", "infantry", 0.5, false);
+    }
+}
+
+// След одной колонны в охвате: якорь, цель охвата, бойцы — откуда развороты (dotnet run --project Tests -- jerk-trace)
+static class MenJerkTrace
+{
+    public static void Run()
+    {
+        var R = Rules.Base;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(301).Next }) { MoraleChecks = false };
+        var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+        var b = bt.Add(TB.Make(2, "B", 600, 2), 500, 570, 0);
+        var fa = Formation.Of(TA.Make(1, "A", 600, 1), R);
+        var a = bt.Add(TA.Make(1, "A", 600, 1), 500, 570 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        bt.Turn();
+        // на втором ходу: у кого из колонн в охвате больше всего разворотов
+        var flips = new Dictionary<FigState, int>(); var prevV = new Dictionary<Man, (double x, double y)>(); var prevP = new Dictionary<Man, (double x, double y)>();
+        var trace = new Dictionary<FigState, List<string>>(); var manFlips = new Dictionary<Man, int>(); var manTrace = new Dictionary<Man, List<string>>();
+        double last = -1; int tJumps = 0, tSamples = 0; var prevW = new Dictionary<FigState, (double x, double y)>();
+        bt.Turn(tt =>
+        {
+            if (tt - last < 0.2 - 1e-9) return; last = tt;
+            foreach (var s in a.Figs)
+            {
+                if (!s.Wrap) continue;
+                if (prevW.TryGetValue(s, out var pw)) { tSamples++; if (Math.Abs(s.WX - pw.x) + Math.Abs(s.WY - pw.y) > 0.5) tJumps++; }
+                prevW[s] = (s.WX, s.WY);
+                var men = a.Men.Where(x => x.Alive && x.Fig == s).OrderBy(x => x.Row).ToList();
+                if (men.Count == 0) continue;
+                var f0 = men[0];
+                if (!trace.TryGetValue(s, out var tl)) trace[s] = tl = new List<string>();
+                tl.Add($"{tt,5:0.0}: якорь ({s.AX - 500:0.0},{s.AY - 500:0.0}) AV ({s.AVx:0.0},{s.AVy:0.0}) цель ({s.WX - 500:0.0},{s.WY - 500:0.0}) бой={(s.Fighting ? 1 : 0)} перед. ({f0.X - 500:0.0},{f0.Y - 500:0.0}) V ({f0.Vx:0.0},{f0.Vy:0.0}) противник {(f0.Foe == null ? "нет" : "есть")} ряд0 курс {f0.Facing:0}");
+            }
+            foreach (var man in a.Men)
+            {
+                if (!man.Alive || man.Fig == null || !man.Fig.Wrap) continue;
+                if (prevP.TryGetValue(man, out var p))
+                {
+                    double dx = man.X - p.x, dy = man.Y - p.y, d = Math.Sqrt(dx * dx + dy * dy);
+                    bool flip = prevV.TryGetValue(man, out var pv) && d > 0.3 && Math.Sqrt(pv.x * pv.x + pv.y * pv.y) > 0.3 && dx * pv.x + dy * pv.y < 0;
+                    if (flip) { flips[man.Fig] = flips.TryGetValue(man.Fig, out var c) ? c + 1 : 1; manFlips[man] = manFlips.TryGetValue(man, out var c2) ? c2 + 1 : 1; }
+                    prevV[man] = (dx, dy);
+                    var hm = Soldiers.HomeOf(a, man);
+                    if (!manTrace.TryGetValue(man, out var ml)) manTrace[man] = ml = new List<string>();
+                    ml.Add($"{tt,5:0.0}: ({man.X - 500:0.0},{man.Y - 500:0.0}) сдвиг ({dx:0.0},{dy:0.0}){(flip ? " РАЗВОРОТ" : "")} место ({hm.x - 500:0.0},{hm.y - 500:0.0}) до места {Math.Sqrt((hm.x - man.X) * (hm.x - man.X) + (hm.y - man.Y) * (hm.y - man.Y)):0.0} м, курс {man.Facing:0}, пересадка={(man.Reseat ? 1 : 0)} противник={(man.Foe != null ? 1 : 0)} лежит={(man.DownLeft > 0 ? 1 : 0)} ряд {man.Row} колонна №{man.Fig.Id} бой={(man.Fig.Fighting ? 1 : 0)} якорь ({man.Fig.AX - 500:0.0},{man.Fig.AY - 500:0.0}) AV ({man.Fig.AVx:0.0},{man.Fig.AVy:0.0})");
+                }
+                prevP[man] = (man.X, man.Y);
+            }
+        });
+        Console.WriteLine($"цель охвата прыгнула (> 0,5 м за 0,2 с) в {tJumps} из {tSamples} замеров колонн");
+        var worst = flips.OrderByDescending(kv => kv.Value).First();
+        Console.WriteLine($"колонна №{worst.Key.Id}: разворотов {worst.Value}");
+        var wm = manFlips.OrderByDescending(kv => kv.Value).First();
+        Console.WriteLine($"боец №{wm.Key.Id}: разворотов {wm.Value}");
+        foreach (var l in manTrace[wm.Key].Take(40)) Console.WriteLine("  " + l);
+    }
+}
+
+// Подбор правил схватки без рывков: наборы переключателей × (потери и доля в деле у рыцарей натиском k=1, пехоты k=1 и k=4; развороты коней в упор)
+// dotnet run -c Release --project Tests -- tune
+static class MenTuneProbe
+{
+    public static void Run(string[] opts)
+    {
+        Rules Make(double slope, bool seek, bool hold, double lunge, bool standoff, bool still)
+        {
+            var r = new Rules();
+            r.Men.WrapFightSlope = slope; r.Men.WrapSeekSticky = seek; r.Men.LagMajorityHold = hold; r.Men.HorseLungeK = lunge; r.Men.WrapStandoffTouch = standoff; r.Men.BalanceStillOnly = still;
+            if (!seek) r.Men.WrapRetargetSec = 0;
+            return r;
+        }
+        var sets = new (string name, Rules r)[]
+        {
+            ("всё выключено (как было)", Make(1e9, false, false, 1, false, false)),
+            ("только планка 3 м/с", Make(0, false, false, 1, false, false)),
+            ("только планка 3 + 1/м", Make(1, false, false, 1, false, false)),
+            ("только прилипание к цели", Make(1e9, true, false, 1, false, false)),
+            ("только якорь ждёт", Make(1e9, false, true, 1, false, false)),
+            ("только выпад коня 0,3", Make(1e9, false, false, 0.3, false, false)),
+            ("только место — касание", Make(1e9, false, false, 1, true, false)),
+            ("только смыкание без манёвра", Make(1e9, false, false, 1, false, true)),
+            ("всё включено", Make(1, true, true, 0.3, true, true)),
+            ("выбранный набор (без «якорь ждёт»)", Make(1, true, false, 0.3, true, true)),
+        };
+        foreach (var (name, R) in sets)
+        {
+            if (opts.Length > 0 && !name.Contains(opts[0])) continue;
+            double Loss(string ta, string tb, double dist, bool charge, int k, out double eng)
+            {
+                double lb = 0; eng = 0;
+                for (uint s = 1; s <= 3; s++)
+                {
+                    var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(s + 7000).Next }) { BodyK = k, MoraleChecks = false };
+                    var TA = Templates.Get(ta); var TB = Templates.Get(tb);
+                    var b = bt.Add(TB.Make(2, "B", 1000, 2), 500, 570, 0);
+                    var fa = Formation.Of(TA.Make(1, "A", 1000, 1), R);
+                    var a = bt.Add(TA.Make(1, "A", 1000, 1), 500, 570 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+                    bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = charge });
+                    bt.Turn(); bt.Turn();
+                    lb += (1000 - b.P.U.Soldiers) / 3.0; var f0 = bt.Fights.FirstOrDefault(); if (f0 != null) eng += f0.Of(a).Engaged / 3.0;
+                }
+                return lb;
+            }
+            double Flips()
+            {
+                var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(301).Next }) { MoraleChecks = false };
+                var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+                var b = bt.Add(TB.Make(2, "B", 600, 2), 500, 570, 0);
+                var fa = Formation.Of(TA.Make(1, "A", 600, 1), R);
+                var a = bt.Add(TA.Make(1, "A", 600, 1), 500, 570 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+                bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                var prev = new Dictionary<Man, (double x, double y)>(); var prevD = new Dictionary<Man, (double x, double y)>();
+                int n = 0, flips = 0; double last = -1;
+                for (int t = 0; t < 2; t++) { bt.Turn(tt =>
+                {
+                    if (tt - last < 0.2 - 1e-9) return; last = tt;
+                    foreach (var man in a.Men)
+                    {
+                        if (!man.Alive || man.Fig == null) continue;
+                        if (man.Fig.Fighting && prev.TryGetValue(man, out var p))
+                        {
+                            double dx = man.X - p.x, dy = man.Y - p.y, d = Math.Sqrt(dx * dx + dy * dy); n++;
+                            if (prevD.TryGetValue(man, out var pd) && d > 0.3 && Math.Sqrt(pd.x * pd.x + pd.y * pd.y) > 0.3 && dx * pd.x + dy * pd.y < 0) flips++;
+                            prevD[man] = (dx, dy);
+                        }
+                        prev[man] = (man.X, man.Y);
+                    }
+                }); last = -1; }
+                return 100.0 * flips / Math.Max(1, n);
+            }
+            double kn = Loss("knights", "infantry", 150, true, 1, out double ek), i1 = Loss("infantry", "infantry", 0.5, false, 1, out double e1), i4 = Loss("infantry", "infantry", 0.5, false, 4, out double e4);
+            Console.WriteLine($"{name,-32}: рыцари натиском {kn:0} (в деле {ek:0.00}), пехота k=1 {i1:0} ({e1:0.00}), k=4 {i4:0} ({e4:0.00}); развороты коней {Flips():0.0}%");
         }
     }
 }

@@ -96,12 +96,21 @@ namespace BattleCore
                     {
                         // где был бы якорь по бойцам на их местах (а не середина бойцов) — иначе колонна с бойцами только спереди
                         // (потери) или с лишними рядами сзади (перебор) сама себя тащит, а пересаживающиеся шагом держат её на месте
-                        double bx = s.RefX, by = s.RefY;
+                        // отстало большинство (толпа не пускает) — якорь ждёт всех, а не бежит один: иначе колонна в охвате растягивается
+                        // на десятки метров, бойцы гонятся за якорем сквозь схватку и мечутся
+                        bool lagHold = r.Men.LagMajorityHold && s.LagN * 2 > s.RefN;
+                        double bx = lagHold ? s.RefAllX : s.RefX, by = lagHold ? s.RefAllY : s.RefY;
                         // колонна на пути в охват или из него (сквозь свой строй) — манёвр, а не стена: якорь отрывается дальше,
                         // иначе колонна ползёт со скоростью, с какой бойцы догоняют якорь
                         double lead = Through(s) ? WrapLeadM : M.AnchorLeadM;
                         double ex = nx - bx, ey = ny - by, el = JsMath.Hypot(ex, ey);
-                        if (el > lead) { nx = bx + ex * lead / el; ny = by + ey * lead / el; held = true; }
+                        if (el > lead)
+                        {
+                            // отстало большинство — якорь стоит и ждёт (назад к бойцам не прыгает: прыжок якоря — прыжок их мест, и они мечутся)
+                            if (lagHold) { nx = s.AX; ny = s.AY; }
+                            else { nx = bx + ex * lead / el; ny = by + ey * lead / el; }
+                            held = true;
+                        }
                     }
                     double avx = (nx - s.AX) / dt, avy = (ny - s.AY) / dt;
                     if (held)
@@ -204,7 +213,7 @@ namespace BattleCore
                     var foe = man.Foe;
                     if (!m.Fleeing && !retreating && (foe != null && foe.Alive || s.Fighting && man.Row == 0))
                     {
-                        double lunge = MR.LungeM + MR.LungeAmpM * Math.Sin(time * 2 * Math.PI / MR.LungeSec + hu * 6.283);
+                        double lunge = (horse ? MR.HorseLungeK : 1) * (MR.LungeM + MR.LungeAmpM * Math.Sin(time * 2 * Math.PI / MR.LungeSec + hu * 6.283));   // конь всем телом не выпадает
                         double ux = s.FightX, uy = s.FightY;
                         if (foe != null && foe.Alive)
                         {
@@ -444,7 +453,7 @@ namespace BattleCore
         static void Finish(IList<Mover> ms, double dt, Rules r, int c)
         {
             var M = r.Move;
-            foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.RefX = 0; s.RefY = 0; s.RefN = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
+            foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.RefX = 0; s.RefY = 0; s.RefN = 0; s.RefAllX = 0; s.RefAllY = 0; s.LagN = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i]; var s = man.Fig;
@@ -452,7 +461,8 @@ namespace BattleCore
                 // где был бы якорь по этому бойцу; пересаживающийся (В14) и отставший дальше LagRefM якорь не тянут — они не упёрлись,
                 // а догоняют: «стоят» за нынешнее место якоря (один отставший на сотню метров иначе держал бы всю колонну)
                 double ix = man.X - (tLx[i] * s.Hc - tLy[i] * s.Hs), iy = man.Y - (tLx[i] * s.Hs + tLy[i] * s.Hc);
-                if (man.Reseat || (tFlag[i] & 128) != 0 || (ix - s.AX) * (ix - s.AX) + (iy - s.AY) * (iy - s.AY) > LagRefM * LagRefM) { ix = s.AX; iy = s.AY; }   // ждущий (старт волной, Г84) якорь не держит
+                s.RefAllX += ix; s.RefAllY += iy;
+                if (man.Reseat || (tFlag[i] & 128) != 0 || (ix - s.AX) * (ix - s.AX) + (iy - s.AY) * (iy - s.AY) > LagRefM * LagRefM) { ix = s.AX; iy = s.AY; if ((tFlag[i] & 128) == 0) s.LagN++; }   // ждущий (старт волной, Г84) якорь не держит
                 s.RefX += ix; s.RefY += iy; s.RefN++;
                 if (tBlocked[i] != 0) { s.BlockedBy = tBlocked[i]; s.BlockedByEnemy = tBlockedEnemy[i]; }
                 if ((tFlag[i] & 2) != 0) s.Slowed = true;
@@ -461,7 +471,7 @@ namespace BattleCore
                 foreach (var s in m.Figs)
                 {
                     if (s.MenN > 0) { s.X /= s.MenN; s.Y /= s.MenN; s.Vx /= s.MenN; s.Vy /= s.MenN; }
-                    if (s.RefN > 0) { s.RefX /= s.RefN; s.RefY /= s.RefN; }
+                    if (s.RefN > 0) { s.RefX /= s.RefN; s.RefY /= s.RefN; s.RefAllX /= s.RefN; s.RefAllY /= s.RefN; }
                     else { s.X = s.AX; s.Y = s.AY; s.Vx = s.AVx; s.Vy = s.AVy; }
                 }
             // пробка: как у фигурок (Bodies, шаг 4) — доля упёршихся колонн. Колонна упёрлась, если упёрся хоть один её боец
