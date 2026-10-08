@@ -17,6 +17,9 @@
 // Удар виден у цели (Iron Kings): попал — брызги крови и отброс павшего, на щит — искра у щита и толчок назад; у оружия
 // в миг удара — след (смазанные копии). Всадник в рубке: конь переступает и доворачивает под удар, копьё после сшибки —
 // меч. Сбитый конём (Г90) падает навзничь, лежит и встаёт.
+// Сшибка (В20): конь, что шёл быстрее 4 м/с и за кадр потерял треть хода, — врезался: рывок вперёд и назад, голова вниз,
+// всадника бросает вперёд, пыль из-под копыт, копьё ломается щепками — дальше меч. Сбитого отбрасывает на 0,7–1,4 м,
+// кувырком; встаёт — возвращается в строй. Второй ряд: древковые (пики — до четвёртой шеренги) колют через плечо передних.
 // Павшие: первые 0,15 с качаются от удара, потом ложатся головой по удару; всадник слетает с убитого коня;
 // раненые (Г39) ползут рывками прочь от врага с кровавым следом или корчатся, потом затихают.
 // Стрелы летят дугой, тень на земле отходит с высотой. Всё — сетками с шейдером Men.
@@ -364,7 +367,9 @@ namespace Journal.Viewer
         // ── кадр ──
         // Ap — фаза удара из движка (Б2; −1 — считать по своему ритму), Parry — сколько секунд назад принял удар на щит (−1 — нет)
         // MeleeFor — сколько секунд в схватке (−1 — нет), Down — сколько секунд лежит сбитый (−1 — стоит), Rise — сколько до подъёма
-        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis; public Kit Kit; }
+        // Impact — сколько секунд со сшибки коня (−1 — не было за 0,6 с); Second — второй ряд колет через плечо
+        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
+        readonly HashSet<int> figAtk = new HashSet<int>();
         readonly List<ManP> M = new List<ManP>();
         readonly Dictionary<int, float> figTop = new Dictionary<int, float>();
         readonly HashSet<long> fallenNow = new HashSet<long>();
@@ -460,7 +465,8 @@ namespace Journal.Viewer
                 float mfor = float.IsNaN(vs[id].Since) ? -1 : t - vs[id].Since, dn = -1, rise = 0;
                 if (down0.TryGetValue(id, out var dw)) { dn = Mathf.Max(0, t - dw.at); rise = dw.end - t; }
                 bool vis = In(x, y, 6); anyVis |= vis;
-                M.Add(new ManP { X = x, Y = y, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Id = id, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN, Ap = -1, Parry = -1, MeleeFor = mfor, Down = dn, Rise = rise,
+                float imp = horse && vis ? ImpactAge(ui, id, fi, t) : -1;
+                M.Add(new ManP { X = x, Y = y, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Id = id, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN, Ap = -1, Parry = -1, MeleeFor = mfor, Down = dn, Rise = rise, Impact = imp,
                     Rank = (fig < info.Figs.Count ? (int)info.Figs[fig][3] : 0) * fd + m0.Row[id], Kit = ks[(int)(H(seed, 4) * ks.Length)] });
             }
             if (!anyVis) return;
@@ -479,6 +485,19 @@ namespace Journal.Viewer
                     m.Face = m.Atk ? toward : m.Face + Mathf.DeltaAngle(m.Face * Mathf.Rad2Deg, toward * Mathf.Rad2Deg) * Mathf.Deg2Rad * 0.5f;
                     M[i] = m;
                 }
+            }
+            // второй ряд (В20): древковые второй шеренги (пики — до четвёртой) колют через плечо передних, если их колонна рубится
+            if (!flee && !horse && look != "bow" && look != "crossbow")
+            {
+                figAtk.Clear();
+                foreach (var m in M) if (m.Atk && m.Rank == 0) figAtk.Add(m.Fig);
+                if (figAtk.Count > 0)
+                    for (int i = 0; i < M.Count; i++)
+                    {
+                        var m = M[i]; string b = m.Kit.Base;
+                        if (m.Atk || m.Down >= 0 || m.Rank < 1 || m.Rank > (b == "pike" ? 3 : 1) || !Thrust(b) || !figAtk.Contains(m.Fig)) continue;
+                        m.Atk = true; m.Ap = -1; m.Second = true; M[i] = m;
+                    }
             }
             // стрелки (В6): кто ближе всех к точке вылета стрелы, натягивает лук перед ней и отпускает в миг вылета
             bool shoot = look == "bow" || look == "crossbow", active = false;
@@ -595,7 +614,7 @@ namespace Journal.Viewer
         void DrawMan(ManP m, string look, bool horse, bool flee, bool cheer, bool engaged, bool fireHere, bool shoot, bool active, float low, float t, Color32 col, float ppm)
         {
             var kit = m.Kit; int s = m.Seed; float ph0 = H(s, 5); bool walking = m.Sp > 0.8f;
-            if (m.Down >= 0 && !horse) { DrawDown(m, col); return; }
+            if (m.Down >= 0 && m.Rise > 0 && !horse) { DrawDown(m, col); return; }
             float rot = 0, ox = 0, oy = 0, step = 0, ap = -1; int blow = 0;
             if (m.Atk && m.Ap >= 0) { ap = m.Ap; blow = m.Blow; }   // Б2: удар — когда он в движке
             else if (m.Atk) { float per = 1.1f + 0.9f * H(s, 7), u0 = t / per + H(s, 8); ap = Frac(u0); blow = Mathf.FloorToInt(u0); }
@@ -642,6 +661,10 @@ namespace Journal.Viewer
                 HorsePose(fightH ? 1f : m.Sp, fightH ? t * 0.9f + ph0 : m.Ph, t, s, out var nod, out var tail, out var bob);
                 float sw = m.Atk && ap >= 0 ? Mathf.Sin(ap * 6.283f) : 0;
                 if (sw != 0) bas = bas.R(0.12f * sw);
+                // сшибка: за 0,5 с рывок вперёд и назад, голова вниз, всадника бросает вперёд; пыль из-под копыт
+                float jolt = m.Impact >= 0 && m.Impact < 0.5f ? Mathf.Sin(m.Impact / 0.5f * Mathf.PI) * (1 - m.Impact / 0.5f) : 0;
+                if (jolt > 0) { bas = bas.T(0, -0.3f * jolt); nod += 0.14f * jolt; }
+                if (m.Impact >= 0 && m.Impact < 0.6f) Dust(bas, 0, -0.6f, m.Impact, 0.6f, s);
                 var z = Vector4.zero; var white = new Color32(255, 255, 255, 255);
                 for (int i = 0; i < 4; i++) horseB.Quad(horses.Get((kit.Socks >> i & 1) != 0 ? $"hleg/{kit.Coat}/s" : $"hleg/{kit.Coat}"), bas.T(HLeg[i, 0], HLeg[i, 1] + legs[i]), white, z);
                 horseB.Quad(horses.Get($"htail/{kit.Coat}"), bas.T(0, 0.84f).R(tail), white, z);
@@ -649,10 +672,11 @@ namespace Journal.Viewer
                 horseB.Quad(horses.Get($"hbody/{kit.Coat}"), bas, white, z);
                 horseB.Quad(horses.Get(kit.HorseCover), bas, col, z);
                 if (ppm >= 30) for (int sd = -1; sd <= 1; sd += 2) Strip(menB, bas, sd * 0.1f, -1.19f + nod, sd * 0.07f, -0.13f, 0.9f / ppm, new Color32(74, 48, 32, 255));
-                var R0 = bas.T(0, 0.03f - bob * 0.5f); var Mr = R0.T(ox + 0.05f * sw, 0).R(rot * 0.35f + 0.15f * sw);
-                // копьё — на сшибку; в рубке дольше 1,2 с на месте — меч (копьё в тесноте не работает)
+                var R0 = bas.T(0, 0.03f - bob * 0.5f); var Mr = R0.T(ox + 0.05f * sw, -0.18f * jolt).R(rot * 0.35f + 0.15f * sw);
+                // копьё — на сшибку: ломается щепками (через 0,15 с после удара — меч); без сшибки — меч после 0,5 с рубки на месте
                 string hw = kit.Weapon, hb = kit.Base;
-                if (hb == "lance" && m.Atk && m.MeleeFor > 1.2f && m.Sp < 3) { hw = "sword"; hb = "sword"; }
+                if (hb == "lance" && m.Impact >= 0 && m.Impact < 0.5f) Splinters(bas, m.Impact, s);
+                if (hb == "lance" && (m.Impact >= 0.15f || m.Atk && m.MeleeFor > 0.5f && m.Sp < 3)) { hw = "sword"; hb = "sword"; }
                 var W = hb == "lance" || PW == null ? PW : new[] { 0.22f, -0.06f, 0.3f, 1, 0.65f };
                 if (hb == "lance") { if (run) W = new[] { 0.2f, 0.25f + (m.Atk ? ThrustOff(ap) : 0), -0.04f, 1, 1 }; }
                 else if (m.Atk && W != null) { var (r2, sy2) = SwingAng(ap); W = new[] { 0.22f, -0.08f, r2, 1, sy2 }; if (ap > 0.3f && ap < 0.56f) Smear(Mr, hw, "swing", hb, ap, W, col); }
@@ -680,6 +704,7 @@ namespace Journal.Viewer
             // каждый удар выбирается заново (хешем по номеру удара) — у соседей разный порядок
             string wk = m.Atk && shoot ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
             string kind = !m.Atk || wk == null ? null : Kind(wk, s, blow);
+            if (m.Second && kind == "swing") kind = "chop";   // из-за спин — только колоть и сверху
             if (m.Atk && ap >= 0) { oy -= m.Ap < 0 && ap > 0.3f && ap < 0.55f ? 0.06f : 0;   // Б2: выпад к противнику уже в X/Y движка (Г78) — свой не добавляем
                  rot += kind == "swing" ? 0.18f * Mathf.Sin(ap * 6.283f) : kind == "chop" ? -0.08f * Mathf.Sin(ap * 6.283f) : 0; }
             if (cheer && !m.Atk) oy -= 0.05f * Mathf.Max(0, Mathf.Sin(t * 9 + ph0 * 6.283f));   // ликуют — подпрыгивают
@@ -732,14 +757,64 @@ namespace Journal.Viewer
             }
         }
         // сбит с ног конём (Г90): падает навзничь (прочь от курса) за 0,25 с, лежит, за 0,35 с до подъёма встаёт
+        // Отброс (В20): летит назад 0,7–1,4 м за 0,35 с, кувыркаясь (в полёте крупнее), на земле — пыль; встаёт — возвращается
+        // к своему месту (в движке он лежит там, где сбит)
         void DrawDown(ManP m, Color32 col)
         {
             var kit = m.Kit;
             float e = Mathf.Min(Ease(Mathf.Clamp01(m.Down / 0.25f)), Mathf.Clamp01(m.Rise / 0.35f));
-            float a = Mathf.Atan2(Mathf.Cos(m.Face), -Mathf.Sin(m.Face));
-            var cm = Aff.At(m.X, m.Y).R(a + Mathf.PI / 2).S(1, 0.25f + 0.75f * e).T(0, -0.8f);
+            float a = Mathf.Atan2(Mathf.Cos(m.Face), -Mathf.Sin(m.Face)) + (H(m.Seed, 91) - 0.5f) * 0.6f;
+            float fl = Mathf.Clamp01(m.Down / 0.35f), back = Mathf.Clamp01(m.Rise / 0.6f), D = (0.7f + 0.7f * H(m.Seed, 90)) * (1 - (1 - fl) * (1 - fl)) * back;
+            float x = m.X + Mathf.Cos(a) * D, y = m.Y + Mathf.Sin(a) * D, air0 = 1 + 0.18f * Mathf.Sin(fl * Mathf.PI), spin = (H(m.Seed, 92) - 0.5f) * 1.4f * (1 - fl);
+            if (m.Down > 0.25f && m.Down < 0.85f) Dust(Aff.At(x, y), 0, 0, m.Down - 0.25f, 0.6f, m.Seed);
+            var cm = Aff.At(x, y).R(a + Mathf.PI / 2 + spin).S(air0, (0.25f + 0.75f * e) * air0).T(0, -0.8f);
             corpses.Quad(dead.Get($"corpse/{kit.LayoutKey}/{(int)(H(m.Seed, 51) * 2)}"), cm, Col(kit.BodyCol, col), Vector4.zero);
             deadTop.Quad(men.Get(kit.Head), cm.T(0, -0.56f), kit.HeadTint ? Col(kit.HeadCol, col) : col, kit.HeadTint ? Tint1 : Vector4.zero);
+        }
+
+        // сшибка (В20): конь две пятых секунды шёл быстрее 6 м/с не в схватке, потом две пятых — медленнее 0,6 того и уже
+        // в схватке — врезался. Возраст удара (с); −1 — не было за 0,6 с. Без состояния — по кадрам записи (и при перемотке)
+        float ImpactAge(int ui, int id, int f0, float t)
+        {
+            int last = Math.Min(f0 + 1, rec.Men.Count - 2);   // кадр вперёд есть: счёт идёт впереди показа
+            for (int f = last; f >= Math.Max(3, f0 - 3); f--)
+            {
+                float b = Mathf.Min(SpeedAt(ui, id, f - 3), SpeedAt(ui, id, f - 2));
+                if (b < 6 || SpeedAt(ui, id, f - 1) > 0.6f * b || SpeedAt(ui, id, f) > 0.6f * b) continue;
+                if (InEng(ui, id, f - 3) || !InEng(ui, id, f) && !InEng(ui, id, f + 1)) continue;
+                return t - (f - 1) * (float)rec.Dt;
+            }
+            return -1;
+        }
+        bool InEng(int ui, int id, int f) { var e = rec.Men[f][ui].Eng; return e != null && Array.IndexOf(e, id) >= 0; }
+        float SpeedAt(int ui, int id, int f)
+        {
+            var a = rec.Men[f][ui].Xyh; var b = rec.Men[f + 1][ui].Xyh;
+            if (3 * id + 1 >= a.Length || 3 * id + 1 >= b.Length || float.IsNaN(a[3 * id]) || float.IsNaN(b[3 * id])) return 0;
+            float dx = b[3 * id] - a[3 * id], dy = b[3 * id + 1] - a[3 * id + 1];
+            return Mathf.Sqrt(dx * dx + dy * dy) / (float)rec.Dt;
+        }
+        // пыль: два-три клуба в осях m у (x, y), растут и гаснут за life с
+        void Dust(Aff m, float x, float y, float age, float life, int seed)
+        {
+            if (age < 0 || age >= life) return;
+            float u = age / life; var soft = men.Get("util/soft"); var solid = new Vector4(0, 0, 1, 0);
+            for (int k = 0; k < 3; k++)
+            {
+                float ox = (H(seed, 100 + k) - 0.5f) * 1.2f, oy = (H(seed, 103 + k) - 0.5f) * 0.6f, r = (0.5f + 0.5f * H(seed, 106 + k)) * (0.5f + 1.2f * u);
+                decals.Quad(soft, m.T(x + ox * (0.6f + u), y + oy).S(r * 1.6f, r * 1.6f), new Color32(146, 122, 82, (byte)(190 * (1 - u) * (1 - u))), solid);
+            }
+        }
+        // щепки сломанного копья: от острия вперёд и в стороны, кувыркаются, падают за 0,5 с
+        void Splinters(Aff bas, float age, int seed)
+        {
+            float u = age / 0.5f, fly = 1 - (1 - u) * (1 - u); var px = men.Get("util/px"); var solid = new Vector4(0, 0, 1, 0);
+            for (int k = 0; k < 6; k++)
+            {
+                float ang = (H(seed, 110 + k) - 0.5f) * 2.2f, dist = (0.6f + 1.4f * H(seed, 116 + k)) * fly;
+                var at = bas.T(0.2f + Mathf.Sin(ang) * dist, -2.4f - Mathf.Cos(ang) * dist).R(ang + 8 * u * (H(seed, 122 + k) - 0.5f));
+                air.Quad(px, at.S(0.5f, 2.5f + 2 * H(seed, 128 + k)), new Color32(120, 84, 48, (byte)(255 * (1 - u * u))), solid);
+            }
         }
 
         // ── плоский боец (В18), как fMan пробы: ступни или ноги в седле, поклажа, предплечья, тело, щит ребром, голова,
