@@ -30,6 +30,7 @@ namespace Journal.Play
             B("Настройки", () => { Hide(); onSettings(); });
             B("Выход", onExit, "is-quiet");
             hint = new Label(); hint.AddToClassList("main-hint"); box.Add(hint);
+            var ver = new Label("версия " + UnityEngine.Application.version); ver.AddToClassList("main-hint"); ver.style.opacity = 0.6f; box.Add(ver);
         }
 
         // canContinue — идёт битва, в которую можно вернуться

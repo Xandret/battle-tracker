@@ -19,6 +19,8 @@ namespace Journal.Play
 {
     public sealed class ArmyEditor
     {
+        // папка сохранений игры — как её назвать игроку: в редакторе game/Saves, в сборке — Saves рядом с exe
+        static string SavesName => UnityEngine.Application.isEditor ? "game/Saves" : "Saves (рядом с игрой)";
         public readonly VisualElement Root;
         public bool Visible => !Root.ClassListContains("hidden");
         public event Action<string> PlayFile;        // «В бой ⚔» с этим файлом — выбор противника и карты (ArmyBattlePanel)
@@ -54,7 +56,7 @@ namespace Journal.Play
             Btn(top, "Открыть ▾", ToggleFiles);
             Btn(top, "Новый файл", () => Confirm("new", "Есть несохранённые правки — нажми «Новый файл» ещё раз, чтобы начать без них", () => SetFile(ArmyFile.New())));
             Btn(top, "Сохранить", Save, "is-gold");
-            saveAsName = new TextField { isDelayed = false }; saveAsName.AddToClassList("army-saveas"); saveAsName.tooltip = "Имя файла в game/Saves"; top.Add(saveAsName);
+            saveAsName = new TextField { isDelayed = false }; saveAsName.AddToClassList("army-saveas"); saveAsName.tooltip = "Имя файла в " + SavesName; top.Add(saveAsName);
             Btn(top, "Сохранить как", SaveAs);
             Btn(top, "В бой ⚔", ToBattle, "is-gold");
             var sp = new VisualElement(); sp.style.flexGrow = 1; top.Add(sp);
@@ -124,12 +126,12 @@ namespace Journal.Play
                 if (f != null) { FileDialog.Remember(f); TryOpen(f); }
             }));
             var list = ArmyFile.Find(FileDialog.Recent());
-            if (list.Count == 0) Lbl(filePopup, "Файлов нет: положи сохранения трекера в game/Saves или на рабочий стол (armiya_hodN.txt)", "army-note");
+            if (list.Count == 0) Lbl(filePopup, $"Файлов нет: положи сохранения трекера в {SavesName} или на рабочий стол (armiya_hodN.txt)", "army-note");
             foreach (var p in list)
             {
                 var row = Div("army-file-row", filePopup);
                 Lbl(row, Path.GetFileName(p), "army-file-name");
-                Lbl(row, p.StartsWith(ArmyFile.SavesDir) ? "game/Saves" : Path.GetDirectoryName(p), "army-file-where");
+                Lbl(row, p.StartsWith(ArmyFile.SavesDir) ? SavesName : Path.GetDirectoryName(p), "army-file-where");
                 var pp = p;
                 row.RegisterCallback<ClickEvent>(_ => Confirm("open:" + pp, "Есть несохранённые правки — нажми на файл ещё раз, чтобы открыть без них", () => TryOpen(pp)));
             }
@@ -150,7 +152,7 @@ namespace Journal.Play
             if (name == "") { Say("Впиши имя файла", true); return; }
             if (!name.EndsWith(".txt")) name += ".txt";
             FlushUnitLog();
-            try { file.Save(Path.Combine(ArmyFile.SavesDir, name)); Say($"Сохранено: game/Saves/{name}"); }
+            try { file.Save(Path.Combine(ArmyFile.SavesDir, name)); Say($"Сохранено: {SavesName}/{name}"); }
             catch (Exception e) { Say("Не сохранилось: " + e.Message, true); }
             Rebuild();
         }

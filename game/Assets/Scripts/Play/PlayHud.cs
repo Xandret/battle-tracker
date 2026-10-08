@@ -89,6 +89,7 @@ namespace Journal.Play
             overTable = new ScrollView(ScrollViewMode.Vertical); overTable.AddToClassList("over-table");
             againButton.parent.Insert(againButton.parent.IndexOf(againButton), overTable);
             ShowMain();   // в начале — главное меню (под ним — поле-заставка)
+            if (SmokeTest.On) StartCoroutine(SmokeTest.Run(pc, lineup, mainMenu));   // Journal.exe -smoke: проверка сборки без рук
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
             feed = root.Q("feed");
             summaryBox = new VisualElement(); summaryBox.AddToClassList("sum-box"); logPanel.Add(summaryBox);

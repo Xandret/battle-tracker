@@ -51,6 +51,8 @@ namespace Journal.Play
         }
 
         public void Hide() => root.AddToClassList("hidden");
+        // начать с тем составом, что отмечен (как кнопка «Начать битву»; для проверки сборки -smoke)
+        public void StartNow() { start(path, new HashSet<int>(chosen)); Hide(); }
 
         // открыть сохранение: прочитать, разложить по сторонам, предложить малый состав
         public bool Show(string file)
