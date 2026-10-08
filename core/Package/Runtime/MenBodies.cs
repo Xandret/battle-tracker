@@ -41,7 +41,7 @@ namespace BattleCore
         const double Cell = 1.5;                     // сетка соседей, м: запросы — по размеру тел, клетка — около шага в строю
         const int ViaEvery = 5;                      // как часто боец проверяет, пройти ли к месту напрямик, шагов
 
-        enum Rel { Same, Ghost, Friend, Enemy }
+        enum Rel { Same, Ghost, Friend, Enemy, Tree }   // Tree — дерево (Б5): неподвижное, толкает только бойца, упором не считается
         // Сквозь свой строй (Г68): колонна, что возвращается из охвата или идёт в охват к своему месту у врага (дальше
         // WrapSolidM от него и ещё не бьётся), и колонна, чьё место в строю дальше ReformThroughM (после «сплотить» место
         // может оказаться на другом краю строя). Иначе такие колонны продираются сквозь свои же ряды — бойцов в десять раз
@@ -52,6 +52,7 @@ namespace BattleCore
         static bool SameSide(Unit a, Unit b) => a.FactionId.HasValue && a.FactionId.Value != 0 && a.FactionId == b.FactionId;
         static Rel RelOf(int i, int j)
         {
+            if (tMi[i] < 0 || tMi[j] < 0) return Rel.Tree;
             Mover a = tM[i], b = tM[j];
             if (((tFlag[i] | tFlag[j]) & 32) != 0) return Rel.Ghost;   // лежачего перешагивают (Г90)
             if (a == b) return (tFlag[i] & 8) != 0 || (tFlag[j] & 8) != 0 ? Rel.Ghost : Rel.Same;
@@ -59,9 +60,31 @@ namespace BattleCore
             return (tFlag[i] & 1) != 0 || (tFlag[j] & 1) != 0 || a.Fleeing || b.Fleeing ? Rel.Ghost : Rel.Friend;
         }
 
-        public static void Step(IList<Mover> ms, double dt, Rules r)
+        [ThreadStatic] static HashSet<int> treeCells; [ThreadStatic] static double[] treeXs, treeYs;
+        public static void Step(IList<Mover> ms, double dt, Rules r, Geo geo = null)
         {
             var M = r.Move; var MR = r.Men; tMR = MR;
+            // Б5: клетки леса рядом с бойцами — их деревья войдут в тела этого шага
+            var map = geo?.Map; int forestId = Terrain.Id("forest"); int nt = 0;
+            if (map != null && MR.TreesPerCell > 0)
+            {
+                treeCells ??= new HashSet<int>(); treeCells.Clear();
+                foreach (var m in ms)
+                    foreach (var man in m.Men)
+                    {
+                        if (!man.Alive) continue;
+                        int cx = (int)(man.X / Terrain.CellM), cy = (int)(man.Y / Terrain.CellM);
+                        for (int dy = -1; dy <= 1; dy++)
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                int x = cx + dx, y = cy + dy;
+                                if (x < 0 || y < 0 || x >= map.W || y >= map.H) continue;
+                                int cell = y * map.W + x;
+                                if (map.T[cell] == forestId) treeCells.Add(cell);
+                            }
+                    }
+                nt = treeCells.Count * MR.TreesPerCell;
+            }
             long pt = Prof.Now();
             Bodies.TurnAxes(ms, dt, r);   // колонна в охвате разворачивается лицом к врагу постепенно (Г68), как фигурка
             int every = Math.Max(1, (int)Math.Round(MR.BalanceSec / dt));
@@ -84,8 +107,16 @@ namespace BattleCore
                     if (dv > vmax) { dvx *= vmax / dv; dvy *= vmax / dv; }
                     double ax = dvx - s.AVx, ay = dvy - s.AVy, a = JsMath.Hypot(ax, ay);
                     if (a > amax) { ax *= amax / a; ay *= amax / a; }
-                    double vx = s.AVx + ax, vy = s.AVy + ay, nx = s.AX + vx * dt, ny = s.AY + vy * dt;
-                    if (F != null && !MoveSim.Free(F, nx, ny))
+                    double vx = s.AVx + ax, vy = s.AVy + ay;
+                    // отстало большинство (бойцы застряли в толпе или в лесу) — якорь не быстрее них вдоль своего хода, иначе колонна
+                    // растягивается на десятки метров; назад не прыгает (так было хуже: прыжок якоря — прыжок мест)
+                    if (r.Men.LagMajorityHold && s.LagN * 2 > s.RefN && s.MenN > 0)
+                    {
+                        double vl = JsMath.Hypot(vx, vy);
+                        if (vl > 1e-9) { double cap = Math.Max(r.Men.LagCrawlMps, (s.Vx * vx + s.Vy * vy) / vl); if (vl > cap) { vx *= cap / vl; vy *= cap / vl; } }
+                    }
+                    double nx = s.AX + vx * dt, ny = s.AY + vy * dt;
+                    if (F != null && !MoveSim.Free(F, nx, ny) && MoveSim.Free(F, s.AX, s.AY))   // уже в непроходимом (поставлен на дом) — выходит
                     {
                         if (MoveSim.Free(F, nx, s.AY)) ny = s.AY;
                         else if (MoveSim.Free(F, s.AX, ny)) nx = s.AX;
@@ -98,19 +129,12 @@ namespace BattleCore
                         // (потери) или с лишними рядами сзади (перебор) сама себя тащит, а пересаживающиеся шагом держат её на месте
                         // отстало большинство (толпа не пускает) — якорь ждёт всех, а не бежит один: иначе колонна в охвате растягивается
                         // на десятки метров, бойцы гонятся за якорем сквозь схватку и мечутся
-                        bool lagHold = r.Men.LagMajorityHold && s.LagN * 2 > s.RefN;
-                        double bx = lagHold ? s.RefAllX : s.RefX, by = lagHold ? s.RefAllY : s.RefY;
+                        double bx = s.RefX, by = s.RefY;
                         // колонна на пути в охват или из него (сквозь свой строй) — манёвр, а не стена: якорь отрывается дальше,
                         // иначе колонна ползёт со скоростью, с какой бойцы догоняют якорь
                         double lead = Through(s) ? WrapLeadM : M.AnchorLeadM;
                         double ex = nx - bx, ey = ny - by, el = JsMath.Hypot(ex, ey);
-                        if (el > lead)
-                        {
-                            // отстало большинство — якорь стоит и ждёт (назад к бойцам не прыгает: прыжок якоря — прыжок их мест, и они мечутся)
-                            if (lagHold) { nx = s.AX; ny = s.AY; }
-                            else { nx = bx + ex * lead / el; ny = by + ey * lead / el; }
-                            held = true;
-                        }
+                        if (el > lead) { nx = bx + ex * lead / el; ny = by + ey * lead / el; held = true; }
                     }
                     double avx = (nx - s.AX) / dt, avy = (ny - s.AY) / dt;
                     if (held)
@@ -153,9 +177,9 @@ namespace BattleCore
             RigidUnits = 0; foreach (var ok in unitRigid) if (ok) RigidUnits++;
             RigidMen = 0;
             // 2) тела и желание каждого бойца
-            if (tMan == null || tMan.Length < n)
+            if (tMan == null || tMan.Length < n + nt)
             {
-                int cap = n * 2;
+                int cap = (n + nt) * 2;
                 tMan = new Man[cap]; tMi = new int[cap]; tM = new Mover[cap];
                 tUx = new double[cap]; tUy = new double[cap]; tHalf = new double[cap]; tRad = new double[cap]; tX0 = new double[cap]; tY0 = new double[cap];
                 tDvx = new double[cap]; tDvy = new double[cap]; tVmax = new double[cap]; tCap = new double[cap]; tReach = new double[cap];
@@ -184,6 +208,7 @@ namespace BattleCore
                     bool down = man.DownLeft > 0;
                     if (down) man.DownLeft = Math.Max(0, man.DownLeft - dt);
                     double lx = man.Lx, ly = man.Ly, hu = man.Hu, half = halfBase + (man.Men - 1) * f.RankDepth / 2;
+                    bool inForest = map != null && map.T[Math.Min(map.W * map.H - 1, Math.Max(0, (int)(man.Y / Terrain.CellM) * map.W + (int)(man.X / Terrain.CellM)))] == forestId;   // Б5: в лесу жёстких нет
                     // старт волной (Iron Kings): колонна тронулась — первыми те, чьи места ближе к цели хода (вперёд — передний ряд,
                     // задом или вбок — соответствующий край), каждый следующий ряд через WaveRowSec; ждущий стоит. Считать от ряда 0
                     // нельзя: на отступлении передний ряд врезался бы в ещё ждущие задние и толкотня отбрасывала его назад
@@ -208,6 +233,18 @@ namespace BattleCore
                         lx += Math.Sin(time * 2 * Math.PI / (2 + hu) + hu * 6.283) * MR.FleeWanderM * ramp;
                     }
                     double hx = s.AX + lx * s.Hc - ly * s.Hs, hy = s.AY + lx * s.Hs + ly * s.Hc;
+                    // Б5: место в непроходимом (хвост колонны в доме, в воде) — ближайшая точка ближайшей проходимой клетки: боец не лезет
+                    // в стену и не стоит в доме, куда его поставили
+                    var Fm = m.Field;
+                    if (Fm != null && !MoveSim.Free(Fm, hx, hy))
+                    {
+                        int pc = Fm.NearestPassableCached(Fm.CellOf(hx, hy));
+                        if (pc >= 0)
+                        {
+                            var cc = Fm.CenterOf(pc); double hw = Fm.CellW / 2 - rad, hh = Fm.CellH / 2 - rad;
+                            hx = Math.Max(cc.x - hw, Math.Min(cc.x + hw, hx)); hy = Math.Max(cc.y - hh, Math.Min(cc.y + hh, hy));
+                        }
+                    }
                     // выпады (Г78): у кого свой противник (Б2) — к нему; передние бьющейся колонны без него — к врагу колонны.
                     // Отступающий (Г81) не выпадает: шаг к врагу — это упор в него, и отряд сам себя держал бы в схватке
                     var foe = man.Foe;
@@ -263,7 +300,7 @@ namespace BattleCore
                     // Г86: одним телом с колонной — замораживается там, где стоит (сдвиг от якоря в осях колонны), без прыжка на место;
                     // место догонит, когда оттает. Курс — по Г94, как у всех
                     bool atHome = far < MR.RigidSnapM && (F == null || MoveSim.Free(F, hx, hy));
-                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw;
+                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw && !inForest;
                     man.Thaw = false;
                     if (rigid)
                     {
@@ -303,6 +340,7 @@ namespace BattleCore
                     double fh = man.Facing * Math.PI / 180, ufx = Math.Sin(fh), ufy = -Math.Cos(fh);
                     double fwd = vx * ufx + vy * ufy, side = -vx * ufy + vy * ufx;   // вперёд и вправо (вправо — (−ufy, ufx))
                     double back = backing ? vmax : standing ? Math.Max(backMax, MR.StandBackMps) : backMax, sideLim = standing ? Math.Max(sideMax, MR.FootSideMps) : sideMax;
+                    if (inForest) { back = Math.Max(back, MR.FootBackMps); sideLim = Math.Max(sideLim, MR.FootSideMps); }   // Б5: в лесу конь переступает между стволами, как пеший
                     if (fwd < -back) fwd = -back;
                     if (side > sideLim) side = sideLim; else if (side < -sideLim) side = -sideLim;
                     vx = ufx * fwd - ufy * side; vy = ufy * fwd + ufx * side;
@@ -310,7 +348,7 @@ namespace BattleCore
                     tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly; tRigid[c] = rigid; if (rigid) RigidMen++;
                     // капсула коня для толкотни лежит вдоль колонны (бегущего — по курсу): развернуть разом длинные тела в плотном
                     // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
-                    double ph = m.Fleeing ? fh : s.Hd * Math.PI / 180;
+                    double ph = m.Fleeing || inForest ? fh : s.Hd * Math.PI / 180;   // Б5: в лесу — по своему курсу: иначе конь не повернётся между стволами
                     tUx[c] = Math.Sin(ph); tUy[c] = -Math.Cos(ph); tHalf[c] = half; tRad[c] = rad;
                     tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax;
                     // расталкивание — не быстрее PushMaxMps, как бы ни был скор сам боец: иначе конь на полном ходу, врезавшись,
@@ -328,11 +366,29 @@ namespace BattleCore
                 }
             }
 
+            // Б5: деревья — неподвижные тела после бойцов (индексы c…ct): в сетках взгляда и толкотни, в счёте бойцов — нет
+            int ct = c;
+            if (nt > 0)
+            {
+                if (treeXs == null || treeXs.Length < MR.TreesPerCell) { treeXs = new double[Math.Max(16, MR.TreesPerCell)]; treeYs = new double[treeXs.Length]; }
+                foreach (int cell in treeCells)
+                {
+                    int k = Terrain.Trees(map, cell, r, treeXs, treeYs);
+                    for (int t = 0; t < k; t++)
+                    {
+                        tX[ct] = tX0[ct] = treeXs[t]; tY[ct] = tY0[ct] = treeYs[t]; tRad[ct] = MR.TreeRadiusM; tHalf[ct] = 0; tUx[ct] = 1; tUy[ct] = 0;
+                        tFlag[ct] = 0; tRigid[ct] = true; tMi[ct] = -3; tM[ct] = null; tMan[ct] = null; tBlocked[ct] = 0; tBlockedEnemy[ct] = false;
+                        tReach[ct] = MR.TreeRadiusM; tVmax[ct] = 0; tCap[ct] = 0; tDvx[ct] = 0; tDvy[ct] = 0; tLx[ct] = 0; tLy[ct] = 0;
+                        ct++;
+                    }
+                }
+                if (MR.TreeRadiusM > maxBody) maxBody = MR.TreeRadiusM;
+            }
             Prof.Add(12, ref pt);
             // 3) взгляд вперёд — с бойцами чужих отрядов: каждый смотрит на свой ход вперёд (кто быстрее — увидит сам).
             // Клетки, где только свои, пропускаются целиком — в глубине строя взгляд вперёд ничего не стоит
-            Grid(c, Cell);
-            Coarse(c);
+            Grid(ct, Cell);
+            Coarse(ct);
             for (int i = 0; i < c; i++)
             {
                 if (tRigid[i]) continue;   // Г86: на жёстком месте — ни на кого не смотрит
@@ -357,6 +413,13 @@ namespace BattleCore
                             if (rel == Rel.Ghost)
                             {
                                 if (Dist(i, xi, yi, j, tX[j], tY[j], out _, out _) < 0) tFlag[i] |= 2;
+                                continue;
+                            }
+                            if (rel == Rel.Tree)
+                            {
+                                // дерево (Б5): шаг, что ведёт в ствол, убирается — боец обтекает его; упором не считается
+                                double dT = Dist(i, xi + tDvx[i] * MR.TreeLookSec, yi + tDvy[i] * MR.TreeLookSec, j, tX[j], tY[j], out double tnx, out double tny);
+                                if (dT < M.MenYieldM) Yield(i, tnx, tny, j, false, false);
                                 continue;
                             }
                             bool enemy = rel == Rel.Enemy;
@@ -416,7 +479,7 @@ namespace BattleCore
             // кольцами соседей у коней давала столько же проверок пар — 230 млн за ход на 60 тыс.: выигрыш внутри клетки съедали
             // кольца; рычаг — тела, отсортированные по клеткам в сплошном массиве, не размер клетки.)
             long pp = Prof.Now();
-            Grid(c, Math.Max(Cell, 2 * maxBody + M.BodyTol));
+            Grid(ct, Math.Max(Cell, 2 * maxBody + M.BodyTol));
             Prof.Add(18, ref pp);
             for (int iter = 0; iter < 2; iter++)
                 foreach (int k in gUsed)
@@ -590,6 +653,18 @@ namespace BattleCore
             if (ex * ex + ey * ey >= lim * lim) return;
             var rel = RelOf(i, j);
             if (rel == Rel.Ghost) return;
+            if (rel == Rel.Tree)
+            {
+                // дерево (Б5): выталкивает бойца целиком, само не двигается; два дерева — не пара
+                if (tMi[i] < 0 && tMi[j] < 0) return;
+                int mi = tMi[i] < 0 ? j : i;
+                if ((tFlag[mi] & 64) != 0 && !tMR.TreesStopHorses) return;   // конь: стволы только обходит (взгляд), не упирается — иначе строй конницы вязнет в лесу намертво
+                double dT = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double tnx, out double tny), penT = -dT;
+                if (penT <= M.BodyTol) return;
+                Prof.N[9]++;
+                if (tMi[i] < 0) Push(j, -tnx * penT, -tny * penT, -1, false); else Push(i, tnx * penT, tny * penT, -1, false);
+                return;
+            }
             bool ri = tRigid[i], rj = tRigid[j];
             if (ri && rj) return;   // Г86: два жёстких не толкаются
             double d = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double nx, out double ny);
@@ -640,12 +715,12 @@ namespace BattleCore
         }
 
         // Уступить: убрать из желаемой скорости шаг навстречу (n — от другого к себе)
-        static void Yield(int i, double nx, double ny, int j, bool enemy)
+        static void Yield(int i, double nx, double ny, int j, bool enemy, bool mark = true)
         {
             double ap = tDvx[i] * nx + tDvy[i] * ny;
             if (ap >= 0) return;
             tDvx[i] -= ap * nx; tDvy[i] -= ap * ny;
-            if (ap < -0.1) { tBlocked[i] = tM[j].P.U.Id; tBlockedEnemy[i] = enemy; }
+            if (mark && ap < -0.1) { tBlocked[i] = tM[j].P.U.Id; tBlockedEnemy[i] = enemy; }
         }
         static void Push(int i, double dx, double dy, int other, bool enemy)
         {

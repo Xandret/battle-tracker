@@ -948,6 +948,7 @@ static class MenTuneProbe
             ("только смыкание без манёвра", Make(1e9, false, false, 1, false, true)),
             ("всё включено", Make(1, true, true, 0.3, true, true)),
             ("выбранный набор (без «якорь ждёт»)", Make(1, true, false, 0.3, true, true)),
+            ("выбранный + якорь ползёт с отставшими", Make(1, true, true, 0.3, true, true)),
         };
         foreach (var (name, R) in sets)
         {
@@ -998,5 +999,145 @@ static class MenTuneProbe
             double kn = Loss("knights", "infantry", 150, true, 1, out double ek), i1 = Loss("infantry", "infantry", 0.5, false, 1, out double e1), i4 = Loss("infantry", "infantry", 0.5, false, 4, out double e4);
             Console.WriteLine($"{name,-32}: рыцари натиском {kn:0} (в деле {ek:0.00}), пехота k=1 {i1:0} ({e1:0.00}), k=4 {i4:0} ({e4:0.00}); развороты коней {Flips():0.0}%");
         }
+    }
+}
+
+// Б5: лес — деревья как тела. Пехота и конница идут сквозь полосу леса: бойцов в стволах, разброс строя в лесу и после, время
+// (dotnet run --project Tests -- forest [notrees])
+static class MenForestProbe
+{
+    public static void Run(string[] opts)
+    {
+        var R = new Rules(); if (opts.Contains("notrees")) R.Men.TreesPerCell = 0;
+        foreach (var o in opts) { if (o.Length > 1 && o[0] == 't' && char.IsDigit(o[1])) R.Men.TreesPerCell = int.Parse(o.Substring(1)); if (o.StartsWith("j")) R.Men.TreeJitterM = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); }
+        Console.WriteLine($"деревьев на клетку {R.Men.TreesPerCell}, сдвиг до {R.Men.TreeJitterM} м");
+        foreach (var tpl in new[] { "infantry", "knights" })
+        {
+            var geo = MoveTests.Open(600, 900);
+            Terrain.PaintRect(geo.Map, "t", 0, 70, 119, 85, Terrain.Id("forest"));   // полоса леса 80 м поперёк (клетки 70…85 по y: 350…430 м)
+            var T = Templates.Get(tpl);
+            var m = Mover.Place(T.Make(1, T.Name, 400, 1), 300, 600, 0, R);
+            MoveSim.Give(m, new MoveOrder { X = 300, Y = 150, Facing = 0 }, geo, R);
+            var ms = new[] { m };
+            int steps = 0, inTree = 0, checks = 0; double worst = 0; var spread = new Dictionary<string, (double sum, int n)>();
+            var xs = new double[16]; var ys = new double[16]; int forestId = Terrain.Id("forest");
+            double sw0 = 0; var sw = System.Diagnostics.Stopwatch.StartNew(); int turns = 0;
+            for (int t = 0; t < 8 && !m.Done; t++)
+            {
+                turns++;
+                if (tpl == "knights" || opts.Contains("verbose"))
+                {
+                    var alive = m.Men.Where(x => x.Alive).ToList(); int inF = alive.Count(x => map(geo, (int)(x.X / Terrain.CellM), (int)(x.Y / Terrain.CellM)) == forestId);
+                    Console.WriteLine($"   ход {t + 1}: рамка y={m.P.Y:0}, якоря y {m.Figs.Min(q => q.AY):0}…{m.Figs.Max(q => q.AY):0}, бойцы y {alive.Min(x => x.Y):0}…{alive.Max(x => x.Y):0} (ср {alive.Average(x => x.Y):0}), в лесу {inF} из {alive.Count}, Vs={m.Vs:0.0}, held={m.Held}, reforming={m.Reforming}");
+                }
+                MoveSim.Turn(ms, geo, R, tt =>
+                {
+                    steps++;
+                    foreach (var man in m.Men)
+                    {
+                        if (!man.Alive) continue;
+                        int cx = (int)(man.X / Terrain.CellM), cy = (int)(man.Y / Terrain.CellM);
+                        bool forest = map(geo, cx, cy) == forestId;
+                        var hm = Soldiers.HomeOf(m, man); double off = Math.Sqrt((hm.x - man.X) * (hm.x - man.X) + (hm.y - man.Y) * (hm.y - man.Y));
+                        string zone = forest ? "в лесу" : man.Y > 430 ? "до леса" : "за лесом";
+                        spread[zone] = spread.TryGetValue(zone, out var sp) ? (sp.sum + off, sp.n + 1) : (off, 1);
+                        if (R.Men.TreesPerCell == 0) continue;
+                        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= geo.Map.W || y >= geo.Map.H) continue;
+                            int cell = y * geo.Map.W + x; if (geo.Map.T[cell] != forestId) continue;
+                            int k = Terrain.Trees(geo.Map, cell, R, xs, ys);
+                            for (int i = 0; i < k; i++)
+                            {
+                                checks++;
+                                double d = Math.Sqrt((xs[i] - man.X) * (xs[i] - man.X) + (ys[i] - man.Y) * (ys[i] - man.Y)) - R.Men.TreeRadiusM - 0.45;
+                                if (d < -0.15) { inTree++; if (-d > worst) worst = -d; }
+                            }
+                        }
+                    }
+                });
+            }
+            Console.WriteLine($"{tpl}: {(m.Done ? "дошёл" : "не дошёл")} за {turns} ходов ({sw.Elapsed.TotalSeconds:0.0} с счёта); бойцов в стволах (глубже 0,15 м) {inTree} из {checks} проверок, худшее {worst:0.00} м; " +
+                              string.Join(", ", spread.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}: до места в среднем {kv.Value.sum / kv.Value.n:0.00} м")));
+        }
+        int map(Geo g, int cx, int cy) => cx < 0 || cy < 0 || cx >= g.Map.W || cy >= g.Map.H ? -1 : g.Map.T[cy * g.Map.W + cx];
+    }
+}
+
+// Б5, часть 2: дома — строй идёт сквозь дом 10 × 10 м (делится и смыкается?), отряд поставлен на дом (выйдут ли бойцы?)
+// (dotnet run --project Tests -- house)
+static class MenHouseProbe
+{
+    public static void Run(string[] opts)
+    {
+        var R = Rules.Base; int bId = Terrain.Id("building");
+        // 1) марш сквозь дом
+        {
+            var geo = MoveTests.Open(600, 900);
+            Terrain.PaintRect(geo.Map, "t", 59, 78, 60, 79, bId);   // дом 10 × 10 м: клетки x 59–60, y 78–79 → метры 295…305 × 390…400
+            var T = Templates.Get("infantry");
+            var m = Mover.Place(T.Make(1, T.Name, 400, 1), 300, 600, 0, R);
+            MoveSim.Give(m, new MoveOrder { X = 300, Y = 150, Facing = 0 }, geo, R);
+            var ms = new[] { m }; int inside = 0, checks = 0, turns = 0; double maxOff = 0, atHouseOff = 0; int atHouseN = 0;
+            for (int t = 0; t < 8 && !m.Done; t++)
+            {
+                turns++;
+                MoveSim.Turn(ms, geo, R, tt =>
+                {
+                    foreach (var man in m.Men)
+                    {
+                        int cx = (int)(man.X / Terrain.CellM), cy = (int)(man.Y / Terrain.CellM); checks++;
+                        if (geo.Map.T[cy * geo.Map.W + cx] == bId) inside++;
+                        var hm = Soldiers.HomeOf(m, man); double off = JsMath.Hypot(hm.x - man.X, hm.y - man.Y);
+                        if (off > maxOff) maxOff = off;
+                        if (man.Y > 380 && man.Y < 420) { atHouseOff += off; atHouseN++; }
+                    }
+                });
+            }
+            double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            Console.WriteLine($"марш сквозь дом: {(m.Done ? "дошёл" : "не дошёл")} за {turns} ходов; бойцов в клетках дома {inside} из {checks} замеров; у дома до места в среднем {atHouseOff / Math.Max(1, atHouseN):0.00} м, наибольшее {maxOff:0.0} м; в конце до места {fin:0.00} м");
+        }
+        // 2) отряд поставлен на дом и стоит
+        {
+            var geo = MoveTests.Open(600, 900);
+            Terrain.PaintRect(geo.Map, "t", 59, 78, 60, 79, bId);
+            var T = Templates.Get("infantry");
+            var bt = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(1).Next });
+            var m = bt.Add(T.Make(1, T.Name, 400, 1), 300, 395, 0);   // середина строя — на доме
+            int Inside() => m.Men.Count(x => geo.Map.T[(int)(x.Y / Terrain.CellM) * geo.Map.W + (int)(x.X / Terrain.CellM)] == bId);
+            int before = Inside();
+            bt.Turn();
+            int after1 = Inside();
+            bt.Order(m, new MoveOrder { X = 300, Y = 395, Facing = 90 });   // приказ развернуться на месте
+            bt.Turn();
+            Console.WriteLine($"отряд поставлен на дом: бойцов в доме при расстановке {before}, через ход стояния {after1}, после приказа повернуться {Inside()} из {m.Men.Count}");
+            Console.WriteLine($"   поле проходимости: {(m.Field != null ? "есть" : "нет")}; жёстких на последнем шаге {MenBodies.RigidMen}");
+            foreach (var x in m.Men.Where(x => geo.Map.T[(int)(x.Y / Terrain.CellM) * geo.Map.W + (int)(x.X / Terrain.CellM)] == bId).Take(4))
+            {
+                var hm = Soldiers.HomeOf(m, x);
+                Console.WriteLine($"   боец №{x.Id} ряд {x.Row}: ({x.X:0.0},{x.Y:0.0}) место ({hm.x:0.0},{hm.y:0.0}) место проходимо={(m.Field != null && MoveSim.Free(m.Field, hm.x, hm.y))} V=({x.Vx:0.00},{x.Vy:0.00}) пересадка={x.Reseat} якорь ({x.Fig.AX:0.0},{x.Fig.AY:0.0}) якорь проходим={(m.Field != null && MoveSim.Free(m.Field, x.Fig.AX, x.Fig.AY))}");
+            }
+        }
+    }
+}
+
+// Поворот колесом на 90° у 1000 пехоты (тест Г52) по шагам: что держит рамку (dotnet run --project Tests -- wheel)
+static class MenWheelProbe
+{
+    public static void Run()
+    {
+        var R = Rules.Base; var geo = MoveTests.Open(800, 600);
+        var T = Templates.Get("infantry");
+        var m = Mover.Place(T.Make(1, T.Name, 1000, 1), 200, 300, 0, R);
+        MoveSim.Give(m, new MoveOrder { X = 700, Y = 300, Facing = 90 }, geo, R);
+        double last = -1;
+        MoveSim.Turn(new[] { m }, geo, R, t =>
+        {
+            if (t - last < 0.5 - 1e-9) return; last = t;
+            double vmen = m.Men.Average(x => Math.Sqrt(x.Vx * x.Vx + x.Vy * x.Vy));
+            double lagAvg = 0; int far = 0;
+            for (int k = 0; k < m.Figs.Count; k++) { m.P.ToWorld(m.P.Figs[k].X, m.P.Figs[k].Y, out var sx, out var sy); double d = JsMath.Hypot(sx - m.Figs[k].X, sy - m.Figs[k].Y); lagAvg += d / m.Figs.Count; if (d > 8) far++; }
+            Console.WriteLine($"{t,5:0.0}: курс {m.P.Facing,5:0.0} Vs={m.Vs:0.00} застряло {m.FarLagN}, отстало {m.LagColsN} из {m.Figs.Count}; дальше 8 м {far}, отставание ср {lagAvg:0.0} м; скорость бойцов ср {vmen:0.0}; |V колонн| ср {m.Figs.Average(s => Math.Sqrt(s.Vx * s.Vx + s.Vy * s.Vy)):0.0}, норма потрачена {m.Spent:0.0}");
+        });
     }
 }

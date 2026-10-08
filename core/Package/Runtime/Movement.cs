@@ -91,6 +91,7 @@ namespace BattleCore
         public Footprint NominalFp;
         public int NominalCols, Cols, MinCols;   // колонн фигурок: в линии, сейчас, самое узкое за ход
         public bool Reforming; public double RegroupSec;
+        public int FarLagN, LagColsN;            // для зондов: сколько колонн застряло / отстало на последнем шаге (Б5)
         public double NarrowSince;               // Б1: с последнего перестроения в узости, с
         public double TargetX, TargetY;          // куда идёт центр строя (внутри карты)
         public FlowField RouteField;             // карта для пути в обход своего (Г61); null — путь по Field
@@ -250,7 +251,7 @@ namespace BattleCore
                 m.Steps++;
             }
             for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
-            if (M.MenBodies) MenBodies.Step(ms, M.Dt, r);   // Б1: тела — бойцы, фигурка — колонна за якорем
+            if (M.MenBodies) MenBodies.Step(ms, M.Dt, r, geo);   // Б1: тела — бойцы, фигурка — колонна за якорем; Б5 — деревья леса по карте
             else Bodies.Step(ms, M.Dt, r);
             foreach (var m in ms) if (m.Fleeing) FollowCrowd(m, M.Dt);
             if (!M.MenBodies) Soldiers.Step(ms, M.Dt, r);   // бойцы внутри фигурок (Г75)
@@ -347,17 +348,27 @@ namespace BattleCore
                     target = Math.Min(target, Math.Sqrt(2 * acc * Math.Max(0, LegEndCost(m.Track, leg) - m.Along)));
             }
             // перестроение в колонну и обратно (Г60): пока многие фигурки далеко от новых мест — вдвое медленнее
-            if (m.Reforming)
+            int lag = 0, farLag = 0;
+            if (m.Reforming || M.MenBodies)   // Б5: у бойцов-тел отставание колонн смотрим всегда — рамка не уходит от застрявших одна
             {
-                int lag = 0;
                 for (int k = 0; k < P.Figs.Count; k++)
                 {
                     P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
                     double fx = M.MenBodies ? m.Figs[k].AX : m.Figs[k].X, fy = M.MenBodies ? m.Figs[k].AY : m.Figs[k].Y;   // Б1: колонна — по якорю
                     // Б1: место в воде (хвост сложенной колонны ещё за рекой) — колонна стоит у ближайшего сухого, как и идёт (Desire)
                     if (M.MenBodies && m.Field != null && !Free(m.Field, sx, sy)) { int c = m.Field.NearestPassableCached(m.Field.CellOf(sx, sy)); if (c >= 0) (sx, sy) = m.Field.CenterOf(c); }
-                    if (JsMath.Hypot(sx - fx, sy - fy) > M.RegroupLagM) lag++;
+                    double lagD = JsMath.Hypot(sx - fx, sy - fy);
+                    if (lagD > M.RegroupLagM) lag++;
+                    // застряли ли сами бойцы: середина живых бойцов колонны далеко от места и почти не движется (догоняющие после
+                    // поворота колесом идут быстро — их не ждём, Г60 лишь замедляет)
+                    if (JsMath.Hypot(sx - m.Figs[k].X, sy - m.Figs[k].Y) > M.FrameWaitM && JsMath.Hypot(m.Figs[k].Vx, m.Figs[k].Vy) < M.StuckMps) farLag++;
                 }
+            }
+            // Б5: колонны отстали далеко (бойцы застряли — лес, давка) — рамка стоит и ждёт, а не уходит к цели одна
+            m.FarLagN = farLag; m.LagColsN = lag;
+            if (!wheel && farLag > M.RegroupShare * P.Figs.Count) { target = 0; m.RegroupSec += dt; }   // при повороте колесом места сами уходят от якорей — это не застрявшие
+            else if (m.Reforming)
+            {
                 if (lag > M.RegroupShare * P.Figs.Count) { target *= M.RegroupSpeed; m.RegroupSec += dt; }
                 else m.Reforming = false;
             }

@@ -104,6 +104,19 @@ namespace BattleCore
         public static readonly Dictionary<string, TerrainType> ByKey = new Dictionary<string, TerrainType>();
         static Terrain() { foreach (var t in Types) { ById[t.Id] = t; ByKey[t.Key] = t; } }
         public static byte Id(string key) => (byte)ByKey[key].Id;
+        // Б5: деревья клетки леса — xs, ys (не меньше TreesPerCell); возвращает сколько. Положения — только от номера клетки
+        public static int Trees(TerrainMap map, int cell, Rules r, double[] xs, double[] ys)
+        {
+            int n = Math.Min(r.Men.TreesPerCell, xs.Length); if (n <= 0) return 0;
+            int cx = cell % map.W, cy = cell / map.W, side = (int)Math.Ceiling(Math.Sqrt(n));
+            double q = CellM / side, j = r.Men.TreeJitterM;
+            for (int t = 0; t < n; t++)
+            {
+                xs[t] = cx * CellM + (t % side + 0.5) * q + (MoveSim.Hash01(cell, t, 41) - 0.5) * 2 * j;
+                ys[t] = cy * CellM + (t / side + 0.5) * q + (MoveSim.Hash01(cell, t, 42) - 0.5) * 2 * j;
+            }
+            return n;
+        }
         public static string NameOf(int id) => ById.TryGetValue(id, out var t) ? t.Name : "не задано";
 
         // ── создание ──

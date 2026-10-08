@@ -59,11 +59,48 @@ namespace BattleCore
 
         public Battle(Geo geo, Rules r, EngineContext ctx) { Geo = geo; R = r; Ctx = ctx; Ctx.Rules = r; }
 
+        // Б5: весь строй отряда на проходимом (дома, стены, вода — нельзя), точки через 2,5 м по рамке строя
+        public bool Fits(Unit u, double x, double y, double facing)
+        {
+            if (Geo?.Map == null) return true;
+            var fp = Formation.Of(u, R); double h = facing * Math.PI / 180, rx = Math.Cos(h), ry = Math.Sin(h), fx = Math.Sin(h), fy = -Math.Cos(h);
+            bool horse = BattleMap.IsHorse(u);
+            for (double a = -fp.Front / 2; a <= fp.Front / 2 + 1e-9; a += 2.5)
+                for (double b = -fp.Depth / 2; b <= fp.Depth / 2 + 1e-9; b += 2.5)
+                {
+                    double px = x + a * rx + b * fx, py = y + a * ry + b * fy;
+                    if (px < 0 || py < 0 || px >= Geo.W || py >= Geo.H) return false;
+                    int c = (int)(py / Terrain.CellM) * Geo.Map.W + (int)(px / Terrain.CellM);
+                    if (BattleMap.MoveMult(Geo.Map, c, horse, R) == null) return false;
+                }
+            return true;
+        }
+        // ближайшее место не дальше maxM, где строй помещается (кольцами по 2,5 м); null — нет такого
+        public (double x, double y)? NearestFit(Unit u, double x, double y, double facing, double maxM = 60)
+        {
+            if (Fits(u, x, y, facing)) return (x, y);
+            for (double rr = 2.5; rr <= maxM; rr += 2.5)
+            {
+                int n = Math.Max(8, (int)(2 * Math.PI * rr / 2.5));
+                for (int i = 0; i < n; i++)
+                {
+                    double a = 2 * Math.PI * i / n, px = x + rr * Math.Cos(a), py = y + rr * Math.Sin(a);
+                    if (Fits(u, px, py, facing)) return (px, py);
+                }
+            }
+            return null;
+        }
+
         public Mover Add(Unit u, double x, double y, double facing)
         {
+            // Б5: отряд нельзя поставить на дом, стену или воду (Алекс 08.10.2026) — рамка сдвигается в ближайшее место, где строй помещается
+            if (MenMode && !Fits(u, x, y, facing)) { var p = NearestFit(u, x, y, facing); if (p != null) { events.Add($"«{u.Name}»: поставлен на непроходимое — сдвинут на {JsMath.Hypot(p.Value.x - x, p.Value.y - y):0} м"); (x, y) = p.Value; } }
             var m = Mover.Place(u, x, y, facing, R, MenPerFigure);
             Movers.Add(m);
             if (bodyKFixed) ApplyBodyK(m);
+            // Б5: карта проходимости есть у отряда с первого шага (цель — он сам, дорогой поиск не идёт): отряд, поставленный на дом,
+            // стену или воду, сходит с них — якоря колонн к ближайшей проходимой клетке, тела в непроходимое не ступают
+            if (MenMode && m.Field == null && Geo?.Map != null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), x, y);
             return m;
         }
         // Г87: одно тело = k человек, k = ⌈всего людей на поле / Men.BodyThresholdMen⌉ — одно на битву, решается перед первым
