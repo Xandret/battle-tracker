@@ -23,7 +23,8 @@ namespace Journal.Viewer
     // Ph — фаза шага (В13): круги шага, набранные по пройденному пути — ноги не скользят при смене скорости
     // Рукопашная по бойцам (Б2, только при MenBodies): кто в схватке — Eng (номера бойцов), прошлый удар EngSw, следующий по ритму EngNx, удар на щит EngPa (часы боя; NaN — не было).
     // Только сцепившиеся — запись не растёт на всё войско
-    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng; public float[] EngSw, EngNx, EngPa; }
+    // Сбитые с ног конём (Г90): Down — номера бойцов, DownAt — когда сбит, DownEnd — когда встанет (часы боя); только лежащие
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
 
     public sealed class Recording
@@ -130,7 +131,7 @@ namespace Journal.Viewer
         readonly List<int> eId = new List<int>(); readonly List<float> eSw = new List<float>(), eNx = new List<float>(), ePa = new List<float>();
         void MeleeOf(Mover m, MenFrame mf, int n)
         {
-            double now = battle.Clock;
+            double now = m.Now;   // часы шага (Battle.Clock стоит на начале хода до его конца)
             eId.Clear(); eSw.Clear(); eNx.Clear(); ePa.Clear();
             foreach (var man in m.Men)
             {
@@ -142,6 +143,18 @@ namespace Journal.Viewer
             }
             if (eId.Count == 0) return;
             mf.Eng = eId.ToArray(); mf.EngSw = eSw.ToArray(); mf.EngNx = eNx.ToArray(); mf.EngPa = ePa.ToArray();
+        }
+        // сбитые с ног (Г90): лежат DownLeft с — когда встанут, по часам шага
+        void DownOf(Mover m, MenFrame mf, int n)
+        {
+            eId.Clear(); eSw.Clear(); eNx.Clear();
+            foreach (var man in m.Men)
+            {
+                if (!man.Alive || man.DownLeft <= 0 || man.Id >= n) continue;
+                eId.Add(man.Id); eSw.Add((float)man.DownAt); eNx.Add((float)(m.Now + man.DownLeft));
+            }
+            if (eId.Count == 0) return;
+            mf.Down = eId.ToArray(); mf.DownAt = eSw.ToArray(); mf.DownEnd = eNx.ToArray();
         }
 
         public void Snap()
@@ -198,7 +211,7 @@ namespace Journal.Viewer
                     g.xy[2 * id] = (float)man.X; g.xy[2 * id + 1] = (float)man.Y;
                     mf.Ph[id] = g.ph[id];
                 }
-                if (rec.MenMelee) MeleeOf(m, mf, n);
+                if (rec.MenMelee) { MeleeOf(m, mf, n); DownOf(m, mf, n); }
                 return mf;
             }).ToArray());
             int fr = rec.Frames.Count - 1;
