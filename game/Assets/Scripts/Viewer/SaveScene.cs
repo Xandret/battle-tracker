@@ -31,10 +31,11 @@ namespace Journal.Viewer
 
     public static class SaveScene
     {
-        // где искать сохранения: game/Saves (в .gitignore) и рабочий стол
-        public static List<string> Find()
+        // где искать сохранения: game/Saves (в .gitignore), рабочий стол и папки, откуда открывали раньше (extraDirs)
+        public static List<string> Find(IEnumerable<string> extraDirs = null)
         {
-            var dirs = new[] { Path.Combine(Directory.GetCurrentDirectory(), "Saves"), Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) };
+            var dirs = new[] { Path.Combine(Directory.GetCurrentDirectory(), "Saves"), Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) }
+                .Concat(extraDirs ?? Enumerable.Empty<string>()).Where(d => !string.IsNullOrEmpty(d)).Distinct(StringComparer.OrdinalIgnoreCase);
             var files = new List<string>();
             foreach (var d in dirs)
                 if (Directory.Exists(d)) files.AddRange(Directory.GetFiles(d, "armiya_hod*.txt"));
@@ -135,9 +136,13 @@ namespace Journal.Viewer
             return (0, 0);
         }
 
-        public static SceneDef Make(string path, int turns = 4, uint seed = 16, double widthM = 0)
+        // отряды, что выйдут на поле: не уничтожены, есть бойцы, стоят на карте
+        public static bool OnField(Unit u) => u.Status != "destroyed" && u.Soldiers >= 1 && u.OnMap;
+
+        // include — номера отрядов, что выйдут на поле (первая битва малым составом, Г98); null — все
+        public static SceneDef Make(string path, int turns = 4, uint seed = 16, double widthM = 0, ICollection<int> include = null)
         {
-            var R = GameRules.Game;
+            var R = Rules.Base;
             var s = Read(path, widthM: widthM);
             var geo = SceneDef.Open(s.W, s.H);
             var sc = new SceneDef { Name = $"Сохранение: ход {s.Turn}", Turns = turns, Geo = geo, Image = s.Image };
@@ -145,7 +150,7 @@ namespace Journal.Viewer
             int placed = 0, back = 0; double men = 0;
             foreach (var u0 in s.Units)
             {
-                if (u0.Status == "destroyed" || u0.Soldiers < 1 || !u0.OnMap) continue;
+                if (!OnField(u0) || include != null && !include.Contains(u0.Id)) continue;
                 var u = u0.Clone();
                 int fac = u.FactionId ?? 0;
                 if (u.Status == "fled") { back++; u.Status = "active"; u.Broken = false; }

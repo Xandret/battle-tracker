@@ -1351,3 +1351,135 @@
 .army .unity-scroller__high-button {
     display: none;
 }
+
+/* ── состав битвы из сохранения трекера (Г98: первая битва малым составом) ── */
+.lineup-box {
+    width: 900px;
+    max-height: 86%;
+    padding: 18px 22px;
+    align-items: stretch;
+}
+
+.lineup-sub {
+    color: var(--ink-dim);
+    font-size: 13px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+    margin-bottom: 10px;
+}
+
+.lineup-cols {
+    flex-direction: row;
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-height: 200px;
+}
+
+.lineup-col {
+    flex-grow: 1;
+    flex-basis: 0;
+    margin: 0 6px;
+}
+
+.lineup-head {
+    font-size: 15px;
+    -unity-font-style: bold;
+    white-space: normal;
+    padding: 6px 10px;
+    border-left-width: 4px;
+    background-color: var(--panel-2);
+    margin-bottom: 4px;
+}
+
+.lineup-head.is-side1 { border-left-color: var(--side1); }
+.lineup-head.is-side2 { border-left-color: var(--side2); }
+
+.lineup-bar {
+    flex-direction: row;
+    margin-bottom: 4px;
+}
+
+.lineup-mini {
+    height: 22px;
+    padding: 0 10px;
+    margin-right: 6px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    background-color: var(--panel-2);
+    border-width: 1px;
+    border-color: var(--edge-dark);
+    border-radius: 3px;
+}
+
+.lineup-mini:hover { color: var(--ink); border-color: var(--gold-deep); }
+
+.lineup-list {
+    flex-grow: 1;
+    flex-shrink: 1;
+    max-height: 420px;
+    background-color: rgba(0, 0, 0, 0.18);
+    border-radius: 4px;
+}
+
+.lineup-unit {
+    margin: 2px 6px;
+    font-size: 13px;
+    color: var(--ink);
+}
+
+.lineup-foot {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
+
+.lineup-foot > .menu-close { margin: 0 6px; }
+
+.lineup-start {
+    width: auto;
+    padding: 0 24px;
+    margin-left: 12px;
+    font-size: 17px;
+}
+
+.menu-open { border-color: var(--gold-deep); }
+.menu-end { border-color: var(--hp-low); }
+
+/* ── итог битвы: по сторонам и отрядам ── */
+.over-table {
+    width: 820px;
+    max-height: 420px;
+    margin-bottom: 14px;
+}
+
+.over-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 2px 8px;
+}
+
+.over-side {
+    margin-top: 10px;
+    padding: 6px 10px;
+    border-left-width: 4px;
+    background-color: var(--panel-2);
+    flex-wrap: wrap;
+}
+
+.over-side.is-side1 { border-left-color: var(--side1); }
+.over-side.is-side2 { border-left-color: var(--side2); }
+
+.over-side-name {
+    font-size: 16px;
+    -unity-font-style: bold;
+    color: var(--gold-bright);
+    margin-right: 12px;
+}
+
+.over-side-sum { color: var(--ink); font-size: 13px; }
+
+.over-hdr > Label { color: var(--ink-faint); font-size: 11px; }
+
+.oc-name { flex-grow: 1; flex-basis: 0; font-size: 13px; color: var(--ink); overflow: hidden; }
+.oc-num { width: 70px; -unity-text-align: middle-right; font-size: 13px; color: var(--ink); }
+.oc-state { width: 110px; padding-left: 12px; font-size: 12px; color: var(--ink-dim); }

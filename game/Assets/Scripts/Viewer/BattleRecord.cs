@@ -109,7 +109,7 @@ namespace Journal.Viewer
 
         public Recorder(string name, string note, Geo geo, IList<Mover> movers, Func<Mover, string> tplOf, Battle battle, int turns, Func<Mover, string> colorOf = null, Func<Mover, string> styleOf = null)
         {
-            var R = GameRules.Game;
+            var R = Rules.Base;
             ms = movers.ToList(); this.battle = battle;
             if (battle != null && battle.ArrowLog == null) battle.ArrowLog = new List<ArrowTrace>();
             Rec = new Recording { Name = name, Note = note, Map = geo.Map, W = geo.W, H = geo.H, TurnSec = R.Move.TurnSec, Turns = turns,
@@ -240,7 +240,7 @@ namespace Journal.Viewer
         // Сцена целиком: все ходы движком, кадр раз в 0,2 с; запись готова (Done), когда досчитана
         public static Recording Run(SceneDef sc, Action<string> progress = null)
         {
-            var R = GameRules.Game;
+            var R = Rules.Base;
             var ms = sc.Units.Select(u => u.M).ToList();
             if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
             var rc = new Recorder(sc.Name, sc.Note, sc.Geo, ms, m => sc.Tpl[m], sc.Battle, sc.Turns, m => sc.Color.TryGetValue(m, out var c) ? c : null,

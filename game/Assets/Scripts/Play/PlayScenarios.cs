@@ -26,20 +26,24 @@ namespace Journal.Play
 
     public static class PlayScenarios
     {
-        static readonly Rules R = GameRules.Game;   // бойцы-тела (MenBodies) — GameRules
+        static readonly Rules R = Rules.Base;
 
-        // меню битв: имя, подпись, как построить
-        public static List<(string Name, string Note, Func<PlayBattle> Make)> All()
+        // меню битв: готовые битвы (имя, подпись, как построить); сохранения трекера — отдельно (Saves), через выбор состава
+        public static List<(string Name, string Note, Func<PlayBattle> Make)> All() =>
+            new List<(string, string, Func<PlayBattle>)> { ("Учебное поле", "5 на 5 через ручей с двумя бродами; холм, лес", () => Training()) };
+
+        // сохранения трекера: сначала открытые недавно, потом найденные в game/Saves, на рабочем столе и рядом с открытыми
+        public static List<string> Saves()
         {
-            var list = new List<(string, string, Func<PlayBattle>)> { ("Учебное поле", "5 на 5 через ручей с двумя бродами; холм, лес", () => Training()) };
-            foreach (var f in SaveScene.Find())
-                list.Add((SaveScene.Label(f), System.IO.Path.GetFileName(f) + " — твои армии и расстановка, бежавшие снова в строю", () => FromSave(f)));
-            return list;
+            var recent = FileDialog.Recent();
+            var found = SaveScene.Find(recent.Select(System.IO.Path.GetDirectoryName));
+            return recent.Concat(found).GroupBy(p => System.IO.Path.GetFullPath(p).ToLowerInvariant()).Select(g => g.First()).ToList();
         }
 
-        public static PlayBattle FromSave(string path)
+        // битва из сохранения; include — номера отрядов, что выйдут на поле (малый состав), null — все
+        public static PlayBattle FromSave(string path, ICollection<int> include = null)
         {
-            var sc = SaveScene.Make(path, 99);
+            var sc = SaveScene.Make(path, 99, include: include);
             var pb = new PlayBattle { Name = sc.Name, Note = sc.Note, Geo = sc.Geo, Battle = sc.Battle, Image = sc.Image };
             pb.Session = new BattleSession(pb.Battle);
             foreach (var kv in sc.SideNames) pb.Session.SideNames[kv.Key] = kv.Value;

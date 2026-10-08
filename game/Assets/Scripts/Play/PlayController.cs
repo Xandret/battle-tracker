@@ -40,6 +40,10 @@ namespace Journal.Play
         public event Action Changed;                         // приказ, выбор, фаза — панели перерисоваться
         // сводки ходов (TurnSummary): снимок на «Ход!», итог — когда показ хода кончился; последняя — в панели справа
         public readonly List<TurnSummary> Summaries = new List<TurnSummary>();
+        // итог битвы (Г98: «кто сколько потерял»): отряд на начало битвы — бойцов, убитых и раненых всего (счётчики
+        // отряда копятся с прошлых битв кампании — итог считает разницу); EndedByPlayer — битву остановили кнопкой
+        public readonly Dictionary<Mover, (double Men, double Killed, double Wounded)> AtStart = new Dictionary<Mover, (double, double, double)>();
+        public bool EndedByPlayer { get; private set; }
         public TurnSummary LastSummary => Summaries.Count > 0 ? Summaries[Summaries.Count - 1] : null;
         TurnSummary current;
 
@@ -85,7 +89,8 @@ namespace Journal.Play
             recorder.Rec.Image = Game.Image;
             recorder.Snap();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false;
-            Summaries.Clear(); current = null;
+            Summaries.Clear(); current = null; EndedByPlayer = false;
+            AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
             if (viewer != null) { viewer.ShowGui = false; viewer.SetLive(recorder.Rec); viewer.Playing = false; }
@@ -103,6 +108,15 @@ namespace Journal.Play
             Phase = PlayPhase.Showing; Paused = false;
             TurnStartTime = ShowTime; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
+            Changed?.Invoke();
+        }
+
+        // закончить битву между ходами и показать итог (битва не обязана дойти до бегства одной из сторон)
+        public void EndBattle()
+        {
+            if (Phase != PlayPhase.Orders || Game == null) return;
+            CancelDrag(); EndedByPlayer = true; Phase = PlayPhase.Over; recorder.Rec.Done = true;
+            Selection.Clear(); Selected = null; previews.Clear(); previewQueue.Clear();
             Changed?.Invoke();
         }
 

@@ -28,6 +28,8 @@ namespace Journal.Play
         Label turnNumber, phaseText, phaseSub, detailName, detailType, detailOrder, detailPlan, tipName, tipLine1, tipLine2, toastText, overTitle, overSub, logTitle, powerName1, powerName2;
         Button goButton, pauseButton, speed1, speed2, speed4, againButton, menuButton, menuClose;
         VisualElement menu, menuList; Label menuStatus;
+        LineupPanel lineup;                 // состав битвы из сохранения трекера (Г98)
+        VisualElement overTable; object overBuilt;   // итог битвы «кто сколько потерял» — строится раз на конец битвы
         ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
         bool menuBusy;
         Icon detailIcon;
@@ -71,6 +73,9 @@ namespace Journal.Play
             menuButton.clicked += ShowMenu;
             menuClose.clicked += () => menu.AddToClassList("hidden");
             armies = new ArmyEditor(hud);
+            lineup = new LineupPanel(hud, (path, ids) => { pc.NewBattle(() => PlayScenarios.FromSave(path, ids)); menu.AddToClassList("hidden"); }, ShowMenu);
+            overTable = new ScrollView(ScrollViewMode.Vertical); overTable.AddToClassList("over-table");
+            againButton.parent.Insert(againButton.parent.IndexOf(againButton), overTable);
             ShowMenu();   // в начале — выбор битвы (под меню уже стоит учебное поле)
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
             feed = root.Q("feed");
@@ -112,6 +117,35 @@ namespace Journal.Play
                 });
                 menuList.Add(item);
             }
+            // идёт битва — можно закончить её между ходами и посмотреть итог (Г98: сыграл 3 хода — увидел итог)
+            if (pc.Game != null && pc.Phase == PlayPhase.Orders && pc.Summaries.Count > 0)
+            {
+                var end = new VisualElement(); end.AddToClassList("menu-item"); end.AddToClassList("menu-end");
+                var en = new Label("⏹ Закончить битву — итог"); en.AddToClassList("menu-item-name"); end.Add(en);
+                var ed = new Label($"«{pc.Game.Name}», сыграно ходов: {pc.Summaries.Count}. Кто сколько потерял — по сторонам и отрядам."); ed.AddToClassList("menu-item-note"); end.Add(ed);
+                end.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); pc.EndBattle(); });
+                menuList.Insert(0, end);
+            }
+            // сохранения трекера: открыть файл где угодно или из недавних — дальше выбор состава
+            var open = new VisualElement(); open.AddToClassList("menu-item"); open.AddToClassList("menu-open");
+            var on = new Label("📂 Открыть сохранение трекера…"); on.AddToClassList("menu-item-name"); open.Add(on);
+            var od = new Label("armiya_hodN.txt из любой папки: расстановка как в нём, состав выбираешь сам (для первой битвы — малый)."); od.AddToClassList("menu-item-note"); open.Add(od);
+            open.RegisterCallback<ClickEvent>(_ =>
+            {
+                var f = FileDialog.OpenSave(FileDialog.LastDir());
+                if (f == null) return;
+                OpenLineup(f);
+            });
+            menuList.Add(open);
+            foreach (var f in PlayScenarios.Saves())
+            {
+                var item = new VisualElement(); item.AddToClassList("menu-item");
+                var n = new Label(Journal.Viewer.SaveScene.Label(f)); n.AddToClassList("menu-item-name"); item.Add(n);
+                var d = new Label(f); d.AddToClassList("menu-item-note"); item.Add(d);
+                var ff = f;
+                item.RegisterCallback<ClickEvent>(_ => OpenLineup(ff));
+                menuList.Add(item);
+            }
             // редактор армий: фракции, полководцы, отряды — в файле сохранения трекера
             var army = new VisualElement(); army.AddToClassList("menu-item"); army.AddToClassList("menu-armies");
             var an = new Label("⚑ Армии"); an.AddToClassList("menu-item-name"); army.Add(an);
@@ -120,6 +154,46 @@ namespace Journal.Play
             menuList.Add(army);
             menuClose.EnableInClassList("hidden", pc.Game == null || pc.Phase == PlayPhase.Over);
             menu.RemoveFromClassList("hidden");
+        }
+
+        void OpenLineup(string f)
+        {
+            if (lineup.Show(f)) { FileDialog.Remember(f); menu.AddToClassList("hidden"); }
+            else menuStatus.text = $"Не читается как сохранение трекера: {System.IO.Path.GetFileName(f)}";
+        }
+
+        // итог битвы: по сторонам и отрядам — было, убито, ранено, бежало, в строю (разница с началом битвы)
+        void BuildOver()
+        {
+            overTable.Clear();
+            var s = pc.Session; var b = pc.Battle;
+            Label Cell(VisualElement row, string t, string cls) { var l = new Label(t); l.AddToClassList(cls); row.Add(l); return l; }
+            VisualElement Row(VisualElement parent, string cls) { var r = new VisualElement(); r.AddToClassList("over-row"); if (cls != null) r.AddToClassList(cls); parent.Add(r); return r; }
+            foreach (int side in s.Sides.Take(2))
+            {
+                var units = b.Movers.Where(m => PlayController.SideOf(m) == side && pc.AtStart.ContainsKey(m)).OrderByDescending(m => pc.AtStart[m].Men).ToList();
+                double start = 0, killed = 0, wounded = 0, fled = 0, line = 0;
+                var rows = new List<string[]>();
+                foreach (var m in units)
+                {
+                    var u = m.P.U; var a = pc.AtStart[m];
+                    double k = System.Math.Max(0, u.TotKilled - a.Killed), w = System.Math.Max(0, u.TotWounded - a.Wounded), now = System.Math.Max(0, u.Soldiers);
+                    bool dead = u.Status == "destroyed" || now <= 0, gone = m.Gone, flee = m.Fleeing;
+                    double f = !dead && (gone || flee) ? now : 0, l = !dead && !gone && !flee ? now : 0;
+                    start += a.Men; killed += k; wounded += w; fled += f; line += l;
+                    rows.Add(new[] { u.Name, $"{a.Men:0}", $"{k:0}", $"{w:0}", f > 0 ? $"{f:0}" : "—", $"{l:0}", dead ? "уничтожен" : gone ? "ушёл с поля" : flee ? "бежит" : "в строю" });
+                }
+                var head = Row(overTable, side == 1 ? "is-side1" : "is-side2"); head.AddToClassList("over-side");
+                Cell(head, s.Name(side), "over-side-name");
+                Cell(head, $"было {start:0} · потеряно {start - line - fled:0} (убито {killed:0}, ранено {wounded:0}) · бежало {fled:0} · в строю {line:0}", "over-side-sum");
+                var hr = Row(overTable, "over-hdr");
+                foreach (var (t, c) in new[] { ("Отряд", "oc-name"), ("было", "oc-num"), ("убито", "oc-num"), ("ранено", "oc-num"), ("бежало", "oc-num"), ("в строю", "oc-num"), ("", "oc-state") }) Cell(hr, t, c);
+                foreach (var r in rows)
+                {
+                    var row = Row(overTable, null);
+                    Cell(row, r[0], "oc-name"); for (int i = 1; i <= 5; i++) Cell(row, r[i], "oc-num"); Cell(row, r[6], "oc-state");
+                }
+            }
         }
 
         // Шрифт с кириллицей и засечками из системы (Palatino, Georgia…); нет — шрифт темы
@@ -171,7 +245,7 @@ namespace Journal.Play
         void LateUpdate()
         {
             if (pc?.Session == null || turnNumber == null) return;
-            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible;
+            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible;
             if (viewer != null) viewer.InputBlocked = pc.Blocked;   // набор текста в окнах не двигает камеру
             var s = pc.Session; var bt = pc.Battle;
             if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
@@ -204,8 +278,13 @@ namespace Journal.Play
             Feed();
             toast.EnableInClassList("hidden", Time.time > pc.ToastUntil || string.IsNullOrEmpty(pc.Toast));
             toastText.text = pc.Toast;
-            over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over || !menu.ClassListContains("hidden"));
-            if (pc.Phase == PlayPhase.Over) { overTitle.text = s.Outcome ?? "Битва окончена"; overSub.text = $"Ходов: {s.Turn - 1}"; }
+            over.EnableInClassList("hidden", pc.Phase != PlayPhase.Over || !menu.ClassListContains("hidden") || lineup.Visible);
+            if (pc.Phase == PlayPhase.Over)
+            {
+                overTitle.text = pc.EndedByPlayer ? "Итог битвы" : s.Outcome ?? "Битва окончена";
+                overSub.text = (pc.EndedByPlayer ? $"Битва остановлена после хода {pc.Summaries.Count}" : $"Ходов: {pc.Summaries.Count}") + $" · «{pc.Game.Name}»";
+                if (overBuilt != (object)pc.Game) { overBuilt = pc.Game; BuildOver(); }
+            }
         }
 
         void Power(BattleSession s)
