@@ -210,8 +210,9 @@ namespace BattleCore
             if (map == null || m.Gone || m.Fleeing || BattleMap.IsHorse(u) || u.Soldiers <= 0) return false;
             byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"); int W = map.W, H = map.H;
             bool Walk(int i) => map.T[i] == wall || map.T[i] == tower;
-            // ближайшие клетки стены и башен — из RowPick ближайших берётся та, через которую прямой ряд длиннее (ближайшая может быть
-            // краем башни 3 × 3: ряд через неё — три клетки, и строй встал бы колонной во двор; чат облика, 10.10.2026)
+            // ближайшие клетки стены и башен — среди тех, что не дальше ближайшей + RowPickM, берётся та, через которую прямой ряд длиннее
+            // (ближайшая может быть краем башни 3 × 3: ряд через неё — три клетки, и строй встал бы колонной во двор; а дальше
+            // RowPickM не смотрим, чтобы не увести отряд на другую, более длинную стену; чат облика, 10.10.2026)
             var near = new List<(double d, int i)>();
             for (int i = 0; i < map.T.Length; i++)
             {
@@ -232,7 +233,7 @@ namespace BattleCore
                 return lo + hi + 1;
             }
             int best = -1, bestLen = 0;
-            for (int c = 0; c < near.Count && c < Math.Max(1, R.Garrison.RowPick); c++)
+            for (int c = 0; c < near.Count && near[c].d <= near[0].d + R.Garrison.RowPickM; c++)
             {
                 bx = near[c].i % W; by = near[c].i / W;
                 int len = Math.Max(Run(1, 0, out _), Run(0, 1, out _));
