@@ -463,6 +463,55 @@ static class BattleTests
             True(far < 3 && b.Order.Kind == OrderKind.Hold, $"строй собран: дальше всех от места {far:0.0} м");
         });
 
+        yield return ("поединок (Г108): вызов в 60 м принят — отряды стоят и друг друга не трогают, командиры сходятся в круге 6 м, бойцов в круге нет; удары по раундам, исход за 5…40 с: проигравший ранен или убит, БД сторон меняется, отряд проигравшего проверяется на побег; отказ — своей стороне −10 БД; вызов дальше 80 м нельзя", () =>
+        {
+            var ca = new Commander { Id = 1, Name = "Сэр Арн", FactionId = 1, Valor = 16 }; var cb = new Commander { Id = 2, Name = "Бор", FactionId = 2, Valor = 6 };
+            var cmd = new Dictionary<int, Commander> { [1] = ca, [2] = cb };
+            var ctx = new EngineContext { Rng = new Mulberry32(31).Next, CommanderOf = u => u.CommanderId.HasValue && cmd.TryGetValue(u.CommanderId.Value, out var c) ? c : null };
+            var bt = new Battle(Open(1000, 1000), R, ctx);
+            var T = Templates.Get("infantry");
+            var ua = T.Make(1, "Дружина", 500, 1); ua.CommanderId = 1; var ub = T.Make(2, "Ватага", 500, 2); ub.CommanderId = 2; ub.Morale = 45;
+            var a = bt.Add(ua, 500, 400, 180); var b = bt.Add(ub, 500, 460, 0);   // 60 м, лицом друг к другу
+            True(bt.ChallengeWhy(a, b) == null, $"вызов нельзя: {bt.ChallengeWhy(a, b)}");
+            var far = bt.Add(T.Make(3, "Дальние", 100, 2), 500, 900, 0); far.P.U.CommanderId = 2;
+            True(bt.ChallengeWhy(a, far) != null, "вызов за 500 м принят");
+            True(bt.Challenge(a, b) == null && bt.Challenges.Count == 1, "вызов не повис");
+            True(bt.Answer(b, true) && bt.Duels.Count == 1 && bt.Challenges.Count == 0, "ответ не принят");
+            bt.Order(a, Attack(2));   // приказ атаковать во время поединка — всё равно стоят
+            double sideBefore = far.P.U.Morale, aBefore = ua.Morale, bBefore = ub.Morale;
+            int inCircle = 0, ringChecks = 0, ringOk = 0, cmdIn = 0; bool over = false; var log = new List<string>();
+            for (int t = 0; t < 4 && !over; t++)
+            {
+                log.AddRange(bt.Turn(tt =>
+                {
+                    var d = bt.Duels[0]; if (!d.Fighting || d.Over) return;
+                    foreach (var m in new[] { a, b }) inCircle += m.Men.Count(x => !x.InDuel && JsMath.Hypot(x.X - d.X, x.Y - d.Y) < d.R - 0.5);
+                    ringChecks++; if (a.Guard.Concat(b.Guard).Count(x => Math.Abs(JsMath.Hypot(x.X - d.X, x.Y - d.Y) - (d.R + 0.6)) < 1.5) >= 16) ringOk++;   // кольцо дособирается, пока первые раунды уже идут
+                    if (JsMath.Hypot(d.ManA.X - d.X, d.ManA.Y - d.Y) < 3 && JsMath.Hypot(d.ManB.X - d.X, d.ManB.Y - d.Y) < 3) cmdIn++;
+                }));
+                over = bt.Duels[0].Over;
+            }
+            var du = bt.Duels[0];
+            True(du.ManA != null && du.ManB != null, "полководцы не телами");
+            True(ringChecks > 0 && ringOk * 10 >= ringChecks * 8 && cmdIn * 10 >= ringChecks * 8, $"кольцо стражи: {ringOk} из {ringChecks} шагов, полководцы в круге {cmdIn}");
+            True(over && du.Winner != null && du.EndT - du.StartT >= 5 && du.EndT - du.StartT <= 40, $"поединок: кончился {over}, длился {du.EndT - du.StartT:0} с");
+            True(du.Strikes.Count >= 6 && du.Strikes.Any(s => s.hit), $"ударов {du.Strikes.Count}");
+            True(inCircle == 0, $"бойцов в круге поединка: {inCircle} (по шагам)");
+            True(ua.Soldiers == 500 && ub.Soldiers == 500, $"отряды бились во время поединка: {500 - ua.Soldiers:0}/{500 - ub.Soldiers:0}");
+            var win = du.Winner.P.U; var lose = du.Loser.P.U; var cl = du.Loser == a ? ca : cb;
+            True(cl.Dead || cl.Wounded, "проигравший ни ранен, ни убит");
+            True(cl.Dead == (lose.CommanderId == null), "убитый командир остался у отряда");
+            True(log.Any(l => l.Contains("поединок:")) && log.Any(l => l.Contains("Проверка на побег")), "в журнале нет исхода или проверки на побег: " + string.Join(" | ", log.Where(l => l.Contains("поедин") || l.Contains("побег"))));
+            double sideAfter = far.P.U.Morale;
+            True(du.Winner == a ? sideAfter == sideBefore - R.Duel.LoseSideMorale : sideAfter == Math.Min(R.Morale.Max, sideBefore + R.Duel.WinSideMorale), $"сторона: БД {sideBefore} → {sideAfter}, победил {win.Name}");
+            // отказ: новый вызов от другой пары
+            var bt2 = new Battle(Open(1000, 1000), R, ctx);
+            var a2 = bt2.Add(T.Make(1, "Дружина", 500, 1), 500, 400, 180); a2.P.U.CommanderId = 1;
+            var b2 = bt2.Add(T.Make(2, "Ватага", 500, 2), 500, 460, 0); b2.P.U.CommanderId = 2; var c2 = bt2.Add(T.Make(3, "Ватага 2", 300, 2), 700, 700, 0);
+            cb.Dead = false; ca.Dead = false;
+            True(bt2.Challenge(a2, b2) == null && bt2.Answer(b2, false) && b2.P.U.Morale == 60 && c2.P.U.Morale == 60 && a2.P.U.Morale == 70, $"отказ: БД {b2.P.U.Morale}/{c2.P.U.Morale}, у вызвавшего {a2.P.U.Morale}");
+        });
+
         yield return ("туман (Г107, Г18): сторона видит чужих не дальше 1 км на открытом, в лесу — только ближе 100 м, за холмом — нет; стреляющий виден всем; «последний раз видели» записано", () =>
         {
             // сцена: лучники стороны 1 в (ax, 700), пехота стороны 2 в (bx, 700); paint — местность до расстановки; один шаг боя

@@ -64,6 +64,8 @@ namespace BattleCore
         }
 
         [ThreadStatic] static HashSet<int> treeCells; [ThreadStatic] static double[] treeXs, treeYs;
+        // Г108: круги, которые бойцы обходят и из которых их выталкивает (поединок командиров): (x, y, r); ставит бой перед шагом
+        public static readonly List<(double x, double y, double r)> Obstacles = new List<(double x, double y, double r)>();
         public static void Step(IList<Mover> ms, double dt, Rules r, Geo geo = null)
         {
             var M = r.Move; var MR = r.Men; tMR = MR; tStepM = r.Garrison.StepM;
@@ -88,6 +90,7 @@ namespace BattleCore
                     }
                 nt = treeCells.Count * MR.TreesPerCell;
             }
+            nt += Obstacles.Count;
             long pt = Prof.Now();
             Bodies.TurnAxes(ms, dt, r);   // колонна в охвате разворачивается лицом к врагу постепенно (Г68), как фигурка
             int every = Math.Max(1, (int)Math.Round(MR.BalanceSec / dt));
@@ -248,6 +251,7 @@ namespace BattleCore
                             hx = Math.Max(cc.x - hw, Math.Min(cc.x + hw, hx)); hy = Math.Max(cc.y - hh, Math.Min(cc.y + hh, hy));
                         }
                     }
+                    if (!double.IsNaN(man.PostX)) { hx = man.PostX; hy = man.PostY; }   // Г108: пост (поединок) — вместо места в строю
                     // выпады (Г78): у кого свой противник (Б2) — к нему; передние бьющейся колонны без него — к врагу колонны.
                     // Отступающий (Г81) не выпадает: шаг к врагу — это упор в него, и отряд сам себя держал бы в схватке
                     var foe = man.Foe;
@@ -303,7 +307,7 @@ namespace BattleCore
                     // Г86: одним телом с колонной — замораживается там, где стоит (сдвиг от якоря в осях колонны), без прыжка на место;
                     // место догонит, когда оттает. Курс — по Г94, как у всех
                     bool atHome = far < MR.RigidSnapM && (F == null || MoveSim.Free(F, hx, hy));
-                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw && !inForest;
+                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw && !inForest && double.IsNaN(man.PostX);
                     man.Thaw = false;
                     if (rigid)
                     {
@@ -337,7 +341,7 @@ namespace BattleCore
                         bool braking = man.Vx * man.Vx + man.Vy * man.Vy > MR.FaceMoveMps * MR.FaceMoveMps && (v < 0.5 || vx * man.Vx + vy * man.Vy < 0);
                         want = braking ? MoveSim.HeadingOf(man.Vx, man.Vy) : MoveSim.HeadingOf(vx, vy);
                     }
-                    else want = s.Hd;
+                    else want = double.IsNaN(man.PostFacing) ? s.Hd : man.PostFacing;   // Г108: на посту смотрит, куда велено
                     double dh = MoveSim.AngleDiff(man.Facing, want);
                     man.Facing = MoveSim.Norm(Math.Abs(dh) <= turn ? want : man.Facing + Math.Sign(dh) * turn);
                     double fh = man.Facing * Math.PI / 180, ufx = Math.Sin(fh), ufy = -Math.Cos(fh);
@@ -387,6 +391,15 @@ namespace BattleCore
                 }
                 if (MR.TreeRadiusM > maxBody) maxBody = MR.TreeRadiusM;
             }
+            foreach (var (ox, oy, orad) in Obstacles)
+            {
+                // Г108: круг поединка — как ствол, только большой и держит и коней
+                tX[ct] = tX0[ct] = ox; tY[ct] = tY0[ct] = oy; tRad[ct] = orad; tHalf[ct] = 0; tUx[ct] = 1; tUy[ct] = 0;
+                tFlag[ct] = 0; tRigid[ct] = true; tMi[ct] = -4; tM[ct] = null; tMan[ct] = null; tBlocked[ct] = 0; tBlockedEnemy[ct] = false;
+                tReach[ct] = orad; tVmax[ct] = 0; tCap[ct] = 0; tDvx[ct] = 0; tDvy[ct] = 0; tLx[ct] = 0; tLy[ct] = 0;
+                ct++;
+                if (orad > maxBody) maxBody = orad;
+            }
             Prof.Add(12, ref pt);
             // 3) взгляд вперёд — с бойцами чужих отрядов: каждый смотрит на свой ход вперёд (кто быстрее — увидит сам).
             // Клетки, где только свои, пропускаются целиком — в глубине строя взгляд вперёд ничего не стоит
@@ -420,6 +433,7 @@ namespace BattleCore
                             }
                             if (rel == Rel.Tree)
                             {
+                                if (tMi[j] == -4 && tMan[i] != null && tMan[i].InDuel) continue;   // Г108: полководец идёт в круг поединка, не обтекает его
                                 // дерево (Б5): шаг, что ведёт в ствол, убирается — боец обтекает его; упором не считается
                                 double dT = Dist(i, xi + tDvx[i] * MR.TreeLookSec, yi + tDvy[i] * MR.TreeLookSec, j, tX[j], tY[j], out double tnx, out double tny);
                                 if (dT < M.MenYieldM) Yield(i, tnx, tny, j, false, false);
@@ -666,7 +680,8 @@ namespace BattleCore
                 // дерево (Б5): выталкивает бойца целиком, само не двигается; два дерева — не пара
                 if (tMi[i] < 0 && tMi[j] < 0) return;
                 int mi = tMi[i] < 0 ? j : i;
-                if ((tFlag[mi] & 64) != 0 && !tMR.TreesStopHorses) return;   // конь: стволы только обходит (взгляд), не упирается — иначе строй конницы вязнет в лесу намертво
+                if (tMi[mi == i ? j : i] == -4 && tMan[mi] != null && tMan[mi].InDuel) return;   // Г108: полководец в круге — круг его не выталкивает
+                if ((tFlag[mi] & 64) != 0 && !tMR.TreesStopHorses && tMi[mi == i ? j : i] != -4) return;   // конь: стволы только обходит (взгляд), не упирается — иначе строй конницы вязнет в лесу намертво; круг поединка (−4) держит и коня
                 double dT = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double tnx, out double tny), penT = -dT;
                 if (penT <= M.BodyTol) return;
                 Prof.N[9]++;

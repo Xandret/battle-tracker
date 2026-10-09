@@ -331,6 +331,17 @@ namespace BattleCore
         public MenR Men = new MenR();
         public GarrisonR Garrison = new GarrisonR();
         public FogR Fog = new FogR();
+        public DuelR Duel = new DuelR();
+        // Г108 (Алекс 10.10.2026 через чат облика: поединки командиров как в Three Kingdoms): вызов по кнопке, ответ в фазу приказов,
+        // отказ — своему войску −RefuseMorale. Командиры выходят на середину между отрядами, бойцы держат круг CircleR; раунд
+        // в RoundSec: d20 + доблесть у каждого, кто выше — ранит; WoundsToLose ран — проигравший ранен или убит (KillPct).
+        // Победителю и его стороне +, проигравшему и его стороне −, отряду проигравшего — проверка на побег. Числа — черновик до ГМа
+        public sealed class DuelR
+        {
+            public double RangeM = 80, CircleR = 6, WalkMps = 2, RoundSec = 2, Die = 20, KillPct = 50;
+            public int WoundsToLose = 3, GuardN = 12;   // стража — ближайшие к полководцу, по стольку с каждой стороны держат кольцо
+            public double RefuseMorale = 10, WinMorale = 10, WinSideMorale = 5, LoseMorale = 15, LoseSideMorale = 5;
+        }
         // Г107 (Г18, Алекс 10.10.2026 через чат облика: туман войны и засады): сторона видит чужой отряд, если хоть один её отряд
         // в строю не дальше обзора и между ними прямая видимость (холм выше обоих закрывает, лес пропускает взгляд на 100 м, стены
         // и дома — нет). Обзор OpenM; отряд в лесу виден только ближе ForestM; с холма — на HillPerLevelM дальше за уровень.

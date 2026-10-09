@@ -133,7 +133,7 @@ namespace BattleCore
                 for (int j = i + 1; j < nm; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
-                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U))) continue;
+                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U)) || InDuel(x, y)) continue;   // Г108: поединок — отряды друг друга не трогают
                     double rr = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10 + WrapReach(x) + WrapReach(y);
                     if (JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) > rr) continue;
                     near[i, j] = near[j, i] = true; any[i] = any[j] = true;

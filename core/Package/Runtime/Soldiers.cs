@@ -21,6 +21,8 @@ namespace BattleCore
         public int Row;              // ряд в фигурке (0 — передний)
         public double X, Y, Vx, Vy, Facing;
         public double Z;             // Г104: на чём стоит над землёй клетки — верх стены или башни (0 — земля); для рисунка и стрел
+        public double PostX = double.NaN, PostY, PostFacing = double.NaN;   // Г108: пост вместо места в строю (полководец в круге, стража по кольцу); NaN — нет
+        public bool InDuel;          // Г108: полководец в поединке — круг его не выталкивает
         public bool Alive = true;
         public double Hu;            // своя доля 0…1 (хеш номера): фаза выпадов и виляния
         public Body Body;            // мишень для стрел (Г33) — та же точка
@@ -65,6 +67,7 @@ namespace BattleCore
         // Место бойца в мире (без выпадов и толпы) — куда он стремится в строю
         public static (double x, double y) HomeOf(Mover m, Man man)
         {
+            if (!double.IsNaN(man.PostX)) return (man.PostX, man.PostY);   // Г108
             World(m, man.Fig, man.Lx, man.Ly, out var x, out var y);
             return (x, y);
         }

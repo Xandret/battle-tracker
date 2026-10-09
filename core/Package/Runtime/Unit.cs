@@ -34,6 +34,8 @@ namespace BattleCore
         public string Name = "";
         public int? FactionId;
         public double BuffMorale, BuffDisc, BuffDmg, BuffDef;
+        public double Valor = 10;      // Г108: доблесть в поединке 1…20 (поле valor в файле армии; нет — 10)
+        public bool Wounded, Dead;     // Г108: исход поединка
     }
 
     // Изменения отряда: заданы только те поля, что меняются (как объект-патч в JS)

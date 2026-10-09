@@ -388,6 +388,7 @@ namespace BattleCore
         {
             if (m.Fleeing) { if (o.Kind == OrderKind.Rally) m.RallyPending = true; return; }   // бегущий слышит только «сплотить» (Г72)
             if (o.Kind == OrderKind.Rally) return;
+            if (InDuel(m)) return;   // Г108: во время поединка отряд стоит, приказов не слушает
             aimed.Remove(m);
             if (o.Kind == OrderKind.Move || o.Kind == OrderKind.Retreat || o.Kind == OrderKind.Attack && !Shooter(m)) m.Garrisoned = false;   // Г104: уходит со стены
             if (o.Kind == OrderKind.Retreat)
@@ -475,6 +476,7 @@ namespace BattleCore
             var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
             foreach (var m in Movers) { m.Now = t; m.ChargeReady = MenMode && ChargeReadyOf(m); }   // Г90: натиск телами
             long pb = Prof.Now();
+            DuelStep(t, dt);   // Г108: поединки — круги в препятствия бойцов, раунды
             MoveSim.Step(Movers, Geo, R, k);
             Prof.Add(0, ref pb);
             for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
@@ -611,7 +613,7 @@ namespace BattleCore
                 for (int j = i + 1; j < Movers.Count; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
-                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U))) continue;
+                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U)) || InDuel(x, y)) continue;
                     double reach = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10 + WrapReach(x) + WrapReach(y);
                     if (JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) > reach) continue;
                     touches[(x, y)] = Bodies.Touch(x, y, R.Map.MeleeGap);
@@ -1526,6 +1528,7 @@ namespace BattleCore
             m.NominalCols = m.Cols = figs.Count == 0 ? 0 : figs.Max(f => f.File) + 1;
             if (oldCols < oldNominal && m.NominalCols > 0) MoveSim.SetCols(m, Math.Min(oldCols, m.NominalCols));   // был в колонне — остаётся
             Soldiers.Assign(m, R);   // бойцы — на места новой раскладки: задние выходят вперёд (Г30, Г75)
+            if (MenMode) PickCommander(m);   // Г108: полководец телом; пал — место занимает ближайший
         }
     }
 }
