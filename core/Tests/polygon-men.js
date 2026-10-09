@@ -665,7 +665,7 @@ function prepMenScene(){
   if(!S.arrows) return;
   const A = S.arrows;
   S._arrU = S.units.map(() => []); S._maxFly = 0; S._stuck = [];
-  A.forEach((a, i) => { S._arrU[a[11]].push(i); S._maxFly = Math.max(S._maxFly, a[7] - a[0]); if(a[12] <= 2) S._stuck.push(i); });
+  A.forEach((a, i) => { S._arrU[a[11]].push(i); S._maxFly = Math.max(S._maxFly, a[7] - a[0]); if(a[12] <= 2 || a[12] === 5) S._stuck.push(i); });
   S._stuck.sort((i, j) => A[i][7] - A[j][7]);
 }
 function lowerT0(A, idx, t){   // первая стрела (по списку idx или по всем) с вылетом не раньше t

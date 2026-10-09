@@ -1233,3 +1233,47 @@ static class MenFleeWidthProbe
         }
     }
 }
+
+// Г103: постройки держат стрелы — лучники по пехоте через ряд клеток постройки в gN м перед пехотой (умолчание 10), дистанции 50/100/150 м,
+// средние по sN боям (умолчание 4): потери, доля стрел в постройке, долетевших до строя (dotnet run --project Tests -- walls [gN] [sN] [tN])
+static class ArrowWallProbe
+{
+    public static void Run(string[] opts)
+    {
+        double gap = 10; int seeds = 4; string[] kinds = { null, "trench", "palisade", "building", "wall", "tower" };
+        foreach (var o in opts)
+        {
+            if (o.StartsWith("g")) gap = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture);
+            else if (o.StartsWith("s")) seeds = int.Parse(o.Substring(1));
+            else if (o.StartsWith("t")) kinds = new[] { null, o.Substring(1) };
+        }
+        var R = Rules.Base;
+        Console.WriteLine($"лучники 1000 → пехота 1000, два хода; постройка в {gap:0} м перед передней шеренгой; среднее по {seeds} боям");
+        Console.WriteLine($"{"постройка",-10} {"м",4} {"потери",7} {"поле",6} {"в постройке",12} {"у строя",8} {"земля",6}");
+        foreach (int dist in new[] { 50, 100, 150 })
+        {
+            double fieldLoss = 0;
+            foreach (var kind in kinds)
+            {
+                double loss = 0, inB = 0, hits = 0, ground = 0, n = 0;
+                for (uint s = 1; s <= seeds; s++)
+                {
+                    var bt = new Battle(MoveTests.Open(600, 700), R, new EngineContext { Rng = new Mulberry32(s * 31 + 5).Next });
+                    var TB = Templates.Get("infantry"); var TA = Templates.Get("archers");
+                    var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 300, 450, 0);
+                    var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), R);
+                    var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 300, 450 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+                    if (kind != null) { int row = (int)((450 - b.P.Fp.Depth / 2 - gap) / Terrain.CellM); Terrain.PaintRect(bt.Geo.Map, "t", 0, row, bt.Geo.Map.W - 1, row, Terrain.Id(kind)); }
+                    bt.ArrowLog = new List<ArrowTrace>();
+                    bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                    for (int t = 0; t < 2; t++) bt.Turn();
+                    var done = bt.ArrowLog.Where(x => x.T1 > x.T0).ToList();
+                    loss += 1000 - b.P.U.Soldiers; n += done.Count;
+                    inB += done.Count(x => x.End == 5); hits += done.Count(x => x.End == 1 || x.End == 2); ground += done.Count(x => x.End == 0);
+                }
+                loss /= seeds; if (kind == null) fieldLoss = loss;
+                Console.WriteLine($"{(kind ?? "поле"),-10} {dist,4} {loss,7:0} {(fieldLoss > 0 ? loss / fieldLoss * 100 : 100),5:0}% {inB / n * 100,11:0}% {hits / n * 100,7:0}% {ground / n * 100,5:0}%");
+            }
+        }
+    }
+}
