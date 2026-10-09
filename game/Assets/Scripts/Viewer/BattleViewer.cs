@@ -67,14 +67,14 @@ namespace Journal.Viewer
         public float Speed { get => speed; set => speed = Mathf.Max(0, value); }
         // Живая запись (Recorder.Rec): кадры дописываются по ходу счёта, показ идёт до последнего готового кадра.
         // Recorder.Snap и показ — в главном потоке (или Snap под lock(rec), см. Recorder).
-        public void SetLive(Recording r)
+        public void SetLive(Recording r, bool fit = true)
         {
             Init();
             // сцена смотрелки ещё считается в фоне — дождаться: два боя разом движок пока не считает (Soldiers.Jostle)
             if (job != null) { try { job.Wait(); } catch (AggregateException) { } job = null; }
             live = true; PlayInput = true; pendingScene = -1; scene = -1;
             rec = r; t = 0; playing = false;
-            BuildGround(); FitView();
+            BuildGround(); if (fit) FitView();
         }
         // карта без отрядов (редактор карт, Г102): земля и укрепления, камера — как в игре; fit — показать всю карту
         public void ShowMap(TerrainMap m, string name, bool fit)

@@ -73,6 +73,14 @@ namespace Journal.Play
             }
             if (orders && pc.Dragging && pc.DragOrder != null && pc.DragOrder.Kind == OrderKind.Move && (pc.DragTo - pc.DragFrom).magnitude > 4)
                 Line(pc.DragFrom.x, pc.DragFrom.y, pc.DragTo.x, pc.DragTo.y, White, 2);   // протянутая линия фронта
+            // расстановка: рамка строя там, куда тянут (зелёная — встанет, красная — нет места), стрелка — куда лицом
+            if (pc.DeployDragging && pc.DeployUnit != null)
+            {
+                var col = pc.DeployOk ? Ok : Bad;
+                Footprint(pc.DeployX, pc.DeployY, pc.DeployFacing, pc.DeployUnit.P.Fp.Front, pc.DeployUnit.P.Fp.Depth, col, 2.5f);
+                double h = pc.DeployFacing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h), L = pc.DeployUnit.P.Fp.Depth / 2 + 12;
+                Line(pc.DeployX, pc.DeployY, pc.DeployX + fx * L, pc.DeployY + fy * L, col, 2);
+            }
             if (pc.BoxSelecting)
             {
                 // рамка выбора: углы экрана → точки карты

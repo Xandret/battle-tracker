@@ -317,7 +317,7 @@ namespace Journal.Play
             turnNumber.text = Mathf.Max(1, turn).ToString();
             double tin = pc.ShowTime - pc.TurnStartTime;
             phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
-            phaseSub.text = orders ? $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»" : showing ? $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза" : s.Outcome ?? "";
+            phaseSub.text = orders ? (pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ, Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза" : s.Outcome ?? "";
             progressFill.style.width = Length.Percent(showing ? (float)(100 * tin / bt.R.Move.TurnSec) : orders ? 0 : 100);
             goButton.EnableInClassList("hidden", !orders);
             speedGroup.EnableInClassList("hidden", !showing);

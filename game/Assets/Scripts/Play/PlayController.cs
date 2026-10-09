@@ -86,10 +86,7 @@ namespace Journal.Play
         {
             if (make != null) { lastMake = make; Chosen = true; }
             Game = lastMake();
-            recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
-                                    m => Game.Color.TryGetValue(m, out var c) ? c : null, m => Game.Style.TryGetValue(m, out var st) ? st : null);
-            recorder.Rec.Image = Game.Image;
-            recorder.Snap();
+            Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
             Summaries.Clear(); current = null; EndedByPlayer = false;
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
@@ -98,6 +95,43 @@ namespace Journal.Play
             if (viewer != null) { viewer.ShowGui = false; viewer.SetLive(recorder.Rec); viewer.Playing = false; }
             RefreshPreviews();
             Changed?.Invoke();
+        }
+        void Rerecord()
+        {
+            recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
+                                    m => Game.Color.TryGetValue(m, out var c) ? c : null, m => Game.Style.TryGetValue(m, out var st) ? st : null);
+            recorder.Rec.Image = Game.Image;
+            recorder.Snap();
+        }
+
+        // ── расстановка руками до первого хода (Алекс 09.10.2026, п. 1: «возможность разместить отряды»): ЛКМ по своему отряду и
+        // тянуть — рамка строя за мышью (зелёная — встанет, красная — на дом, стену или воду: сдвинется к ближайшему месту, где
+        // помещается, Б5), Q/E — повернуть на 15°, отпустить — отряд переставлен. Пока ядро не умеет переставлять (Relocate) —
+        // отряд снимается с поля и ставится заново на то же место в списке (бойцы — заново по строю)
+        public bool CanDeploy => Game != null && Phase == PlayPhase.Orders && Session != null && Session.Turn <= 1 && ShowTime <= 0;
+        public bool DeployDragging { get; private set; }
+        public Mover DeployUnit { get; private set; }
+        public double DeployX, DeployY, DeployFacing; public bool DeployOk;
+        Vector2 deployFrom; double grabX, grabY;
+        public bool Redeploy(Mover m, double x, double y, double facing)
+        {
+            if (!CanDeploy) return false;
+            var bt = Battle; int i = bt.Movers.IndexOf(m); if (i < 0) return false;
+            var nm = bt.Add(m.P.U, x, y, facing);   // Add сам сдвинет к ближайшему месту, где строй помещается
+            bt.Movers.RemoveAt(bt.Movers.Count - 1); bt.Movers[i] = nm;
+            void Move<T>(Dictionary<Mover, T> d) { if (d.TryGetValue(m, out var v)) { d.Remove(m); d[nm] = v; } }
+            Move(Game.Tpl); Move(Game.StartMen); Move(Game.Style); Move(Game.Color); Move(AtStart);
+            Session.Pending.Remove(m);
+            bt.Order(nm, new MoveOrder { Kind = OrderKind.Hold });
+            int si = Selection.IndexOf(m); if (si >= 0) Selection[si] = nm;
+            if (Selected == m) Selected = nm; if (Hover == m) Hover = null;
+            previews.Remove(m);
+            Rerecord();
+            if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+            RefreshPreviews(); Changed?.Invoke();
+            double moved = Math.Sqrt((nm.P.X - x) * (nm.P.X - x) + (nm.P.Y - y) * (nm.P.Y - y));
+            Say(moved > 1 ? $"«{nm.P.U.Name}»: там строй не помещается — встал в {moved:0} м рядом" : $"«{nm.P.U.Name}» переставлен");
+            return true;
         }
 
         // Г101: построение выбранных — глубина строя от стола: цепь ½, линия 1 (по столу), глубокий строй 2, колонна 4.
@@ -346,8 +380,33 @@ namespace Journal.Play
             // ЛКМ: по отряду — выбрать (Ctrl — добавить); по земле — рамка; отпустил без рамки — снять выбор
             if (mouse.leftButton.wasPressedThisFrame && !ui)
             {
-                if (Hover != null) { if (ctrl) Toggle(Hover); else Select(Hover); }
+                if (Hover != null)
+                {
+                    if (ctrl) Toggle(Hover); else Select(Hover);
+                    // до первого хода свой отряд можно перетащить
+                    if (!ctrl && CanDeploy && SideOf(Hover) == ActiveSide && Present(Hover))
+                    { DeployUnit = Hover; deployFrom = sp; grabX = Hover.P.X - mp.x; grabY = Hover.P.Y - mp.y; DeployFacing = Hover.P.Facing; }
+                }
                 else { leftDown = true; BoxA = BoxB = sp; }
+            }
+            if (DeployUnit != null)
+            {
+                if (mouse.leftButton.isPressed)
+                {
+                    if (!DeployDragging && (sp - deployFrom).magnitude > 6) DeployDragging = true;
+                    if (DeployDragging)
+                    {
+                        if (kb != null && kb.qKey.wasPressedThisFrame) DeployFacing = MoveSim.Norm(DeployFacing - 15);
+                        if (kb != null && kb.eKey.wasPressedThisFrame) DeployFacing = MoveSim.Norm(DeployFacing + 15);
+                        DeployX = mp.x + grabX; DeployY = mp.y + grabY;
+                        DeployOk = Battle.Fits(DeployUnit.P.U, DeployX, DeployY, DeployFacing);
+                    }
+                }
+                else
+                {
+                    if (DeployDragging) Redeploy(DeployUnit, DeployX, DeployY, DeployFacing);
+                    DeployUnit = null; DeployDragging = false;
+                }
             }
             if (leftDown)
             {
