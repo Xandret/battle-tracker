@@ -110,7 +110,7 @@ namespace BattleCore
             if (m == null) return null;
             long t0 = Stopwatch.GetTimestamp();
             var f = new FlowField { Map = m, Geo = geo, R = r, Horse = horse, W = m.W, H = m.H, CellW = geo.W / m.W, CellH = geo.H / m.H, HalfWidth = halfWidth };
-            var g = Ground.Of(m, r, horse, f.CellW, f.CellH, pass != null && pass.Walls, pass != null && pass.Gates);
+            var g = Ground.Of(m, r, horse, f.CellW, f.CellH, pass);
             // Г104: закрытые ворота для врага — как клетки в обход
             if (pass?.Blocked != null)
             {
@@ -207,8 +207,8 @@ namespace BattleCore
         // Не сошлось — считается заново; прежние виды карты (до пролома, другие правила) держатся, пока их не вытеснят.
         sealed class Ground
         {
-            public readonly bool Horse, Walls, Gates; public readonly int W, H; public readonly double CellW, CellH, Small;
-            readonly BattleMap.PassRules pass;                    // Г104: только флаги — закрытые ворота в карту кладёт Build
+            public readonly bool Horse, Battle, Walls, Gates; public readonly int W, H; public readonly double CellW, CellH, Small;
+            readonly BattleMap.PassRules pass;                    // Г104: только флаги (и сам факт боя — ров, Г105) — закрытые ворота в карту кладёт Build
             public readonly byte[] T, Z;                          // снимок слоёв карты, по которому всё посчитано
             readonly double[] codeMult = new double[256];         // множитель по коду местности
             readonly int[] codeAt = new int[256];                 // первая клетка с этим кодом (−1 — кода на карте нет)
@@ -218,19 +218,20 @@ namespace BattleCore
 
             static readonly ConditionalWeakTable<TerrainMap, List<Ground>> byMap = new ConditionalWeakTable<TerrainMap, List<Ground>>();
 
-            public static Ground Of(TerrainMap m, Rules r, bool horse, double cw, double ch, bool walls = false, bool gates = false)
+            public static Ground Of(TerrainMap m, Rules r, bool horse, double cw, double ch, BattleMap.PassRules pass = null)
             {
+                bool battle = pass != null, walls = battle && pass.Walls, gates = battle && pass.Gates;
                 var list = byMap.GetValue(m, _ => new List<Ground>());
                 lock (list)
                 {
                     for (int k = 0; k < list.Count; k++)
                     {
                         var g = list[k];
-                        if (!g.Fits(m, r, horse, cw, ch, walls, gates)) continue;
+                        if (!g.Fits(m, r, horse, cw, ch, battle, walls, gates)) continue;
                         if (k > 0) { list.RemoveAt(k); list.Insert(0, g); }
                         return g;
                     }
-                    var ng = new Ground(m, r, horse, cw, ch, walls, gates);
+                    var ng = new Ground(m, r, horse, cw, ch, battle, walls, gates);
                     list.Insert(0, ng);
                     if (list.Count > 4) list.RemoveAt(list.Count - 1);
                     Interlocked.Increment(ref StatGrounds);
@@ -238,9 +239,9 @@ namespace BattleCore
                 }
             }
 
-            Ground(TerrainMap m, Rules r, bool horse, double cw, double ch, bool walls, bool gates)
+            Ground(TerrainMap m, Rules r, bool horse, double cw, double ch, bool battle, bool walls, bool gates)
             {
-                Horse = horse; Walls = walls; Gates = gates; pass = walls || gates ? new BattleMap.PassRules { Walls = walls, Gates = gates } : null;
+                Horse = horse; Battle = battle; Walls = walls; Gates = gates; pass = battle ? new BattleMap.PassRules { Walls = walls, Gates = gates } : null;
                 W = m.W; H = m.H; CellW = cw; CellH = ch; Small = r.Move.SmallObstacleM;
                 T = (byte[])m.T.Clone(); Z = (byte[])m.Z.Clone();
                 for (int c = 0; c < 256; c++) codeAt[c] = -1;
@@ -261,9 +262,9 @@ namespace BattleCore
                 ClearanceOf(W, H, cw, ch, Mult, null, Small, out Large, out Clear);
             }
 
-            bool Fits(TerrainMap m, Rules r, bool horse, double cw, double ch, bool walls, bool gates)
+            bool Fits(TerrainMap m, Rules r, bool horse, double cw, double ch, bool battle, bool walls, bool gates)
             {
-                if (Walls != walls || Gates != gates) return false;
+                if (Battle != battle || Walls != walls || Gates != gates) return false;
                 if (Horse != horse || W != m.W || H != m.H || !SameBits(CellW, cw) || !SameBits(CellH, ch) || !SameBits(Small, r.Move.SmallObstacleM)) return false;
                 if (!new ReadOnlySpan<byte>(T).SequenceEqual(m.T) || !new ReadOnlySpan<byte>(Z).SequenceEqual(m.Z)) return false;
                 for (int c = 0; c < 256; c++)

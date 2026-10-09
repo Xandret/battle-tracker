@@ -86,7 +86,7 @@ namespace BattleCore
                 if (!MenMode || map == null) continue;
                 // карта проходимости заново: до первого хода — к себе; на ходу — приказ заново (путь с учётом ворот)
                 if (!started || m.Order == null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(m.P.U), m.P.X, m.P.Y, 0, null, p);
-                else if (!m.Done && !m.Fleeing) Order(m, m.Order);
+                else if (!m.Fleeing && (m.Order.Kind == OrderKind.Move || m.Order.Kind == OrderKind.Attack)) Order(m, m.Order);   // и дошедший до закрытых ворот — теперь путь есть
             }
         }
         // ворота у точки (x, y): открыть или закрыть всю связную группу клеток ворот; враг идёт только в открытые. false — ворот там нет
@@ -128,9 +128,8 @@ namespace BattleCore
         public double StandZ(double x, double y)
         {
             var map = Geo?.Map; if (map == null) return 0;
-            var c = Terrain.CellAt(map, x / Geo.W, y / Geo.H);
-            return c.T == Terrain.Id("wall") && R.Ranged.BuildingHeightM.TryGetValue("wall", out var w) ? w
-                 : c.T == Terrain.Id("tower") && R.Ranged.BuildingHeightM.TryGetValue("tower", out var t) ? t : 0;
+            R.Ranged.BuildingHeightM.TryGetValue("wall", out var w); R.Ranged.BuildingHeightM.TryGetValue("tower", out var t);
+            return Terrain.StandTop(map, x, y, w, t);
         }
 
         // Б5: весь строй отряда на проходимом (дома, стены, вода — нельзя), точки через 2,5 м по рамке строя; pass — чем отряду можно
@@ -508,7 +507,7 @@ namespace BattleCore
             frontFigs.Clear(); touches.Clear(); colFoe.Clear();
             foreach (var m in Movers) foreach (var s in m.Figs) s.Fighting = false;
             // 1) касания фигурок у всех пар врагов поблизости; при бойцах-телах — касания бойцов (Б2)
-            if (MenMode) MenTouches();
+            if (MenMode) { MenTouches(); GateStrikes(t, R.Move.Dt); }
             else for (int i = 0; i < Movers.Count; i++)
                 for (int j = i + 1; j < Movers.Count; j++)
                 {

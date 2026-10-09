@@ -615,10 +615,10 @@ static class MenBodyTests
 
         // ── Г104: гарнизон — стены и ворота по стороне, высота бойца ──
         // карта 300 × 300: стена по y 150…155 м от x0 до x1 (клетки), башни по концам; ворота — клетки gate в середине, если gateW > 0
-        static Battle Fort(uint seed, int x0, int x1, bool towers = true, int gateW = 0)
+        static Battle Fort(uint seed, int x0, int x1, bool towers = true, int gateW = 0, string wall = "wall")
         {
             var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
-            Terrain.PaintRect(bt.Geo.Map, "t", x0, 30, x1, 30, Terrain.Id("wall"));
+            Terrain.PaintRect(bt.Geo.Map, "t", x0, 30, x1, 30, Terrain.Id(wall));
             if (towers) { Terrain.PaintRect(bt.Geo.Map, "t", x0 - 1, 30, x0 - 1, 30, Terrain.Id("tower")); Terrain.PaintRect(bt.Geo.Map, "t", x1 + 1, 30, x1 + 1, 30, Terrain.Id("tower")); }
             if (gateW > 0) Terrain.PaintRect(bt.Geo.Map, "t", 30 - gateW / 2, 30, 30 + (gateW - 1) / 2, 30, Terrain.Id("gate"));
             return bt;
@@ -676,7 +676,7 @@ static class MenBodyTests
             bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
             bt.Order(o, new MoveOrder { X = 100, Y = 250, Facing = 180 });
             for (int t = 0; t < 5; t++) bt.Turn();
-            True(e.Men.Max(x => x.Y) < 150, $"враг прошёл закрытые ворота: y до {e.Men.Max(x => x.Y):0}");
+            True(e.Men.Max(x => x.Y) < 150, $"враг прошёл закрытые ворота: y до {e.Men.Max(x => x.Y):0}; Fits у ворот {bt.Fits(e.P.U, 150, 152, 180)}, поле: клетка ворот проходима {e.Field?.Passable(e.Field.CellOf(147, 152))}, Pass.Gates {e.Pass?.Gates} Blocked {(e.Pass?.Blocked == null ? "null" : e.Pass.Blocked.Count(x => x).ToString())}, заметка «{e.Note}», цель ({e.TargetX:0}, {e.TargetY:0}); клеток ворот на карте {bt.Geo.Map.T.Count(x => x == Terrain.Id("gate"))}, проломов {bt.Geo.Map.T.Count(x => x == Terrain.Id("breach"))}, прочность {bt.GateHp(150, 152)}, хозяин {bt.FortOwner}");
             True(o.Men.Count(x => x.Y > 160) > 150, $"своих во дворе {o.Men.Count(x => x.Y > 160)} из 200");
             True(!bt.GateOpen(150, 152), "ворота открыты без приказа");
             True(bt.SetGate(150, 152, true) && bt.GateOpen(150, 152), "ворота не открылись");
@@ -706,6 +706,54 @@ static class MenBodyTests
             True(w.garrisonLoss >= 1 && w.garrisonLoss <= 0.7 * f.garrisonLoss, $"потери гарнизона за ход: на стене {w.garrisonLoss:0}, в поле {f.garrisonLoss:0}");
             True(w.building > 0 && f.building == 0, $"стрел в стену: у стены {w.building}, в поле {f.building}");
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
+        });
+
+        // ── Г105: ров, круглые башни, ворота выбивают ──
+        yield return ("Г105: ров — 400 пехоты не пересекают ров (как воду), в ров строй не ставится; стол даёт рву цену — в бою он непроходим", () =>
+        {
+            var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(9).Next });
+            Terrain.PaintRect(bt.Geo.Map, "t", 0, 30, 59, 30, Terrain.Id("moat"));   // ров по y 150…155
+            var T = Templates.Get("infantry");
+            True(!bt.Fits(T.Make(3, "x", 100, 1), 150, 152, 0), "строй ставится в ров");
+            var e = bt.Add(T.Make(2, "Пехота", 400, 2), 150, 60, 180);
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            for (int t = 0; t < 4; t++) bt.Turn();
+            True(e.Men.Max(x => x.Y) < 150, $"пехота в ров: y до {e.Men.Max(x => x.Y):0}");
+        });
+
+        yield return ("Г105: башня круглая — 3 × 3 клетки как круг r = 8,5 м: углы квадрата — земля (Z 0), середина — верх башни (Z 11); стрелы над башней втыкаются только в круг, точка удара не дальше его края", () =>
+        {
+            var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(10).Next });
+            Terrain.PaintRect(bt.Geo.Map, "t", 29, 29, 31, 29 + 2, Terrain.Id("tower"));   // башня x 145…160, y 145…160, центр (152,5; 152,5)
+            True(bt.StandZ(152.5, 152.5) == 11 && bt.StandZ(146, 146) == 0 && bt.StandZ(152.5, 146) == 11, $"высота: центр {bt.StandZ(152.5, 152.5)}, угол {bt.StandZ(146, 146)}, край {bt.StandZ(152.5, 146)}");
+            var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+            var a = bt.Add(TA.Make(1, "Лучники", 300, 1), 152.5, 100, 0);
+            var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 152.5, 190, 180);
+            bt.ArrowLog = new List<ArrowTrace>();
+            bt.Order(a, AttackOn(2));
+            bt.Turn();
+            var inTower = bt.ArrowLog.Where(x => x.End == 5).ToList();
+            True(inTower.Count > 10, $"в башню воткнулось {inTower.Count} стрел");
+            double far = inTower.Max(x => JsMath.Hypot(x.X1 - 152.5, x.Y1 - 152.5));
+            True(far <= 8.46 + 0.3, $"удар в башню дальше круга: {far:0.00} м от центра при радиусе 8,46");
+        });
+
+        yield return ("Г105: ворота выбивают — 300 пехоты врага у закрытых деревянных ворот в частоколе рубят их (прочность 40; в каменной стене ворота окованные, 80), ворота становятся проломом, враг проходит во двор; свои ворота не рубят", () =>
+        {
+            var bt = Fort(11, 0, 59, towers: false, gateW: 2, wall: "palisade");
+            bt.FortOwner = 1;
+            var T = Templates.Get("infantry");
+            var e = bt.Add(T.Make(2, "Враг", 300, 2), 150, 80, 180);
+            var o = bt.Add(T.Make(1, "Свои", 100, 1), 40, 165, 0);   // свои — у своих ворот изнутри их не рубят
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            bt.Order(o, new MoveOrder { Kind = OrderKind.Hold });
+            var hp0 = bt.GateHp(150, 152); True(hp0 != null && hp0.Value.max == 40 && hp0.Value.hp == 40, $"прочность ворот в начале {hp0}");
+            int broke = -1; string log = "";
+            for (int t = 0; t < 14 && broke < 0; t++) { var l = bt.Turn(); if (l.Any(s => s.Contains("ворота выбиты"))) { broke = t + 1; log = l.First(s => s.Contains("ворота выбиты")); } }
+            True(broke >= 2 && broke <= 12, $"ворота выбиты на ходу {broke}; прочность {bt.GateHp(150, 152)}; враг y {e.P.Y:0}, бойцы до y {e.Men.Max(x => x.Y):0}, заметка «{e.Note}»; клеток ворот {bt.Geo.Map.T.Count(x => x == Terrain.Id("gate"))}, проломов {bt.Geo.Map.T.Count(x => x == Terrain.Id("breach"))}, участок у ворот {Fortify.SectionAt(bt.Geo.Map, 147.5 / 300, 152.5 / 300)?.Kind}, S {bt.Geo.Map.S?[30 * 60 + 29]}, Pass.Gates {e.Pass?.Gates}, Blocked {(e.Pass?.Blocked == null ? "null" : e.Pass.Blocked.Count(x => x).ToString())}");
+            True(bt.Geo.Map.T[30 * bt.Geo.Map.W + 29] == Terrain.Id("breach") && bt.Geo.Map.T[30 * bt.Geo.Map.W + 30] == Terrain.Id("breach"), "клетки ворот не стали проломом");
+            for (int t = 0; t < 6; t++) bt.Turn();
+            True(e.Men.Count(x => x.Y > 160) > 150 && e.Men.Count >= 250, $"врага во дворе через пролом {e.Men.Count(x => x.Y > 160)} из {e.Men.Count}: {log}");
         });
 
         yield return ("Г103: постройки держат стрелы — лучники по пехоте со 100 м: стена 9 м в 10 м перед пехотой режет потери впятеро и больше, стрелы торчат в стене (End 5); вал 1,5 м сверху открыт — потери почти как в поле; одно зерно — один исход", () =>
