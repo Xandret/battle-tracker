@@ -1327,3 +1327,28 @@ static class GarrisonProbe
         }
     }
 }
+
+// Г105: ворота выбивают — прочность по ходам, ударов за ход, сколько бойцов рубят (dotnet run --project Tests -- gate [iron] [nN])
+static class GateProbe
+{
+    public static void Run(string[] opts)
+    {
+        bool iron = opts.Contains("iron"); int n = 300;
+        foreach (var o in opts) if (o.StartsWith("n")) n = int.Parse(o.Substring(1));
+        var bt = new Battle(MoveTests.Open(300, 300), Rules.Base, new EngineContext { Rng = new Mulberry32(11).Next });
+        Terrain.PaintRect(bt.Geo.Map, "t", 0, 30, 59, 30, Terrain.Id(iron ? "wall" : "palisade"));
+        Terrain.PaintRect(bt.Geo.Map, "t", 29, 30, 30, 30, Terrain.Id("gate"));
+        bt.FortOwner = 1;
+        var T = Templates.Get("infantry");
+        var e = bt.Add(T.Make(2, "Враг", n, 2), 150, 80, 180);
+        bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+        for (int t = 0; t < 16; t++)
+        {
+            int near = 0;
+            var log = bt.Turn(tt => { if (Math.Abs(tt - 7.5) < 0.03) near = e.Men.Count(x => x.Alive && x.Y > 148.5 && x.X > 143.5 && x.X < 156.5); });
+            var hp = bt.GateHp(150, 152);
+            Console.WriteLine($"ход {t + 1}: прочность {hp?.hp:0.0} из {hp?.max:0}, ударов за ход {bt.MenMelee.Swings}, у ворот (в 1,5 м) в середине хода {near}, бойцов {e.Men.Count}, y до {e.Men.Max(x => x.Y):0.0}");
+            if (log.Any(l => l.Contains("выбиты"))) { Console.WriteLine("   " + log.First(l => l.Contains("выбиты"))); break; }
+        }
+    }
+}
