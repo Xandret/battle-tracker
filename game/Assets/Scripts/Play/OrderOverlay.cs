@@ -74,12 +74,24 @@ namespace Journal.Play
             if (orders && pc.Dragging && pc.DragOrder != null && pc.DragOrder.Kind == OrderKind.Move && (pc.DragTo - pc.DragFrom).magnitude > 4)
                 Line(pc.DragFrom.x, pc.DragFrom.y, pc.DragTo.x, pc.DragTo.y, White, 2);   // протянутая линия фронта
             // расстановка: рамка строя там, куда тянут (зелёная — встанет, красная — нет места), стрелка — куда лицом
-            if (pc.DeployDragging && pc.DeployUnit != null)
+            if (pc.DeployDragging && pc.DeployUnit != null && pc.DeployWall)
+            {
+                // на стену: ряд стены, вдоль которого встанут (зелёный — можно, красный — стены чужие)
+                var col = pc.DeployOk ? Ok : Bad;
+                Line(pc.DeployWallA.x, pc.DeployWallA.y, pc.DeployWallB.x, pc.DeployWallB.y, col, 6);
+            }
+            else if (pc.DeployDragging && pc.DeployUnit != null)
             {
                 var col = pc.DeployOk ? Ok : Bad;
                 Footprint(pc.DeployX, pc.DeployY, pc.DeployFacing, pc.DeployUnit.P.Fp.Front, pc.DeployUnit.P.Fp.Depth, col, 2.5f);
                 double h = pc.DeployFacing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h), L = pc.DeployUnit.P.Fp.Depth / 2 + 12;
                 Line(pc.DeployX, pc.DeployY, pc.DeployX + fx * L, pc.DeployY + fy * L, col, 2);
+            }
+            // ворота под мышью — их можно открыть или закрыть щелчком
+            if (orders && pc.GateHover >= 0 && pc.Battle != null)
+            {
+                var g = pc.GateOf(pc.GateHover);
+                if (g != null) Circle(g.X, g.Y, 6, White, 2, false);
             }
             if (pc.BoxSelecting)
             {

@@ -336,7 +336,7 @@ namespace Journal.Maps
         {
             int n = poly.Count; double area = 0;
             for (int i = 0; i < n; i++) { var a = poly[i]; var b = poly[(i + 1) % n]; area += a[0] * b[1] - b[0] * a[1]; }
-            double s = area > 0 ? -1 : 1;   // y вниз: «наружу» зависит от обхода
+            double s = area > 0 ? 1 : -1;   // «наружу» зависит от обхода (09.10.2026: знак был наоборот — ров замка и стены города уходили внутрь)
             var r = new List<double[]>();
             for (int i = 0; i < n; i++)
             {

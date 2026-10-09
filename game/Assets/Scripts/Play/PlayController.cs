@@ -11,6 +11,7 @@ using BattleCore;
 using Journal.Viewer;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Terrain = BattleCore.Terrain;
 
 namespace Journal.Play
 {
@@ -106,31 +107,154 @@ namespace Journal.Play
 
         // ── расстановка руками до первого хода (Алекс 09.10.2026, п. 1: «возможность разместить отряды»): ЛКМ по своему отряду и
         // тянуть — рамка строя за мышью (зелёная — встанет, красная — на дом, стену или воду: сдвинется к ближайшему месту, где
-        // помещается, Б5), Q/E — повернуть на 15°, отпустить — отряд переставлен. Пока ядро не умеет переставлять (Relocate) —
-        // отряд снимается с поля и ставится заново на то же место в списке (бойцы — заново по строю)
+        // помещается, Б5), Q/E — повернуть на 15°, отпустить — отряд переставлен (Battle.Relocate, Г104). Отпустить пехоту на
+        // стене или башне — гарнизон: встаёт вдоль стены фронтом наружу (Battle.Garrison)
+        public bool HasWalls => Game?.Geo?.Map != null && Game.Geo.Map.T.Any(t => t == WallId || t == TowerId);   // есть ли на карте стены
+        static readonly byte WallId = Terrain.Id("wall"), TowerId = Terrain.Id("tower");
         public bool CanDeploy => Game != null && Phase == PlayPhase.Orders && Session != null && Session.Turn <= 1 && ShowTime <= 0;
         public bool DeployDragging { get; private set; }
         public Mover DeployUnit { get; private set; }
         public double DeployX, DeployY, DeployFacing; public bool DeployOk;
-        Vector2 deployFrom; double grabX, grabY;
+        public bool DeployWall; public Vector2 DeployWallA, DeployWallB;   // тянут на стену: ряд стены, вдоль которого встанут
+        Vector2 deployFrom, deployCursor; double grabX, grabY;
         public bool Redeploy(Mover m, double x, double y, double facing)
         {
-            if (!CanDeploy) return false;
-            var bt = Battle; int i = bt.Movers.IndexOf(m); if (i < 0) return false;
-            var nm = bt.Add(m.P.U, x, y, facing);   // Add сам сдвинет к ближайшему месту, где строй помещается
-            bt.Movers.RemoveAt(bt.Movers.Count - 1); bt.Movers[i] = nm;
-            void Move<T>(Dictionary<Mover, T> d) { if (d.TryGetValue(m, out var v)) { d.Remove(m); d[nm] = v; } }
-            Move(Game.Tpl); Move(Game.StartMen); Move(Game.Style); Move(Game.Color); Move(AtStart);
+            if (!CanDeploy || !Battle.Movers.Contains(m)) return false;
+            if (!Battle.Relocate(m, x, y, facing)) { Say($"«{m.P.U.Name}»: здесь строю не встать — места нет и в 60 м вокруг"); return false; }
+            m.Garrisoned = false;   // сняли со стены
+            Deployed(m);
+            double moved = Math.Sqrt((m.P.X - x) * (m.P.X - x) + (m.P.Y - y) * (m.P.Y - y));
+            Say(moved > 1 ? $"«{m.P.U.Name}»: там строй не помещается — встал в {moved:0} м рядом" : $"«{m.P.U.Name}» переставлен");
+            return true;
+        }
+        // переставлен до первого хода: новый приказ снят — стоит, где встал; запись боя — заново (кадр 0 — с новыми местами)
+        void Deployed(Mover m)
+        {
             Session.Pending.Remove(m);
-            bt.Order(nm, new MoveOrder { Kind = OrderKind.Hold });
-            int si = Selection.IndexOf(m); if (si >= 0) Selection[si] = nm;
-            if (Selected == m) Selected = nm; if (Hover == m) Hover = null;
+            Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });
             previews.Remove(m);
             Rerecord();
             if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
             RefreshPreviews(); Changed?.Invoke();
-            double moved = Math.Sqrt((nm.P.X - x) * (nm.P.X - x) + (nm.P.Y - y) * (nm.P.Y - y));
-            Say(moved > 1 ? $"«{nm.P.U.Name}»: там строй не помещается — встал в {moved:0} м рядом" : $"«{nm.P.U.Name}» переставлен");
+        }
+
+        // ── Г104: гарнизон на стенах (Алекс 09.10.2026, п. 1) ──
+        // «На стену» (Н): пехота встаёт вдоль ближайшего прямого ряда стены и башен (не дальше 60 м) фронтом наружу, кто не влез —
+        // во дворе за стеной. До первого хода — переставляется сразу, потом — идёт туда (приказ движка, «Ход!» его не сменит).
+        // Чьи стены — решает первый гарнизон или щелчок по воротам (Battle.FortOwner): пехота хозяина ходит по стенам и сквозь
+        // свои ворота, врагу стены непроходимы, ворота — только открытые. Конница на стену не идёт
+        string WallWhy(Mover m)
+        {
+            if (Phase != PlayPhase.Orders) return "приказы — между ходами";
+            if (!Present(m) || m.Fleeing) return "бежит — не до стен";
+            if (m.P.U.Type == "cavalry") return "конница на стену не идёт";
+            var own = Battle.FortOwner;
+            if (own.HasValue && own.Value != SideOf(m)) return $"стены держит {Session.Name(own.Value)}";
+            return null;
+        }
+        // onWall — (x, y) на самой стене (отпустили на ней): «наружу» движок считает от середины всех стен; иначе (x, y) — двор,
+        // наружу — от него. Точку двигаем к ближайшей клетке стены, а не башни: у края башни ряд клеток — в три клетки, и строй
+        // вставал колонной в 7 м шириной (движок берёт ряд через ближайшую клетку)
+        public bool ToWall(Mover m, double x, double y, bool quiet = false, bool onWall = false)
+        {
+            string why = WallWhy(m);
+            if (why == null && WallCell(x, y, 60, out var wx, out var wy))
+            {
+                double dx = x - wx, dy = y - wy, d = Math.Sqrt(dx * dx + dy * dy), c = Game.Geo.Map.Cell;
+                if (onWall || d < 1e-6) { x = wx; y = wy; } else { x = wx + dx / d * 0.6 * c; y = wy + dy / d * 0.6 * c; }
+            }
+            if (why == null && !Battle.Garrison(m, x, y)) why = "стены ближе 60 м нет или на ней нет места";
+            if (why != null) { if (!quiet) Say($"«{m.P.U.Name}»: {why}"); return false; }
+            if (CanDeploy) Deployed(m);
+            else { Session.Pending.Remove(m); QueuePreview(m); Changed?.Invoke(); }
+            if (!quiet)
+            {
+                int all = m.Men.Count(mm => mm.Alive), up = m.Men.Count(mm => mm.Alive && mm.Z > 0);
+                double men = m.P.U.Soldiers, atop = all > 0 ? men * up / all : 0;
+                Say(CanDeploy ? $"«{m.P.U.Name}» на стене: {atop:0} на боевом ходу, {men - atop:0} во дворе" : $"«{m.P.U.Name}» идёт на стену");
+            }
+            return true;
+        }
+        public void WallSelected()
+        {
+            if (Selection.Count == 1) { var m = Selection[0]; ToWall(m, m.P.X, m.P.Y); return; }
+            int ok = 0; string last = null;
+            foreach (var m in Selection.ToList())
+            {
+                if (ToWall(m, m.P.X, m.P.Y, quiet: true)) ok++;
+                else last = WallWhy(m) is string w ? $"«{m.P.U.Name}»: {w}" : $"«{m.P.U.Name}»: стены рядом нет или нет места";
+            }
+            Say(ok > 0 ? $"На стену: {ok} отр." + (last != null ? $" ({last})" : "") : last ?? "Некого ставить на стену");
+        }
+        // клетка стены или башни у точки (± клетка — тонкую стену иначе не попасть мышью)
+        bool WallNear(double x, double y)
+        {
+            var map = Game.Geo.Map; if (map == null) return false;
+            byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower");
+            int cx = (int)(x / map.Cell), cy = (int)(y / map.Cell);
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= map.W || ny >= map.H) continue;
+                    int t = map.T[ny * map.W + nx]; if (t == wall || t == tower) return true;
+                }
+            return false;
+        }
+        // для подсказки: прямой ряд клеток стены и башен через ближайшую к точке — концы, м (как его выберет Battle.Garrison)
+        void WallRun(double x, double y, out Vector2 a, out Vector2 b)
+        {
+            var map = Game.Geo.Map; byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"); int W = map.W, H = map.H; float c = (float)map.Cell;
+            bool Walk(int i) => map.T[i] == wall || map.T[i] == tower;
+            a = b = new Vector2((float)x, (float)y);
+            if (!WallCell(x, y, 12, out var wx, out var wy)) return;
+            int bx = (int)(wx / c), by = (int)(wy / c);
+            int Len(int dx, int dy) { int k = 0; while (bx + dx * (k + 1) >= 0 && by + dy * (k + 1) >= 0 && bx + dx * (k + 1) < W && by + dy * (k + 1) < H && Walk((by + dy * (k + 1)) * W + bx + dx * (k + 1))) k++; return k; }
+            int xl = Len(-1, 0), xh = Len(1, 0), yl = Len(0, -1), yh = Len(0, 1);
+            if (xl + xh >= yl + yh) { a = new Vector2((bx - xl) * c, (by + 0.5f) * c); b = new Vector2((bx + xh + 1) * c, (by + 0.5f) * c); }
+            else { a = new Vector2((bx + 0.5f) * c, (by - yl) * c); b = new Vector2((bx + 0.5f) * c, (by + yh + 1) * c); }
+        }
+
+        // ближайшая клетка стены (башни — только если стены рядом нет) не дальше maxM — её середина, м
+        bool WallCell(double x, double y, double maxM, out double cx, out double cy)
+        {
+            var map = Game.Geo.Map; cx = x; cy = y; if (map == null) return false;
+            byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"); double c = map.Cell; int r = (int)Math.Ceiling(maxM / c) + 1;
+            int x0 = (int)(x / c), y0 = (int)(y / c); double bw = maxM * maxM, bt = maxM * maxM; int best = -1, bestT = -1;
+            for (int yy = Math.Max(0, y0 - r); yy <= Math.Min(map.H - 1, y0 + r); yy++)
+                for (int xx = Math.Max(0, x0 - r); xx <= Math.Min(map.W - 1, x0 + r); xx++)
+                {
+                    int i = yy * map.W + xx, t = map.T[i]; if (t != wall && t != tower) continue;
+                    double d = ((xx + 0.5) * c - x) * ((xx + 0.5) * c - x) + ((yy + 0.5) * c - y) * ((yy + 0.5) * c - y);
+                    if (t == wall && d < bw) { bw = d; best = i; } else if (t == tower && d < bt) { bt = d; bestT = i; }
+                }
+            if (best < 0) best = bestT; if (best < 0) return false;
+            cx = (best % map.W + 0.5) * c; cy = (best / map.W + 0.5) * c; return true;
+        }
+
+        // ворота: щелчок между ходами — открыть или закрыть (только хозяин стен; ничьи стены станут твоими — ворота закрыты)
+        public int GateHover { get; private set; } = -1;
+        public GateRec GateOf(int g) => recorder != null && g >= 0 && g < recorder.Rec.Gates.Count ? recorder.Rec.Gates[g] : null;
+        int GateAt(Vector2 p)
+        {
+            var gs = recorder?.Rec.Gates; if (gs == null || gs.Count == 0) return -1;
+            int best = -1; float bd = Mathf.Max(6, 12 / PixelsPerMeter);
+            for (int g = 0; g < gs.Count; g++) { float d = Vector2.Distance(p, new Vector2(gs[g].X, gs[g].Y)); if (d < bd) { bd = d; best = g; } }
+            return best;
+        }
+        bool ToggleGate(int g)
+        {
+            if (g < 0 || Phase != PlayPhase.Orders) return false;
+            var gr = recorder.Rec.Gates[g]; var own = Battle.FortOwner;
+            if (own.HasValue && own.Value != ActiveSide) { Say($"Ворота держит {Session.Name(own.Value)} — открыть их может только хозяин стен"); return true; }
+            if (!own.HasValue) { Battle.FortOwner = ActiveSide; Say($"Крепость — {Session.Name(ActiveSide)}: ворота закрыты, свои проходят, враг — нет"); }
+            else
+            {
+                bool open = !Battle.GateOpen(gr.X, gr.Y);
+                Battle.SetGate(gr.X, gr.Y, open);
+                Say(open ? "Ворота открыты — войти может и враг" : "Ворота закрыты — свои проходят, враг — нет");
+            }
+            recorder.RefreshGates();
+            RefreshPreviews(); Changed?.Invoke();
             return true;
         }
 
@@ -363,6 +487,7 @@ namespace Journal.Play
                     if (kb.jKey.wasPressedThisFrame) Retreat();   // О
                     if (kb.cKey.wasPressedThisFrame) Rally();     // С
                     if (kb.backspaceKey.wasPressedThisFrame) Cancel();
+                    if (kb.yKey.wasPressedThisFrame) WallSelected();   // Н — на стену
                 }
                 if (kb.tabKey.wasPressedThisFrame) { ActiveSide = Session.Sides.SkipWhile(s => s != ActiveSide).Skip(1).DefaultIfEmpty(Session.Sides.First()).First(); Select(null); }
                 if (kb.digit1Key.wasPressedThisFrame) Speed = 1;
@@ -376,6 +501,7 @@ namespace Journal.Play
             var mp = MapPoint(sp);
             var newHover = ui ? UiHover : UnitAt(mp);
             if (newHover != Hover) { Hover = newHover; Changed?.Invoke(); }
+            GateHover = !ui && newHover == null && Phase == PlayPhase.Orders ? GateAt(mp) : -1;
 
             // ЛКМ: по отряду — выбрать (Ctrl — добавить); по земле — рамка; отпустил без рамки — снять выбор
             if (mouse.leftButton.wasPressedThisFrame && !ui)
@@ -398,14 +524,17 @@ namespace Journal.Play
                     {
                         if (kb != null && kb.qKey.wasPressedThisFrame) DeployFacing = MoveSim.Norm(DeployFacing - 15);
                         if (kb != null && kb.eKey.wasPressedThisFrame) DeployFacing = MoveSim.Norm(DeployFacing + 15);
-                        DeployX = mp.x + grabX; DeployY = mp.y + grabY;
-                        DeployOk = Battle.Fits(DeployUnit.P.U, DeployX, DeployY, DeployFacing);
+                        DeployX = mp.x + grabX; DeployY = mp.y + grabY; deployCursor = mp;
+                        DeployWall = DeployUnit.P.U.Type != "cavalry" && WallNear(mp.x, mp.y);
+                        if (DeployWall) { WallRun(mp.x, mp.y, out DeployWallA, out DeployWallB); DeployOk = WallWhy(DeployUnit) == null; }
+                        else DeployOk = Battle.Fits(DeployUnit.P.U, DeployX, DeployY, DeployFacing);
                     }
                 }
                 else
                 {
-                    if (DeployDragging) Redeploy(DeployUnit, DeployX, DeployY, DeployFacing);
-                    DeployUnit = null; DeployDragging = false;
+                    if (DeployDragging && DeployWall) ToWall(DeployUnit, deployCursor.x, deployCursor.y, onWall: true);
+                    else if (DeployDragging) Redeploy(DeployUnit, DeployX, DeployY, DeployFacing);
+                    DeployUnit = null; DeployDragging = DeployWall = false;
                 }
             }
             if (leftDown)
@@ -415,7 +544,7 @@ namespace Journal.Play
                 if (mouse.leftButton.wasReleasedThisFrame)
                 {
                     if (BoxSelecting) SelectBox(ctrl);
-                    else if (!ctrl) Select(null);
+                    else if (!ctrl && !ToggleGate(GateAt(mp))) Select(null);
                     leftDown = BoxSelecting = false;
                 }
             }

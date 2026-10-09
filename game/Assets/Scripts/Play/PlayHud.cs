@@ -290,6 +290,8 @@ namespace Journal.Play
             Add("f-line", "Линия", "строй", () => pc.SetFormation(1), "Строй по столу");
             Add("f-deep", "Глубокий", "строй", () => pc.SetFormation(2), "Глубокий строй: вдвое больше шеренг, уже фронт");
             Add("f-column", "Колонна", "строй", () => pc.SetFormation(4), "Колонна: вчетверо глубже — для узостей и марша");
+            // Г104: гарнизон — пехота на ближайшую стену фронтом наружу (до первого хода — сразу, потом — идёт)
+            Add("wall", "На стену", "Н", () => pc.WallSelected(), "Пехота — на ближайшую стену (до 60 м) фронтом наружу; кто не влез — во дворе. Можно и перетащить отряд на стену до первого хода");
         }
 
         void LateUpdate()
@@ -317,7 +319,7 @@ namespace Journal.Play
             turnNumber.text = Mathf.Max(1, turn).ToString();
             double tin = pc.ShowTime - pc.TurnStartTime;
             phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
-            phaseSub.text = orders ? (pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ, Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза" : s.Outcome ?? "";
+            phaseSub.text = orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ (можно на стену), Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза" : s.Outcome ?? "";
             progressFill.style.width = Length.Percent(showing ? (float)(100 * tin / bt.R.Move.TurnSec) : orders ? 0 : 100);
             goButton.EnableInClassList("hidden", !orders);
             speedGroup.EnableInClassList("hidden", !showing);
@@ -499,9 +501,10 @@ namespace Journal.Play
         {
             bool can = pc.Phase == PlayPhase.Orders && pc.Selection.Count > 0;
             bool anyFlee = pc.Selection.Any(m => m.Fleeing), anyLine = pc.Selection.Any(m => !m.Fleeing);
+            bool anyWall = pc.HasWalls && pc.Selection.Any(m => !m.Fleeing && m.P.U.Type != "cavalry");
             foreach (var kv in orderBtn)
             {
-                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "cancel" || anyLine);
+                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "cancel" || anyLine);
                 kv.Value.EnableInClassList("is-off", !on);
             }
             orderBtn["charge"].EnableInClassList("is-on", pc.ChargeMode);

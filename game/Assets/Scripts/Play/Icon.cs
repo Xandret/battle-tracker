@@ -41,6 +41,8 @@ namespace Journal.Play
                     for (float x = 6; x <= 18; x += 4) for (float y = 6; y <= 18; y += 4) Dot(x, y, 1.4f); break;
                 case "f-column":     // колонна: узко и длинно
                     for (float y = 3; y <= 21; y += 4) { Dot(10, y, 1.4f); Dot(14, y, 1.4f); } break;
+                case "wall":      // стена с зубцами
+                    Line(3, 21, 3, 7, 6, 7, 6, 10, 9, 10, 9, 7, 15, 7, 15, 10, 18, 10, 18, 7, 21, 7, 21, 21, 3, 21); Line(3, 15, 21, 15); Line(12, 15, 12, 21); break;
                 case "move":      // стрелка вперёд со следом
                     Line(5, 19, 17, 7); Poly(19, 5, 11, 7, 17, 13); Line(4, 13, 8, 17); break;
                 case "attack":    // скрещённые мечи

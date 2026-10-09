@@ -25,8 +25,12 @@ namespace Journal.Viewer
     // Только сцепившиеся — запись не растёт на всё войско
     // Сбитые с ног конём (Г90): Down — номера бойцов, DownAt — когда сбит, DownEnd — когда встанет (часы боя); только лежащие
     // EngFoe — его противник (парный поединок): номер отряда в записи × 2^20 + номер бойца; −1 — нет
-    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng, EngFoe; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; }
+    // Z — высота бойца над землёй (Г104: на стене 9 м, на башне 11); null — все на земле
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng, EngFoe; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; public float[] Z; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
+    // ворота (Г104): середина группы клеток ворот, м; St — [кадр, состояние, …]: 0 — закрыты, 1 — открыты (или стены ничьи —
+    // проход всем), 2 — в проходе свои (створки распахнуты, пока проходят; бит к «открыты»)
+    public sealed class GateRec { public float X, Y; public readonly List<int> St = new List<int>(); }
 
     public sealed class Recording
     {
@@ -42,6 +46,7 @@ namespace Journal.Viewer
         public readonly List<int[]> Soldiers = new List<int[]>();                                    // кадр → в строю по отрядам
         public readonly List<MenFrame[]> Men = new List<MenFrame[]>();                               // кадр → отряд → бойцы (Г75)
         public List<int>[] States;                                                                   // отряд → [кадр, код, кадр, код, …]
+        public readonly List<GateRec> Gates = new List<GateRec>();                                   // ворота карты (Г104)
         public readonly List<DeadRec> Dead = new List<DeadRec>();
         public readonly List<ArrowRec> Arrows = new List<ArrowRec>();
         public readonly List<List<string>> Logs = new List<List<string>>();
@@ -87,6 +92,13 @@ namespace Journal.Viewer
             return true;
         }
 
+        public int GateAt(int g, int frame)
+        {
+            var L = Gates[g].St; int st = 0;
+            for (int i = 0; i < L.Count && L[i] <= frame; i += 2) st = L[i + 1];
+            return st;
+        }
+
         public int StateAt(int ui, int frame)
         {
             var L = States?[ui]; if (L == null) return 0;
@@ -126,6 +138,70 @@ namespace Journal.Viewer
                 Rec.Units.Add(info);
             }
             Rec.States = ms.Select(m => new List<int> { 0, State(m) }).ToArray();
+            if (battle != null && geo.Map != null) FindGates(geo.Map);
+        }
+
+        // ── ворота (Г104): связные группы клеток «gate» карты; открыты ли — у движка (Battle.GateOpen), раз в 5 с и по RefreshGates;
+        // свои в проходе — каждый кадр (по клетке бойца) ──
+        int[] gateOf; bool[] gateOpen;
+        void FindGates(TerrainMap map)
+        {
+            byte gate = Terrain.Id("gate"); int W = map.W, H = map.H;
+            for (int i = 0; i < map.T.Length; i++)
+            {
+                if (map.T[i] != gate || gateOf != null && gateOf[i] >= 0) continue;
+                if (gateOf == null) { gateOf = new int[map.T.Length]; for (int k = 0; k < gateOf.Length; k++) gateOf[k] = -1; }
+                int g = Rec.Gates.Count; double sx = 0, sy = 0; int n = 0;
+                var q = new Queue<int>(); q.Enqueue(i); gateOf[i] = g;
+                while (q.Count > 0)
+                {
+                    int c = q.Dequeue(), cx = c % W, cy = c / W; sx += cx + 0.5; sy += cy + 0.5; n++;
+                    for (int d = 0; d < 4; d++)
+                    {
+                        int nx = cx + (d == 0 ? 1 : d == 1 ? -1 : 0), ny = cy + (d == 2 ? 1 : d == 3 ? -1 : 0);
+                        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                        int nb = ny * W + nx; if (map.T[nb] != gate || gateOf[nb] >= 0) continue;
+                        gateOf[nb] = g; q.Enqueue(nb);
+                    }
+                }
+                Rec.Gates.Add(new GateRec { X = (float)(sx / n * map.Cell), Y = (float)(sy / n * map.Cell) });
+            }
+            if (Rec.Gates.Count > 0) { gateOpen = new bool[Rec.Gates.Count]; GateFlags(); }
+        }
+        void GateFlags()
+        {
+            for (int g = 0; g < gateOpen.Length; g++) gateOpen[g] = !battle.FortOwner.HasValue || battle.GateOpen(Rec.Gates[g].X, Rec.Gates[g].Y);
+        }
+        // ворота открыли или закрыли (между ходами) — сразу в запись, на последний кадр
+        public void RefreshGates()
+        {
+            if (gateOpen == null) return;
+            GateFlags();
+            if (Rec.Frames.Count > 0) GateSnap(Rec.Frames.Count - 1);
+        }
+        void GateSnap(int fr)
+        {
+            var map = Rec.Map; double cell = map.Cell; var st = new int[gateOpen.Length];
+            for (int g = 0; g < st.Length; g++) st[g] = gateOpen[g] ? 1 : 0;
+            if (battle.FortOwner.HasValue)
+                foreach (var m in ms)
+                {
+                    if (m.Gone || m.P.U.FactionId != battle.FortOwner) continue;
+                    foreach (var man in m.Men)
+                    {
+                        if (!man.Alive) continue;
+                        int cx = (int)(man.X / cell), cy = (int)(man.Y / cell);
+                        if (cx < 0 || cy < 0 || cx >= map.W || cy >= map.H) continue;
+                        int g = gateOf[cy * map.W + cx]; if (g >= 0) st[g] |= 2;
+                    }
+                }
+            for (int g = 0; g < st.Length; g++)
+            {
+                var L = Rec.Gates[g].St;
+                if (L.Count >= 2 && L[L.Count - 2] == fr) { L[L.Count - 1] = st[g]; continue; }   // тот же кадр — поправить
+                if (L.Count >= 2 && L[L.Count - 1] == st[g]) continue;
+                L.Add(fr); L.Add(st[g]);
+            }
         }
         static int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
         // кто из бойцов отряда в схватке (Б2): с противником или только что бил либо принял удар на щит
@@ -222,12 +298,14 @@ namespace Journal.Viewer
                     }
                     g.xy[2 * id] = (float)man.X; g.xy[2 * id + 1] = (float)man.Y;
                     mf.Ph[id] = g.ph[id];
+                    if (man.Z > 0) { if (mf.Z == null) mf.Z = new float[n]; mf.Z[id] = (float)man.Z; }   // на стене или башне (Г104)
                 }
                 if (rec.MenMelee) { MeleeOf(m, mf, n); DownOf(m, mf, n); }
                 return mf;
             }).ToArray());
             int fr = rec.Frames.Count - 1;
             if (battle == null) { rec.Fights.Add(Array.Empty<int>()); return; }
+            if (gateOpen != null) { if (fr % 25 == 0) GateFlags(); GateSnap(fr); }
             rec.Fights.Add(battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());
             for (; seenDead < battle.Deaths.Count; seenDead++)
             {

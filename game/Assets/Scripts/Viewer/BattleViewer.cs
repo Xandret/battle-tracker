@@ -275,12 +275,14 @@ namespace Journal.Viewer
             bool Fort(int k) => k == 12 || k == 13 || k == 14 || k == 15 || k == 18 || k == 20;   // и дома: крыши тоже рисует FortView
             int Under(int x, int y)
             {
+                // сначала — суша: башня у рва стоит на берегу (10.10.2026: под угловой башней был квадрат воды с кромкой берега)
                 var cnt = new Dictionary<int, int>(); int best = 1, bn = 0;
+                for (int pass = 0; pass < 2 && bn == 0; pass++)
                 for (int r = 1; r <= 3 && bn == 0; r++)
                     for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++)
                         {
                             int xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= m.W || yy >= m.H) continue;
-                            int k = m.T[yy * m.W + xx]; if (k == 0) k = 1; if (Fort(k)) continue;
+                            int k = m.T[yy * m.W + xx]; if (k == 0) k = 1; if (Fort(k) || pass == 0 && (k == 7 || k == 16)) continue;
                             cnt.TryGetValue(k, out int c0); cnt[k] = ++c0; if (c0 > bn) { bn = c0; best = k; }
                         }
                 return best;
@@ -383,6 +385,7 @@ namespace Journal.Viewer
             float ppm = Screen.height / (2 * cam.orthographicSize);
             var cp = cam.transform.position; float vh = cam.orthographicSize, vw = vh * cam.aspect;
             var viewRect = new Rect(cp.x - vw, -cp.y - vh, 2 * vw, 2 * vh);
+            fortView?.Gates(rec, t);
             banners?.Draw(rec, t, unitColRaw, Lin, viewRect, ppm);
             if (menView != null && menView.Ok && ppm >= MenFrom)
             {

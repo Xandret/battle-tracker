@@ -369,7 +369,8 @@ namespace Journal.Viewer
         // MeleeFor — сколько секунд в схватке (−1 — нет), Down — сколько секунд лежит сбитый (−1 — стоит), Rise — сколько до подъёма
         // Impact — сколько секунд со сшибки коня (−1 — не было за 0,6 с); Second — второй ряд колет через плечо
         // Brace — защитник ждёт удара своего противника (0…1, к мигу удара — 1): щит или оружие навстречу
-        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
+        // Z — высота над землёй (Г104: на стене 9 м, на башне 11)
+        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace, Z; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
         // парные поединки: по кому и когда придётся ближайший удар (отряд << 32 | боец → миг удара), на кадр
         readonly Dictionary<long, float> incoming = new Dictionary<long, float>();
         int curUnit;   // отряд, которого бойцов сейчас рисуем (для MenMelee)
@@ -490,7 +491,8 @@ namespace Journal.Viewer
                 if (down0.TryGetValue(id, out var dw)) { dn = Mathf.Max(0, t - dw.at); rise = dw.end - t; }
                 bool vis = In(x, y, 6); anyVis |= vis;
                 float imp = horse && vis ? ImpactAge(ui, id, fi, t) : -1;
-                M.Add(new ManP { X = x, Y = y, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Id = id, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN, Ap = -1, Parry = -1, MeleeFor = mfor, Down = dn, Rise = rise, Impact = imp,
+                float z0 = m0.Z != null && id < m0.Z.Length ? m0.Z[id] : 0, z1 = m1.Z != null && id < m1.Z.Length ? m1.Z[id] : 0;
+                M.Add(new ManP { X = x, Y = y, Z = z0 + (z1 - z0) * q, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Id = id, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN, Ap = -1, Parry = -1, MeleeFor = mfor, Down = dn, Rise = rise, Impact = imp,
                     Rank = (fig < info.Figs.Count ? (int)info.Figs[fig][3] : 0) * fd + m0.Row[id], Kit = ks[(int)(H(seed, 4) * ks.Length)] });
             }
             if (!anyVis) return;
@@ -557,7 +559,7 @@ namespace Journal.Viewer
                 foreach (var m in M)
                 {
                     if (!m.Vis) continue;
-                    if (!horse) menB.Quad(soft, Aff.At(m.X + 0.045f, m.Y + 0.065f).R(m.Face).S(0.72f, 0.48f), shadow, new Vector4(0, 0, 1, 0));
+                    if (!horse) { float k = 1 + 0.012f * m.Z; menB.Quad(soft, Aff.At(m.X + 0.045f * k, m.Y + 0.065f * k).R(m.Face).S(0.72f * k, 0.48f * k), shadow, new Vector4(0, 0, 1, 0)); }
                     else horseB.Quad(hsoft, Aff.At(m.X + 0.08f, m.Y + 0.1f).R(m.Face).S(0.9f, 2.25f), shadow, new Vector4(0, 0, 1, 0));
                 }
             }
@@ -649,6 +651,7 @@ namespace Journal.Viewer
             if (engaged && !m.Atk) oy = -0.03f - 0.03f * Mathf.Sin(t * 3 + ph0 * 6.283f);   // задние напирают
             var (PW, PSh) = Rest(kit, m.Rank, low);
             var bas = Aff.At(m.X, m.Y).R(m.Face);
+            if (m.Z > 0) { float k = 1 + 0.012f * m.Z; bas = bas.S(k, k); }   // на стене (Г104): ближе к глазу — на 11–13 % крупнее
 
             // издали (меньше 16 px/м, В18) — как у образца: капсула со шлемом; из оружия — древки передних шеренг и опущенное копьё
             if (ppm < 16)
@@ -1048,6 +1051,13 @@ namespace Journal.Viewer
             }
         }
 
+        // вода под точкой: глубокая (7), брод (8), ров (16)
+        bool Wet(float x, float y)
+        {
+            var mp = rec.Map; if (mp == null) return false;
+            int cx = (int)(x / mp.Cell), cy = (int)(y / mp.Cell); if (cx < 0 || cy < 0 || cx >= mp.W || cy >= mp.H) return false;
+            int k = mp.T[cy * mp.W + cx]; return k == 7 || k == 8 || k == 16;
+        }
         // ── стрелы: упавшие — торчат, в полёте — дугой с тенью ──
         void DrawArrows(float t, Func<float, float, float, bool> In, float ppm)
         {
@@ -1068,6 +1078,7 @@ namespace Journal.Viewer
                         if (ppm >= 8) deadTop.Quad(px, Aff.At(ar.X1 - Mathf.Cos(fa) * Lb * 0.9f, ar.Y1 - Mathf.Sin(fa) * Lb * 0.9f).R(fa + Mathf.PI / 2).S(0.9f, 1.3f), fletch, solid);
                         continue;
                     }
+                    if (Wet(ar.X1, ar.Y1)) continue;   // в воду, брод или ров — ушла под воду, не торчит
                     float ang = Mathf.Atan2(ar.Y1 - ar.Y0, ar.X1 - ar.X0), L = ar.End == 1 ? 0.3f : ar.End == 2 ? 0.7f : 0.4f;
                     float x = ar.X1, y = ar.Y1;
                     if (ar.End == 2) { int s = (int)(ar.T0 * 1000); x += (H(s, 1) - 0.5f) * 0.7f; y += (H(s, 2) - 0.5f) * 0.7f; ang += (H(s, 3) - 0.5f) * 2.5f; }

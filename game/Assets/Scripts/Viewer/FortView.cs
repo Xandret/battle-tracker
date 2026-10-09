@@ -5,7 +5,7 @@
 // Тени — как в пробе: влево вниз на (−0,3; 0,24) × высоту (стена 9 м, башня 11, вышка 8), мягкие края.
 // Всё неподвижно: сетки строятся один раз на карту. Шейдер — Men (те же атласы полигона, цвета без перевода).
 // Слои: земля 0, тени построек 1, стены и частокол 2, башни, ворота и обломки 3 — ниже павших (5) и бойцов (10):
-// бойцы стоят на стенах.
+// бойцы стоят на стенах; шатры каменных башен — 11, выше бойцов: гарнизон башни под крышей (Г104).
 // Оси: метры карты, y вниз; в мир Unity: X = x, Y = −y.
 using System.Collections.Generic;
 using BattleCore;
@@ -58,23 +58,29 @@ namespace Journal.Viewer
                 int b = Vert(x0, y0, p.U0, p.V1, col, prm); Vert(x1, y1, p.U1, p.V1, col, prm); Vert(x2, y2, p.U1, p.V0, col, prm); Vert(x3, y3, p.U0, p.V0, col, prm);
                 Tri(b, b + 1, b + 2); Tri(b, b + 2, b + 3);
             }
-            public Mesh ToMesh()
+            public Mesh ToMesh() { var mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; Fill(mesh); return mesh; }
+            public void Fill(Mesh mesh)
             {
-                var mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                mesh.Clear();
                 mesh.SetVertices(V); mesh.SetColors(C); mesh.SetUVs(0, U); mesh.SetUVs(1, P); mesh.SetTriangles(I, 0);
                 mesh.bounds = new Bounds(Vector3.zero, new Vector3(1e6f, 1e6f, 10));
-                return mesh;
             }
         }
+
+        // створки ворот (Г104): по записи боя — закрыты, открыты или распахнуты, пока в проходе свои; поворот на петлях внутрь
+        // за 1,2 с. Hinge — середина створок у наружного края прохода, O — наружу, Tg — вдоль стены
+        sealed class GateDraw { public Vector2 Mid, O, Tg; public float Half, Open = -1; public int Rec = -1; }
+        readonly List<GateDraw> gates = new List<GateDraw>();
+        Mesh leafMesh; Recording gatesFor; Vector2 leafUv;
 
         public void SetMap(TerrainMap m)
         {
             foreach (var go in made) Object.Destroy(go);
-            made.Clear(); Map = null;
+            made.Clear(); Map = null; gates.Clear(); leafMesh = null; gatesFor = null;
             if (!Ok || m == null) return;
             var f = FortMap.Build(m); Map = f;
             if (f.Lines.Count == 0 && f.Towers.Count == 0 && f.Gates.Count == 0 && f.Rubbles.Count == 0 && f.Houses.Count == 0) return;
-            Geo shadows = new Geo(), walls = new Geo(), pals = new Geo(), top = new Geo();
+            Geo shadows = new Geo(), walls = new Geo(), pals = new Geo(), top = new Geo(), roofTop = new Geo();
             var roofs = new Geo[4]; for (int k = 0; k < 4; k++) roofs[k] = new Geo();
             var plain = Vector4.zero; var white = new Color32(255, 255, 255, 255);
             var shadowP = new Vector4(0, 0, 1, 0); var dark = new Color32(28, 22, 12, 255);
@@ -113,7 +119,7 @@ namespace Journal.Viewer
             {
                 bool wood = T.Mat == FortMap.Palisade, open = !wood && T.R < 3.5f && Kits.Hash(T.Seed, 5) < 0.4;
                 if (wood) { float s = T.R * 2 * 0.9f / 4.6f; top.Quad(build.Get("tower/wood"), Aff.At(T.X, T.Y).S(s, s), white, plain); }
-                else { float s = T.R / 5; top.Quad(build.Get("tower/stone/" + (open ? "open" : roof)), Aff.At(T.X, T.Y).R((float)Kits.Hash(T.Seed, 6) * 6.283f).S(s, s), white, plain); }
+                else { float s = T.R / 5; (open ? top : roofTop).Quad(build.Get("tower/stone/" + (open ? "open" : roof)), Aff.At(T.X, T.Y).R((float)Kits.Hash(T.Seed, 6) * 6.283f).S(s, s), white, plain); }   // под шатром — гарнизон внутри: шатёр выше бойцов
             }
             // ворота (09.10.2026, отзыв Алекса «очень странно отрисовываются»): проход открыт сверху — в нём видна дорога;
             // по бокам — каменные косяки во всю толщину стены, у наружного края — две створки из досок с железными полосами.
@@ -138,15 +144,8 @@ namespace Journal.Viewer
                     var jc = c0 + tg * sd * (half + jamb / 2);
                     R(jc, jamb / 2 + 0.08f, depth / 2 + 0.08f, ink); R(jc, jamb / 2, depth / 2, stone);
                 }
-                // створки — у наружного края, с щелью посередине; доски поперёк и две железные полосы
-                var leafC = c0 + o * (depth / 2 - 0.55f);
-                foreach (int sd in new[] { -1, 1 })
-                {
-                    var lc = leafC + tg * sd * (half / 2 + 0.03f); float lh = half / 2 - 0.05f;
-                    R(lc, lh + 0.07f, 0.4f, ink); R(lc, lh, 0.32f, plank);
-                    for (int k = 1; k < 4; k++) R(lc + tg * (-lh + 2 * lh * k / 4), 0.03f, 0.32f, plankD);
-                    foreach (float fr in new[] { -0.55f, 0.55f }) R(lc + tg * fr * lh, 0.1f, 0.36f, iron);
-                }
+                // створки — у наружного края, с щелью посередине (рисует BuildLeaves: они открываются)
+                gates.Add(new GateDraw { Mid = c0 + o * (depth / 2 - 0.55f), O = o, Tg = tg, Half = half });
             }
             foreach (var R in f.Rubbles) top.Quad(build.Get("rubble/" + (R.Seed % 3)), Aff.At(R.X, R.Y).R((float)Kits.Hash(R.Seed, 7) * 6.283f), white, plain);
             // дома: вальмовая крыша на прямоугольник клеток; кровля — по дому (в остроге — солома и тёс), тень по высоте 6 м
@@ -163,6 +162,68 @@ namespace Journal.Viewer
             Layer("Стены", walls, wallMat, 2);
             Layer("Частокол", pals, palMat, 2);
             Layer("Башни и ворота", top, buildMat, 3);
+            Layer("Шатры башен", roofTop, buildMat, 11);   // выше бойцов (10): кто в башне — под крышей
+            if (gates.Count > 0)
+            {
+                leafUv = new Vector2(du, dv); leafMesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; leafMesh.MarkDynamic();
+                var go = new GameObject("Створки ворот"); go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = leafMesh;
+                var r = go.AddComponent<MeshRenderer>(); r.sharedMaterial = buildMat; r.sortingOrder = 3;
+                made.Add(go);
+                foreach (var G in gates) G.Open = 0;
+                BuildLeaves();
+            }
+        }
+
+        // ворота по записи на время t: чьи ворота закрыты — створки сходятся, открыты или в проходе свои — расходятся
+        public void Gates(Recording rec, double t)
+        {
+            if (leafMesh == null) return;
+            if (rec != gatesFor)
+            {
+                gatesFor = rec;
+                foreach (var G in gates)
+                {
+                    G.Rec = -1; float bd = 12;
+                    if (rec != null) for (int g = 0; g < rec.Gates.Count; g++) { float d = Vector2.Distance(G.Mid, new Vector2(rec.Gates[g].X, rec.Gates[g].Y)); if (d < bd) { bd = d; G.Rec = g; } }
+                }
+            }
+            int fr = rec == null || rec.Frames.Count == 0 ? 0 : Mathf.Clamp((int)(t / rec.Dt), 0, rec.Frames.Count - 1);
+            bool dirty = false; float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            foreach (var G in gates)
+            {
+                float want = G.Rec >= 0 && rec.GateAt(G.Rec, fr) != 0 ? 1 : 0, was = G.Open;
+                G.Open = Mathf.MoveTowards(was, want, dt / 1.2f);
+                dirty |= G.Open != was;
+            }
+            if (dirty) BuildLeaves();
+        }
+        // две створки из досок с железными полосами, на петлях у косяков; открыты — повёрнуты внутрь вдоль прохода
+        void BuildLeaves()
+        {
+            var g = new Geo(); var prm = new Vector4(0, 0, 1, 0);
+            var ink = new Color32(34, 24, 15, 255); var plank = Hex("#94612f"); var plankD = Hex("#5c3a1b"); var iron = Hex("#4d5157");
+            void Q(Vector2 c, Vector2 a, float ha, Vector2 b, float hb, Color32 col)
+            {
+                var v0 = c - a * ha - b * hb; var v1 = c + a * ha - b * hb; var v2 = c + a * ha + b * hb; var v3 = c - a * ha + b * hb;
+                int i = g.Vert(v0.x, v0.y, leafUv.x, leafUv.y, col, prm); g.Vert(v1.x, v1.y, leafUv.x, leafUv.y, col, prm);
+                g.Vert(v2.x, v2.y, leafUv.x, leafUv.y, col, prm); g.Vert(v3.x, v3.y, leafUv.x, leafUv.y, col, prm);
+                g.Tri(i, i + 1, i + 2); g.Tri(i, i + 2, i + 3);
+            }
+            foreach (var G in gates)
+            {
+                float e = G.Open * G.Open * (3 - 2 * G.Open), ang = e * 1.45f, lh = G.Half / 2 - 0.05f;   // до 83°: к стене прохода
+                foreach (int sd in new[] { -1, 1 })
+                {
+                    var hinge = G.Mid + G.Tg * sd * G.Half;
+                    var dir = -sd * Mathf.Cos(ang) * G.Tg - Mathf.Sin(ang) * G.O; var n = new Vector2(-dir.y, dir.x);
+                    var lc = hinge + dir * (lh + 0.02f);
+                    Q(lc, dir, lh + 0.07f, n, 0.4f, ink); Q(lc, dir, lh, n, 0.32f, plank);
+                    for (int k = 1; k < 4; k++) Q(lc + dir * (-lh + 2 * lh * k / 4), dir, 0.03f, n, 0.32f, plankD);
+                    foreach (float fr in new[] { -0.55f, 0.55f }) Q(lc + dir * fr * lh, dir, 0.1f, n, 0.36f, iron);
+                }
+            }
+            g.Fill(leafMesh);
         }
 
         // лента вдоль линии: ширина w, кусок рисунка длиной tile (0 — сплошная заливка тенью), сдвиг off (тень);
