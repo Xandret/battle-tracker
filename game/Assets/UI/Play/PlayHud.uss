@@ -1645,3 +1645,45 @@
 
 .unity-base-slider__dragger { background-color: var(--gold); border-color: var(--gold-deep); }
 .unity-base-slider__tracker { background-color: #2b241a; border-color: var(--edge-dark); }
+
+/* ── редактор карт (Г100): панель слева, карта — в смотрелке ── */
+.me-root { position: absolute; left: 0; top: 0; bottom: 0; right: 0; }
+.me-panel { position: absolute; left: 10px; top: 10px; bottom: 10px; width: 340px; padding: 10px 8px 10px 12px; }
+.me-title { font-size: 20px; -unity-font-style: bold; color: var(--gold-bright); margin-bottom: 6px; }
+.me-row { flex-direction: row; align-items: center; flex-wrap: wrap; margin: 2px 0; }
+.me-wrap { flex-wrap: wrap; }
+.me-btn { margin: 2px 4px 2px 0; }
+.me-tool { min-width: 98px; height: 26px; }
+.me-tool.is-on, .me-btn.is-on { color: var(--gold-bright); border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
+.me-field { margin: 3px 0; color: var(--ink); }
+.me-field Label { color: var(--ink-dim); min-width: 120px; }
+.me-num { width: 190px; color: var(--ink); }
+.me-num Label { color: var(--ink-dim); min-width: 90px; }
+.me-num-short { width: 110px; }
+.me-num-short Label { min-width: 14px; }
+.me-opts { margin: 6px 0; padding: 6px; background-color: rgba(0, 0, 0, 0.18); border-radius: 4px; }
+.me-note { color: var(--ink-faint); font-size: 12px; white-space: normal; margin: 4px 0; }
+.me-palette { flex-direction: row; flex-wrap: wrap; }
+.me-swatch-btn { flex-direction: row; align-items: center; width: 138px; height: 24px; margin: 2px; padding: 0 6px; background-color: var(--panel-2); border-color: var(--edge-dark); border-width: 1px; border-radius: 3px; }
+.me-swatch-btn:hover { border-color: var(--gold-deep); }
+.me-swatch-btn.is-on { border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
+.me-swatch { width: 16px; height: 16px; border-radius: 2px; border-width: 1px; border-color: rgba(0, 0, 0, 0.5); margin-right: 6px; }
+.me-swatch-name { color: var(--ink); font-size: 12px; }
+.me-sel { color: var(--gold-bright); -unity-font-style: bold; margin: 2px 0 4px 0; }
+.me-danger { color: #e08a72; }
+.me-files { padding: 4px; margin: 2px 0 6px 0; background-color: rgba(0, 0, 0, 0.25); border-radius: 4px; }
+.me-file { -unity-text-align: middle-left; }
+.me-gen { margin: 2px 0; }
+.me-make, .me-test { height: 32px; margin: 6px 4px 6px 0; font-size: 15px; }
+.me-toast { color: var(--gold-bright); white-space: normal; margin-top: 6px; }
+.me-status { color: var(--ink-dim); font-size: 12px; white-space: normal; margin-top: 6px; }
+
+.me-panel .unity-base-field__label { min-width: 130px; font-size: 12px; color: var(--ink-dim); }
+.me-panel .unity-base-text-field__input,
+.me-panel .unity-base-popup-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }
+.me-panel .unity-base-text-field__input:focus,
+.me-panel .unity-base-popup-field__input:focus { border-color: var(--gold); }
+.me-panel .unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--gold); }
+.me-panel .unity-toggle__checkmark { background-color: #15110b; border-color: var(--edge); }
+.me-num .unity-base-field__label { min-width: 70px; }
+.me-num-short .unity-base-field__label { min-width: 12px; }

@@ -17,19 +17,21 @@ namespace Journal.Play
         const int RecentMax = 8;
 
         // окно выбора файла; null — закрыли без выбора (или окна на этой платформе нет)
-        public static string OpenSave(string startDir)
+        public static string OpenSave(string startDir) => Open(startDir, "Сохранение трекера (armiya_hodN.txt)", "Сохранение трекера (*.txt)", "txt");
+        // окно выбора файла с одним расширением ext (без точки); null — закрыли без выбора
+        public static string Open(string startDir, string title, string filterName, string ext)
         {
 #if UNITY_EDITOR
-            var p = UnityEditor.EditorUtility.OpenFilePanel("Сохранение трекера (armiya_hodN.txt)", startDir ?? "", "txt");
+            var p = UnityEditor.EditorUtility.OpenFilePanel(title, startDir ?? "", ext);
             return string.IsNullOrEmpty(p) ? null : p.Replace('/', Path.DirectorySeparatorChar);
 #elif UNITY_STANDALONE_WIN
             var o = new Ofn();
             o.structSize = Marshal.SizeOf(o);
             o.dlgOwner = GetActiveWindow();
-            o.filter = "Сохранение трекера (*.txt)\0*.txt\0Все файлы (*.*)\0*.*\0\0";
+            o.filter = filterName + "\0*." + ext + "\0Все файлы (*.*)\0*.*\0\0";
             o.file = new string('\0', 1024); o.maxFile = o.file.Length;
             o.fileTitle = new string('\0', 256); o.maxFileTitle = o.fileTitle.Length;
-            o.initialDir = startDir; o.title = "Сохранение трекера (armiya_hodN.txt)";
+            o.initialDir = startDir; o.title = title;
             o.flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008;   // EXPLORER | FILEMUSTEXIST | PATHMUSTEXIST | NOCHANGEDIR
             return GetOpenFileName(o) ? o.file.TrimEnd('\0') : null;
 #else

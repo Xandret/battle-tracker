@@ -100,6 +100,9 @@ namespace Journal.Play
             Changed?.Invoke();
         }
 
+        // вернуть смотрелке эту битву (после редактора карт, который показывал свою карту)
+        public void ReShow() { if (viewer != null && recorder != null) { viewer.SetLive(recorder.Rec); viewer.T = ShowTime; } }
+
         // ── ход ──
         public void Go()
         {

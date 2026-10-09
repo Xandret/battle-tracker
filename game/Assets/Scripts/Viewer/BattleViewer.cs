@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using BattleCore;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Terrain = BattleCore.Terrain;
 
 namespace Journal.Viewer
 {
@@ -74,6 +75,17 @@ namespace Journal.Viewer
             live = true; PlayInput = true; pendingScene = -1; scene = -1;
             rec = r; t = 0; playing = false;
             BuildGround(); FitView();
+        }
+        // карта без отрядов (редактор карт, Г100): земля и укрепления, камера — как в игре; fit — показать всю карту
+        public void ShowMap(TerrainMap m, string name, bool fit)
+        {
+            Init();
+            if (job != null) { try { job.Wait(); } catch (AggregateException) { } job = null; }
+            var r = new Recording { Name = name, Map = m, W = Terrain.WidthM(m), H = Terrain.HeightM(m), Done = true, States = new List<int>[0] };
+            r.Frames.Add(new float[0][]); r.Men.Add(new MenFrame[0]); r.Soldiers.Add(new int[0]); r.Heads.Add(new Dictionary<int, float>()); r.Fights.Add(new int[0]);
+            live = true; PlayInput = true; pendingScene = -1; scene = -1;
+            rec = r; t = 0; playing = false;
+            BuildGround(); if (fit) FitView();
         }
         // экран (px) ↔ карта (м, y вниз)
         public Vector2 ScreenToMap(Vector2 screen) { Init(); var w = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, 10)); return new Vector2(w.x, -w.y); }
@@ -468,6 +480,7 @@ namespace Journal.Viewer
         }
 
         static Color32 Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+        public static Color32 GroundColor(int kind) => Hex(Ground.TryGetValue(kind, out var s) ? s : Ground[1]);   // палитра редактора карт
         // цвет вершин сетки Unity не переводит из sRGB — в линейном проекте переводим сами
         static Color32 Lin(Color32 c) => QualitySettings.activeColorSpace == ColorSpace.Linear ? (Color32)((Color)c).linear : c;
     }

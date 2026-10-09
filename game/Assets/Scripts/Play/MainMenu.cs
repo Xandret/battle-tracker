@@ -14,7 +14,7 @@ namespace Journal.Play
         public bool Visible => !root.ClassListContains("hidden");
         public bool CanContinue { get; private set; }
 
-        public MainMenu(VisualElement parent, Action onContinue, Action onNew, Action onArmies, Action onSettings, Action onExit)
+        public MainMenu(VisualElement parent, Action onContinue, Action onNew, Action onArmies, Action onMaps, Action onSettings, Action onExit)
         {
             root = new VisualElement(); root.AddToClassList("main-menu"); root.AddToClassList("hidden"); parent.Add(root);
             var box = new VisualElement(); box.AddToClassList("main-box"); root.Add(box);
@@ -27,6 +27,7 @@ namespace Journal.Play
             continueButton = B("Продолжить битву", () => { Hide(); onContinue(); }, "is-gold");
             B("Новая битва", () => { Hide(); onNew(); });
             B("Армии", () => { Hide(); onArmies(); });
+            B("Редактор карт", () => { Hide(); onMaps(); });
             B("Настройки", () => { Hide(); onSettings(); });
             B("Выход", onExit, "is-quiet");
             hint = new Label(); hint.AddToClassList("main-hint"); box.Add(hint);

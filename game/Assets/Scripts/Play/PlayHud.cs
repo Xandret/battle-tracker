@@ -29,7 +29,8 @@ namespace Journal.Play
         Button goButton, pauseButton, speed1, speed2, speed4, againButton, menuButton, menuClose;
         VisualElement menu, menuList; Label menuStatus;
         LineupPanel lineup;                 // состав битвы из сохранения трекера (Г98)
-        MainMenu mainMenu; SettingsPanel settings; ArmyBattlePanel armyBattle;   // главное меню, настройки, бой своими армиями
+        MainMenu mainMenu; SettingsPanel settings; ArmyBattlePanel armyBattle;
+        MapEditor mapEditor;                // редактор карт (Г100)   // главное меню, настройки, бой своими армиями
         VisualElement overTable; object overBuilt;   // итог битвы «кто сколько потерял» — строится раз на конец битвы
         ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
         bool menuBusy;
@@ -81,7 +82,10 @@ namespace Journal.Play
             armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed)); menu.AddToClassList("hidden"); }, ShowMenu);
             settings = new SettingsPanel(hud, ShowMain);
             settings.Changed += ApplySettings;
-            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), settings.Show, Quit);
+            mapEditor = new MapEditor(hud, pc, FindAnyObjectByType<Journal.Viewer.BattleViewer>());
+            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit);
+            mapEditor.Closed += ShowMain;
+            mapEditor.Test += f => armyBattle.Show(null, f);
             armies.Closed += ShowMain;
             armies.PlayFile += path => armyBattle.Show(path);
             pc.MenuRequested += () => { ShowMain(); escHandled = true; };   // тот же Esc не должен сразу закрыть меню
@@ -172,7 +176,7 @@ namespace Journal.Play
         bool escHandled;
         void Back()
         {
-            if (armies.Visible) return;   // у редактора армий свои правки — закрывается его кнопкой
+            if (armies.Visible || mapEditor.Visible) return;   // у редакторов свои правки и свой Esc — закрываются своей кнопкой
             if (mainMenu.Visible) { if (mainMenu.CanContinue) mainMenu.Hide(); return; }
             ShowMain();
         }
@@ -286,12 +290,13 @@ namespace Journal.Play
         void LateUpdate()
         {
             if (pc?.Session == null || turnNumber == null) return;
-            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible;
-            hud.EnableInClassList("is-bare", !pc.Chosen);   // поле-заставка за главным меню — без панелей битвы
+            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
+            mapEditor.Tick();
+            hud.EnableInClassList("is-bare", !pc.Chosen || mapEditor.Visible);   // поле-заставка за главным меню — без панелей битвы
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb != null && kb.escapeKey.wasPressedThisFrame && pc.Blocked && !escHandled) Back();
             escHandled = false;
-            if (viewer != null) viewer.InputBlocked = pc.Blocked;   // набор текста в окнах не двигает камеру
+            if (viewer != null) viewer.InputBlocked = pc.Blocked && !(mapEditor.Visible && !mapEditor.Typing);   // в редакторе карт камера своя   // набор текста в окнах не двигает камеру
             var s = pc.Session; var bt = pc.Battle;
             if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
             {

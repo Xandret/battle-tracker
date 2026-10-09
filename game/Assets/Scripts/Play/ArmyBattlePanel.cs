@@ -20,7 +20,20 @@ namespace Journal.Play
             public string Path; public ArmyFile File; public int? Fac; public readonly HashSet<int> Chosen = new HashSet<int>();
             public DropdownField FileBox, FacBox; public ScrollView List; public Label Sum;
         }
-        static readonly (string Id, string Name)[] Maps = { ("field", "Поле"), ("forest", "Лес"), ("hills", "Холмы"), ("river", "Река"), ("desert", "Пустыня") };
+        static readonly (string Id, string Name)[] BuiltIn = { ("field", "Поле"), ("forest", "Лес"), ("hills", "Холмы"), ("river", "Река"), ("desert", "Пустыня") };
+        // шаблоны движка и карты редактора (Saves/Maps, Г100): у них Id «file:путь»
+        List<(string Id, string Name)> Maps = BuiltIn.ToList();
+        void RefreshMaps(string pick)
+        {
+            int keep = Math.Max(0, mapBox.index);
+            Maps = BuiltIn.ToList();
+            if (Directory.Exists(MapEditor.MapsDir))
+                foreach (var f in Directory.GetFiles(MapEditor.MapsDir, "*.map.json").OrderByDescending(File.GetLastWriteTime))
+                    Maps.Add(("file:" + f, "Карта: " + Path.GetFileName(f).Replace(".map.json", "")));
+            if (pick != null) keep = Math.Max(0, Maps.FindIndex(m => string.Equals(m.Id, "file:" + pick, StringComparison.OrdinalIgnoreCase)));
+            mapBox.choices = Maps.Select(m => m.Name).ToList();
+            mapBox.index = Math.Min(keep, Maps.Count - 1);
+        }
 
         readonly VisualElement root;
         readonly Side[] sides = { new Side(), new Side() };
@@ -76,9 +89,9 @@ namespace Journal.Play
         public void Hide() => root.AddToClassList("hidden");
 
         // path — армия стороны 1 (из редактора «В бой»); противник — вторая фракция того же файла или другой файл
-        public void Show(string path = null)
+        public void Show(string path = null, string mapFile = null)
         {
-            RefreshFiles(); status.text = "";
+            RefreshFiles(); RefreshMaps(mapFile); status.text = "";
             if (path != null) SetFile(0, path);
             else if (sides[0].File == null && files.Count > 0) SetFile(0, files[0]);
             if (sides[1].File == null || path != null)
