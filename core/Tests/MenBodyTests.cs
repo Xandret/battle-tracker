@@ -647,6 +647,25 @@ static class MenBodyTests
             True(!bt.Relocate(d, 100, 100, 0), "перестановка после первого хода принята");
         });
 
+        yield return ("Г104: угловая башня 3 × 3 — «на стену» у её края берёт ряд вдоль стены, а не поперёк башни (строй вдоль стены, все на стене); стрелки гарнизона на «держать» сами бьют пехоту в 40 м под стеной", () =>
+        {
+            var bt = Fort(8, 20, 39, towers: false);
+            Terrain.PaintRect(bt.Geo.Map, "t", 17, 29, 19, 31, Terrain.Id("tower"));   // башня 3 × 3 у левого конца стены: x 85…100, y 145…160
+            var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+            var d = bt.Add(TA.Make(1, "Гарнизон", 300, 1), 150, 120, 0);
+            True(bt.Garrison(d, 90, 166), "не поставлен на стену");   // ближайшая клетка — край башни (y 155…160), ряд должен пойти вдоль стены
+            True(d.P.Fp.Front >= 80 && d.P.Fp.Front <= 120 && Math.Abs(d.P.Facing) < 1e-6, $"строй {d.P.Fp.Front:0} × {d.P.Fp.Depth:0} м, курс {d.P.Facing:0}°");
+            True(d.Men.Count(x => bt.StandZ(x.X, x.Y) > 0) >= 290, $"на стене {d.Men.Count(x => bt.StandZ(x.X, x.Y) > 0)} из 300");
+            var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 150, 100, 180);
+            bt.Order(d, new MoveOrder { Kind = OrderKind.Hold });
+            bt.Turn();
+            True(bt.Shots.Arrows > 500 && 1000 - e.P.U.Soldiers >= 10, $"на «держать»: стрел {bt.Shots.Arrows}, потери пехоты {1000 - e.P.U.Soldiers:0}");
+            var f = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(8).Next });
+            var fd = f.Add(TA.Make(1, "Лучники", 300, 1), 150, 150, 0); var fe = f.Add(TB.Make(2, "Пехота", 1000, 2), 150, 100, 180);
+            f.Order(fd, new MoveOrder { Kind = OrderKind.Hold }); f.Turn();
+            True(f.Shots.Arrows == 0, $"в поле на «держать» без приказа стреляют: {f.Shots.Arrows} стрел (Г65)");
+        });
+
         yield return ("Г104: ворота — 200 пехоты врага идут во двор: закрытые не пускают (стоят у стены), открытые — проходят; свои проходят закрытые", () =>
         {
             var bt = Fort(6, 0, 59, towers: false, gateW: 2);

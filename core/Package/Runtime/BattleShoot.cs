@@ -93,6 +93,8 @@ namespace BattleCore
             return dz > 0 ? Js.Round(max * (1 + R.Map.Height.RangePerLevel * dz)) : max;
         }
         bool Standing(Mover m) => m.Vs < 0.05 && m.AboutLeft <= 1e-9;
+        // Г104: стрелок гарнизона без приказа «атаковать» (стоит или «держать») открывает огонь сам
+        bool AutoShooter(Mover s) => R.Garrison.AutoShoot && s.Garrisoned && Shooter(s) && (s.Order == null || s.Order.Kind == OrderKind.Hold);
         // гарнизон (Г104) не разворачивается — бьёт по всему, что перед стеной (±90°)
         bool Facing(Mover s, Mover t) => Math.Abs(MoveSim.AngleDiff(s.P.Facing, MoveSim.HeadingOf(t.P.X - s.P.X, t.P.Y - s.P.Y))) <= (s.Garrisoned ? 90 : FaceTolDeg);
         // Может ли s сейчас стрелять по t
@@ -219,8 +221,16 @@ namespace BattleCore
             // приказ «стрелять» — перестрелка с целью, пока может стрелять (Г65)
             foreach (var s in Movers)
             {
-                if (s.Order == null || s.Order.Kind != OrderKind.Attack || !Shooter(s)) continue;
-                var tgt = ById(s.Order.TargetId);
+                if (!Shooter(s)) continue;
+                Mover tgt = null;
+                if (s.Order != null && s.Order.Kind == OrderKind.Attack) tgt = ById(s.Order.TargetId);
+                else if (AutoShooter(s))
+                {
+                    // Г104: гарнизон без приказа сам бьёт по ближайшему врагу, которого может достать; начатую перестрелку держит
+                    var cur = Volleys.FirstOrDefault(x => !x.Over && x.A == s);
+                    if (cur != null && CanShoot(s, cur.B)) tgt = cur.B;
+                    else { double bd = double.MaxValue; foreach (var e in Movers) { if (!CanShoot(s, e)) continue; double d = JsMath.Hypot(e.P.X - s.P.X, e.P.Y - s.P.Y); if (d < bd) { bd = d; tgt = e; } } }
+                }
                 if (tgt == null) continue;
                 var v = Volleys.FirstOrDefault(x => !x.Over && x.A == s && x.B == tgt);
                 if (CanShoot(s, tgt))
@@ -232,7 +242,7 @@ namespace BattleCore
             foreach (var v in Volleys)
             {
                 if (v.Over) continue;
-                bool ordered = v.A.Order != null && v.A.Order.Kind == OrderKind.Attack && v.A.Order.TargetId == v.B.P.U.Id;
+                bool ordered = v.A.Order != null && v.A.Order.Kind == OrderKind.Attack && v.A.Order.TargetId == v.B.P.U.Id || AutoShooter(v.A) && t - v.LastOk < 1e-9;
                 if (!ordered || t - v.LastOk > FightEndSec) { v.Over = true; continue; }
                 if (t + dt > v.CycleEnd + 1e-9) ScheduleVolley(v, v.CycleEnd);
                 foreach (var w in v.Wins.ToList())
@@ -346,7 +356,7 @@ namespace BattleCore
         {
             var w = ar.W; var RR = R.Ranged;
             ar.Done = true;
-            bool ok = w.Counter ? CanShoot(w.Att, w.Def) : CanShoot(w.Att, w.Def) && w.V.A.Order != null && w.V.A.Order.Kind == OrderKind.Attack;
+            bool ok = w.Counter ? CanShoot(w.Att, w.Def) : CanShoot(w.Att, w.Def) && (w.V.A.Order != null && w.V.A.Order.Kind == OrderKind.Attack || AutoShooter(w.V.A));
             if (!ok || !Alive(w.Att) || !OnField(w.Def)) { w.Landed++; return; }
             // стрелы — по всему строю поровну; стрелу павшего выпускает живой сосед
             var shooters = TroopOf(w.Att).Bodies;
