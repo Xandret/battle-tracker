@@ -25,6 +25,12 @@ namespace BattleCore
             if (geo == null || geo.Map == null) return new SightResult();
             var (ax, ay) = BattleMap.UnitCenter(a, geo); var (bx, by) = BattleMap.UnitCenter(b, geo);
             double za = BattleMap.GroundUnder(a, geo, r)?.Z ?? 0, zb = BattleMap.GroundUnder(b, geo, r)?.Z ?? 0;
+            return LineOfSight(ax, ay, za, bx, by, zb, geo, r);
+        }
+        // то же по точкам в метрах и уровням высоты под ними (Г107: бой в движении, положения отрядов живые)
+        public static SightResult LineOfSight(double ax, double ay, double za, double bx, double by, double zb, Geo geo, Rules r)
+        {
+            if (geo == null || geo.Map == null) return new SightResult();
             double len = JsMath.Hypot(bx - ax, by - ay);
             int n = (int)Math.Max(2, Math.Ceiling(len / 5));
             double step = len / n;

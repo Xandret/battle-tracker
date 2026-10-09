@@ -60,6 +60,7 @@ namespace BattleCore
         // противника рубят их в своём ритме ударов (SwingAt — для рисунка); прочность — участка укреплений (Fortify, Siege.Hp:
         // деревянные 40, окованные 80), GateHitPerSwing за удар на человека; обнулилась — пролом: клетки ворот становятся проломом,
         // проходимым всем, идущим приказ заново. Своих ворот хозяин не рубит; конница не рубит
+        readonly List<(double gap, Mover m, Man a)> gateMen = new List<(double gap, Mover m, Man a)>();
         void GateStrikes(double t, double dt)
         {
             var map = Geo?.Map; if (map == null) return;
@@ -73,6 +74,7 @@ namespace BattleCore
             {
                 if (map.T[c] != gate || openGates.Contains(c) || map.S[c] == 0) continue;
                 double gx0 = (c % W) * Terrain.CellM, gy0 = (c / W) * Terrain.CellM, gx1 = gx0 + Terrain.CellM, gy1 = gy0 + Terrain.CellM;
+                gateMen.Clear();
                 foreach (var m in Movers)
                 {
                     if (IsOwner(m.P.U) || !Alive(m) || m.Fleeing || m.Order == null || BattleMap.IsHorse(m.P.U)) continue;
@@ -82,15 +84,22 @@ namespace BattleCore
                     foreach (var a in m.Men)
                     {
                         if (!a.Alive || a.Foe != null || a.DownLeft > 0) continue;
-                        double ex = Math.Max(gx0 - a.X, Math.Max(0, a.X - gx1)), ey = Math.Max(gy0 - a.Y, Math.Max(0, a.Y - gy1));
-                        if (JsMath.Hypot(ex, ey) - rad > MR.ReachM) continue;
-                        if (double.IsNaN(a.NextSwing) || a.NextSwing < t - MR.SwingSec) a.NextSwing = t + MR.SwingSec * 0.5 * MoveSim.Hash01(m.P.U.Id, a.Id, 18);
-                        if (a.NextSwing >= t + dt) continue;
-                        a.SwingAt = a.NextSwing; a.SwingN++; MenMelee.Swings++;
-                        a.NextSwing = a.SwingAt + MR.SwingSec * (0.75 + 0.5 * MoveSim.Hash01(m.P.U.Id, a.Id * 97 + a.SwingN, 19));
-                        if (dmg == null) dmg = new Dictionary<int, double>();
-                        dmg[map.S[c]] = (dmg.TryGetValue(map.S[c], out var v) ? v : 0) + per * a.Men;
+                        double ex = Math.Max(gx0 - a.X, Math.Max(0, a.X - gx1)), ey = Math.Max(gy0 - a.Y, Math.Max(0, a.Y - gy1)), gap = JsMath.Hypot(ex, ey) - rad;
+                        if (gap > MR.ReachM) continue;
+                        gateMen.Add((gap, m, a));
                     }
+                }
+                // к створке встают ближайшие GateFaceMen — сколько бы ни толпилось за ними (чат облика: 540 человек ломали окованные за 2 хода)
+                gateMen.Sort((p, q) => p.gap != q.gap ? p.gap.CompareTo(q.gap) : p.a.Id.CompareTo(q.a.Id));
+                for (int k = 0; k < gateMen.Count && k < R.Garrison.GateFaceMen; k++)
+                {
+                    var (gap, m, a) = gateMen[k];
+                    if (double.IsNaN(a.NextSwing) || a.NextSwing < t - MR.SwingSec) a.NextSwing = t + MR.SwingSec * 0.5 * MoveSim.Hash01(m.P.U.Id, a.Id, 18);
+                    if (a.NextSwing >= t + dt) continue;
+                    a.SwingAt = a.NextSwing; a.SwingN++; MenMelee.Swings++;
+                    a.NextSwing = a.SwingAt + MR.SwingSec * (0.75 + 0.5 * MoveSim.Hash01(m.P.U.Id, a.Id * 97 + a.SwingN, 19));
+                    if (dmg == null) dmg = new Dictionary<int, double>();
+                    dmg[map.S[c]] = (dmg.TryGetValue(map.S[c], out var v) ? v : 0) + per * a.Men;
                 }
             }
             if (dmg == null) return;
@@ -124,7 +133,7 @@ namespace BattleCore
                 for (int j = i + 1; j < nm; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
-                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U))) continue;
+                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U)) || InDuel(x, y)) continue;   // Г108: поединок — отряды друг друга не трогают
                     double rr = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10 + WrapReach(x) + WrapReach(y);
                     if (JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) > rr) continue;
                     near[i, j] = near[j, i] = true; any[i] = any[j] = true;

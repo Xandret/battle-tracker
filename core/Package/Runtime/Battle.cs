@@ -59,6 +59,97 @@ namespace BattleCore
 
         public Battle(Geo geo, Rules r, EngineContext ctx) { Geo = geo; R = r; Ctx = ctx; Ctx.Rules = r; }
 
+        // ── Г107: туман войны и засады ──
+        // Кого видит сторона — пересчёт раз в Fog.EverySec; Sees — для записи и смотрелки (ГМ видит всё — не спрашивает)
+        readonly Dictionary<int, HashSet<Mover>> seenBy = new Dictionary<int, HashSet<Mover>>();
+        public readonly Dictionary<(int faction, int unitId), (double x, double y, double t)> LastSeen = new Dictionary<(int, int), (double, double, double)>();   // где и когда сторона видела чужой отряд в последний раз
+        public bool Sees(int faction, Mover m)
+        {
+            if (m.P.U.FactionId == faction) return true;
+            if (!seenBy.ContainsKey(faction)) UpdateFog(Clock);   // спросили до первого шага (приказы перед ходом) — считаем сейчас, иначе все были бы «невидимы»
+            return seenBy.TryGetValue(faction, out var s) && s.Contains(m);
+        }
+        public IEnumerable<Mover> VisibleTo(int faction) => Movers.Where(m => Sees(faction, m));
+        public bool HiddenFrom(int faction, Mover m) => !Sees(faction, m);
+        int FactionOf(Mover m) => m.P.U.FactionId ?? 0;
+        // обзор отряда o на отряд m: открытая местность OpenM, цель в лесу — не дальше ForestM, с холма — дальше за уровень
+        public double SightM(Mover o, Mover m)
+        {
+            double s = R.Fog.OpenM;
+            if (Geo?.Map != null)
+            {
+                var co = Terrain.CellAt(Geo.Map, o.P.X / Geo.W, o.P.Y / Geo.H); var cm = Terrain.CellAt(Geo.Map, m.P.X / Geo.W, m.P.Y / Geo.H);
+                if (cm.T == Terrain.Id("forest")) s = Math.Min(s, R.Fog.ForestM);
+                if (co.Z > cm.Z) s += R.Fog.HillPerLevelM * (co.Z - cm.Z);
+            }
+            return s;
+        }
+        // сетка видимых клеток стороны для рисунка тумана (клетки карты 5 м; считается блоками 5 × 5 клеток от ближайшего своего
+        // отряда, раз в Fog.EverySec); null — карты нет или сторона ещё не считалась
+        readonly Dictionary<int, bool[]> seenCells = new Dictionary<int, bool[]>();
+        public bool[] SeenCells(int faction) => seenCells.TryGetValue(faction, out var v) ? v : null;
+        void UpdateSeenCells(int F)
+        {
+            var map = Geo?.Map; if (map == null) return;
+            if (!seenCells.TryGetValue(F, out var cells) || cells.Length != map.T.Length) seenCells[F] = cells = new bool[map.T.Length];
+            Array.Clear(cells, 0, cells.Length);
+            var own = Movers.Where(o => FactionOf(o) == F && Alive(o)).ToList();
+            if (own.Count == 0) return;
+            const int B = 5; byte forest = Terrain.Id("forest");
+            for (int by = 0; by < map.H; by += B)
+                for (int bx = 0; bx < map.W; bx += B)
+                {
+                    double cx = Math.Min(bx + B / 2.0, map.W) * Terrain.CellM, cy = Math.Min(by + B / 2.0, map.H) * Terrain.CellM;
+                    var cc = Terrain.CellAt(map, cx / Geo.W, cy / Geo.H);
+                    Mover near = null; double nd = double.MaxValue;
+                    foreach (var o in own) { double d = JsMath.Hypot(o.P.X - cx, o.P.Y - cy); if (d < nd) { nd = d; near = o; } }
+                    var co = Terrain.CellAt(map, near.P.X / Geo.W, near.P.Y / Geo.H);
+                    double s = R.Fog.OpenM; if (cc.T == forest) s = Math.Min(s, R.Fog.ForestM); if (co.Z > cc.Z) s += R.Fog.HillPerLevelM * (co.Z - cc.Z);
+                    if (nd > s) continue;
+                    if (nd > 2 * B * Terrain.CellM && !Panic.LineOfSight(near.P.X, near.P.Y, co.Z, cx, cy, cc.Z, Geo, R).Ok) continue;
+                    for (int y = by; y < Math.Min(map.H, by + B); y++) for (int x = bx; x < Math.Min(map.W, bx + B); x++) cells[y * map.W + x] = true;
+                }
+        }
+        void UpdateFog(double t)
+        {
+            var factions = Movers.Where(OnField).Select(FactionOf).Distinct().ToList();
+            foreach (int F in factions)
+            {
+                UpdateSeenCells(F);
+                if (!seenBy.TryGetValue(F, out var set)) seenBy[F] = set = new HashSet<Mover>();
+                set.Clear();
+                foreach (var m in Movers)
+                {
+                    if (!OnField(m) || FactionOf(m) == F) continue;
+                    bool seen = !double.IsNaN(m.LastActT) && t - m.LastActT < R.Fog.RevealSec;   // стрелял или бился — виден всем
+                    if (!seen)
+                    {
+                        double zm = Geo?.Map != null ? Terrain.CellAt(Geo.Map, m.P.X / Geo.W, m.P.Y / Geo.H).Z : 0;
+                        foreach (var o in Movers)
+                        {
+                            if (FactionOf(o) != F || !Alive(o)) continue;
+                            if (JsMath.Hypot(o.P.X - m.P.X, o.P.Y - m.P.Y) > SightM(o, m)) continue;
+                            double zo = Geo?.Map != null ? Terrain.CellAt(Geo.Map, o.P.X / Geo.W, o.P.Y / Geo.H).Z : 0;
+                            if (!Panic.LineOfSight(o.P.X, o.P.Y, zo, m.P.X, m.P.Y, zm, Geo, R).Ok) continue;
+                            seen = true; break;
+                        }
+                    }
+                    if (seen) { set.Add(m); LastSeen[(F, m.P.U.Id)] = (m.P.X, m.P.Y, t); }
+                }
+            }
+        }
+        // засада: x ударил (коснулся или выстрелил) по y, будучи невидимым для стороны y, или по приказу, отданному из невидимости не
+        // позже AmbushSec назад (вышел из леса и ударил, пока не опомнились) — y теряет AmbushMorale БД
+        void Ambush(Mover x, Mover y, double t, string how)
+        {
+            bool armed = !double.IsNaN(x.AmbushFrom) && t - x.AmbushFrom <= R.Fog.AmbushSec;
+            if (!(HiddenFrom(FactionOf(y), x) || armed) || x.LastActT > t - 1e-9 && !double.IsNaN(x.LastActT)) return;
+            x.AmbushFrom = double.NaN;
+            var u = y.P.U; double was = u.Morale;
+            u.Morale = Math.Max(0, u.Morale - R.Fog.AmbushMorale);
+            events.Add($"{At(t)} с · засада: «{x.P.U.Name}» {how} по «{u.Name}» из невидимого положения — БД {Js.Num(was)} → {Js.Num(u.Morale)}");
+        }
+
         // ── Г104: стены и ворота по стороне ──
         // Чьи стены: пехота этой фракции ходит по стенам и башням и сквозь ворота; остальным стены непроходимы, ворота — только открытые.
         // null — ничьи (как раньше: постройки непроходимы для всех). Задать до расстановки; Garrison ставит сам, если не задано
@@ -297,6 +388,7 @@ namespace BattleCore
         {
             if (m.Fleeing) { if (o.Kind == OrderKind.Rally) m.RallyPending = true; return; }   // бегущий слышит только «сплотить» (Г72)
             if (o.Kind == OrderKind.Rally) return;
+            if (InDuel(m)) return;   // Г108: во время поединка отряд стоит, приказов не слушает
             aimed.Remove(m);
             if (o.Kind == OrderKind.Move || o.Kind == OrderKind.Retreat || o.Kind == OrderKind.Attack && !Shooter(m)) m.Garrisoned = false;   // Г104: уходит со стены
             if (o.Kind == OrderKind.Retreat)
@@ -311,7 +403,11 @@ namespace BattleCore
             if (o.Kind == OrderKind.Attack)
             {
                 var t = ById(o.TargetId);
-                if (t != null) { if (Shooter(m)) AimShoot(m, o, t); else Aim(m, o, t); }
+                if (t != null)
+                {
+                    m.AmbushFrom = HiddenFrom(FactionOf(t), m) ? Clock : double.NaN;   // Г107: атака из невидимости — засада, если ударит в срок
+                    if (Shooter(m)) AimShoot(m, o, t); else Aim(m, o, t);
+                }
                 return;
             }
             MoveSim.Give(m, o, Geo, R);
@@ -332,6 +428,9 @@ namespace BattleCore
             if (Shooter(m)) { ReplanShoot(m, t); return; }
             var f = FightOf(m, t);
             if (f != null && f.Of(m).Engaged > 0 && !t.Fleeing) return;   // бегущего — догоняет (Г70)
+            // Алекс 10.10.2026: цель сплотилась после бегства (или встала), а преследователь дошёл до точки прицела и стоял, не касаясь
+            // её, — цель сдвинулась меньше ReplanMoveM, и прицел не обновлялся. Дошёл, стоит, цели не касается — прицел заново
+            if (m.Done && !t.Fleeing && (f == null || f.Over || f.Of(m).Engaged <= 0) && Bodies.MinGap(m, t) > R.Map.MeleeGap) { Aim(m, m.Order, t); return; }
             if (aimed.TryGetValue(m, out var a) && JsMath.Hypot(a.x - t.P.X, a.y - t.P.Y) < ReplanMoveM) return;
             Aim(m, m.Order, t);
         }
@@ -373,9 +472,11 @@ namespace BattleCore
             int contactEvery = Math.Max(1, (int)Math.Round(ContactEverySec / dt)), replanEvery = Math.Max(1, (int)Math.Round(ReplanSec / dt));
             double t = turnStart + k * dt;
             if (k % replanEvery == 0) foreach (var m in Movers) Replan(m);
+            if (k % Math.Max(1, (int)Math.Round(R.Fog.EverySec / dt)) == 0) UpdateFog(t);   // Г107
             var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
             foreach (var m in Movers) { m.Now = t; m.ChargeReady = MenMode && ChargeReadyOf(m); }   // Г90: натиск телами
             long pb = Prof.Now();
+            DuelStep(t, dt);   // Г108: поединки — круги в препятствия бойцов, раунды
             MoveSim.Step(Movers, Geo, R, k);
             Prof.Add(0, ref pb);
             for (int i = 0; i < Movers.Count; i++) RunUp(Movers[i], before[i]);
@@ -512,7 +613,7 @@ namespace BattleCore
                 for (int j = i + 1; j < Movers.Count; j++)
                 {
                     Mover x = Movers[i], y = Movers[j];
-                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U))) continue;
+                    if (!(OnField(x) && OnField(y) && (Alive(x) || Alive(y)) && Enemies(x.P.U, y.P.U)) || InDuel(x, y)) continue;
                     double reach = (JsMath.Hypot(x.P.Fp.Front, x.P.Fp.Depth) + JsMath.Hypot(y.P.Fp.Front, y.P.Fp.Depth)) / 2 + R.Map.MeleeGap + 10 + WrapReach(x) + WrapReach(y);
                     if (JsMath.Hypot(x.P.X - y.P.X, x.P.Y - y.P.Y) > reach) continue;
                     touches[(x, y)] = Bodies.Touch(x, y, R.Map.MeleeGap);
@@ -553,7 +654,7 @@ namespace BattleCore
                     if (touch)
                     {
                         if (f == null) Start(x, y, sx, sy, t);
-                        else { if (f.A == x) { f.SA = sx; f.SB = sy; } else { f.SA = sy; f.SB = sx; } f.LastTouch = t; f.Touching = true; }
+                        else { if (f.A == x) { f.SA = sx; f.SB = sy; } else { f.SA = sy; f.SB = sx; } f.LastTouch = t; f.Touching = true; x.LastActT = t; y.LastActT = t; }
                     }
                     else if (f != null)
                     {
@@ -573,6 +674,8 @@ namespace BattleCore
                     : x.P.U.Discipline != y.P.U.Discipline ? (x.P.U.Discipline > y.P.U.Discipline ? x : y)
                     : (Ctx.Rng() < 0.5 ? x : y);
             Mover B = A == x ? y : x;
+            Ambush(x, y, t, "ударил"); Ambush(y, x, t, "ударил");   // Г107: кто из них был невидим для другого — тот из засады
+            x.LastActT = t; y.LastActT = t;
             var f = new Fight { A = A, B = B, T0 = t, LastTouch = t, Touching = true, SA = A == x ? sx : sy, SB = A == x ? sy : sx };
             // натиск (Г29, К29)
             bool burst = false;
@@ -1059,7 +1162,7 @@ namespace BattleCore
                 // Г81: отступающий не охватывает и кольца не держит — колонны к своим местам, иначе (при бойцах-телах, где
                 // бьющаяся колонна держит место у врага) отряд не оторвался бы от врага
                 bool leaving = x.Order != null && x.Order.Kind == OrderKind.Retreat && !x.Done;
-                if (foes.Count == 0 || leaving || x.P.Figs.Count == 0 || !Alive(x))   // бегущий никого не охватывает (Г70)
+                if (foes.Count == 0 || leaving || x.P.Figs.Count == 0 || !Alive(x) || Formation.IsRing(x.P.U))   // бегущий никого не охватывает (Г70); каре и круг не охватывают (Г106)
                 {
                     foreach (var s in x.Figs) { s.Wrap = false; s.WFoe = null; }
                     continue;
@@ -1117,7 +1220,7 @@ namespace BattleCore
         {
             foreach (var x in Movers)
             {
-                if (!Alive(x) || x.P.Figs.Count == 0) continue;
+                if (!Alive(x) || x.P.Figs.Count == 0 || Formation.IsRing(x.P.U)) continue;
                 var f = R.Map.Formation.TryGetValue(x.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
                 double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth) + Soldiers.BodyHalf(x, R);   // Г87: голова капсулы
                 for (int k = 0; k < x.Figs.Count && k < x.P.Figs.Count; k++)
@@ -1325,6 +1428,51 @@ namespace BattleCore
             events.Add($"«{m.P.U.Name}»: перестроение — {RanksName(m.P.U)} ({now.Front:0} × {now.Depth:0} м)");
             return true;
         }
+        // Г106: форма строя — line (линия, глубина по SetRanks), wedge (клин), crescent (полумесяц), square (каре), circle (круг);
+        // open / close — разомкнуть или сомкнуть ряды. Перестроение на месте, бойцы идут на новые места шагом (как SetRanks)
+        public bool SetShape(Mover m, string shape)
+        {
+            if (ShapeWhy(m, shape) != null) return false;
+            shape = shape.Trim().ToLowerInvariant();
+            if (shape == "open" || shape == "close") return SetOpen(m, shape == "open");
+            var u = m.P.U;
+            u.Shape = shape == "line" ? "" : shape;
+            m.LaidMen = -1; Relayout(m); m.Reforming = true;
+            var fp = m.P.Fp;
+            events.Add($"«{u.Name}»: перестроение — {ShapeName(u)} ({fp.Front:0} × {fp.Depth:0} м)");
+            return true;
+        }
+        // почему нельзя перестроиться (для подсказки), null — можно
+        public string ShapeWhy(Mover m, string shape)
+        {
+            shape = (shape ?? "").Trim().ToLowerInvariant();
+            if (!(shape == "line" || shape == "wedge" || shape == "crescent" || shape == "square" || shape == "circle" || shape == "open" || shape == "close")) return "такого строя нет";
+            var u = m.P.U;
+            if (m.Gone || m.P.Figs.Count == 0) return "отряда на поле нет";
+            if (m.Fleeing) return "бежит";
+            if (m.InMelee) return "в схватке не перестроиться";
+            if (m.Garrisoned && shape != "open" && shape != "close" && shape != "line") return "на стене — только линия";
+            if (BattleMap.IsHorse(u) && (shape == "square" || shape == "circle" || shape == "crescent")) return "конница каре, круг и полумесяц не строит";
+            if (shape == "open" && u.Open || shape == "close" && !u.Open) return u.Open ? "ряды уже разомкнуты" : "ряды уже сомкнуты";
+            if (shape != "open" && shape != "close" && Formation.FormKey(Formation.FormOf(u)) == shape) return "уже так стоит";
+            return null;
+        }
+        public bool SetOpen(Mover m, bool open)
+        {
+            if (m.Gone || m.Fleeing || m.P.Figs.Count == 0 || m.P.U.Open == open) return false;
+            m.P.U.Open = open;
+            m.LaidMen = -1; Relayout(m); m.Reforming = true;
+            events.Add($"«{m.P.U.Name}»: ряды {(open ? "разомкнуты" : "сомкнуты")} ({m.P.Fp.Front:0} × {m.P.Fp.Depth:0} м)");
+            return true;
+        }
+        public string ShapeKey(Unit u) => Formation.FormKey(Formation.FormOf(u));
+        public string ShapeName(Unit u)
+        {
+            string s = Formation.FormOf(u) switch { Form.Wedge => "клин", Form.Crescent => "полумесяц", Form.Square => "каре", Form.Circle => "круг", _ => RanksName(u) };
+            return u.Open ? s + ", ряды разомкнуты" : s;
+        }
+        // контур строя для рамки-призрака: (x, y) в метрах от центра по курсу, shape — какой строй примерить (null — текущий)
+        public double[] Outline(Unit u, string shape = null) => Formation.Outline(u, R, shape);
         public string RanksName(Unit u)
         {
             var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
@@ -1371,6 +1519,7 @@ namespace BattleCore
                 if (best >= 0) { bodies[k] = m.Figs[free[best]]; free.RemoveAt(best); }
                 else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy, AX = wx, AY = wy };
             }
+            for (int k = 0; k < figs.Count; k++) bodies[k].Face = figs[k].Face;   // Г106
             foreach (int q in free) m.Fallen.Add((m.Figs[q].X, m.Figs[q].Y));
             P.Figs = figs; P.Fp = Formation.Of(P.U, R);
             m.Figs = bodies.ToList();
@@ -1379,6 +1528,7 @@ namespace BattleCore
             m.NominalCols = m.Cols = figs.Count == 0 ? 0 : figs.Max(f => f.File) + 1;
             if (oldCols < oldNominal && m.NominalCols > 0) MoveSim.SetCols(m, Math.Min(oldCols, m.NominalCols));   // был в колонне — остаётся
             Soldiers.Assign(m, R);   // бойцы — на места новой раскладки: задние выходят вперёд (Г30, Г75)
+            if (MenMode) PickCommander(m);   // Г108: полководец телом; пал — место занимает ближайший
         }
     }
 }

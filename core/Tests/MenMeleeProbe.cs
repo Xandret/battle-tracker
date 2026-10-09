@@ -1327,3 +1327,58 @@ static class GarrisonProbe
         }
     }
 }
+
+// Г105: ворота выбивают — прочность по ходам, ударов за ход, сколько бойцов рубят (dotnet run --project Tests -- gate [iron] [nN])
+static class GateProbe
+{
+    public static void Run(string[] opts)
+    {
+        bool iron = opts.Contains("iron"); int n = 300;
+        foreach (var o in opts) if (o.StartsWith("n")) n = int.Parse(o.Substring(1));
+        var bt = new Battle(MoveTests.Open(300, 300), Rules.Base, new EngineContext { Rng = new Mulberry32(11).Next });
+        Terrain.PaintRect(bt.Geo.Map, "t", 0, 30, 59, 30, Terrain.Id(iron ? "wall" : "palisade"));
+        Terrain.PaintRect(bt.Geo.Map, "t", 29, 30, 30, 30, Terrain.Id("gate"));
+        bt.FortOwner = 1;
+        var T = Templates.Get("infantry");
+        var e = bt.Add(T.Make(2, "Враг", n, 2), 150, 80, 180);
+        bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+        for (int t = 0; t < 16; t++)
+        {
+            int near = 0;
+            var log = bt.Turn(tt => { if (Math.Abs(tt - 7.5) < 0.03) near = e.Men.Count(x => x.Alive && x.Y > 148.5 && x.X > 143.5 && x.X < 156.5); });
+            var hp = bt.GateHp(150, 152);
+            Console.WriteLine($"ход {t + 1}: прочность {hp?.hp:0.0} из {hp?.max:0}, ударов за ход {bt.MenMelee.Swings}, у ворот (в 1,5 м) в середине хода {near}, бойцов {e.Men.Count}, y до {e.Men.Max(x => x.Y):0.0}");
+            if (log.Any(l => l.Contains("выбиты"))) { Console.WriteLine("   " + log.First(l => l.Contains("выбиты"))); break; }
+        }
+    }
+}
+
+// Г108: поединок по шагам — где полководцы, стража, раунды (dotnet run --project Tests -- duel)
+static class DuelProbe
+{
+    public static void Run()
+    {
+        var ca = new Commander { Id = 1, Name = "Сэр Арн", FactionId = 1, Valor = 16 }; var cb = new Commander { Id = 2, Name = "Бор", FactionId = 2, Valor = 6 };
+        var cmd = new Dictionary<int, Commander> { [1] = ca, [2] = cb };
+        var ctx = new EngineContext { Rng = new Mulberry32(31).Next, CommanderOf = u => u.CommanderId.HasValue && cmd.TryGetValue(u.CommanderId.Value, out var c) ? c : null };
+        var bt = new Battle(MoveTests.Open(1000, 1000), Rules.Base, ctx);
+        var T = Templates.Get("infantry");
+        var ua = T.Make(1, "Дружина", 500, 1); ua.CommanderId = 1; var ub = T.Make(2, "Ватага", 500, 2); ub.CommanderId = 2;
+        var a = bt.Add(ua, 500, 400, 180); var b = bt.Add(ub, 500, 460, 0);
+        Console.WriteLine($"вызов: {bt.Challenge(a, b) ?? "ок"}, ответ {bt.Answer(b, true)}");
+        for (int t = 0; t < 3; t++)
+        {
+            var log = bt.Turn(tt =>
+            {
+                if (Math.Abs(tt % 3 - 0) > 0.03) return;
+                var d = bt.Duels[0];
+                string A = d.ManA == null ? "—" : $"({d.ManA.X:0.0},{d.ManA.Y:0.0}) пост ({d.ManA.PostX:0.0},{d.ManA.PostY:0.0}) alive {d.ManA.Alive} fig {(d.ManA.Fig == null ? "null" : "ok")}";
+                string B = d.ManB == null ? "—" : $"({d.ManB.X:0.0},{d.ManB.Y:0.0}) пост ({d.ManB.PostX:0.0},{d.ManB.PostY:0.0})";
+                int ring = a.Guard.Concat(b.Guard).Count(x => Math.Abs(JsMath.Hypot(x.X - d.X, x.Y - d.Y) - (d.R + 0.6)) < 1.5);
+                Console.WriteLine($"  {tt,5:0.0} с: круг ({d.X:0.0},{d.Y:0.0}) pending {d.Pending} fighting {d.Fighting} over {d.Over} раны {d.WoundsA}/{d.WoundsB}; A {A}; B {B}; стража на кольце {ring} из {a.Guard.Count + b.Guard.Count}");
+            });
+            foreach (var l in log) if (l.Contains("поедин") || l.Contains("побег")) Console.WriteLine("   " + l);
+            if (bt.Duels[0].Over) break;
+        }
+    }
+}

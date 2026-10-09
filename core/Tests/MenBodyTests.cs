@@ -708,6 +708,69 @@ static class MenBodyTests
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
         });
 
+        // ── Г106: строи — клин, полумесяц, каре, круг, разомкнуть ──
+        yield return ("Г106: формы строя — 1000 пехоты: у каждой формы ровно 1000 мест, без наложений, в габарите; клин — остриё в 1 человека, основание — фронт линии; полумесяц — рога впереди середины; каре и круг — внутри пусто, колонны смотрят на четыре стороны; разомкнуть — фронт вдвое", () =>
+        {
+            var T = Templates.Get("infantry");
+            foreach (var shape in new[] { "wedge", "crescent", "square", "circle" })
+            {
+                var u = T.Make(1, shape, 1000, 1); u.Shape = shape;
+                var pos = Formation.MenPositions(u, RB); var fp = Formation.Of(u, RB);
+                True(pos.Count == 1000, $"{shape}: мест {pos.Count}");
+                var set = new HashSet<(int, int)>(pos.Select(p => ((int)Math.Round(p.x * 10), (int)Math.Round(p.y * 10))));
+                True(set.Count == 1000, $"{shape}: наложения мест — {1000 - set.Count}");
+                True(pos.All(p => Math.Abs(p.x) <= fp.Front / 2 + 1e-6 && Math.Abs(p.y) <= fp.Depth / 2 + 1e-6), $"{shape}: место вне габарита {fp.Front:0} × {fp.Depth:0}");
+                var figs = Formation.Layout(u, 10, RB);
+                True(Math.Abs(figs.Sum(f => f.Men) - 1000) < 1e-6, $"{shape}: в колоннах {figs.Sum(f => f.Men)} человек");
+                var faces = figs.Select(f => f.Face).Distinct().OrderBy(x => x).ToList();
+                if (shape == "wedge")
+                {
+                    True(pos.Count(p => p.rank == 0) == 1 && pos.Count(p => p.rank == pos.Max(q => q.rank) - 1) >= 100, $"клин: остриё {pos.Count(p => p.rank == 0)}, предпоследний ряд {pos.Count(p => p.rank == pos.Max(q => q.rank) - 1)}");
+                    True(faces.Count == 1 && faces[0] == 0, "клин: колонны не вперёд");
+                }
+                if (shape == "crescent")
+                {
+                    double midFront = pos.Where(p => Math.Abs(p.x) < 2).Min(p => p.y), hornFront = pos.Where(p => p.x < -fp.Front / 2 + 2).Min(p => p.y);
+                    True(hornFront < midFront - 5, $"полумесяц: рог y {hornFront:0.0}, середина y {midFront:0.0} (вперёд — минус)");
+                }
+                if (shape == "square" || shape == "circle")
+                {
+                    True(!pos.Any(p => JsMath.Hypot(p.x, p.y) < 6), $"{shape}: внутри есть бойцы (ближе 6 м к центру)");
+                    True(faces.Count == 4, $"{shape}: граней {faces.Count}");
+                    True(Math.Abs(fp.Front - fp.Depth) < 3, $"{shape}: габарит {fp.Front:0} × {fp.Depth:0}");
+                }
+            }
+            var o = T.Make(2, "open", 1000, 1); var f0 = Formation.Of(o, RB); o.Open = true; var f1 = Formation.Of(o, RB);
+            True(Math.Abs(f1.Front / f0.Front - RB.Move.OpenK) < 0.05 && f1.Depth > f0.Depth, $"разомкнуть: {f0.Front:0} × {f0.Depth:0} → {f1.Front:0} × {f1.Depth:0}");
+            var pts = Formation.Outline(o, RB, "circle"); True(pts.Length >= 16 && pts.Length % 2 == 0, "контур круга");
+        });
+
+        yield return ("Г106: перестроение в бою — 1000 пехоты из линии в каре: бойцы идут на места шагом (без прыжков), через три хода на местах, задняя грань смотрит назад; рыцари с тыла бьются с задней гранью (потери у обоих); конница каре не строит, в схватке не перестроиться", () =>
+        {
+            var bt = new Battle(MoveTests.Open(600, 600), RB, new EngineContext { Rng = new Mulberry32(12).Next });
+            var T = Templates.Get("infantry"); var K = Templates.Get("knights");
+            var m = bt.Add(T.Make(1, "Пехота", 1000, 1), 300, 300, 0);
+            bt.BeginTurn();
+            True(bt.ShapeWhy(m, "square") == null && bt.SetShape(m, "square"), $"каре не принято: {bt.ShapeWhy(m, "square")}");
+            True(bt.ShapeKey(m.P.U) == "square" && bt.ShapeName(m.P.U) == "каре", $"строй {bt.ShapeName(m.P.U)}");
+            double worst = 0; var prev = m.Men.ToDictionary(x => x, x => (x.X, x.Y));
+            for (int t = 0; t < 3; t++)
+                bt.Turn(tt => { foreach (var x in m.Men) { if (prev.TryGetValue(x, out var p)) worst = Math.Max(worst, JsMath.Hypot(x.X - p.Item1, x.Y - p.Item2)); prev[x] = (x.X, x.Y); } });
+            double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            True(worst < 30 * RB.Move.Dt * 1.5, $"прыжок {worst:0.00} м за шаг");
+            True(fin < 1.5, $"через три хода до мест в среднем {fin:0.00} м");
+            var back = m.Men.Where(x => x.Fig != null && Math.Abs(x.Fig.Face - 180) < 1e-6).ToList();
+            var side = m.Men.Where(x => x.Fig != null && (Math.Abs(x.Fig.Face - 90) < 1e-6 || Math.Abs(x.Fig.Face - 270) < 1e-6)).ToList();
+            True(back.Count > 100 && back.All(x => x.Y > 300 + 3) && back.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) < 30) * 10 >= back.Count * 8, $"задняя грань: {back.Count} бойцов, назад смотрят {back.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) < 30)}");
+            True(side.Count > 100 && side.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, x.Fig.Face)) < 30) * 10 >= side.Count * 8, $"боковые грани: {side.Count} бойцов, вбок смотрят {side.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, x.Fig.Face)) < 30)}");
+            var k = bt.Add(K.Make(2, "Рыцари", 300, 2), 300, 400, 0);   // с тыла (y больше — сзади при курсе 0)
+            True(bt.ShapeWhy(k, "square") != null && bt.ShapeWhy(k, "wedge") == null, $"конница: каре «{bt.ShapeWhy(k, "square")}», клин «{bt.ShapeWhy(k, "wedge")}»");
+            bt.Order(k, AttackOn(1));
+            for (int t = 0; t < 2; t++) bt.Turn();
+            True(1000 - m.P.U.Soldiers > 0 && 300 - k.P.U.Soldiers > 0, $"с тыла: потери пехоты {1000 - m.P.U.Soldiers:0}, рыцарей {300 - k.P.U.Soldiers:0}");
+            True(bt.ShapeWhy(m, "circle") == "в схватке не перестроиться", $"в схватке: {bt.ShapeWhy(m, "circle")}");
+        });
+
         // ── Г105: ров, круглые башни, ворота выбивают ──
         yield return ("Г105: ров — 400 пехоты не пересекают ров (как воду), в ров строй не ставится; стол даёт рву цену — в бою он непроходим", () =>
         {

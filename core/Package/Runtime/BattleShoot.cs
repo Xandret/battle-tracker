@@ -321,6 +321,7 @@ namespace BattleCore
 
         Volley StartVolley(Mover a, Mover b, double t)
         {
+            Ambush(a, b, t, "выстрелил"); a.LastActT = t;   // Г107: стреляющий виден всем; из невидимости — засада
             var v = new Volley { A = a, B = b, T0 = t, LastOk = t };
             ScheduleVolley(v, t);
             return v;
