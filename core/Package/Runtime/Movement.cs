@@ -178,8 +178,28 @@ namespace BattleCore
             {
                 if (m.Field.Target < 0) { m.Note = "на карте негде встать"; return; }
                 route = m.Field.Route(m.P.X, m.P.Y, tx, ty);
-                if (route == null) { m.Note = "пути нет"; return; }
-                if (m.Field.CellOf(tx, ty) != m.Field.Target) m.Note = "цель непроходима — встаёт рядом";
+                if (route == null)
+                {
+                    // Г105: цели не достичь (за закрытыми воротами, за стеной, за рекой) — идёт к ближайшей к ней достижимой клетке и
+                    // встаёт там: у закрытых ворот враг их рубит (GateStrikes), откроют или выбьют — приказ даётся заново
+                    var own = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), m.P.X, m.P.Y, 0, null, m.Pass);
+                    int bestC = -1; double bd = double.MaxValue;
+                    for (int i = 0; i < own.W * own.H; i++)
+                    {
+                        if (!own.Passable(i) || double.IsInfinity(own.CostAt(i))) continue;
+                        var (cx, cy) = own.CenterOf(i); double d = (cx - tx) * (cx - tx) + (cy - ty) * (cy - ty);
+                        if (d < bd) { bd = d; bestC = i; }
+                    }
+                    if (bestC >= 0)
+                    {
+                        (tx, ty) = own.CenterOf(bestC); m.TargetX = tx; m.TargetY = ty;
+                        m.Field = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), tx, ty, m.NominalFp.Front / 2, null, m.Pass);
+                        route = m.Field.Route(m.P.X, m.P.Y, tx, ty);
+                    }
+                    if (route == null) { m.Note = "пути нет"; return; }
+                    m.Note = "цели не достичь — встаёт ближе";
+                }
+                else if (m.Field.CellOf(tx, ty) != m.Field.Target) m.Note = "цель непроходима — встаёт рядом";
             }
             m.Track = Track.Build(m.Field, route);
             if (m.Track == null) { m.Note = "пути нет"; return; }

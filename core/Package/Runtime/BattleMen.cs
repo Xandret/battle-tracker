@@ -56,6 +56,62 @@ namespace BattleCore
             return true;
         }
 
+        // Г105 (Алекс 10.10.2026: «ворота должны быть физичным объектом, который можно выбить»): бойцы врага у закрытых ворот без
+        // противника рубят их в своём ритме ударов (SwingAt — для рисунка); прочность — участка укреплений (Fortify, Siege.Hp:
+        // деревянные 40, окованные 80), GateHitPerSwing за удар на человека; обнулилась — пролом: клетки ворот становятся проломом,
+        // проходимым всем, идущим приказ заново. Своих ворот хозяин не рубит; конница не рубит
+        void GateStrikes(double t, double dt)
+        {
+            var map = Geo?.Map; if (map == null) return;
+            byte gate = Terrain.Id("gate");
+            if (!Terrain.HasAny(map, gate, gate)) return;
+            Fortify.EnsureSections(map, R);
+            if (map.S == null) return;
+            var MR = R.Men; double per = R.Garrison.GateHitPerSwing; int W = map.W;
+            Dictionary<int, double> dmg = null;
+            for (int c = 0; c < map.T.Length; c++)
+            {
+                if (map.T[c] != gate || openGates.Contains(c) || map.S[c] == 0) continue;
+                double gx0 = (c % W) * Terrain.CellM, gy0 = (c / W) * Terrain.CellM, gx1 = gx0 + Terrain.CellM, gy1 = gy0 + Terrain.CellM;
+                foreach (var m in Movers)
+                {
+                    if (IsOwner(m.P.U) || !Alive(m) || m.Fleeing || m.Order == null || BattleMap.IsHorse(m.P.U)) continue;
+                    if (JsMath.Hypot(m.P.X - gx0 - Terrain.CellM / 2, m.P.Y - gy0 - Terrain.CellM / 2) > JsMath.Hypot(m.P.Fp.Front, m.P.Fp.Depth) / 2 + 10) continue;
+                    var f = R.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+                    double rad = MR.BodyShare * Math.Min(f.PerMan, f.RankDepth);
+                    foreach (var a in m.Men)
+                    {
+                        if (!a.Alive || a.Foe != null || a.DownLeft > 0) continue;
+                        double ex = Math.Max(gx0 - a.X, Math.Max(0, a.X - gx1)), ey = Math.Max(gy0 - a.Y, Math.Max(0, a.Y - gy1));
+                        if (JsMath.Hypot(ex, ey) - rad > MR.ReachM) continue;
+                        if (double.IsNaN(a.NextSwing) || a.NextSwing < t - MR.SwingSec) a.NextSwing = t + MR.SwingSec * 0.5 * MoveSim.Hash01(m.P.U.Id, a.Id, 18);
+                        if (a.NextSwing >= t + dt) continue;
+                        a.SwingAt = a.NextSwing; a.SwingN++; MenMelee.Swings++;
+                        a.NextSwing = a.SwingAt + MR.SwingSec * (0.75 + 0.5 * MoveSim.Hash01(m.P.U.Id, a.Id * 97 + a.SwingN, 19));
+                        if (dmg == null) dmg = new Dictionary<int, double>();
+                        dmg[map.S[c]] = (dmg.TryGetValue(map.S[c], out var v) ? v : 0) + per * a.Men;
+                    }
+                }
+            }
+            if (dmg == null) return;
+            bool opened = false;
+            foreach (var kv in dmg)
+            {
+                var hit = Fortify.DamageSection(map, kv.Key, kv.Value, double.NaN, double.NaN, R);
+                if (hit != null && hit.Opened > 0) { opened = true; events.Add($"ворота выбиты — {Fortify.SectionName(Fortify.GetSection(map, kv.Key))}"); }
+            }
+            if (opened) { Terrain.Touched(map); RefreshPass(); }
+        }
+        // прочность ворот у точки для рисунка и интерфейса: (осталось, всего); null — ворот там нет или участков на карте нет
+        public (double hp, double max)? GateHp(double x, double y)
+        {
+            var map = Geo?.Map; if (map == null) return null;
+            Fortify.EnsureSections(map, R);
+            var sec = Fortify.SectionAt(map, x / Geo.W, y / Geo.H);
+            if (sec == null || !(sec.Kind == "gateWood" || sec.Kind == "gateIron")) return null;
+            return (Fortify.SectionHp(sec, R), Fortify.SectionMax(sec, R));
+        }
+
         // Касания бойцов: заполняет touches (по фигуркам, как Bodies.Touch) и menSec, ставит каждому бойцу противника
         void MenTouches()
         {

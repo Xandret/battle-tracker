@@ -86,7 +86,7 @@ namespace BattleCore
                 if (!MenMode || map == null) continue;
                 // карта проходимости заново: до первого хода — к себе; на ходу — приказ заново (путь с учётом ворот)
                 if (!started || m.Order == null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(m.P.U), m.P.X, m.P.Y, 0, null, p);
-                else if (!m.Done && !m.Fleeing) Order(m, m.Order);
+                else if (!m.Fleeing && (m.Order.Kind == OrderKind.Move || m.Order.Kind == OrderKind.Attack)) Order(m, m.Order);   // и дошедший до закрытых ворот — теперь путь есть
             }
         }
         // ворота у точки (x, y): открыть или закрыть всю связную группу клеток ворот; враг идёт только в открытые. false — ворот там нет
@@ -128,9 +128,8 @@ namespace BattleCore
         public double StandZ(double x, double y)
         {
             var map = Geo?.Map; if (map == null) return 0;
-            var c = Terrain.CellAt(map, x / Geo.W, y / Geo.H);
-            return c.T == Terrain.Id("wall") && R.Ranged.BuildingHeightM.TryGetValue("wall", out var w) ? w
-                 : c.T == Terrain.Id("tower") && R.Ranged.BuildingHeightM.TryGetValue("tower", out var t) ? t : 0;
+            R.Ranged.BuildingHeightM.TryGetValue("wall", out var w); R.Ranged.BuildingHeightM.TryGetValue("tower", out var t);
+            return Terrain.StandTop(map, x, y, w, t);
         }
 
         // Б5: весь строй отряда на проходимом (дома, стены, вода — нельзя), точки через 2,5 м по рамке строя; pass — чем отряду можно
@@ -210,8 +209,9 @@ namespace BattleCore
             if (map == null || m.Gone || m.Fleeing || BattleMap.IsHorse(u) || u.Soldiers <= 0) return false;
             byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"); int W = map.W, H = map.H;
             bool Walk(int i) => map.T[i] == wall || map.T[i] == tower;
-            // ближайшие клетки стены и башен — из RowPick ближайших берётся та, через которую прямой ряд длиннее (ближайшая может быть
-            // краем башни 3 × 3: ряд через неё — три клетки, и строй встал бы колонной во двор; чат облика, 10.10.2026)
+            // ближайшие клетки стены и башен — среди тех, что не дальше ближайшей + RowPickM, берётся та, через которую прямой ряд длиннее
+            // (ближайшая может быть краем башни 3 × 3: ряд через неё — три клетки, и строй встал бы колонной во двор; а дальше
+            // RowPickM не смотрим, чтобы не увести отряд на другую, более длинную стену; чат облика, 10.10.2026)
             var near = new List<(double d, int i)>();
             for (int i = 0; i < map.T.Length; i++)
             {
@@ -232,7 +232,7 @@ namespace BattleCore
                 return lo + hi + 1;
             }
             int best = -1, bestLen = 0;
-            for (int c = 0; c < near.Count && c < Math.Max(1, R.Garrison.RowPick); c++)
+            for (int c = 0; c < near.Count && near[c].d <= near[0].d + R.Garrison.RowPickM; c++)
             {
                 bx = near[c].i % W; by = near[c].i / W;
                 int len = Math.Max(Run(1, 0, out _), Run(0, 1, out _));
@@ -507,7 +507,7 @@ namespace BattleCore
             frontFigs.Clear(); touches.Clear(); colFoe.Clear();
             foreach (var m in Movers) foreach (var s in m.Figs) s.Fighting = false;
             // 1) касания фигурок у всех пар врагов поблизости; при бойцах-телах — касания бойцов (Б2)
-            if (MenMode) MenTouches();
+            if (MenMode) { MenTouches(); GateStrikes(t, R.Move.Dt); }
             else for (int i = 0; i < Movers.Count; i++)
                 for (int j = i + 1; j < Movers.Count; j++)
                 {

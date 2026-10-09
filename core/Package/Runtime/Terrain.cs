@@ -457,17 +457,60 @@ namespace BattleCore
         // Прямоугольник по двум углам; outline > 0 — только контур такой толщины в клетках (стены замка)
         // Г104: есть ли на карте хоть одна клетка кода a или b (стены и башни — чтобы не искать их у каждого бойца на каждом шаге);
         // кэш по карте, кисти его сбрасывают
-        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, bool[]> hasCodes = new System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, bool[]>();
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, Dictionary<int, bool>> hasCodes = new System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, Dictionary<int, bool>>();
         public static bool HasAny(TerrainMap m, byte a, byte b)
         {
-            if (!hasCodes.TryGetValue(m, out var v))
+            var d = hasCodes.GetValue(m, _ => new Dictionary<int, bool>());
+            int key = a << 8 | b;
+            if (!d.TryGetValue(key, out var any))
             {
-                bool any = false; foreach (var t in m.T) if (t == a || t == b) { any = true; break; }
-                hasCodes.AddOrUpdate(m, v = new[] { any });
+                any = false; foreach (var t in m.T) if (t == a || t == b) { any = true; break; }
+                d[key] = any;
             }
-            return v[0];
+            return any;
         }
-        public static void Touched(TerrainMap m) => hasCodes.Remove(m);
+        public static void Touched(TerrainMap m) { hasCodes.Remove(m); towerCircles.Remove(m); }
+        // Г105 (Алекс 10.10.2026: стрелы втыкались в башню «по квадрату»): связная группа клеток башни — круг: центр — середина клеток,
+        // радиус — по площади (r = √(N·25/π): 1 клетка 2,8 м, 3 × 3 — 8,5 м, 5 × 5 — 14,1 м; углы квадрата — снаружи). Так башню
+        // рисует чат облика; стрелы, высота бойца и парапет считаются по кругу. false — клетка не башня
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, Dictionary<int, double[]>> towerCircles = new System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, Dictionary<int, double[]>>();
+        public static bool TowerCircle(TerrainMap m, int cell, out double cx, out double cy, out double r)
+        {
+            cx = cy = r = 0;
+            byte tower = Id("tower");
+            if (cell < 0 || cell >= m.T.Length || m.T[cell] != tower) return false;
+            var d = towerCircles.GetValue(m, _ => new Dictionary<int, double[]>());
+            if (!d.TryGetValue(cell, out var c))
+            {
+                var cells = new List<int> { cell }; var q = new Queue<int>(); q.Enqueue(cell); var seen = new HashSet<int> { cell };
+                while (q.Count > 0)
+                {
+                    int i = q.Dequeue(); int x = i % m.W, y = i / m.W;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        int nx = x + (k == 0 ? 1 : k == 1 ? -1 : 0), ny = y + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                        if (nx < 0 || ny < 0 || nx >= m.W || ny >= m.H) continue;
+                        int j = ny * m.W + nx;
+                        if (m.T[j] == tower && seen.Add(j)) { cells.Add(j); q.Enqueue(j); }
+                    }
+                }
+                double sx = 0, sy = 0;
+                foreach (int i in cells) { sx += (i % m.W + 0.5) * CellM; sy += (i / m.W + 0.5) * CellM; }
+                c = new[] { sx / cells.Count, sy / cells.Count, Math.Sqrt(cells.Count * CellM * CellM / Math.PI) };
+                foreach (int i in cells) d[i] = c;
+            }
+            cx = c[0]; cy = c[1]; r = c[2]; return true;
+        }
+        // на чём стоит точка (x, y): верх стены или башни (внутри её круга) над землёй, 0 — земля; tops — высоты по коду (Ranged.BuildingHeightM)
+        public static double StandTop(TerrainMap m, double x, double y, double wallTop, double towerTop)
+        {
+            int cx = (int)(x / CellM), cy = (int)(y / CellM);
+            if (cx < 0 || cy < 0 || cx >= m.W || cy >= m.H) return 0;
+            int cell = cy * m.W + cx; byte t = m.T[cell];
+            if (t == Id("wall")) return wallTop;
+            if (t == Id("tower")) return TowerCircle(m, cell, out var tcx, out var tcy, out var r) && (x - tcx) * (x - tcx) + (y - tcy) * (y - tcy) > r * r ? 0 : towerTop;
+            return 0;
+        }
         public static int PaintRect(TerrainMap m, string layer, double x0, double y0, double x1, double y1, double value, double outline = 0)
         {
             var arr = LayerOf(m, layer); int v = ClampValue(layer, value); Touched(m);

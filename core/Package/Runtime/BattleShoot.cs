@@ -189,6 +189,7 @@ namespace BattleCore
             if (top <= 0) return false;
             if (cx1 == (int)Math.Min(map.W - 1, Math.Max(0, lx / Terrain.CellM)) && cy1 == (int)Math.Min(map.H - 1, Math.Max(0, ly / Terrain.CellM))) return false;
             int cx0 = (int)Math.Min(map.W - 1, Math.Max(0, x0 / Terrain.CellM)), cy0 = (int)Math.Min(map.H - 1, Math.Max(0, y0 / Terrain.CellM));
+            byte t0 = map.T[cy0 * map.W + cx0];
             bool entered = cx0 != cx1 || cy0 != cy1;
             double fIn = 0;   // доля шага, на которой стрела вошла в клетку по xy (вошла — когда пересекла последнюю из границ)
             if (entered)
@@ -198,20 +199,34 @@ namespace BattleCore
                 if (cy0 != cy1 && Math.Abs(y1 - y0) > 1e-9) fy = ((y1 > y0 ? cy1 : cy1 + 1) * Terrain.CellM - y0) / (y1 - y0);
                 fIn = Math.Max(0, Math.Min(1, Math.Max(fx, fy)));
             }
+            // Г104: у стен и башен над боевым ходом бруствер ParapetHeightM — стрела сбоку (не вдоль стены) бьёт в зубцы; сверху — свободно
+            bool parapet = false;
+            if (t1 == towerId && Terrain.TowerCircle(map, cy1 * map.W + cx1, out var tcx, out var tcy, out var tr))
+            {
+                // Г105: башня круглая — вне круга стрела летит дальше (над углом квадрата клеток); вход в круг — точка на окружности
+                double ex1 = x1 - tcx, ey1 = y1 - tcy;
+                if (ex1 * ex1 + ey1 * ey1 > tr * tr) return false;
+                double ex0 = x0 - tcx, ey0 = y0 - tcy;
+                if (ex0 * ex0 + ey0 * ey0 > tr * tr)
+                {
+                    double dx = x1 - x0, dy = y1 - y0, qa = dx * dx + dy * dy, qb = 2 * (ex0 * dx + ey0 * dy), qc = ex0 * ex0 + ey0 * ey0 - tr * tr, disc = qb * qb - 4 * qa * qc;
+                    fIn = qa > 1e-12 && disc >= 0 ? Math.Max(0, Math.Min(1, (-qb - Math.Sqrt(disc)) / (2 * qa))) : 0;
+                    entered = true; parapet = true;
+                }
+                else { entered = false; fIn = 0; }   // уже в круге — только крыша
+            }
+            else if (entered && (t1 == wallId || t1 == towerId) && t0 != wallId && t0 != towerId) parapet = true;
             double zTop = g1 + top, zIn = z0 + (z1 - z0) * fIn;
             if (t1 == trenchId)
             {
                 // бруствер: держит только вход сбоку ниже верха вала, и не из такого же окопа; сверху — открыто
-                if (!entered || map.T[cy0 * map.W + cx0] == trenchId || zIn >= zTop) return false;
+                if (!entered || t0 == trenchId || zIn >= zTop) return false;
                 f = fIn; return true;
             }
-            // Г104: у стен и башен над боевым ходом бруствер ParapetHeightM — стрела сбоку (не вдоль стены) бьёт в зубцы; сверху — свободно
-            bool parapet = false;
-            if (entered && (t1 == wallId || t1 == towerId)) { byte t0 = map.T[cy0 * map.W + cx0]; if (t0 != wallId && t0 != towerId) { zTop += R.Ranged.ParapetHeightM; parapet = true; } }
-            if (zIn <= zTop) { f = fIn; return true; }             // вошла в клетку ниже верха — в стену или бруствер
+            if (zIn <= zTop + (parapet ? R.Ranged.ParapetHeightM : 0)) { f = fIn; return true; }   // вошла ниже верха — в стену или бруствер
             if (parapet && Ctx.Rng() < R.Garrison.MerlonShare) { f = fIn; return true; }   // над бруствером — в зубец (доля зубцов в длине стены)
             if (z1 >= zTop || z1 >= z0) return false;              // летит над постройкой
-            f = Math.Max(fIn, (z0 - zTop) / (z0 - z1)); return true;   // снижаясь, встретила крышу
+            f = Math.Max(fIn, (z0 - zTop) / (z0 - z1)); return true;   // снижаясь, встретила крышу (боевой ход)
         }
 
         // ── шаг стрельбы: перестрелки, окна, выстрелы, полёт ──

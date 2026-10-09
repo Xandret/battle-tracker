@@ -169,7 +169,7 @@ namespace BattleCore
         // Г104: чем отряду можно пройти сверх правил местности. Walls — стены, башни и ворота (пехота хозяина стен; конь — только ворота);
         // Gates — ворота (враг), из них Blocked — закрытые клетки. null — как у стола: постройки непроходимы
         public sealed class PassRules { public bool Walls, Gates; public bool[] Blocked; }
-        static readonly byte idWall = Terrain.Id("wall"), idTower = Terrain.Id("tower"), idGate = Terrain.Id("gate");
+        static readonly byte idWall = Terrain.Id("wall"), idTower = Terrain.Id("tower"), idGate = Terrain.Id("gate"), idMoat = Terrain.Id("moat"), idPalisade = Terrain.Id("palisade");
         public static double? MoveMult(TerrainMap map, int i, bool horse, Rules r, PassRules pass = null)
         {
             int t = map.T[i];
@@ -177,6 +177,8 @@ namespace BattleCore
             if (pass != null)
             {
                 if (pass.Blocked != null && pass.Blocked[i]) return null;
+                if (t == idMoat && r.Move.MoatImpassable) return null;   // Г105: ров в бою — как вода
+                if (t == idPalisade && r.Move.PalisadeImpassable) return null;   // Г105: частокол в бою — стена
                 if (t == idGate && (pass.Walls || pass.Gates)) return r.Garrison.WalkMult;
                 if (pass.Walls && !horse && (t == idWall || t == idTower)) return r.Garrison.WalkMult;
             }

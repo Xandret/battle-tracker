@@ -527,11 +527,7 @@ namespace BattleCore
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i]; var s = man.Fig;
-                if (zOn)
-                {
-                    int zx = (int)(man.X / Terrain.CellM), zy = (int)(man.Y / Terrain.CellM);
-                    if (zx >= 0 && zy >= 0 && zx < map.W && zy < map.H) { byte t = map.T[zy * map.W + zx]; man.Z = t == idWall ? wallTop : t == idTower ? towerTop : 0; }
-                }
+                if (zOn) man.Z = Terrain.StandTop(map, man.X, man.Y, wallTop, towerTop);
                 s.X += man.X; s.Y += man.Y; s.Vx += man.Vx; s.Vy += man.Vy; s.MenN++;
                 // где был бы якорь по этому бойцу; пересаживающийся (В14) и отставший дальше LagRefM якорь не тянут — они не упёрлись,
                 // а догоняют: «стоят» за нынешнее место якоря (один отставший на сотню метров иначе держал бы всю колонну)
