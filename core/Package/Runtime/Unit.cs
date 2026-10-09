@@ -22,6 +22,8 @@ namespace BattleCore
         public double MapX = 50, MapY = 50, Facing, TokenScale = 1;
         public double MovedM, RunUpM, Range;
         public int Ranks;                     // выбранное построение — глубина строя в шеренгах (0 — по правилам стола для типа), Г101
+        public string Shape = "";             // Г106: форма строя — "" или line (линия, глубина по Ranks), wedge (клин), crescent (полумесяц), square (каре), circle (круг)
+        public bool Open;                     // Г106: ряды разомкнуты — шаг в строю ×Move.OpenK, глубина шеренги ×Move.OpenDepthK
 
         public Unit Clone() => (Unit)MemberwiseClone();
     }

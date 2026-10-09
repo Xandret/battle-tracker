@@ -56,7 +56,7 @@ namespace BattleCore
         // куда она смотрит; иначе — по строю
         public static double FigHeading(Mover m, FigState s)
         {
-            if (!s.Turned) return m.P.Facing;
+            if (!s.Turned) return s.Face == 0 ? m.P.Facing : MoveSim.Norm(m.P.Facing + s.Face);   // Г106: грань каре и круга смотрит наружу
             double want = s.Wrap ? s.WH : m.Fleeing && !double.IsNaN(s.FleeH) ? s.FleeH : m.P.Facing, a = s.Axis;
             if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
             return MoveSim.Norm(a);
@@ -69,7 +69,7 @@ namespace BattleCore
             return (x, y);
         }
 
-        static Rules.FormationR Grid(Unit u, Rules r) => r.Map.Formation.TryGetValue(u.Type, out var f) ? f : r.Map.Formation["infantry"];
+        static Rules.FormationR Grid(Unit u, Rules r) => Formation.For(u, r);   // Г106: с разомкнутыми рядами — шаг и глубина шире
         // Г87: тел на men человек при k человек в теле; полудлина капсулы тела вдоль колонны (конь — своя, плюс k − 1 рядов)
         internal static int BodiesOf(double men, int k) => (int)Math.Ceiling(Math.Max(0, Math.Round(men)) / Math.Max(1, k));
         internal static double BodyHalf(Mover m, Rules r) => BodyHalf(m, r, m.BodyK);   // самое длинное тело отряда

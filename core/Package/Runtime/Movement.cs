@@ -35,6 +35,7 @@ namespace BattleCore
     public sealed class FigState
     {
         public int Id;   // постоянный номер тела в отряде: место в строю (индекс) меняется — обмены, потери, — а тело то же
+        public double Face;   // Г106: куда смотрит колонна относительно курса отряда (каре и круг — наружу)
         // касается врага (Г27) и в какую сторону он (единичный вектор) — для выпадов передних бойцов (Г78)
         public bool Fighting; public double FightX, FightY, FoeX, FoeY; public int FoeId;   // FoeX, FoeY — где касающаяся фигурка врага; FoeId — её отряд
         public double FightT = double.NegativeInfinity;   // когда колонна последний раз касалась врага (часы боя)
@@ -130,7 +131,7 @@ namespace BattleCore
             P.X = x; P.Y = y; P.Facing = MoveSim.Norm(facing);
             P.Relayout(r, menPerFigure, force: true);
             Figs.Clear();
-            foreach (var f in P.Figs) { P.ToWorld(f.X, f.Y, out var wx, out var wy); Figs.Add(new FigState { Id = NextFigId++, X = wx, Y = wy, AX = wx, AY = wy }); }
+            foreach (var f in P.Figs) { P.ToWorld(f.X, f.Y, out var wx, out var wy); Figs.Add(new FigState { Id = NextFigId++, X = wx, Y = wy, AX = wx, AY = wy, Face = f.Face }); }
             Nominal = P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
             NominalFp = new Footprint { Front = P.Fp.Front, Depth = P.Fp.Depth };
             NominalCols = Cols = MinCols = P.Figs.Count == 0 ? 0 : P.Figs.Max(f => f.File) + 1;
@@ -608,7 +609,7 @@ namespace BattleCore
         static void Narrow(Mover m, IList<Mover> ms, Rules r)
         {
             var F = m.Field; var T = m.Track; var M = r.Move; var P = m.P;
-            if (F == null || T == null || T.Pieces.Count == 0 || P.Figs.Count == 0) return;
+            if (F == null || T == null || T.Pieces.Count == 0 || P.Figs.Count == 0 || Formation.IsRing(m.P.U)) return;   // каре и круг рядов не сужают (Г106)
             int n = P.Figs.Count;
             double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
             friendsNear.Clear();

@@ -1059,7 +1059,7 @@ namespace BattleCore
                 // Г81: отступающий не охватывает и кольца не держит — колонны к своим местам, иначе (при бойцах-телах, где
                 // бьющаяся колонна держит место у врага) отряд не оторвался бы от врага
                 bool leaving = x.Order != null && x.Order.Kind == OrderKind.Retreat && !x.Done;
-                if (foes.Count == 0 || leaving || x.P.Figs.Count == 0 || !Alive(x))   // бегущий никого не охватывает (Г70)
+                if (foes.Count == 0 || leaving || x.P.Figs.Count == 0 || !Alive(x) || Formation.IsRing(x.P.U))   // бегущий никого не охватывает (Г70); каре и круг не охватывают (Г106)
                 {
                     foreach (var s in x.Figs) { s.Wrap = false; s.WFoe = null; }
                     continue;
@@ -1117,7 +1117,7 @@ namespace BattleCore
         {
             foreach (var x in Movers)
             {
-                if (!Alive(x) || x.P.Figs.Count == 0) continue;
+                if (!Alive(x) || x.P.Figs.Count == 0 || Formation.IsRing(x.P.U)) continue;
                 var f = R.Map.Formation.TryGetValue(x.P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
                 double rad = R.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth) + Soldiers.BodyHalf(x, R);   // Г87: голова капсулы
                 for (int k = 0; k < x.Figs.Count && k < x.P.Figs.Count; k++)
@@ -1325,6 +1325,51 @@ namespace BattleCore
             events.Add($"«{m.P.U.Name}»: перестроение — {RanksName(m.P.U)} ({now.Front:0} × {now.Depth:0} м)");
             return true;
         }
+        // Г106: форма строя — line (линия, глубина по SetRanks), wedge (клин), crescent (полумесяц), square (каре), circle (круг);
+        // open / close — разомкнуть или сомкнуть ряды. Перестроение на месте, бойцы идут на новые места шагом (как SetRanks)
+        public bool SetShape(Mover m, string shape)
+        {
+            if (ShapeWhy(m, shape) != null) return false;
+            shape = shape.Trim().ToLowerInvariant();
+            if (shape == "open" || shape == "close") return SetOpen(m, shape == "open");
+            var u = m.P.U;
+            u.Shape = shape == "line" ? "" : shape;
+            m.LaidMen = -1; Relayout(m); m.Reforming = true;
+            var fp = m.P.Fp;
+            events.Add($"«{u.Name}»: перестроение — {ShapeName(u)} ({fp.Front:0} × {fp.Depth:0} м)");
+            return true;
+        }
+        // почему нельзя перестроиться (для подсказки), null — можно
+        public string ShapeWhy(Mover m, string shape)
+        {
+            shape = (shape ?? "").Trim().ToLowerInvariant();
+            if (!(shape == "line" || shape == "wedge" || shape == "crescent" || shape == "square" || shape == "circle" || shape == "open" || shape == "close")) return "такого строя нет";
+            var u = m.P.U;
+            if (m.Gone || m.P.Figs.Count == 0) return "отряда на поле нет";
+            if (m.Fleeing) return "бежит";
+            if (m.InMelee) return "в схватке не перестроиться";
+            if (m.Garrisoned && shape != "open" && shape != "close" && shape != "line") return "на стене — только линия";
+            if (BattleMap.IsHorse(u) && (shape == "square" || shape == "circle" || shape == "crescent")) return "конница каре, круг и полумесяц не строит";
+            if (shape == "open" && u.Open || shape == "close" && !u.Open) return u.Open ? "ряды уже разомкнуты" : "ряды уже сомкнуты";
+            if (shape != "open" && shape != "close" && Formation.FormKey(Formation.FormOf(u)) == shape) return "уже так стоит";
+            return null;
+        }
+        public bool SetOpen(Mover m, bool open)
+        {
+            if (m.Gone || m.Fleeing || m.P.Figs.Count == 0 || m.P.U.Open == open) return false;
+            m.P.U.Open = open;
+            m.LaidMen = -1; Relayout(m); m.Reforming = true;
+            events.Add($"«{m.P.U.Name}»: ряды {(open ? "разомкнуты" : "сомкнуты")} ({m.P.Fp.Front:0} × {m.P.Fp.Depth:0} м)");
+            return true;
+        }
+        public string ShapeKey(Unit u) => Formation.FormKey(Formation.FormOf(u));
+        public string ShapeName(Unit u)
+        {
+            string s = Formation.FormOf(u) switch { Form.Wedge => "клин", Form.Crescent => "полумесяц", Form.Square => "каре", Form.Circle => "круг", _ => RanksName(u) };
+            return u.Open ? s + ", ряды разомкнуты" : s;
+        }
+        // контур строя для рамки-призрака: (x, y) в метрах от центра по курсу, shape — какой строй примерить (null — текущий)
+        public double[] Outline(Unit u, string shape = null) => Formation.Outline(u, R, shape);
         public string RanksName(Unit u)
         {
             var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
@@ -1371,6 +1416,7 @@ namespace BattleCore
                 if (best >= 0) { bodies[k] = m.Figs[free[best]]; free.RemoveAt(best); }
                 else bodies[k] = new FigState { Id = m.NextFigId++, X = wx, Y = wy, AX = wx, AY = wy };
             }
+            for (int k = 0; k < figs.Count; k++) bodies[k].Face = figs[k].Face;   // Г106
             foreach (int q in free) m.Fallen.Add((m.Figs[q].X, m.Figs[q].Y));
             P.Figs = figs; P.Fp = Formation.Of(P.U, R);
             m.Figs = bodies.ToList();
