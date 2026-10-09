@@ -48,6 +48,7 @@ namespace Journal.Armies
             int maxId = AllIds().DefaultIfEmpty(0).Max();
             if (Root["nextId"] == null || Root["nextId"].Type != JTokenType.Integer || (int)Root["nextId"] <= maxId) Root["nextId"] = maxId + 1;
             foreach (JObject f in Factions) if (f["color"] == null) f["color"] = DefaultColor;
+            foreach (JObject c in Commanders) if (c["valor"] == null) c["valor"] = 10;   // доблесть в поединке 1–20 (поединки командиров, 10.10.2026)
         }
         IEnumerable<int> AllIds() => new[] { Factions, Subfactions, Commanders, Units }.SelectMany(a => a).Select(t => (int?)t["id"] ?? 0);
 
@@ -140,7 +141,7 @@ namespace Journal.Armies
         // ── полководцы ──
         public JObject AddCommander(int? factionId, string name, bool log = true)
         {
-            var c = new JObject { ["id"] = NextId(), ["name"] = name, ["factionId"] = factionId, ["buffMorale"] = 0, ["buffDisc"] = 0, ["buffDmg"] = 0, ["buffDef"] = 0 };
+            var c = new JObject { ["id"] = NextId(), ["name"] = name, ["factionId"] = factionId, ["buffMorale"] = 0, ["buffDisc"] = 0, ["buffDmg"] = 0, ["buffDef"] = 0, ["valor"] = 10 };
             Commanders.Add(c); Dirty = true; if (log) LogCreated(c); return c;
         }
         public void RemoveCommander(int id)

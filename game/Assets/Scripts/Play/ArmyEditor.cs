@@ -322,6 +322,7 @@ namespace Journal.Play
         {
             Lbl(form, "Полководец", "army-h");
             Text("Имя", (string)c["name"], v => { c["name"] = v; file.Dirty = true; Rebuild(); });
+            Number("Доблесть (поединок, 1–20)", c, "valor", 1, 20, false);   // личная сила в поединке командиров (как в Three Kingdoms)
             Lbl(form, "Бонусы отрядам под его началом", "army-h2");
             Number("Боевой дух", c, "buffMorale", -1000, 1000, false);
             Number("Дисциплина", c, "buffDisc", -1000, 1000, false);
