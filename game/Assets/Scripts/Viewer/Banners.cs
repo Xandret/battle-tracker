@@ -50,6 +50,7 @@ namespace Journal.Viewer
             float pad = 34 * s;                      // знамя целиком: древко 28 px вверх, полотнище и лежащее — до 17 px вбок
             for (int ui = 0; ui < rec.Units.Count; ui++)
             {
+                if (!rec.Visible(ui, fi, BattleViewer.ViewSide)) continue;   // туман (Г18)
                 int st = rec.StateAt(ui, fi), since = Since(rec, ui, fi);
                 var col = lin(cols[ui]);
                 if (st == 1 || st == 2)

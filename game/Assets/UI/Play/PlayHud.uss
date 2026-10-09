@@ -397,6 +397,11 @@
     color: var(--gold);
 }
 
+.view-tab {
+    margin-left: 10px;
+    color: var(--gold);
+}
+
 .side-tabs {
     flex-direction: row;
     align-self: center;

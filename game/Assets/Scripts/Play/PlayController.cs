@@ -89,7 +89,7 @@ namespace Journal.Play
             Game = lastMake();
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
-            Summaries.Clear(); current = null; EndedByPlayer = false;
+            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0;
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
@@ -111,6 +111,26 @@ namespace Journal.Play
         // стене или башне — гарнизон: встаёт вдоль стены фронтом наружу (Battle.Garrison)
         public bool HasWalls => Game?.Geo?.Map != null && Game.Geo.Map.T.Any(t => t == WallId || t == TowerId);   // есть ли на карте стены
         static readonly byte WallId = Terrain.Id("wall"), TowerId = Terrain.Id("tower");
+        // ── Г18: туман войны — переключатель вида (Алекс 10.10.2026): ГМ видит всё; сторона — своих и тех чужих, кого видит
+        // (видимость — из движка, пока его нет — видно всех). Вид стороны — её же приказы: активная сторона следует за видом ──
+        public int ViewSide
+        {
+            get => BattleViewer.ViewSide;
+            set { BattleViewer.ViewSide = value; if (value > 0 && ActiveSide != value) { ActiveSide = value; Select(null); } Changed?.Invoke(); }
+        }
+        public void CycleView()
+        {
+            var order = new List<int> { 0 }; order.AddRange(Session.Sides);
+            int i = order.IndexOf(ViewSide); ViewSide = order[(i + 1) % order.Count];
+            Say(ViewSide == 0 ? "Вид: ГМ — видно всё" : $"Вид: {Session.Name(ViewSide)} — чужие, только кого видит");
+        }
+        // виден ли отряд сейчас тому, чьими глазами смотрим
+        public bool SeenNow(Mover m)
+        {
+            var rec = viewer?.Rec; int i = Battle.Movers.IndexOf(m);
+            if (rec == null || i < 0) return true;
+            return rec.Visible(i, Mathf.Clamp((int)(viewer.T / rec.Dt), 0, Mathf.Max(0, rec.Frames.Count - 1)), ViewSide);
+        }
         public bool CanDeploy => Game != null && Phase == PlayPhase.Orders && Session != null && Session.Turn <= 1 && ShowTime <= 0;
         public bool DeployDragging { get; private set; }
         public Mover DeployUnit { get; private set; }
@@ -462,7 +482,7 @@ namespace Journal.Play
             Mover best = null; double bd = double.MaxValue, tol = Math.Max(1.5, 8 / PixelsPerMeter);
             foreach (var m in Battle.Movers)
             {
-                if (!Present(m)) continue;
+                if (!Present(m) || !SeenNow(m)) continue;
                 BoxOf(m, out var x, out var y, out var f, out var w, out var d);
                 double h = f * Math.PI / 180, dx = p.x - x, dy = p.y - y;
                 double lx = Math.Abs(dx * Math.Cos(h) + dy * Math.Sin(h)) - w / 2, ly = Math.Abs(dx * Math.Sin(h) - dy * Math.Cos(h)) - d / 2;
@@ -497,7 +517,8 @@ namespace Journal.Play
                     if (kb.backspaceKey.wasPressedThisFrame) Cancel();
                     if (kb.yKey.wasPressedThisFrame) WallSelected();   // Н — на стену
                 }
-                if (kb.tabKey.wasPressedThisFrame) { ActiveSide = Session.Sides.SkipWhile(s => s != ActiveSide).Skip(1).DefaultIfEmpty(Session.Sides.First()).First(); Select(null); }
+                if (kb.tabKey.wasPressedThisFrame) { ActiveSide = Session.Sides.SkipWhile(s => s != ActiveSide).Skip(1).DefaultIfEmpty(Session.Sides.First()).First(); Select(null); if (ViewSide > 0) ViewSide = ActiveSide; }
+                if (kb.vKey.wasPressedThisFrame) CycleView();   // М — чьими глазами
                 if (kb.digit1Key.wasPressedThisFrame) Speed = 1;
                 if (kb.digit2Key.wasPressedThisFrame) Speed = 2;
                 if (kb.digit3Key.wasPressedThisFrame) Speed = 4;

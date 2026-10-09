@@ -62,6 +62,8 @@ namespace Journal.Viewer
         public bool Live => live;
         public Recording Rec => rec;
         public Camera Cam { get { Init(); return cam; } }
+        // чьими глазами смотрим (Г18, туман войны): 0 — ГМ, видно всё; иначе — сторона: чужих, кого она не видит, не рисуем
+        public static int ViewSide;
         public double T { get => t; set => t = rec == null ? 0 : Math.Max(0, Math.Min(rec.Seconds, value)); }
         public bool Playing { get => playing; set => playing = value; }
         public float Speed { get => speed; set => speed = Mathf.Max(0, value); }
@@ -403,7 +405,7 @@ namespace Journal.Viewer
             for (int u = 0; u < A.Length; u++)
             {
                 var a = A[u]; var b = B[u]; var info = rec.Units[u];
-                if (rec.StateAt(u, f0) == 2) continue;   // ушёл с поля
+                if (rec.StateAt(u, f0) == 2 || !rec.Visible(u, f0, ViewSide)) continue;   // ушёл с поля или не виден (туман)
                 var col = unitCol[u]; var ec = unitEdge[u];
                 float h0 = a[2], dh = Mathf.DeltaAngle(a[2], b[2]);
                 // бегущий (Г100): не плашки колонн, а его бойцы — точками не меньше ~2,5 px

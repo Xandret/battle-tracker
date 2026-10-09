@@ -432,7 +432,7 @@ namespace Journal.Viewer
             var shadow = new Color32(24, 18, 8, 80); var soft = men.Get("util/soft");
             for (int ui = 0; ui < rec.Units.Count; ui++)
             {
-                int st = rec.StateAt(ui, f0); if (st == 2 || f0 >= rec.Men.Count) continue;
+                int st = rec.StateAt(ui, f0); if (st == 2 || f0 >= rec.Men.Count || !rec.Visible(ui, f0, BattleViewer.ViewSide)) continue;   // туман (Г18)
                 DrawUnit(ui, rec.Men[f0][ui], rec.Men[Math.Min(f1, rec.Men.Count - 1)][ui], q, st, ft, t32, unitCol[ui], In, soft, shadow, ppm);
             }
             // вспышки ударов (В13): в миг удара у острия — звёздочка, за 0,1 с вырастает и гаснет

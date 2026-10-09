@@ -48,6 +48,16 @@ namespace Journal.Viewer
         public readonly List<MenFrame[]> Men = new List<MenFrame[]>();                               // кадр → отряд → бойцы (Г75)
         public List<int>[] States;                                                                   // отряд → [кадр, код, кадр, код, …]
         public readonly List<GateRec> Gates = new List<GateRec>();                                   // ворота карты (Г104)
+        // туман войны (Г18, Алекс 10.10.2026: «переключатель вида»): кадр → отряд → какие стороны его видят (бит 1 << сторона);
+        // пусто — видимости в записи нет, видно всем
+        public readonly List<byte[]> Seen = new List<byte[]>();
+        // виден ли отряд стороне side в кадре: 0 — ГМ (видит всё); свои видны всегда
+        public bool Visible(int ui, int frame, int side)
+        {
+            if (side <= 0 || ui < 0 || ui >= Units.Count || Units[ui].Faction == side || Seen.Count == 0) return true;
+            var s = Seen[Math.Max(0, Math.Min(frame, Seen.Count - 1))];
+            return s == null || ui >= s.Length || (s[ui] & (1 << side)) != 0;
+        }
         public readonly List<DeadRec> Dead = new List<DeadRec>();
         public readonly List<ArrowRec> Arrows = new List<ArrowRec>();
         public readonly List<List<string>> Logs = new List<List<string>>();
@@ -152,6 +162,8 @@ namespace Journal.Viewer
         // ── ворота (Г104): связные группы клеток «gate» карты; открыты ли — у движка (Battle.GateOpen), раз в 5 с и по RefreshGates;
         // свои в проходе — каждый кадр (по клетке бойца) ──
         int[] gateOf; bool[] gateOpen, gateBroken;
+        // кто кого видит (Г18): сторона, отряд → виден ли; задаёт игра из движка; null — видимость не пишется
+        public Func<int, Mover, bool> Sees;
         void FindGates(TerrainMap map)
         {
             byte gate = Terrain.Id("gate"); int W = map.W, H = map.H;
@@ -325,6 +337,13 @@ namespace Journal.Viewer
                 return mf;
             }).ToArray());
             int fr = rec.Frames.Count - 1;
+            if (Sees != null)
+            {
+                var seen = new byte[ms.Count];
+                for (int i = 0; i < ms.Count; i++)
+                    for (int sd = 1; sd < 8; sd++) if (Sees(sd, ms[i])) seen[i] |= (byte)(1 << sd);
+                rec.Seen.Add(seen);
+            }
             if (battle == null) { rec.Fights.Add(Array.Empty<int>()); return; }
             if (gateOpen != null) { if (fr % 25 == 0) GateFlags(); GateSnap(fr); }
             rec.Fights.Add(battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());

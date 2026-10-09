@@ -410,19 +410,25 @@ namespace Journal.Play
             powerName1.text = $"{s.Name(sides[0])} · {a:0}"; powerName2.text = $"{b:0} · {s.Name(sides[1])}";
         }
 
+        Label viewTab;
         void SideTabs(BattleSession s)
         {
-            if (sideTabs.childCount != s.Sides.Count())
+            if (sideTabs.childCount != s.Sides.Count() + 1)   // + «Вид»
             {
                 sideTabs.Clear();
                 foreach (var side in s.Sides)
                 {
                     var t = new Label(s.Name(side)); t.AddToClassList("side-tab"); t.AddToClassList("side-" + side);
-                    int sd = side; t.RegisterCallback<ClickEvent>(_ => { pc.ActiveSide = sd; pc.Select(null); });
+                    int sd = side; t.RegisterCallback<ClickEvent>(_ => { pc.ActiveSide = sd; pc.Select(null); if (pc.ViewSide > 0) pc.ViewSide = sd; });
                     t.userData = side; sideTabs.Add(t);
                 }
+                // чьими глазами (Г18): ГМ — видно всё; сторона — туман войны для чужих
+                viewTab = new Label(); viewTab.AddToClassList("side-tab"); viewTab.AddToClassList("view-tab");
+                viewTab.tooltip = "Чьими глазами смотреть (М): ГМ видит всё, сторона — только тех чужих, кого видит";
+                viewTab.RegisterCallback<ClickEvent>(_ => pc.CycleView()); viewTab.userData = -1; sideTabs.Add(viewTab);
             }
             foreach (var t in sideTabs.Children()) t.EnableInClassList("is-on", (int)t.userData == pc.ActiveSide);
+            if (viewTab != null) viewTab.text = pc.ViewSide == 0 ? "Вид: ГМ" : $"Вид: {s.Name(pc.ViewSide)}";
         }
 
         // ── карточки отрядов активной стороны ──
@@ -638,7 +644,7 @@ namespace Journal.Play
             {
                 var m = movers[i];
                 if (!tagOf.TryGetValue(m, out var t)) tagOf[m] = t = BuildTag(m);
-                bool show = PlayController.Present(m) && i < rec.Frames[f0].Length;
+                bool show = PlayController.Present(m) && i < rec.Frames[f0].Length && rec.Visible(i, f0, pc.ViewSide);   // туман (Г18)
                 t.Root.EnableInClassList("hidden", !show);
                 if (!show) continue;
                 // над серединой отряда, на верхней кромке его рамки (где отряд виден): вертикаль через середину выходит из
