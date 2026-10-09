@@ -613,6 +613,82 @@ static class MenBodyTests
             True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
         });
 
+        // ── Г104: гарнизон — стены и ворота по стороне, высота бойца ──
+        // карта 300 × 300: стена по y 150…155 м от x0 до x1 (клетки), башни по концам; ворота — клетки gate в середине, если gateW > 0
+        static Battle Fort(uint seed, int x0, int x1, bool towers = true, int gateW = 0)
+        {
+            var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
+            Terrain.PaintRect(bt.Geo.Map, "t", x0, 30, x1, 30, Terrain.Id("wall"));
+            if (towers) { Terrain.PaintRect(bt.Geo.Map, "t", x0 - 1, 30, x0 - 1, 30, Terrain.Id("tower")); Terrain.PaintRect(bt.Geo.Map, "t", x1 + 1, 30, x1 + 1, 30, Terrain.Id("tower")); }
+            if (gateW > 0) Terrain.PaintRect(bt.Geo.Map, "t", 30 - gateW / 2, 30, 30 + (gateW - 1) / 2, 30, Terrain.Id("gate"));
+            return bt;
+        }
+        static MoveOrder AttackOn(int id) => new MoveOrder { Kind = OrderKind.Attack, TargetId = id };
+
+        yield return ("Г104: гарнизон — 1000 пехоты «на стену» у стены 100 м с башнями: строй вдоль стены фронтом наружу, передние шеренги на боевом ходе (Z = 9), остальные во дворе (Z = 0); штурмующие с поля подходят к стене, на неё не входят, потерь нет ни у кого (до приступа)", () =>
+        {
+            var bt = Fort(5, 20, 39);
+            var T = Templates.Get("infantry");
+            var d = bt.Add(T.Make(1, "Гарнизон", 1000, 1), 150, 120, 0);
+            True(bt.Garrison(d, 150, 170), "не поставлен на стену");
+            True(bt.FortOwner == 1, $"хозяин стен {bt.FortOwner}");
+            True(d.P.Fp.Front <= 110 && d.P.Fp.Front >= 80, $"фронт вдоль стены {d.P.Fp.Front:0} м");
+            True(Math.Abs(d.P.Facing) < 1e-6, $"смотрит {d.P.Facing:0}°, а не наружу (0°)");
+            int onWall = d.Men.Count(x => bt.StandZ(x.X, x.Y) > 0), yard = d.Men.Count - onWall;
+            True(onWall >= 400 && yard >= 150, $"на стене {onWall}, во дворе {yard}");
+            True(d.Men.All(x => x.Z == bt.StandZ(x.X, x.Y)), "высота бойца не по клетке");
+            var e = bt.Add(T.Make(2, "Штурм", 1000, 2), 150, 60, 180);
+            bt.Order(e, AttackOn(1));
+            for (int t = 0; t < 3; t++) bt.Turn();
+            True(d.Men.All(x => x.Z == bt.StandZ(x.X, x.Y)) && d.Men.Count(x => x.Z > 8) >= 400, $"после хода на стене {d.Men.Count(x => x.Z > 8)}");
+            True(e.Men.Count(x => bt.StandZ(x.X, x.Y) > 0) == 0, $"штурмующих на стене {e.Men.Count(x => bt.StandZ(x.X, x.Y) > 0)}");
+            True(e.Men.Min(x => x.Y) > 95 && e.Men.Max(x => x.Y) < 150, $"штурмующие по y {e.Men.Min(x => x.Y):0}…{e.Men.Max(x => x.Y):0}");
+            True(d.P.U.Soldiers == 1000 && e.P.U.Soldiers == 1000, $"потери через стену: гарнизон {1000 - d.P.U.Soldiers:0}, штурм {1000 - e.P.U.Soldiers:0}");
+            True(!bt.Relocate(d, 100, 100, 0), "перестановка после первого хода принята");
+        });
+
+        yield return ("Г104: ворота — 200 пехоты врага идут во двор: закрытые не пускают (стоят у стены), открытые — проходят; свои проходят закрытые", () =>
+        {
+            var bt = Fort(6, 0, 59, towers: false, gateW: 2);
+            bt.FortOwner = 1;
+            var T = Templates.Get("infantry");
+            var e = bt.Add(T.Make(2, "Враг", 200, 2), 150, 60, 180);
+            var o = bt.Add(T.Make(1, "Свои", 200, 1), 100, 60, 180);
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            bt.Order(o, new MoveOrder { X = 100, Y = 250, Facing = 180 });
+            for (int t = 0; t < 5; t++) bt.Turn();
+            True(e.Men.Max(x => x.Y) < 150, $"враг прошёл закрытые ворота: y до {e.Men.Max(x => x.Y):0}");
+            True(o.Men.Count(x => x.Y > 160) > 150, $"своих во дворе {o.Men.Count(x => x.Y > 160)} из 200");
+            True(!bt.GateOpen(150, 152), "ворота открыты без приказа");
+            True(bt.SetGate(150, 152, true) && bt.GateOpen(150, 152), "ворота не открылись");
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            for (int t = 0; t < 10; t++) bt.Turn();
+            True(e.Men.Count(x => x.Y > 160) > 100, $"врага во дворе через открытые ворота {e.Men.Count(x => x.Y > 160)} из 200");
+            True(bt.SetGate(150, 152, false) && !bt.GateOpen(150, 152), "ворота не закрылись");
+        });
+
+        yield return ("Г104: стрельба со стены и на стену — 300 лучников гарнизона бьют пехоту у подножия (55 м); лучники врага с поля бьют гарнизон: за ход он теряет не больше 70 % того, что та же линия в 3 шеренги теряет в поле (бруствер и зубцы), часть стрел — в стену; живые остаются на стене", () =>
+        {
+            (double garrisonLoss, double footLoss, long building, Mover d) Run(bool wall)
+            {
+                var bt = wall ? Fort(7, 20, 39) : new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(7).Next });
+                var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+                var du = TA.Make(1, "Гарнизон", 300, 1); if (!wall) du.Ranks = 3;
+                var d = bt.Add(du, 150, wall ? 120 : 152, 0);
+                if (wall) True(bt.Garrison(d, 150, 170), "не поставлен на стену");
+                var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 150, 95, 180);
+                var ea = bt.Add(TA.Make(3, "Лучники", 300, 2), 60, 95, 180);
+                bt.Order(d, AttackOn(2)); bt.Order(ea, AttackOn(1));
+                bt.Turn();
+                return (300 - d.P.U.Soldiers, 1000 - e.P.U.Soldiers, bt.Shots.Building, d);
+            }
+            var w = Run(true); var f = Run(false);
+            True(w.footLoss >= 20, $"со стены по пехоте у подножия: потери {w.footLoss:0}");
+            True(w.garrisonLoss >= 1 && w.garrisonLoss <= 0.7 * f.garrisonLoss, $"потери гарнизона за ход: на стене {w.garrisonLoss:0}, в поле {f.garrisonLoss:0}");
+            True(w.building > 0 && f.building == 0, $"стрел в стену: у стены {w.building}, в поле {f.building}");
+            True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
+        });
+
         yield return ("Г103: постройки держат стрелы — лучники по пехоте со 100 м: стена 9 м в 10 м перед пехотой режет потери впятеро и больше, стрелы торчат в стене (End 5); вал 1,5 м сверху открыт — потери почти как в поле; одно зерно — один исход", () =>
         {
             (double loss, long building, int end5, int ends, string hash) Run(string what, uint seed)

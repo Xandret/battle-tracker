@@ -59,10 +59,86 @@ namespace BattleCore
 
         public Battle(Geo geo, Rules r, EngineContext ctx) { Geo = geo; R = r; Ctx = ctx; Ctx.Rules = r; }
 
-        // Б5: весь строй отряда на проходимом (дома, стены, вода — нельзя), точки через 2,5 м по рамке строя
-        public bool Fits(Unit u, double x, double y, double facing)
+        // ── Г104: стены и ворота по стороне ──
+        // Чьи стены: пехота этой фракции ходит по стенам и башням и сквозь ворота; остальным стены непроходимы, ворота — только открытые.
+        // null — ничьи (как раньше: постройки непроходимы для всех). Задать до расстановки; Garrison ставит сам, если не задано
+        public int? FortOwner { get => fortOwner; set { fortOwner = value; RefreshPass(); } }
+        int? fortOwner; bool started;
+        readonly BattleMap.PassRules ownerPass = new BattleMap.PassRules { Walls = true }, enemyPass = new BattleMap.PassRules();
+        readonly HashSet<int> openGates = new HashSet<int>();   // клетки открытых ворот; остальные ворота закрыты
+        public bool IsOwner(Unit u) => fortOwner.HasValue && u.FactionId == fortOwner;
+        BattleMap.PassRules PassOf(Unit u) => IsOwner(u) ? ownerPass : enemyPass;
+        void RefreshPass()
+        {
+            var map = Geo?.Map;
+            if (map != null)
+            {
+                byte gate = Terrain.Id("gate"); bool any = false;
+                var blocked = new bool[map.T.Length];
+                for (int i = 0; i < map.T.Length; i++) if (map.T[i] == gate) { any = true; blocked[i] = !openGates.Contains(i); }
+                enemyPass.Gates = any; enemyPass.Blocked = any ? blocked : null;
+            }
+            foreach (var m in Movers)
+            {
+                var p = PassOf(m.P.U);
+                if (m.Pass == p && p != enemyPass) continue;
+                m.Pass = p;
+                if (!MenMode || map == null) continue;
+                // карта проходимости заново: до первого хода — к себе; на ходу — приказ заново (путь с учётом ворот)
+                if (!started || m.Order == null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(m.P.U), m.P.X, m.P.Y, 0, null, p);
+                else if (!m.Done && !m.Fleeing) Order(m, m.Order);
+            }
+        }
+        // ворота у точки (x, y): открыть или закрыть всю связную группу клеток ворот; враг идёт только в открытые. false — ворот там нет
+        public bool SetGate(double x, double y, bool open)
+        {
+            var cells = GateAt(x, y); if (cells == null) return false;
+            bool changed = false;
+            foreach (int c in cells) changed |= open ? openGates.Add(c) : openGates.Remove(c);
+            if (changed) { RefreshPass(); events.Add($"ворота ({x:0}, {y:0}): {(open ? "открыты" : "закрыты")}"); }
+            return true;
+        }
+        public bool GateOpen(double x, double y) { var cells = GateAt(x, y); return cells != null && openGates.Contains(cells[0]); }
+        List<int> GateAt(double x, double y)
+        {
+            var map = Geo?.Map; if (map == null) return null;
+            byte gate = Terrain.Id("gate"); int W = map.W, H = map.H;
+            int best = -1; double bd = Terrain.CellM * 2;
+            for (int i = 0; i < map.T.Length; i++)
+            {
+                if (map.T[i] != gate) continue;
+                double d = JsMath.Hypot((i % W + 0.5) * Terrain.CellM - x, (i / W + 0.5) * Terrain.CellM - y);
+                if (d < bd) { bd = d; best = i; }
+            }
+            if (best < 0) return null;
+            var seen = new List<int> { best }; var q = new Queue<int>(); q.Enqueue(best);
+            while (q.Count > 0)
+            {
+                int c = q.Dequeue(); int cx = c % W, cy = c / W;
+                foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                {
+                    int nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                    int n = ny * W + nx; if (map.T[n] != gate || seen.Contains(n)) continue;
+                    seen.Add(n); q.Enqueue(n);
+                }
+            }
+            return seen;
+        }
+        // на чём стоят в точке: верх стены или башни над землёй клетки (0 — земля)
+        public double StandZ(double x, double y)
+        {
+            var map = Geo?.Map; if (map == null) return 0;
+            var c = Terrain.CellAt(map, x / Geo.W, y / Geo.H);
+            return c.T == Terrain.Id("wall") && R.Ranged.BuildingHeightM.TryGetValue("wall", out var w) ? w
+                 : c.T == Terrain.Id("tower") && R.Ranged.BuildingHeightM.TryGetValue("tower", out var t) ? t : 0;
+        }
+
+        // Б5: весь строй отряда на проходимом (дома, стены, вода — нельзя), точки через 2,5 м по рамке строя; pass — чем отряду можно
+        // пройти сверх местности (Г104: стены хозяина, открытые ворота), null — по стороне отряда
+        public bool Fits(Unit u, double x, double y, double facing, BattleMap.PassRules pass = null)
         {
             if (Geo?.Map == null) return true;
+            pass = pass ?? PassOf(u);
             var fp = Formation.Of(u, R); double h = facing * Math.PI / 180, rx = Math.Cos(h), ry = Math.Sin(h), fx = Math.Sin(h), fy = -Math.Cos(h);
             bool horse = BattleMap.IsHorse(u);
             for (double a = -fp.Front / 2; a <= fp.Front / 2 + 1e-9; a += 2.5)
@@ -71,21 +147,21 @@ namespace BattleCore
                     double px = x + a * rx + b * fx, py = y + a * ry + b * fy;
                     if (px < 0 || py < 0 || px >= Geo.W || py >= Geo.H) return false;
                     int c = (int)(py / Terrain.CellM) * Geo.Map.W + (int)(px / Terrain.CellM);
-                    if (BattleMap.MoveMult(Geo.Map, c, horse, R) == null) return false;
+                    if (BattleMap.MoveMult(Geo.Map, c, horse, R, pass) == null) return false;
                 }
             return true;
         }
         // ближайшее место не дальше maxM, где строй помещается (кольцами по 2,5 м); null — нет такого
-        public (double x, double y)? NearestFit(Unit u, double x, double y, double facing, double maxM = 60)
+        public (double x, double y)? NearestFit(Unit u, double x, double y, double facing, double maxM = 60, BattleMap.PassRules pass = null)
         {
-            if (Fits(u, x, y, facing)) return (x, y);
+            if (Fits(u, x, y, facing, pass)) return (x, y);
             for (double rr = 2.5; rr <= maxM; rr += 2.5)
             {
                 int n = Math.Max(8, (int)(2 * Math.PI * rr / 2.5));
                 for (int i = 0; i < n; i++)
                 {
                     double a = 2 * Math.PI * i / n, px = x + rr * Math.Cos(a), py = y + rr * Math.Sin(a);
-                    if (Fits(u, px, py, facing)) return (px, py);
+                    if (Fits(u, px, py, facing, pass)) return (px, py);
                 }
             }
             return null;
@@ -93,15 +169,93 @@ namespace BattleCore
 
         public Mover Add(Unit u, double x, double y, double facing)
         {
+            var pass = PassOf(u);
             // Б5: отряд нельзя поставить на дом, стену или воду (Алекс 08.10.2026) — рамка сдвигается в ближайшее место, где строй помещается
-            if (MenMode && !Fits(u, x, y, facing)) { var p = NearestFit(u, x, y, facing); if (p != null) { events.Add($"«{u.Name}»: поставлен на непроходимое — сдвинут на {JsMath.Hypot(p.Value.x - x, p.Value.y - y):0} м"); (x, y) = p.Value; } }
+            if (MenMode && !Fits(u, x, y, facing, pass)) { var p = NearestFit(u, x, y, facing, 60, pass); if (p != null) { events.Add($"«{u.Name}»: поставлен на непроходимое — сдвинут на {JsMath.Hypot(p.Value.x - x, p.Value.y - y):0} м"); (x, y) = p.Value; } }
             var m = Mover.Place(u, x, y, facing, R, MenPerFigure);
+            m.Pass = pass;
             Movers.Add(m);
             if (bodyKFixed) ApplyBodyK(m);
             // Б5: карта проходимости есть у отряда с первого шага (цель — он сам, дорогой поиск не идёт): отряд, поставленный на дом,
             // стену или воду, сходит с них — якоря колонн к ближайшей проходимой клетке, тела в непроходимое не ступают
-            if (MenMode && m.Field == null && Geo?.Map != null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), x, y);
+            if (MenMode && m.Field == null && Geo?.Map != null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), x, y, 0, null, pass);
+            foreach (var man in m.Men) man.Z = StandZ(man.X, man.Y);
             return m;
+        }
+        // Г104: переставить отряд до первого хода — строй, колонны и бойцы заново на новом месте; на непроходимом — сдвиг, как в Add.
+        // false — ход уже был, или места нет
+        public bool Relocate(Mover m, double x, double y, double facing)
+        {
+            if (started || TurnRunning || m.Gone || !Movers.Contains(m)) return false;
+            var u = m.P.U; var pass = PassOf(u);
+            if (MenMode && !Fits(u, x, y, facing, pass))
+            {
+                var p = NearestFit(u, x, y, facing, 60, pass); if (p == null) return false;
+                events.Add($"«{u.Name}»: переставлен на непроходимое — сдвинут на {JsMath.Hypot(p.Value.x - x, p.Value.y - y):0} м"); (x, y) = p.Value;
+            }
+            m.Replace(x, y, facing, R, MenPerFigure);
+            m.Pass = pass;
+            if (bodyKFixed) ApplyBodyK(m);
+            if (MenMode && Geo?.Map != null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), x, y, 0, null, pass);
+            foreach (var man in m.Men) man.Z = StandZ(man.X, man.Y);
+            return true;
+        }
+        // Г104: поставить отряд на стену — вдоль прямого ряда клеток стены и башен через ближайшую к (x, y), фронтом наружу (от точки,
+        // куда ставят: она во дворе), колонн — сколько входит в длину ряда, глубина — остальное: передние шеренги на боевом ходе,
+        // что не влезло — во дворе за стеной. До первого хода — переставляет, на ходу — даёт приказ идти. Конница на стену не идёт.
+        // Хозяин стен, если не задан, — фракция этого отряда. false — стены рядом нет, отряд не хозяин, места нет
+        public bool Garrison(Mover m, double x, double y)
+        {
+            var map = Geo?.Map; var u = m.P.U;
+            if (map == null || m.Gone || m.Fleeing || BattleMap.IsHorse(u) || u.Soldiers <= 0) return false;
+            byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"); int W = map.W, H = map.H;
+            bool Walk(int i) => map.T[i] == wall || map.T[i] == tower;
+            int best = -1; double bd = R.Garrison.SeekM;
+            for (int i = 0; i < map.T.Length; i++)
+            {
+                if (!Walk(i)) continue;
+                double d = JsMath.Hypot((i % W + 0.5) * Terrain.CellM - x, (i / W + 0.5) * Terrain.CellM - y);
+                if (d < bd) { bd = d; best = i; }
+            }
+            if (best < 0) return false;
+            if (!fortOwner.HasValue && u.FactionId.HasValue && u.FactionId != 0) FortOwner = u.FactionId;
+            if (!IsOwner(u)) return false;
+            // прямой ряд через ближайшую клетку: вдоль x или вдоль y — что длиннее
+            int bx = best % W, by = best / W;
+            int Run(int dx, int dy, out int lo)
+            {
+                int hi = 0; lo = 0;
+                for (int k = 1; bx + dx * k >= 0 && by + dy * k >= 0 && bx + dx * k < W && by + dy * k < H && Walk((by + dy * k) * W + bx + dx * k); k++) hi = k;
+                for (int k = 1; bx - dx * k >= 0 && by - dy * k >= 0 && bx - dx * k < W && by - dy * k < H && Walk((by - dy * k) * W + bx - dx * k); k++) lo = k;
+                return lo + hi + 1;
+            }
+            int nx = Run(1, 0, out int xlo), ny = Run(0, 1, out int ylo);
+            double dx, dy, lenM, cxM, cyM;
+            if (nx >= ny) { dx = 1; dy = 0; lenM = nx * Terrain.CellM; cxM = (bx - xlo + nx / 2.0) * Terrain.CellM; cyM = (by + 0.5) * Terrain.CellM; }
+            else { dx = 0; dy = 1; lenM = ny * Terrain.CellM; cxM = (bx + 0.5) * Terrain.CellM; cyM = (by - ylo + ny / 2.0) * Terrain.CellM; }
+            // наружу — от точки, куда ставят; точка на самой стене — от середины всех стен карты
+            double px = -dy, py = dx, side = (x - cxM) * px + (y - cyM) * py;
+            if (Math.Abs(side) < Terrain.CellM / 2)
+            {
+                double gx = 0, gy = 0; int gn = 0;
+                for (int i = 0; i < map.T.Length; i++) if (Walk(i)) { gx += i % W + 0.5; gy += i / W + 0.5; gn++; }
+                side = (gx / gn * Terrain.CellM - cxM) * px + (gy / gn * Terrain.CellM - cyM) * py;
+            }
+            if (side > 0) { px = -px; py = -py; }
+            // строй: колонн — сколько входит в ряд с отступом от краёв, глубина — остальное (Г101)
+            var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+            int n = (int)Math.Max(1, Js.Round(u.Soldiers)), cols = Math.Max(1, (int)((lenM - 2 * R.Garrison.EdgeM) / f.PerMan));
+            u.Ranks = Math.Min(R.Move.RanksMax, Math.Max(1, (int)Math.Ceiling((double)n / cols)));
+            var fp = Formation.Of(u, R);
+            double ox = cxM + px * Terrain.CellM / 2, oy = cyM + py * Terrain.CellM / 2;   // наружный край ряда
+            double ux = ox - px * (R.Garrison.EdgeM + fp.Depth / 2), uy = oy - py * (R.Garrison.EdgeM + fp.Depth / 2);
+            double facing = Math.Atan2(px, -py) * 180 / Math.PI;
+            if (!started) { if (!Relocate(m, ux, uy, facing)) return false; }
+            else { m.LaidMen = -1; Relayout(m); Order(m, new MoveOrder { X = ux, Y = uy, Facing = facing }); }
+            m.Garrisoned = true;
+            int onWall = m.Men.Count(mm => StandZ(mm.X, mm.Y) > 0);
+            events.Add(started ? $"«{u.Name}»: на стену — идёт, строй {fp.Front:0} × {fp.Depth:0} м" : $"«{u.Name}»: гарнизон — {onWall} на стене, {m.Men.Count - onWall} во дворе, строй {fp.Front:0} × {fp.Depth:0} м");
+            return true;
         }
         // Г87: одно тело = k человек, k = ⌈всего людей на поле / Men.BodyThresholdMen⌉ — одно на битву, решается перед первым
         // ходом по всем добавленным отрядам (или задано BodyK); отряд, добавленный позже, получает то же k
@@ -133,6 +287,7 @@ namespace BattleCore
             if (m.Fleeing) { if (o.Kind == OrderKind.Rally) m.RallyPending = true; return; }   // бегущий слышит только «сплотить» (Г72)
             if (o.Kind == OrderKind.Rally) return;
             aimed.Remove(m);
+            if (o.Kind == OrderKind.Move || o.Kind == OrderKind.Retreat || o.Kind == OrderKind.Attack && !Shooter(m)) m.Garrisoned = false;   // Г104: уходит со стены
             if (o.Kind == OrderKind.Retreat)
             {
                 // Г81: пятится лицом туда же, куда смотрел; точки нет — прямо назад на полнормы
@@ -186,6 +341,7 @@ namespace BattleCore
         public double StepTime => Math.Max(0, stepK) * R.Move.Dt;
         public void BeginTurn()
         {
+            started = true;
             if (!bodyKFixed) FixBodyK();
             stepsInTurn = MoveSim.StepsPerTurn(R);
             turnStart = Clock;
@@ -595,7 +751,7 @@ namespace BattleCore
             m.FleeY = Math.Max(inset, Math.Min(Geo.H - inset, m.P.Y + hy * run));
             m.FleeHeading = head; m.Fleeing = true; m.FleeSince = t; m.RallyPending = false; m.Rallied = false;
             m.Order = null; m.Track = null; m.Done = false; m.Held = false; m.HoldLeft = 0; m.Vs = 0; aimed.Remove(m);
-            m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), m.FleeX, m.FleeY);
+            m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), m.FleeX, m.FleeY, 0, null, m.Pass);
             foreach (var s in m.Figs)
             {
                 if (!s.Turned) { s.Turned = true; s.Axis = m.P.Facing; }
@@ -751,7 +907,7 @@ namespace BattleCore
             m.Figs = bodies.ToList();
             // отбившиеся подходят к строю в обход врага: карта направлений к месту сбора, клетки под вражескими строями закрыты
             var F0 = m.Field;
-            m.Field = F0 == null ? null : FlowField.Build(Geo, R, BattleMap.IsHorse(P.U), P.X, P.Y, 0, EnemyCells(m, F0));
+            m.Field = F0 == null ? null : FlowField.Build(Geo, R, BattleMap.IsHorse(P.U), P.X, P.Y, 0, EnemyCells(m, F0), m.Pass);
             m.Track = null; m.Vs = 0;
             m.Order = new MoveOrder { Kind = OrderKind.Hold, X = P.X, Y = P.Y, Facing = P.Facing }; m.Done = true;
         }
@@ -1180,7 +1336,10 @@ namespace BattleCore
             var figs = Formation.Layout(P.U, MenPerFigure, R);
             var free = Enumerable.Range(0, m.Figs.Count).ToList();
             var bodies = new FigState[figs.Count];
-            if (oldCols == oldNominal && P.Figs.Count == m.Figs.Count)
+            // колонны — по номеру файла и ряда (раскладка убирает файлы с края, остальные остаются своими), даже если колонн стало
+            // меньше: по ближайшему телу широкие фигурки (2–3 файла) при сдвиге строя к центру цеплялись за соседние, и бойцы
+            // сползали к краю (Г104, гарнизон в 3 шеренги). Сужен в колонну (Г59) — файлы другие, тогда по ближайшему
+            if (oldCols == oldNominal)
             {
                 var had = new Dictionary<(int file, int rank), int>();
                 for (int q = 0; q < P.Figs.Count; q++) had[(P.Figs[q].File, P.Figs[q].Rank)] = q;

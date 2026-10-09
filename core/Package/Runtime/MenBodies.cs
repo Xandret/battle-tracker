@@ -33,6 +33,8 @@ namespace BattleCore
         [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through),
                                                      // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь, 128 — ждёт своей очереди (старт волной, Г84)
         [ThreadStatic] static Rules.MenR tMR;
+        [ThreadStatic] static double tStepM;   // Г104: больше этого перепада высот — тела не толкаются
+        static readonly byte idWall = Terrain.Id("wall"), idTower = Terrain.Id("tower");
         [ThreadStatic] static bool[] tRigid;         // Г86: боец на жёстком месте — в сетку, взгляд вперёд и толкотню не входит
         public static int RigidMen, RigidUnits;      // Г86: сколько бойцов на жёстких местах и отрядов «вдали» на последнем шаге (для тестов и замеров)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
@@ -64,7 +66,7 @@ namespace BattleCore
         [ThreadStatic] static HashSet<int> treeCells; [ThreadStatic] static double[] treeXs, treeYs;
         public static void Step(IList<Mover> ms, double dt, Rules r, Geo geo = null)
         {
-            var M = r.Move; var MR = r.Men; tMR = MR;
+            var M = r.Move; var MR = r.Men; tMR = MR; tStepM = r.Garrison.StepM;
             // Б5: клетки леса рядом с бойцами — их деревья войдут в тела этого шага
             var map = geo?.Map; int forestId = Terrain.Id("forest"); int nt = 0;
             if (map != null && MR.TreesPerCell > 0)
@@ -156,7 +158,7 @@ namespace BattleCore
                 }
             }
             Prof.Add(11, ref pt);
-            if (n == 0) { Finish(ms, dt, r, 0); return; }
+            if (n == 0) { Finish(ms, dt, r, 0, geo); return; }
 
             // Г86: отряд вдали от врага и от других своих, не под стрелами, не бежит — его бойцы у своих мест идут одним телом
             var unitRigid = new bool[ms.Count];
@@ -509,18 +511,27 @@ namespace BattleCore
                 // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает
             }
             Prof.Add(20, ref pp);
-            Finish(ms, dt, r, c);
+            Finish(ms, dt, r, c, geo);
             Prof.Add(15, ref pt);
         }
 
         // 6) колонны — середина и скорость живых бойцов; пробка — по доле упёршихся бойцов
-        static void Finish(IList<Mover> ms, double dt, Rules r, int c)
+        static void Finish(IList<Mover> ms, double dt, Rules r, int c, Geo geo)
         {
             var M = r.Move;
+            // Г104: на чём стоит боец — верх стены или башни по клетке (только если на карте они есть)
+            var map = geo?.Map; bool zOn = map != null && Terrain.HasAny(map, idWall, idTower);
+            double wallTop = 0, towerTop = 0;
+            if (zOn) { r.Ranged.BuildingHeightM.TryGetValue("wall", out wallTop); r.Ranged.BuildingHeightM.TryGetValue("tower", out towerTop); }
             foreach (var m in ms) foreach (var s in m.Figs) { s.X = 0; s.Y = 0; s.Vx = 0; s.Vy = 0; s.MenN = 0; s.RefX = 0; s.RefY = 0; s.RefN = 0; s.RefAllX = 0; s.RefAllY = 0; s.LagN = 0; s.BlockedBy = 0; s.BlockedByEnemy = false; s.Slowed = false; }
             for (int i = 0; i < c; i++)
             {
                 var man = tMan[i]; var s = man.Fig;
+                if (zOn)
+                {
+                    int zx = (int)(man.X / Terrain.CellM), zy = (int)(man.Y / Terrain.CellM);
+                    if (zx >= 0 && zy >= 0 && zx < map.W && zy < map.H) { byte t = map.T[zy * map.W + zx]; man.Z = t == idWall ? wallTop : t == idTower ? towerTop : 0; }
+                }
                 s.X += man.X; s.Y += man.Y; s.Vx += man.Vx; s.Vy += man.Vy; s.MenN++;
                 // где был бы якорь по этому бойцу; пересаживающийся (В14) и отставший дальше LagRefM якорь не тянут — они не упёрлись,
                 // а догоняют: «стоят» за нынешнее место якоря (один отставший на сотню метров иначе держал бы всю колонну)
@@ -666,6 +677,7 @@ namespace BattleCore
                 if (tMi[i] < 0) Push(j, -tnx * penT, -tny * penT, -1, false); else Push(i, tnx * penT, tny * penT, -1, false);
                 return;
             }
+            if (Math.Abs(tMan[i].Z - tMan[j].Z) > tStepM) return;   // Г104: один на стене, другой под ней — не достают друг друга
             bool ri = tRigid[i], rj = tRigid[j];
             if (ri && rj) return;   // Г86: два жёстких не толкаются
             double d = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double nx, out double ny);

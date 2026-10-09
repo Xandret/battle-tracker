@@ -71,6 +71,8 @@ namespace BattleCore
         public List<FigState> Figs = new List<FigState>();
         public MoveOrder Order;
         public FlowField Field;
+        public BattleMap.PassRules Pass;        // Г104: чем этому отряду можно пройти сверх местности (стены хозяина, открытые ворота); null — как всем
+        public bool Garrisoned;                  // Г104: стоит гарнизоном на стене — не разворачивается на цель (линия в 100 м слетела бы со стены), стреляет по всему впереди
         public Track Track;
         public bool Side;                // Г54: ближний ход — без поворота
         public double Vs;                // скорость по пути, м нормы в секунду; переходит в следующий ход
@@ -118,15 +120,22 @@ namespace BattleCore
 
         public static Mover Place(Unit u, double x, double y, double facing, Rules r, double menPerFigure = 10)
         {
-            var m = new Mover { P = new Placed { U = u, X = x, Y = y, Facing = MoveSim.Norm(facing) } };
-            m.P.Relayout(r, menPerFigure);
-            foreach (var f in m.P.Figs) { m.P.ToWorld(f.X, f.Y, out var wx, out var wy); m.Figs.Add(new FigState { Id = m.NextFigId++, X = wx, Y = wy, AX = wx, AY = wy }); }
-            m.Nominal = m.P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
-            m.NominalFp = new Footprint { Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
-            m.NominalCols = m.Cols = m.MinCols = m.P.Figs.Count == 0 ? 0 : m.P.Figs.Max(f => f.File) + 1;
-            m.LaidMen = (int)Math.Max(0, Js.Round(u.Soldiers));
-            Soldiers.Assign(m, r, spawn: true);
+            var m = new Mover { P = new Placed { U = u } };
+            m.Replace(x, y, facing, r, menPerFigure);
             return m;
+        }
+        // поставить заново (до первого хода, Г104): строй, колонны и бойцы — с нуля на новом месте
+        public void Replace(double x, double y, double facing, Rules r, double menPerFigure = 10)
+        {
+            P.X = x; P.Y = y; P.Facing = MoveSim.Norm(facing);
+            P.Relayout(r, menPerFigure, force: true);
+            Figs.Clear();
+            foreach (var f in P.Figs) { P.ToWorld(f.X, f.Y, out var wx, out var wy); Figs.Add(new FigState { Id = NextFigId++, X = wx, Y = wy, AX = wx, AY = wy }); }
+            Nominal = P.Figs.Select(f => (f.X, f.Y, f.Rank, f.File)).ToList();
+            NominalFp = new Footprint { Front = P.Fp.Front, Depth = P.Fp.Depth };
+            NominalCols = Cols = MinCols = P.Figs.Count == 0 ? 0 : P.Figs.Max(f => f.File) + 1;
+            LaidMen = (int)Math.Max(0, Js.Round(P.U.Soldiers));
+            Soldiers.Assign(this, r, spawn: true);
         }
     }
 
@@ -162,7 +171,7 @@ namespace BattleCore
             m.TargetX = tx; m.TargetY = ty;
             m.IgnoreHoldBy = 0;
             // путь — для строя во всю ширину линии (Г59): от крупных препятствий — на полфронта, если есть место
-            m.Field = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), tx, ty, m.NominalFp.Front / 2);
+            m.Field = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), tx, ty, m.NominalFp.Front / 2, null, m.Pass);
             List<(double x, double y)> route;
             if (m.Field == null) route = new List<(double x, double y)> { (m.P.X, m.P.Y), (tx, ty) };
             else
@@ -683,7 +692,7 @@ namespace BattleCore
                     int x = me % F.W + dx, y = me / F.W + dy;
                     if (x >= 0 && y >= 0 && x < F.W && y < F.H) extra[y * F.W + x] = false;
                 }
-            var DF = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), m.TargetX, m.TargetY, m.NominalFp.Front / 2, extra);
+            var DF = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), m.TargetX, m.TargetY, m.NominalFp.Front / 2, extra, m.Pass);
             if (DF.Target < 0) return;
             var route = DF.Route(m.P.X, m.P.Y, m.TargetX, m.TargetY);
             var tr = route == null ? null : Track.Build(DF, route);

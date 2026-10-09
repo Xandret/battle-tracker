@@ -20,6 +20,7 @@ namespace BattleCore
         public double Lx, Ly;        // место в фигурке, её оси: x — вдоль фронта вправо, y — вглубь (минус — вперёд)
         public int Row;              // ряд в фигурке (0 — передний)
         public double X, Y, Vx, Vy, Facing;
+        public double Z;             // Г104: на чём стоит над землёй клетки — верх стены или башни (0 — земля); для рисунка и стрел
         public bool Alive = true;
         public double Hu;            // своя доля 0…1 (хеш номера): фаза выпадов и виляния
         public Body Body;            // мишень для стрел (Г33) — та же точка
@@ -167,20 +168,27 @@ namespace BattleCore
             var idx = new Dictionary<FigState, int>();
             for (int k = 0; k < nk; k++) idx[m.Figs[k]] = k;
             var members = Enumerable.Range(0, nk).Select(_ => new List<Man>()).ToList();
+            // сироты — в недобор только у пехоты и не в схватке: конь через строй к недобору идёт задом (Г94), а в схватке идущий
+            // через строй выпадает из боя — потери стола падают (Г62, Г68); там — к ближайшей, как раньше
+            bool toLacking = r.Men.OrphansToLacking && !BattleMap.IsHorse(P.U) && !m.InMelee;
             foreach (var man in m.Men)
             {
                 if (man.Fig != null && idx.TryGetValue(man.Fig, out int k)) { members[k].Add(man); continue; }
-                // фигурки нет — к ближайшей; у бойцов-тел (Б1) — к ближайшей, где бойцов меньше двух её норм: иначе колонна,
-                // рядом с которой убрали несколько крайних, набирает сотню бойцов в хвост
-                int best = -1, any = 0; double bd = double.MaxValue, ad = double.MaxValue;
+                // фигурки нет — к ближайшей; у бойцов-тел (Б1) — сначала к ближайшей с недобором (павшие проредили колонны по всему
+                // строю — осиротевшие заполняют их, а не встают хвостом за крайней: Г104, гарнизон в 3 шеренги вырастал хвостом во
+                // двор), иначе к ближайшей, где бойцов меньше двух её норм: иначе колонна, рядом с которой убрали несколько крайних,
+                // набирает сотню бойцов в хвост
+                int best = -1, lack = -1, any = 0; double bd = double.MaxValue, ld = double.MaxValue, ad = double.MaxValue;
                 for (int q = 0; q < nk; q++)
                 {
                     double d = (m.Figs[q].X - man.X) * (m.Figs[q].X - man.X) + (m.Figs[q].Y - man.Y) * (m.Figs[q].Y - man.Y);
                     if (d < ad) { ad = d; any = q; }
-                    if (r.Move.MenBodies && members[q].Count >= 2 * Math.Max(1, BodiesOf(P.Figs[q].Men, m.BodyK))) continue;
+                    int norm = Math.Max(1, BodiesOf(P.Figs[q].Men, m.BodyK));
+                    if (r.Move.MenBodies && toLacking && members[q].Count < norm && d < ld) { ld = d; lack = q; }
+                    if (r.Move.MenBodies && members[q].Count >= 2 * norm) continue;
                     if (d < bd) { bd = d; best = q; }
                 }
-                members[best >= 0 ? best : any].Add(man);
+                members[lack >= 0 ? lack : best >= 0 ? best : any].Add(man);
             }
             for (int k = 0; k < nk; k++) SeatFigure(m, k, members[k], r);
             m.MenVersion++;
@@ -273,12 +281,16 @@ namespace BattleCore
             foreach (int d in Enumerable.Range(0, nk).OrderBy(k => P.Figs[k].Rank).ThenBy(k => P.Figs[k].Y).ThenBy(k => P.Figs[k].X))
             {
                 int best = -1; double bd = double.MaxValue;
+                // Г104: у колонны недобор (павшие) — берёт из ближайшей с избытком по всему строю, не только от соседки: иначе бойцы
+                // убранных крайних колонн идут к прореженному краю конвейером по одному в секунду через каждую колонну. Не в схватке:
+                // там идущий через строй выпадает из боя, и потери стола падают на 8–10 % (Г62)
+                bool lacking = r.Move.MenBodies && r.Men.BalanceAcross && !m.InMelee && Surplus(d) < 0;
                 for (int q = 0; q < nk; q++)
                 {
                     if (q == d || members[q].Count == 0 || Surplus(q) - Surplus(d) < r.Men.BalanceDiff || !Still(q) || !Still(d)) continue;
                     double lim = 1.6 * Math.Max(Math.Max(P.Figs[q].Width, P.Figs[q].Depth), Math.Max(P.Figs[d].Width, P.Figs[d].Depth));
                     double dist = JsMath.Hypot(m.Figs[q].X - m.Figs[d].X, m.Figs[q].Y - m.Figs[d].Y);
-                    if (dist <= lim && dist < bd) { bd = dist; best = q; }
+                    if ((dist <= lim || lacking && Surplus(q) > 0) && dist < bd) { bd = dist; best = q; }
                 }
                 if (best < 0) continue;
                 var to = m.Figs[d];

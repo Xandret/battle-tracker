@@ -166,10 +166,20 @@ namespace BattleCore
         }
         // Множитель пути по клетке; null — непроходимо. «Не задано» — как поле.
         static double? MoveMult(TerrainMap map, int i, Unit u, Rules r) => MoveMult(map, i, u.Type == "cavalry", r);
-        public static double? MoveMult(TerrainMap map, int i, bool horse, Rules r)
+        // Г104: чем отряду можно пройти сверх правил местности. Walls — стены, башни и ворота (пехота хозяина стен; конь — только ворота);
+        // Gates — ворота (враг), из них Blocked — закрытые клетки. null — как у стола: постройки непроходимы
+        public sealed class PassRules { public bool Walls, Gates; public bool[] Blocked; }
+        static readonly byte idWall = Terrain.Id("wall"), idTower = Terrain.Id("tower"), idGate = Terrain.Id("gate");
+        public static double? MoveMult(TerrainMap map, int i, bool horse, Rules r, PassRules pass = null)
         {
             int t = map.T[i];
             if (t == 0) return 1;
+            if (pass != null)
+            {
+                if (pass.Blocked != null && pass.Blocked[i]) return null;
+                if (t == idGate && (pass.Walls || pass.Gates)) return r.Garrison.WalkMult;
+                if (pass.Walls && !horse && (t == idWall || t == idTower)) return r.Garrison.WalkMult;
+            }
             var tr = TR(r, Terrain.ById[t].Key);
             if (tr == null || tr.Move == null) return null;
             return tr.Move[horse ? 1 : 0];

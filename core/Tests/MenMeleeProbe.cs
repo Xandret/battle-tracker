@@ -1277,3 +1277,53 @@ static class ArrowWallProbe
         }
     }
 }
+
+// Г104: гарнизон на стене — где бойцы по ходам: на стене, во дворе, средний y, приказ (dotnet run --project Tests -- garrison [noorder] [inf])
+static class GarrisonProbe
+{
+    public static void Run(string[] opts)
+    {
+        bool order = !opts.Contains("noorder"), inf = opts.Contains("inf"), nowall = opts.Contains("nowall");
+        var bt = new Battle(MoveTests.Open(300, 300), Rules.Base, new EngineContext { Rng = new Mulberry32(7).Next });
+        if (!nowall)
+        {
+            Terrain.PaintRect(bt.Geo.Map, "t", 20, 30, 39, 30, Terrain.Id("wall"));
+            Terrain.PaintRect(bt.Geo.Map, "t", 19, 30, 19, 30, Terrain.Id("tower")); Terrain.PaintRect(bt.Geo.Map, "t", 40, 30, 40, 30, Terrain.Id("tower"));
+        }
+        var TA = Templates.Get(inf ? "infantry" : "archers"); var TB = Templates.Get("infantry");
+        var du = TA.Make(1, "Гарнизон", 300, 1); if (nowall) du.Ranks = 3;
+        var d = bt.Add(du, 150, nowall ? 152 : 120, 0);
+        if (!nowall) Console.WriteLine($"на стену: {bt.Garrison(d, 150, 170)}; строй {d.P.Fp.Front:0} × {d.P.Fp.Depth:0}, центр ({d.P.X:0.0}, {d.P.Y:0.0}), курс {d.P.Facing:0}, шеренг {d.P.U.Ranks}");
+        var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 150, 95, 180);
+        bt.ArrowLog = new List<ArrowTrace>();
+        if (order) bt.Order(d, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        Mover ea = null;
+        if (opts.Contains("ea")) { ea = bt.Add(Templates.Get("archers").Make(3, "Лучники", 300, 2), 60, 95, 180); bt.Order(ea, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1 }); }
+        void Show(string tag)
+        {
+            int on = d.Men.Count(x => x.Z > 8);
+            Console.WriteLine($"{tag}: на стене {on}, во дворе {d.Men.Count - on}, y {d.Men.Min(x => x.Y):0.0}…{d.Men.Max(x => x.Y):0.0} (ср. {d.Men.Average(x => x.Y):0.0}), центр ({d.P.X:0.0}, {d.P.Y:0.0}) курс {d.P.Facing:0}, приказ {(d.Order == null ? "—" : d.Order.Kind.ToString())} done {d.Done} vs {d.Vs:0.00}, врага {1000 - e.P.U.Soldiers:0}, стрел {bt.Shots.Arrows} в стену {bt.Shots.Building}, своих {300 - d.P.U.Soldiers:0}, бежит {d.Fleeing}, БД {d.P.U.Morale:0}, в схватке {d.InMelee}, статус {d.P.U.Status}");
+        }
+        Show("старт");
+        for (int t = 0; t < 3; t++)
+        {
+            var where = d.Men.ToDictionary(x => x, x => d.Figs.IndexOf(x.Fig)); int right = 0, left = 0, far = 0; var moves = new List<string>();
+            var log = bt.Turn(tt =>
+            {
+                foreach (var x in d.Men)
+                {
+                    int k = d.Figs.IndexOf(x.Fig);
+                    if (where.TryGetValue(x, out int k0) && k0 != k && k0 >= 0 && k >= 0) { if (k > k0) right++; else left++; if (Math.Abs(k - k0) > 1) far++; if (moves.Count < 12) moves.Add($"{tt:0.0}с {k0}→{k}"); }
+                    where[x] = k;
+                }
+                if (t == 0 && Math.Abs(tt - 3) < 0.03) Show("  3 с"); if (t == 0 && Math.Abs(tt - 7.5) < 0.03) Show("  7,5 с");
+            });
+            Console.WriteLine($"   переходы бойцов между колоннами: вправо {right}, влево {left}, через одну и дальше {far}: {string.Join(" ", moves)}");
+            Show($"ход {t + 1}");
+            foreach (var l in log) if (l.Contains("Гарнизон")) Console.WriteLine("   " + l);
+            var yard = d.Men.Where(x => x.Z <= 8).ToList();
+            Console.WriteLine("   колонны: " + string.Join(" ", d.Figs.Select((fg, k) => { var mm = d.Men.Where(x => x.Fig == fg).ToList(); return $"{k}:{(k < d.P.Figs.Count ? d.P.Figs[k].Men : -1):0}/{mm.Count}/r{(mm.Count == 0 ? -1 : mm.Max(x => x.Row))}/w{(k < d.P.Figs.Count ? d.P.Figs[k].Width : 0):0.0}"; })));
+            Console.WriteLine($"   во дворе: alive {yard.Count(x => x.Alive)}, без колонны {yard.Count(x => x.Fig == null)}, reseat {yard.Count(x => x.Reseat)}, сбиты {yard.Count(x => x.DownLeft > 0)}, ряды {string.Join(",", yard.GroupBy(x => x.Row).OrderBy(g => g.Key).Select(g => $"{g.Key}:{g.Count()}"))}, колонн у отряда {d.Figs.Count}, Fp {d.P.Fp.Front:0}×{d.P.Fp.Depth:0}, до места ср. {yard.Average(x => { var h = Soldiers.HomeOf(d, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); }):0.0} м");
+        }
+    }
+}
