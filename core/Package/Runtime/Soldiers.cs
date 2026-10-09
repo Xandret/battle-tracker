@@ -111,6 +111,7 @@ namespace BattleCore
         static void Seat(Mover m, Man man, FigState s, (double ox, double oy, int row) sl, Rules r)
         {
             var f = Grid(m.P.U, r); var M = r.Men;
+            if (man.Fig != s) man.WasRigid = false;   // другая колонна — замороженный сдвиг от прежнего якоря (Г86) не годится: иначе прыжок на шаг колонн
             man.Fig = s; man.Row = sl.row;
             man.Lx = sl.ox + (MoveSim.Hash01(m.P.U.Id, man.Id, 11) - 0.5) * M.Jitter * f.PerMan;
             man.Ly = sl.oy + (MoveSim.Hash01(m.P.U.Id, man.Id, 12) - 0.5) * M.Jitter * f.RankDepth;
@@ -333,10 +334,60 @@ namespace BattleCore
                     take[bi] = bj; used[bj] = true; now += bd;
                 }
                 if (was - now < r.Men.SettleGainM) continue;
-                for (int i = 0; i < n; i++) { var sl = slot[take[i]]; mem[i].Lx = sl.lx; mem[i].Ly = sl.ly; mem[i].Row = sl.row; }
+                for (int i = 0; i < n; i++)
+                {
+                    var sl = slot[take[i]]; mem[i].Lx = sl.lx; mem[i].Ly = sl.ly; mem[i].Row = sl.row;
+                    if (JsMath.Hypot(hx[take[i]] - mem[i].X, hy[take[i]] - mem[i].Y) > r.Men.ReseatM) mem[i].Reseat = true;   // далёкое новое место — шагом, не прыжком
+                }
                 any = true;
             }
+            if (SwapAcross(m, r)) any = true;
             if (any) m.MenVersion++;
+        }
+
+        // Б5: обмен местами между соседними стоящими колоннами — боец, которому ближе место в соседней колонне, меняется с тем,
+        // кому ближе его место (парами, численности колонн не меняются). Колонны в схватке, в манёвре и на ходу не трогаем
+        static bool SwapAcross(Mover m, Rules r)
+        {
+            var P = m.P; int nk = m.Figs.Count; if (nk < 2 || m.Fleeing) return false;
+            bool Still(FigState s) => !(s.Moving || s.Fighting || s.Wrap || s.Returning);
+            var byFile = new Dictionary<int, List<int>>();
+            for (int k = 0; k < nk && k < P.Figs.Count; k++) { if (!byFile.TryGetValue(P.Figs[k].File, out var l)) byFile[P.Figs[k].File] = l = new List<int>(); l.Add(k); }
+            bool any = false; double gain = r.Men.SwapGainM;
+            foreach (var man in m.Men)
+            {
+                if (!man.Alive || man.Fig == null || man.Reseat || !Still(man.Fig)) continue;
+                World(m, man.Fig, man.Lx, man.Ly, out var hx, out var hy);
+                double dA = JsMath.Hypot(hx - man.X, hy - man.Y);
+                if (dA < r.Men.SettleFarM) continue;
+                int ka = m.Figs.IndexOf(man.Fig); if (ka < 0 || ka >= P.Figs.Count) continue;
+                int file = P.Figs[ka].File;
+                Man best = null; double bestGain = gain;
+                for (int df = -1; df <= 1; df += 2)
+                {
+                    if (!byFile.TryGetValue(file + df, out var cols)) continue;
+                    foreach (int kb in cols)
+                    {
+                        var sb = m.Figs[kb]; if (!Still(sb)) continue;
+                        foreach (var other in m.Men)
+                        {
+                            if (!other.Alive || other.Fig != sb || other.Reseat || other.Men != man.Men) continue;
+                            World(m, sb, other.Lx, other.Ly, out var ox, out var oy);
+                            double dB = JsMath.Hypot(ox - other.X, oy - other.Y);
+                            double g = dA + dB - (JsMath.Hypot(ox - man.X, oy - man.Y) + JsMath.Hypot(hx - other.X, hy - other.Y));
+                            if (g > bestGain) { bestGain = g; best = other; }
+                        }
+                    }
+                }
+                if (best == null) continue;
+                (man.Fig, best.Fig) = (best.Fig, man.Fig); man.WasRigid = false; best.WasRigid = false;
+                (man.Lx, best.Lx) = (best.Lx, man.Lx); (man.Ly, best.Ly) = (best.Ly, man.Ly); (man.Row, best.Row) = (best.Row, man.Row);
+                // к новому месту — шагом (В14), не прыжком: жёсткий (Г86) стоит ровно на месте, и без этого он перескочил бы на новое
+                World(m, man.Fig, man.Lx, man.Ly, out var nx1, out var ny1); man.Reseat = JsMath.Hypot(nx1 - man.X, ny1 - man.Y) > r.Men.ReseatM;
+                World(m, best.Fig, best.Lx, best.Ly, out var nx2, out var ny2); best.Reseat = JsMath.Hypot(nx2 - best.X, ny2 - best.Y) > r.Men.ReseatM;
+                any = true;
+            }
+            return any;
         }
 
         // Шаг бойцов: к своему месту с запаздыванием, выпады в схватке, толкотня со всеми. Фигурки не двигает.

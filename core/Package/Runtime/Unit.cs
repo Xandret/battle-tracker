@@ -21,6 +21,7 @@ namespace BattleCore
         public bool OnMap;
         public double MapX = 50, MapY = 50, Facing, TokenScale = 1;
         public double MovedM, RunUpM, Range;
+        public int Ranks;                     // выбранное построение — глубина строя в шеренгах (0 — по правилам стола для типа), Г101
 
         public Unit Clone() => (Unit)MemberwiseClone();
     }

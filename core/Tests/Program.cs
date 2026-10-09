@@ -295,6 +295,12 @@ if (args.Length > 0 && args[0] == "g90") { MenChargeProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g86") { MenRigidProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "g94") { MenTurnProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "g81") { MenRetreatProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "fleew") { MenFleeWidthProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "lake") { MenLakeTrace.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "gap") { MenGapProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "wheel") { MenWheelProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "house") { MenHouseProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "forest") { MenForestProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "tune") { MenTuneProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "jerk-trace") { MenJerkTrace.Run(); return 0; }
 if (args.Length > 0 && args[0] == "jerk") { MenJerkProbe.Run(args.Skip(1).ToArray()); return 0; }

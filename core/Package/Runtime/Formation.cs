@@ -23,8 +23,12 @@ namespace BattleCore
 
     public static class Formation
     {
-        static Rules.FormationR For(Unit u, Rules r) =>
-            r.Map.Formation.TryGetValue(u.Type, out var f) ? f : r.Map.Formation["infantry"];
+        static Rules.FormationR For(Unit u, Rules r)
+        {
+            var f = r.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : r.Map.Formation["infantry"];
+            // Г101: выбранное построение — своя глубина в шеренгах при том же шаге в строю; порог — не глубже RanksMax
+            return u.Ranks > 0 && u.Ranks != f.Ranks ? new Rules.FormationR(f.PerMan, Math.Min(u.Ranks, r.Move.RanksMax), f.RankDepth) : f;
+        }
 
         // Строй: фронт × глубина. Потери сужают фронт, а не глубину.
         public static Footprint Of(Unit u, Rules r)
