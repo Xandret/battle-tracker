@@ -60,6 +60,8 @@ namespace Journal.Play
                     for (float t = 8.5f; t <= 15.5f; t += 3.5f) { Dot(5, t, 1.3f); Dot(19, t, 1.3f); } break;
                 case "f-circle":     // круг: кольцо точек
                     for (int i = 0; i < 10; i++) { float a = i * 36 * Mathf.Deg2Rad; Dot(12 + 8 * Mathf.Cos(a), 12 + 8 * Mathf.Sin(a), 1.3f); } break;
+                case "duel":      // два бойца, клинки скрещены
+                    Ring(6, 6, 2.4f); Ring(18, 6, 2.4f); Line(6, 10, 6, 21); Line(18, 10, 18, 21); Line(8, 15, 15, 8); Line(16, 15, 9, 8); break;
                 case "move":      // стрелка вперёд со следом
                     Line(5, 19, 17, 7); Poly(19, 5, 11, 7, 17, 13); Line(4, 13, 8, 17); break;
                 case "attack":    // скрещённые мечи

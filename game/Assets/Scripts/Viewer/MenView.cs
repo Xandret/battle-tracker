@@ -52,12 +52,24 @@ namespace Journal.Viewer
         Kit[][] kits; string[] looks;
         // полководец и стража (Алекс 10.10.2026): у отряда с полководцем — боец у знамени (полководец) и 4–12 ближайших к нему
         // (стража); выбраны по первому кадру; пал полководец — его место занимает ближайший живой из стражи
-        int[] cmdId; int[][] guardIds; HashSet<int>[] guardSet; Kit[] cmdKit; Kit[][] guardKits;
+        int[] cmdId; int[][] guardIds; HashSet<int>[] guardSet; Kit[] cmdKit; Kit[][] guardKits; HashSet<int> frameGuard;
         readonly Dictionary<int, Vector3> cmdAt = new Dictionary<int, Vector3>();   // отряд → где полководец в кадре (x, y, курс°) — личное знамя
         public Vector3? CmdAt(int ui) => cmdAt.TryGetValue(ui, out var v) ? v : (Vector3?)null;
+        // круг поединка: утоптанная земля кольцом (стража стоит по нему)
+        void DuelRing(DuelRec d, float t)
+        {
+            var px = men.Get("util/px"); var solid = new Vector4(0, 0, 1, 0);
+            float a0 = Mathf.Clamp01((t - d.StartT) / 1.5f), fade = float.IsNaN(d.EndT) ? 1 : Mathf.Clamp01(1 - (t - d.EndT) / 3);
+            var dust = new Color32(196, 170, 120, (byte)(110 * a0 * fade));
+            for (int k = 0; k < 36; k++)
+            {
+                float a = k * Mathf.PI * 2 / 36, seg = d.R * Mathf.PI * 2 / 36 * 1.1f;
+                deadTop.Quad(px, Aff.At(d.X + Mathf.Cos(a) * d.R, d.Y + Mathf.Sin(a) * d.R).R(a).S(5.5f, seg * 10), dust, solid);
+            }
+        }
         void PickCommand(int i)
         {
-            cmdId[i] = -1; guardIds[i] = null; guardSet[i] = null;
+            cmdId[i] = -1; guardIds[i] = new int[0]; guardSet[i] = null; cmdKit[i] = null; guardKits[i] = null;
             if (rec.Units[i].Commander <= 0 || rec.Men.Count == 0 || rec.Frames.Count == 0) return;
             var mf = rec.Men[0][i]; var fr = rec.Frames[0][i];
             float h = fr[2] * Mathf.Deg2Rad, dep = (float)rec.Units[i].Depth;
@@ -499,11 +511,17 @@ namespace Journal.Viewer
             var ua = rec.Frames[fi][ui]; var ub = rec.Frames[Math.Min(fi + 1, rec.Frames.Count - 1)][ui];
             float ucx = ua[0] + (ub[0] - ua[0]) * q, ucy = ua[1] + (ub[1] - ua[1]) * q;
             var vs = VisOf(ui, n);
-            // полководец пал — его место у ближайшего живого из стражи
+            // полководец пал — его место у ближайшего живого из стражи; есть в записи (движок, Г108) — из записи
             int cmd = cmdId[ui];
             if (cmd > 0 && (3 * cmd >= m0.Xyh.Length || float.IsNaN(m0.Xyh[3 * cmd])))
             { cmd = -1; foreach (var gid in guardIds[ui]) if (3 * gid < m0.Xyh.Length && !float.IsNaN(m0.Xyh[3 * gid])) { cmd = gid; break; } }
             var gset = guardSet[ui];
+            if (m0.Cmd >= 0)
+            {
+                cmd = m0.Cmd;
+                if (m0.Guard != null) { if (frameGuard == null) frameGuard = new HashSet<int>(); frameGuard.Clear(); foreach (var g in m0.Guard) frameGuard.Add(g); gset = frameGuard; }
+                if (cmdKit[ui] == null) { string sty = ForceStyle ?? info.Style; cmdKit[ui] = Kits.Commander(info.Id, look, sty); guardKits[ui] = Kits.Guard(info.Id, look, sty); }
+            }
             for (int id = 1; id < n; id++)
             {
                 float x = m0.Xyh[3 * id];
@@ -596,6 +614,27 @@ namespace Journal.Viewer
                     if (!m.Vis) continue;
                     if (!horse) { float k = 1 + 0.012f * m.Z; menB.Quad(soft, Aff.At(m.X + 0.045f * k, m.Y + 0.065f * k).R(m.Face).S(0.72f * k, 0.48f * k), shadow, new Vector4(0, 0, 1, 0)); }
                     else horseB.Quad(hsoft, Aff.At(m.X + 0.08f, m.Y + 0.1f).R(m.Face).S(0.9f, 2.25f), shadow, new Vector4(0, 0, 1, 0));
+                }
+            }
+            // поединок (Г108): удары полководца — по записи поединка: замах до удара, удар, возврат; противник принимает на щит
+            // или ранен (кровь); круг поединка — утоптанная земля
+            foreach (var d in rec.Duels)
+            {
+                if (d.A != ui && d.B != ui || t < d.T0 || !float.IsNaN(d.EndT) && t > d.EndT + 3) continue;
+                if (ui == d.A && !float.IsNaN(d.StartT)) DuelRing(d, t);
+                for (int i = 0; i < M.Count; i++)
+                {
+                    var m = M[i]; if (m.Role != 1) continue;
+                    float best = float.NaN; bool mine = false, hit = false;
+                    foreach (var s in d.Strikes) { float dd = t - s.t; if (dd >= -0.45f && dd <= 0.55f && (float.IsNaN(best) || Mathf.Abs(dd) < Mathf.Abs(t - best))) { best = s.t; mine = s.unit == ui; hit = s.hit; } }
+                    if (!float.IsNaN(best))
+                    {
+                        if (mine) { m.Atk = true; m.Ap = 0.45f + (t - best); m.Blow = Mathf.RoundToInt(best * 20); }
+                        else if (!hit && t >= best && t - best < 0.35f) m.Parry = t - best;
+                        else if (hit && t >= best && t - best < 0.45f && m.Vis) Spray(m.X, m.Y, m.Face + Mathf.PI / 2, t - best, Mathf.RoundToInt(best * 97) + ui, men.Get("util/disc"));   // удар — назад от лица
+                        else if (!mine) m.Brace = Mathf.Clamp01(1 - (best - t) / 0.4f);
+                    }
+                    M[i] = m; break;
                 }
             }
             // полководец (Алекс 10.10.2026): золотое кольцо под ногами — видно и издали; где он — личному знамени

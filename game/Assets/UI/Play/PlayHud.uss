@@ -397,6 +397,29 @@
     color: var(--gold);
 }
 
+/* поединки (Г108): вызовы и идущий поединок — под верхней панелью */
+.duel-box {
+    position: absolute;
+    top: 150px;
+    left: 0;
+    right: 0;
+    align-items: center;
+}
+
+.duel-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 10px;
+    margin-bottom: 4px;
+}
+
+.duel-row Label {
+    color: var(--gold-bright);
+    font-size: 13px;
+    -unity-font-style: bold;
+    margin-right: 10px;
+}
+
 .view-tab {
     margin-left: 10px;
     color: var(--gold);

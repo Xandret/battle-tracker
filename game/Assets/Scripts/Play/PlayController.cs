@@ -102,6 +102,7 @@ namespace Journal.Play
             recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
                                     m => Game.Color.TryGetValue(m, out var c) ? c : null, m => Game.Style.TryGetValue(m, out var st) ? st : null);
             recorder.Rec.Image = Game.Image;
+            var bt = Game.Battle; recorder.Sees = (sd, m) => bt.Sees(sd, m);   // туман (Г107)
             recorder.Snap();
         }
 
@@ -285,6 +286,7 @@ namespace Journal.Play
             {
                 if (!Present(m) || m.Fleeing) continue;
                 var f = Battle.R.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : Battle.R.Map.Formation["infantry"];
+                if (Battle.ShapeKey(m.P.U) != "line" && Battle.ShapeWhy(m, "line") == null) Battle.SetShape(m, "line");   // глубина — у линии (Г106)
                 int ranks = Math.Abs(share - 1) < 1e-9 ? 0 : Math.Max(1, (int)Math.Round(f.Ranks * share));
                 if (Battle.SetRanks(m, ranks)) n++;
             }
@@ -293,16 +295,58 @@ namespace Journal.Play
             RefreshPreviews(); Changed?.Invoke();
         }
 
-        // Г106: фигура строя — клин, полумесяц, каре, круг, разомкнуть и сомкнуть ряды. Движок строев — у чата механики (Г34, Г106);
-        // пока его нет, кнопки есть, но говорят, что ждут
-        public bool ShapesReady => false;
-        public string ShapeOf(Mover m) => null;
+        // Г106: фигура строя — клин, полумесяц, каре, круг, разомкнуть и сомкнуть ряды (Battle.SetShape). Перестраиваются на месте,
+        // бойцы идут на новые места шагом; кто не может — пропускается с причиной
+        public bool ShapesReady => true;
+        public string ShapeOf(Mover m)
+        {
+            if (m == null || Battle == null) return null;
+            string k = Battle.ShapeKey(m.P.U);
+            return k != null && k != "line" ? k : m.P.U.Open ? "open" : null;
+        }
+        public string FormHover { get; set; }   // строй под мышью в ряду строев — призрак его контура у выбранных
         public void SetShape(string shape)
         {
             if (Phase != PlayPhase.Orders || Battle == null || Selection.Count == 0) return;
-            string name = shape switch { "wedge" => "Клин", "crescent" => "Полумесяц", "square" => "Каре", "circle" => "Круг", "open" => "Разомкнуть ряды", "close" => "Сомкнуть ряды", _ => shape };
-            Say($"«{name}» — скоро: движок строев делает чат механики (Г106)");
+            int n = 0; string last = null;
+            foreach (var m in Selection)
+            {
+                if (!Present(m)) continue;
+                var why = Battle.ShapeWhy(m, shape);
+                if (why == null && Battle.SetShape(m, shape)) n++; else last = $"«{m.P.U.Name}»: {why ?? "не вышло"}";
+            }
+            var lead = Selected ?? Selection[0];
+            Say(n > 0 ? $"Строй: {Battle.ShapeName(lead.P.U)} — бойцы идут на новые места" + (last != null && Selection.Count > 1 ? $" ({last})" : "") : last ?? "Строй уже такой");
+            RefreshPreviews(); Changed?.Invoke();
         }
+
+        // ── Г108: поединок полководцев (Алекс 10.10.2026, как в Three Kingdoms): «Поединок» (П), потом ПКМ по вражескому отряду
+        // с полководцем — вызов; вызванная сторона в эту же фазу приказов принимает или отказывается (отказ — её войску −БД);
+        // принят — со следующего хода оба отряда стоят, стража держит кольцо, полководцы бьются ──
+        public bool DuelMode { get; set; }
+        public Commander CommanderOf(Mover m) => m == null ? null : Battle?.Ctx?.CommanderOf?.Invoke(m.P.U);
+        public void Challenge(Mover target)
+        {
+            DuelMode = false;
+            if (Selected == null || target == null) return;
+            var why = Battle.Challenge(Selected, target);
+            Say(why == null ? $"«{CommanderOf(Selected)?.Name}» вызывает «{CommanderOf(target)?.Name}» — ответ до «Ход!»" : why);
+            Changed?.Invoke();
+        }
+        public void AnswerDuel(Mover b, bool accept)
+        {
+            if (Phase != PlayPhase.Orders || !Battle.Answer(b, accept)) return;
+            Say(accept ? "Вызов принят — поединок со следующего хода" : "Отказ: войску этой стороны −БД");
+            RefreshPreviews(); Changed?.Invoke();
+        }
+        public DuelRec ActiveDuel()
+        {
+            var rec = viewer?.Rec; if (rec == null) return null;
+            float t = (float)ViewT;
+            foreach (var d in rec.Duels) if (t >= d.T0 && (float.IsNaN(d.EndT) || t <= d.EndT + 2)) return d;
+            return null;
+        }
+        public void LookAtDuel(DuelRec d) { if (d != null && viewer != null) viewer.LookAt(d.X, d.Y, 14); }
 
         // вернуть смотрелке эту битву (после редактора карт, который показывал свою карту)
         public void ReShow() { if (viewer != null && recorder != null) { viewer.SetLive(recorder.Rec); viewer.T = ShowTime; } }
@@ -516,6 +560,7 @@ namespace Journal.Play
                     if (kb.cKey.wasPressedThisFrame) Rally();     // С
                     if (kb.backspaceKey.wasPressedThisFrame) Cancel();
                     if (kb.yKey.wasPressedThisFrame) WallSelected();   // Н — на стену
+                    if (kb.gKey.wasPressedThisFrame && CommanderOf(Selected) != null) DuelMode = !DuelMode;   // П — поединок
                 }
                 if (kb.tabKey.wasPressedThisFrame) { ActiveSide = Session.Sides.SkipWhile(s => s != ActiveSide).Skip(1).DefaultIfEmpty(Session.Sides.First()).First(); Select(null); if (ViewSide > 0) ViewSide = ActiveSide; }
                 if (kb.vKey.wasPressedThisFrame) CycleView();   // М — чьими глазами
@@ -579,6 +624,8 @@ namespace Journal.Play
             }
 
             if (Phase != PlayPhase.Orders || Selection.Count == 0) { CancelDrag(); return; }
+            // поединок: ПКМ по вражескому отряду — вызов его полководцу
+            if (DuelMode && mouse.rightButton.wasPressedThisFrame && (!ui || UiHover != null)) { Challenge(ui ? UiHover : Hover); return; }
             // ПКМ по земле — от точки под мышью; по табличке отряда — от самого отряда (атака)
             if (mouse.rightButton.wasPressedThisFrame && (!ui || UiHover != null))
             {

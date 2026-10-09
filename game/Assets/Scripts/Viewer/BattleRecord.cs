@@ -26,7 +26,15 @@ namespace Journal.Viewer
     // Сбитые с ног конём (Г90): Down — номера бойцов, DownAt — когда сбит, DownEnd — когда встанет (часы боя); только лежащие
     // EngFoe — его противник (парный поединок): номер отряда в записи × 2^20 + номер бойца; −1 — нет
     // Z — высота бойца над землёй (Г104: на стене 9 м, на башне 11); null — все на земле
-    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng, EngFoe; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; public float[] Z; }
+    // Cmd — тело полководца (Г108, движок: Mover.CommanderMan), −1 — нет; Guard — тела стражи
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng, EngFoe; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; public float[] Z; public int Cmd = -1; public int[] Guard; }
+    // поединок полководцев (Г108): отряды (номера в записи), круг, когда шёл, удары (время, номер отряда бьющего, попал), итог
+    public sealed class DuelRec
+    {
+        public int A, B, Winner = -1; public string NameA, NameB; public double ValorA, ValorB;
+        public float X, Y, R, T0, StartT = float.NaN, EndT = float.NaN; public bool LoserKilled, Fighting, Over; public int WoundsA, WoundsB;
+        public readonly List<(float t, int unit, bool hit)> Strikes = new List<(float, int, bool)>();
+    }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
     // ворота (Г104): середина группы клеток ворот, м; St — [кадр, состояние, …]: 0 — закрыты, 1 — открыты (или стены ничьи —
     // проход всем), 2 — в проходе свои (створки распахнуты, пока проходят; бит к «открыты»), 4 — выбиты (Г105: пролом);
@@ -48,6 +56,7 @@ namespace Journal.Viewer
         public readonly List<MenFrame[]> Men = new List<MenFrame[]>();                               // кадр → отряд → бойцы (Г75)
         public List<int>[] States;                                                                   // отряд → [кадр, код, кадр, код, …]
         public readonly List<GateRec> Gates = new List<GateRec>();                                   // ворота карты (Г104)
+        public readonly List<DuelRec> Duels = new List<DuelRec>();                                   // поединки полководцев (Г108)
         // туман войны (Г18, Алекс 10.10.2026: «переключатель вида»): кадр → отряд → какие стороны его видят (бит 1 << сторона);
         // пусто — видимости в записи нет, видно всем
         public readonly List<byte[]> Seen = new List<byte[]>();
@@ -156,6 +165,7 @@ namespace Journal.Viewer
                 Rec.Units.Add(info);
             }
             Rec.States = ms.Select(m => new List<int> { 0, State(m) }).ToArray();
+            sides = ms.Select(m => m.P.U.FactionId ?? 1).Where(f => f > 0 && f < 8).Distinct().ToArray();
             if (battle != null && geo.Map != null) FindGates(geo.Map);
         }
 
@@ -164,6 +174,27 @@ namespace Journal.Viewer
         int[] gateOf; bool[] gateOpen, gateBroken;
         // кто кого видит (Г18): сторона, отряд → виден ли; задаёт игра из движка; null — видимость не пишется
         public Func<int, Mover, bool> Sees;
+        int[] sides;   // стороны на поле (1…7) — для видимости
+
+        // поединки (Г108): из движка в запись — новые добавляются, идущие обновляются, удары дописываются
+        void SnapDuels()
+        {
+            for (int i = 0; i < battle.Duels.Count; i++)
+            {
+                var d = battle.Duels[i];
+                if (!idx.TryGetValue(d.A.P.U.Id, out var ia) || !idx.TryGetValue(d.B.P.U.Id, out var ib)) continue;
+                while (Rec.Duels.Count <= i) Rec.Duels.Add(new DuelRec { A = ia, B = ib, NameA = d.CA?.Name, NameB = d.CB?.Name, ValorA = d.CA?.Valor ?? 10, ValorB = d.CB?.Valor ?? 10, T0 = (float)d.T0 });
+                var r = Rec.Duels[i];
+                r.X = (float)d.X; r.Y = (float)d.Y; r.R = (float)d.R; r.StartT = (float)d.StartT; r.EndT = (float)d.EndT;
+                r.Fighting = d.Fighting; r.Over = d.Over; r.WoundsA = d.WoundsA; r.WoundsB = d.WoundsB; r.LoserKilled = d.LoserKilled;
+                r.Winner = d.Winner == null ? -1 : d.Winner == d.A ? ia : ib;
+                for (int k = r.Strikes.Count; k < d.Strikes.Count; k++)
+                {
+                    var s = d.Strikes[k];
+                    r.Strikes.Add(((float)s.t, s.unitId == d.A.P.U.Id ? ia : ib, s.hit));
+                }
+            }
+        }
         void FindGates(TerrainMap map)
         {
             byte gate = Terrain.Id("gate"); int W = map.W, H = map.H;
@@ -333,6 +364,12 @@ namespace Journal.Viewer
                     mf.Ph[id] = g.ph[id];
                     if (man.Z > 0) { if (mf.Z == null) mf.Z = new float[n]; mf.Z[id] = (float)man.Z; }   // на стене или башне (Г104)
                 }
+                // полководец и стража (Г108)
+                if (m.CommanderMan != null && m.CommanderMan.Alive && m.CommanderMan.Id < n)
+                {
+                    mf.Cmd = m.CommanderMan.Id;
+                    if (m.Guard.Count > 0) mf.Guard = m.Guard.Where(g => g.Alive && g.Id < n).Select(g => g.Id).ToArray();
+                }
                 if (rec.MenMelee) { MeleeOf(m, mf, n); DownOf(m, mf, n); }
                 return mf;
             }).ToArray());
@@ -341,9 +378,10 @@ namespace Journal.Viewer
             {
                 var seen = new byte[ms.Count];
                 for (int i = 0; i < ms.Count; i++)
-                    for (int sd = 1; sd < 8; sd++) if (Sees(sd, ms[i])) seen[i] |= (byte)(1 << sd);
+                    foreach (int sd in sides) if (Sees(sd, ms[i])) seen[i] |= (byte)(1 << sd);
                 rec.Seen.Add(seen);
             }
+            if (battle != null) SnapDuels();
             if (battle == null) { rec.Fights.Add(Array.Empty<int>()); return; }
             if (gateOpen != null) { if (fr % 25 == 0) GateFlags(); GateSnap(fr); }
             rec.Fights.Add(battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());

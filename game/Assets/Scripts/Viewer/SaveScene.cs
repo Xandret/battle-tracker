@@ -27,6 +27,7 @@ namespace Journal.Viewer
         public readonly Dictionary<int, (string Kit, string Style)> Look = new Dictionary<int, (string, string)>();   // облик отряда (В16): из файла или угадан
         public readonly Dictionary<int, (string Name, string Color)> Factions = new Dictionary<int, (string, string)>();
         public readonly Dictionary<int, int> Side = new Dictionary<int, int>();   // фракция → сторона 1 / 2
+        public readonly Dictionary<int, Commander> Commanders = new Dictionary<int, Commander>();   // полководцы: бонусы отрядам, доблесть (Г108)
     }
 
     public static class SaveScene
@@ -65,6 +66,7 @@ namespace Journal.Viewer
                 var (iw, ih) = ImageSize(s.Image);
                 if (iw > 0 && ih > 0) aspect = (double)ih / iw;
             }
+            foreach (var c in (JArray)o["commanders"] ?? new JArray()) { var cm = CommanderOf(c); s.Commanders[cm.Id] = cm; }
             foreach (JObject e in units)
             {
                 var u = UnitOf(e); s.Units.Add(u);
@@ -81,6 +83,12 @@ namespace Journal.Viewer
 
         static double Num(JToken e, string k, double def = 0) { var v = e[k]; return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : def; }
         static int? Int(JToken e, string k) { var v = e[k]; return v != null && v.Type == JTokenType.Integer ? (int)v : (int?)null; }
+        // полководец трекера (JSON) → движка: бонусы отрядам под его началом и доблесть в поединке (Г108, поле valor; нет — 10)
+        public static Commander CommanderOf(JToken c) => new Commander
+        {
+            Id = (int)c["id"], Name = (string)c["name"] ?? "", FactionId = Int(c, "factionId"),
+            BuffMorale = Num(c, "buffMorale"), BuffDisc = Num(c, "buffDisc"), BuffDmg = Num(c, "buffDmg"), BuffDef = Num(c, "buffDef"), Valor = Num(c, "valor", 10),
+        };
         public static Unit UnitOf(JToken e) => new Unit   // отряд трекера (JSON) → отряд движка; тем же читает и бой своих армий
         {
             Id = (int)e["id"], Name = (string)e["name"] ?? "", Type = (string)e["type"] ?? "infantry", Weapon = (string)e["weapon"] ?? "melee",
@@ -146,7 +154,8 @@ namespace Journal.Viewer
             var s = Read(path, widthM: widthM);
             var geo = SceneDef.Open(s.W, s.H);
             var sc = new SceneDef { Name = $"Сохранение: ход {s.Turn}", Turns = turns, Geo = geo, Image = s.Image };
-            sc.Battle = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next });
+            sc.Battle = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next,
+                CommanderOf = u => u.CommanderId.HasValue && s.Commanders.TryGetValue(u.CommanderId.Value, out var cm) ? cm : null });
             int placed = 0, back = 0; double men = 0;
             foreach (var u0 in s.Units)
             {

@@ -25,6 +25,7 @@ namespace Journal.Play
         void Start()
         {
             pc = GetComponent<PlayController>();
+            if (GetComponent<FogOverlay>() == null) gameObject.AddComponent<FogOverlay>();   // туман войны (Г107)
             var sh = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default") ?? Shader.Find("Sprites/Default");
             mat = new Material(sh);
             mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
@@ -98,6 +99,35 @@ namespace Journal.Play
                     var fill = k > 0.5f ? Ok : k > 0.25f ? new Color32(230, 186, 92, 255) : Bad;
                     Line(gx - hw - 0.3f, gy, gx + hw + 0.3f, gy, new Color32(20, 16, 10, 220), 7);
                     if (k > 0) Line(gx - hw, gy, gx - hw + 2 * hw * k, gy, fill, 4);
+                }
+            // строй под мышью в ряду строев (Г106): контур, каким встанет каждый выбранный
+            if (orders && pc.FormHover != null && pc.FormHover.Length > 2)
+            {
+                string sh = pc.FormHover.Substring(2);
+                if (sh == "wedge" || sh == "crescent" || sh == "square" || sh == "circle" || sh == "open" || sh == "close")
+                    foreach (var s in pc.Selection)
+                    {
+                        if (!PlayController.Present(s) || s.Fleeing) continue;
+                        var pts = pc.Battle.Outline(s.P.U, sh == "open" || sh == "close" ? null : sh);
+                        if (pts == null || pts.Length < 6) continue;
+                        double h = s.P.Facing * Math.PI / 180, rx = Math.Cos(h), ry = Math.Sin(h), bx = -Math.Sin(h), by = Math.Cos(h);   // вправо и назад
+                        int n = pts.Length / 2;
+                        for (int i = 0; i < n; i++)
+                        {
+                            int j = (i + 1) % n;
+                            double x0 = s.P.X + rx * pts[2 * i] + bx * pts[2 * i + 1], y0 = s.P.Y + ry * pts[2 * i] + by * pts[2 * i + 1];
+                            double x1 = s.P.X + rx * pts[2 * j] + bx * pts[2 * j + 1], y1 = s.P.Y + ry * pts[2 * j] + by * pts[2 * j + 1];
+                            Line(x0, y0, x1, y1, White, 2, true);
+                        }
+                    }
+            }
+            // туман (Г107): чужой отряд, которого сейчас не видно, — пунктирный круг там, где его видели в последний раз
+            if (pc.ViewSide > 0)
+                foreach (var m in pc.Battle.Movers)
+                {
+                    if (PlayController.SideOf(m) == pc.ViewSide || !PlayController.Present(m) || pc.SeenNow(m)) continue;
+                    if (!pc.Battle.LastSeen.TryGetValue((pc.ViewSide, m.P.U.Id), out var ls)) continue;
+                    Circle(ls.x, ls.y, Math.Max(8, m.P.Fp.Front / 2), new Color32(200, 196, 186, 120), 1.5f, true);
                 }
             // ворота под мышью — их можно открыть или закрыть щелчком
             if (orders && pc.GateHover >= 0 && pc.Battle != null)

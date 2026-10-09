@@ -68,9 +68,11 @@ namespace Journal.Play
             var picks = new[] { a, b };
             var sides = new List<(Unit u, string tpl, string style, string color)>[2];
             var names = new string[2];
+            var cmdrs = new Dictionary<int, Commander>();   // полководцы обеих сторон (номера второй сдвинуты, как у отрядов)
             for (int k = 0; k < 2; k++)
             {
                 var f = Journal.Armies.ArmyFile.Load(picks[k].Path);
+                foreach (var c in f.Commanders) { var cm = Journal.Viewer.SaveScene.CommanderOf(c); cm.Id += k * 100000; cm.FactionId = k + 1; cmdrs[cm.Id] = cm; }
                 var fac = f.Faction(picks[k].FactionId);
                 names[k] = (string)fac?["name"] ?? "Без фракции";
                 string color = (string)fac?["color"];
@@ -81,7 +83,7 @@ namespace Journal.Play
                     if (u.Status == "destroyed" || u.Soldiers < 1) continue;
                     if (picks[k].Units != null && !picks[k].Units.Contains(u.Id)) continue;
                     u.Status = "active"; u.Broken = false;
-                    u.Id += k * 100000; u.FactionId = k + 1;
+                    u.Id += k * 100000; u.FactionId = k + 1; if (u.CommanderId.HasValue) u.CommanderId += k * 100000;
                     sides[k].Add((u, Journal.Art.KitSets.TplOf(Journal.Armies.ArmyFile.KitOf(e)), Journal.Armies.ArmyFile.StyleOf(e), color));
                 }
                 if (sides[k].Count == 0) throw new InvalidOperationException($"у стороны «{names[k]}» нет отрядов в строю");
@@ -99,7 +101,8 @@ namespace Journal.Play
             {
                 Name = $"{names[0]} против {names[1]}", Geo = geo,
                 Note = $"Карта «{tmpl?.Name ?? mapId}» {geo.W:0} × {geo.H:0} м, зерно {seed}. Армии расставлены сами: пехота в центре, конница по флангам, стрелки впереди.",
-                Battle = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next }),
+                Battle = new Battle(geo, R, new EngineContext { Rng = new Mulberry32(seed).Next,
+                    CommanderOf = u => u.CommanderId.HasValue && cmdrs.TryGetValue(u.CommanderId.Value, out var cm) ? cm : null }),
             };
             pb.Session = new BattleSession(pb.Battle);
             pb.Session.SideNames[1] = names[0]; pb.Session.SideNames[2] = names[1];

@@ -333,6 +333,7 @@ namespace Journal.Play
                 }
                 string kind = f.kind;
                 var b = Btn(kind, f.label, null, () => PickForm(kind), f.tip); b.AddToClassList("formation-btn");
+                b.RegisterCallback<PointerEnterEvent>(_ => pc.FormHover = kind); b.RegisterCallback<PointerLeaveEvent>(_ => { if (pc.FormHover == kind) pc.FormHover = null; });
                 row.Add(b); formBtn[kind] = b;
             }
             Add("move", "Идти", "ПКМ", null, "ПКМ по земле — идти; протянуть — куда встать лицом");
@@ -347,6 +348,8 @@ namespace Journal.Play
             formIcon = orderBtn["formation"].Q<Icon>(); formIcon.Kind = "f-line";
             // Г104: гарнизон — пехота на ближайшую стену фронтом наружу (до первого хода — сразу, потом — идёт)
             Add("wall", "На стену", "Н", () => pc.WallSelected(), "Пехота — на ближайшую стену (до 60 м) фронтом наружу; кто не влез — во дворе. Можно и перетащить отряд на стену до первого хода");
+            // Г108: поединок полководцев — потом ПКМ по вражескому отряду с полководцем
+            Add("duel", "Поединок", "П", () => { if (pc.CommanderOf(pc.Selected) != null) pc.DuelMode = !pc.DuelMode; }, "Вызвать вражеского полководца на поединок: нажми, потом ПКМ по его отряду (до 80 м). Отказ бьёт по боевому духу его войска");
         }
 
         void LateUpdate()
@@ -381,6 +384,7 @@ namespace Journal.Play
             pauseButton.text = pc.Paused ? "▶" : "❚❚";
             speed1.EnableInClassList("is-on", Mathf.Approximately(pc.Speed, 1)); speed2.EnableInClassList("is-on", Mathf.Approximately(pc.Speed, 2)); speed4.EnableInClassList("is-on", Mathf.Approximately(pc.Speed, 4));
             Power(s);
+            Duels(s);
             SideTabs(s);
             Cards(s);
             Detail();
@@ -403,11 +407,54 @@ namespace Journal.Play
         {
             var sides = s.Sides.Take(2).ToArray();
             if (sides.Length < 2) return;
-            double a = s.UnitsOf(sides[0]).Where(PlayController.Present).Sum(m => m.P.U.Soldiers);
-            double b = s.UnitsOf(sides[1]).Where(PlayController.Present).Sum(m => m.P.U.Soldiers);
+            // туман (Г107): чужих — только кого видно, и словами-округлением («≈ 1 200»)
+            double Sum(int sd) => s.UnitsOf(sd).Where(m => PlayController.Present(m) && pc.SeenNow(m)).Sum(m => m.P.U.Soldiers);
+            double a = Sum(sides[0]), b = Sum(sides[1]);
             float share = (float)(a + b <= 0 ? 0.5 : a / (a + b));
             powerSeg1.style.width = Length.Percent(100 * share); powerSeg2.style.width = Length.Percent(100 * (1 - share));
-            powerName1.text = $"{s.Name(sides[0])} · {a:0}"; powerName2.text = $"{b:0} · {s.Name(sides[1])}";
+            string N(int sd, double v) => pc.ViewSide > 0 && pc.ViewSide != sd ? $"видно ≈ {System.Math.Round(v / 100) * 100:0}" : $"{v:0}";
+            powerName1.text = $"{s.Name(sides[0])} · {N(sides[0], a)}"; powerName2.text = $"{N(sides[1], b)} · {s.Name(sides[1])}";
+        }
+
+        // ── поединки (Г108): вызовы — «принять / отказаться»; идущий поединок — полоса сверху с ранами и «к поединку» ──
+        VisualElement duelBox; int duelShown = -1; string duelKey;
+        void Duels(BattleSession s)
+        {
+            if (duelBox == null)
+            {
+                duelBox = new VisualElement(); duelBox.AddToClassList("duel-box"); duelBox.pickingMode = PickingMode.Ignore;
+                hud.Add(duelBox);
+            }
+            var bt = pc.Battle; var sb = new System.Text.StringBuilder();
+            bool orders = pc.Phase == PlayPhase.Orders;
+            if (orders) foreach (var c in bt.Challenges) sb.Append(c.from.P.U.Id).Append('>').Append(c.to.P.U.Id).Append(';');
+            var d = pc.ActiveDuel();
+            if (d != null) sb.Append($"d{d.A}-{d.B}-{d.WoundsA}-{d.WoundsB}-{d.Over}-{d.Winner}");
+            string key = sb.ToString();
+            if (key == duelKey) return;
+            duelKey = key; duelBox.Clear();
+            if (orders)
+                foreach (var c in bt.Challenges.ToList())
+                {
+                    var ca = pc.CommanderOf(c.from); var cb = pc.CommanderOf(c.to);
+                    var row = new VisualElement(); row.AddToClassList("duel-row"); row.AddToClassList("panel");
+                    row.Add(new Label($"⚔ «{ca?.Name}» ({ca?.Valor:0}) вызывает «{cb?.Name}» ({cb?.Valor:0}) на поединок — ответ за «{s.Name(PlayController.SideOf(c.to))}»") { name = "duel-text" });
+                    var to = c.to;
+                    var yes = new Button(() => pc.AnswerDuel(to, true)) { text = "Принять" }; yes.AddToClassList("army-btn"); yes.AddToClassList("is-gold");
+                    var no = new Button(() => pc.AnswerDuel(to, false)) { text = "Отказаться" }; no.AddToClassList("army-btn");
+                    row.Add(yes); row.Add(no); duelBox.Add(row);
+                }
+            if (d != null)
+            {
+                var row = new VisualElement(); row.AddToClassList("duel-row"); row.AddToClassList("panel");
+                string Pips(int w) => new string('●', w) + new string('○', Mathf.Max(0, 3 - w));
+                string head = d.Over || d.Winner >= 0
+                    ? $"⚔ Поединок окончен: «{(d.Winner == d.A ? d.NameA : d.NameB)}» одолел «{(d.Winner == d.A ? d.NameB : d.NameA)}»{(d.LoserKilled ? " — убит" : " — ранен")}"
+                    : $"⚔ Поединок: «{d.NameA}» (доблесть {d.ValorA:0}, раны {Pips(d.WoundsA)})  против  «{d.NameB}» (доблесть {d.ValorB:0}, раны {Pips(d.WoundsB)})";
+                row.Add(new Label(head));
+                var go = new Button(() => pc.LookAtDuel(pc.ActiveDuel())) { text = "К поединку" }; go.AddToClassList("army-btn");
+                row.Add(go); duelBox.Add(row);
+            }
         }
 
         Label viewTab;
@@ -565,10 +612,11 @@ namespace Journal.Play
             bool anyWall = pc.HasWalls && pc.Selection.Any(m => !m.Fleeing && m.P.U.Type != "cavalry");
             foreach (var kv in orderBtn)
             {
-                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "cancel" || anyLine);
+                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "duel" ? pc.Selection.Count == 1 && pc.CommanderOf(pc.Selected) != null && !pc.Selected.Fleeing : kv.Key == "cancel" || anyLine);
                 kv.Value.EnableInClassList("is-off", !on);
             }
             orderBtn["charge"].EnableInClassList("is-on", pc.ChargeMode);
+            orderBtn["duel"].EnableInClassList("is-on", pc.DuelMode);
             string rn = pc.Selected != null && pc.Battle != null ? pc.Battle.RanksName(pc.Selected.P.U) : null;
             string cur = "f-line";
             foreach (var (k, name) in new[] { ("f-skirmish", "цепь"), ("f-line", "линия"), ("f-deep", "глубокий строй"), ("f-column", "колонна") })
