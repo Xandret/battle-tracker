@@ -43,6 +43,23 @@ namespace Journal.Play
                     for (float y = 3; y <= 21; y += 4) { Dot(10, y, 1.4f); Dot(14, y, 1.4f); } break;
                 case "wall":      // стена с зубцами
                     Line(3, 21, 3, 7, 6, 7, 6, 10, 9, 10, 9, 7, 15, 7, 15, 10, 18, 10, 18, 7, 21, 7, 21, 21, 3, 21); Line(3, 15, 21, 15); Line(12, 15, 12, 21); break;
+                case "f-open":       // разомкнуть: редкие точки, стрелки в стороны
+                    foreach (float x in new[] { 6f, 12f, 18f }) { Dot(x, 9, 1.3f); Dot(x, 15, 1.3f); }
+                    Line(1, 12, 4, 12); Poly(1, 12, 3, 10.5f, 3, 13.5f); Line(20, 12, 23, 12); Poly(23, 12, 21, 10.5f, 21, 13.5f); break;
+                case "f-close":      // сомкнуть: плотные точки, стрелки внутрь
+                    for (float x = 8; x <= 16; x += 2.7f) { Dot(x, 10, 1.1f); Dot(x, 14, 1.1f); }
+                    Line(1, 12, 5, 12); Poly(6, 12, 4, 10.5f, 4, 13.5f); Line(19, 12, 23, 12); Poly(18, 12, 20, 10.5f, 20, 13.5f); break;
+                case "f-wedge":      // клин: острие вверх
+                    Dot(12, 4, 1.4f); Dot(9.5f, 9, 1.4f); Dot(14.5f, 9, 1.4f); Dot(7, 14, 1.4f); Dot(12, 14, 1.4f); Dot(17, 14, 1.4f);
+                    Dot(4.5f, 19, 1.4f); Dot(9.5f, 19, 1.4f); Dot(14.5f, 19, 1.4f); Dot(19.5f, 19, 1.4f); break;
+                case "f-crescent":   // полумесяц: дуга крыльями вперёд
+                    for (int i = 0; i <= 6; i++) { float a = Mathf.Lerp(200, 340, i / 6f) * Mathf.Deg2Rad; Dot(12 + 9 * Mathf.Cos(a), 17 + 9 * Mathf.Sin(a), 1.4f); }
+                    for (int i = 0; i <= 4; i++) { float a = Mathf.Lerp(215, 325, i / 4f) * Mathf.Deg2Rad; Dot(12 + 5 * Mathf.Cos(a), 18 + 5 * Mathf.Sin(a), 1.2f); } break;
+                case "f-square":     // каре: полый квадрат
+                    for (float t = 5; t <= 19; t += 3.5f) { Dot(t, 5, 1.3f); Dot(t, 19, 1.3f); }
+                    for (float t = 8.5f; t <= 15.5f; t += 3.5f) { Dot(5, t, 1.3f); Dot(19, t, 1.3f); } break;
+                case "f-circle":     // круг: кольцо точек
+                    for (int i = 0; i < 10; i++) { float a = i * 36 * Mathf.Deg2Rad; Dot(12 + 8 * Mathf.Cos(a), 12 + 8 * Mathf.Sin(a), 1.3f); } break;
                 case "move":      // стрелка вперёд со следом
                     Line(5, 19, 17, 7); Poly(19, 5, 11, 7, 17, 13); Line(4, 13, 8, 17); break;
                 case "attack":    // скрещённые мечи

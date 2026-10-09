@@ -273,6 +273,17 @@ namespace Journal.Play
             RefreshPreviews(); Changed?.Invoke();
         }
 
+        // Г106: фигура строя — клин, полумесяц, каре, круг, разомкнуть и сомкнуть ряды. Движок строев — у чата механики (Г34, Г106);
+        // пока его нет, кнопки есть, но говорят, что ждут
+        public bool ShapesReady => false;
+        public string ShapeOf(Mover m) => null;
+        public void SetShape(string shape)
+        {
+            if (Phase != PlayPhase.Orders || Battle == null || Selection.Count == 0) return;
+            string name = shape switch { "wedge" => "Клин", "crescent" => "Полумесяц", "square" => "Каре", "circle" => "Круг", "open" => "Разомкнуть ряды", "close" => "Сомкнуть ряды", _ => shape };
+            Say($"«{name}» — скоро: движок строев делает чат механики (Г106)");
+        }
+
         // вернуть смотрелке эту битву (после редактора карт, который показывал свою карту)
         public void ReShow() { if (viewer != null && recorder != null) { viewer.SetLive(recorder.Rec); viewer.T = ShowTime; } }
 

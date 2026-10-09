@@ -265,18 +265,75 @@ namespace Journal.Play
         }
 
         // ── панель приказов: значок, подпись, клавиша (Г80) ──
+        // строи (Г101 глубина, Г106 фигуры): одна кнопка «Строй» в панели — над ней ряд всех строев по группам
+        VisualElement formPop; Icon formIcon;
+        readonly Dictionary<string, VisualElement> formBtn = new Dictionary<string, VisualElement>();
+        static readonly (string kind, string label, string group, string tip)[] Forms =
+        {
+            ("f-skirmish", "Цепь", "Глубина", "Вдвое мельче строя по столу: шире фронт, меньше шеренг"),
+            ("f-line", "Линия", "Глубина", "Строй по столу"),
+            ("f-deep", "Глубокий", "Глубина", "Глубокий строй: вдвое больше шеренг, уже фронт"),
+            ("f-column", "Колонна", "Глубина", "Колонна: вчетверо глубже — для узостей и марша"),
+            ("f-open", "Разомкнуть", "Ряды", "Разомкнутые ряды: шире интервалы — меньше потерь от стрел, слабее в рукопашной"),
+            ("f-close", "Сомкнуть", "Ряды", "Сомкнутые ряды: плечом к плечу — крепче в рукопашной, уязвимее для стрел"),
+            ("f-wedge", "Клин", "Фигура", "Клин: острие вперёд — пробить строй врага"),
+            ("f-crescent", "Полумесяц", "Фигура", "Полумесяц: крылья вперёд — охватить врага с флангов"),
+            ("f-square", "Каре", "Фигура", "Каре: лицом на все четыре стороны — против конницы"),
+            ("f-circle", "Круг", "Фигура", "Круг: оборона со всех сторон, когда окружили"),
+        };
+        void ToggleForms(bool? show = null)
+        {
+            bool on = show ?? formPop.ClassListContains("hidden");
+            formPop.EnableInClassList("hidden", !on);
+        }
+        void PickForm(string kind)
+        {
+            switch (kind)
+            {
+                case "f-skirmish": pc.SetFormation(0.5); break;
+                case "f-line": pc.SetFormation(1); break;
+                case "f-deep": pc.SetFormation(2); break;
+                case "f-column": pc.SetFormation(4); break;
+                default: pc.SetShape(kind.Substring(2)); break;
+            }
+            ToggleForms(false);
+        }
+
         void BuildOrders()
         {
-            ordersBar.Clear(); orderBtn.Clear();
-            void Add(string kind, string label, string key, System.Action act, string tipText)
+            ordersBar.Clear(); orderBtn.Clear(); formBtn.Clear();
+            VisualElement Btn(string kind, string label, string key, System.Action act, string tipText)
             {
                 var b = new VisualElement(); b.AddToClassList("order-btn");
                 var ic = new Icon(kind); ic.AddToClassList("order-icon"); b.Add(ic);
                 var l = new Label(label); l.AddToClassList("order-label"); b.Add(l);
-                var k = new Label(key); k.AddToClassList("order-key"); b.Add(k);
+                if (key != null) { var k = new Label(key); k.AddToClassList("order-key"); b.Add(k); }
                 b.tooltip = tipText;
                 if (act != null) b.RegisterCallback<ClickEvent>(_ => act());
-                ordersBar.Add(b); orderBtn[kind] = b;
+                return b;
+            }
+            void Add(string kind, string label, string key, System.Action act, string tipText) { var b = Btn(kind, label, key, act, tipText); ordersBar.Add(b); orderBtn[kind] = b; }
+            // ряд строев — над панелью приказов
+            if (formPop == null)
+            {
+                formPop = new VisualElement(); formPop.AddToClassList("formation-pop"); formPop.AddToClassList("hidden");
+                ordersBar.parent.Insert(ordersBar.parent.IndexOf(ordersBar), formPop);
+            }
+            formPop.Clear();
+            string grp = null; VisualElement row = null;
+            foreach (var f in Forms)
+            {
+                if (f.group != grp)
+                {
+                    if (grp != null) { var sep = new VisualElement(); sep.AddToClassList("formation-sep"); formPop.Add(sep); }
+                    grp = f.group;
+                    var col = new VisualElement(); col.AddToClassList("formation-col"); formPop.Add(col);
+                    var gl = new Label(grp); gl.AddToClassList("formation-group"); col.Add(gl);
+                    row = new VisualElement(); row.AddToClassList("formation-row"); col.Add(row);
+                }
+                string kind = f.kind;
+                var b = Btn(kind, f.label, null, () => PickForm(kind), f.tip); b.AddToClassList("formation-btn");
+                row.Add(b); formBtn[kind] = b;
             }
             Add("move", "Идти", "ПКМ", null, "ПКМ по земле — идти; протянуть — куда встать лицом");
             Add("attack", "Атаковать", "ПКМ", null, "ПКМ по врагу — атаковать; стрелки — стрелять");
@@ -285,11 +342,9 @@ namespace Journal.Play
             Add("retreat", "Отступить", "О", () => pc.Retreat(), "Пятиться лицом к врагу на половине нормы");
             Add("rally", "Сплотить", "С", () => pc.Rally(), "Бегущим: когда враг дальше 150 м — бросок d100 ≤ дисциплина");
             Add("cancel", "Отменить", "⌫", () => pc.Cancel(), "Снять новый приказ — отряд продолжит прежний");
-            // Г101: построение — глубина строя; перестраиваются на месте, бойцы идут на новые места шагом
-            Add("f-skirmish", "Цепь", "строй", () => pc.SetFormation(0.5), "Вдвое мельче строя по столу: шире фронт, меньше шеренг");
-            Add("f-line", "Линия", "строй", () => pc.SetFormation(1), "Строй по столу");
-            Add("f-deep", "Глубокий", "строй", () => pc.SetFormation(2), "Глубокий строй: вдвое больше шеренг, уже фронт");
-            Add("f-column", "Колонна", "строй", () => pc.SetFormation(4), "Колонна: вчетверо глубже — для узостей и марша");
+            // построение (Г101, Г106): кнопка «Строй» — значок текущего строя, щелчок — ряд всех строев над панелью
+            Add("formation", "Строй", "▴", () => ToggleForms(), "Строй отряда: глубина, ряды, фигура. Перестраиваются на месте, бойцы идут на новые места шагом");
+            formIcon = orderBtn["formation"].Q<Icon>(); formIcon.Kind = "f-line";
             // Г104: гарнизон — пехота на ближайшую стену фронтом наружу (до первого хода — сразу, потом — идёт)
             Add("wall", "На стену", "Н", () => pc.WallSelected(), "Пехота — на ближайшую стену (до 60 м) фронтом наружу; кто не влез — во дворе. Можно и перетащить отряд на стену до первого хода");
         }
@@ -509,8 +564,23 @@ namespace Journal.Play
             }
             orderBtn["charge"].EnableInClassList("is-on", pc.ChargeMode);
             string rn = pc.Selected != null && pc.Battle != null ? pc.Battle.RanksName(pc.Selected.P.U) : null;
+            string cur = "f-line";
             foreach (var (k, name) in new[] { ("f-skirmish", "цепь"), ("f-line", "линия"), ("f-deep", "глубокий строй"), ("f-column", "колонна") })
-                orderBtn[k].EnableInClassList("is-on", rn == name && !pc.Selected.Fleeing);
+            {
+                bool on = rn == name && !pc.Selected.Fleeing;
+                formBtn[k].EnableInClassList("is-on", on); if (on) cur = k;
+            }
+            string sh = pc.ShapeOf(pc.Selected);   // Г106: фигура строя (клин, каре…), null — нет
+            foreach (var kv in formBtn)
+            {
+                bool shape = kv.Key != "f-skirmish" && kv.Key != "f-line" && kv.Key != "f-deep" && kv.Key != "f-column";
+                if (shape) { bool on = sh != null && kv.Key == "f-" + sh; kv.Value.EnableInClassList("is-on", on); if (on) cur = kv.Key; }
+                kv.Value.EnableInClassList("is-soon", shape && !pc.ShapesReady);
+                kv.Value.EnableInClassList("is-off", !can || !anyLine);
+            }
+            if (formIcon != null && formIcon.Kind != cur) formIcon.Kind = cur;
+            orderBtn["formation"].EnableInClassList("is-on", !formPop.ClassListContains("hidden"));
+            if (!can && !formPop.ClassListContains("hidden")) ToggleForms(false);
         }
 
         // ── подсказка над отрядом под мышью ──

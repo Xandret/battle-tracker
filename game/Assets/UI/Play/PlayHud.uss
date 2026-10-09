@@ -326,6 +326,52 @@
     border-color: var(--gold);
 }
 
+/* ряд строев над панелью приказов (Г101, Г106) */
+.formation-pop {
+    flex-direction: row;
+    align-items: center;
+    padding: 3px 6px;
+    margin-bottom: 4px;
+    background-color: var(--panel);
+    border-width: 1px;
+    border-color: var(--gold-deep);
+    border-radius: 5px;
+}
+
+.formation-col {
+    align-items: center;
+}
+
+.formation-row {
+    flex-direction: row;
+}
+
+.formation-group {
+    font-size: 9px;
+    color: var(--gold);
+    -unity-font-style: bold;
+    margin-bottom: 2px;
+}
+
+.formation-btn {
+    width: 66px;
+}
+
+.formation-sep {
+    width: 1px;
+    height: 52px;
+    margin: 0 6px;
+    background-color: var(--edge-dark);
+}
+
+.order-btn.is-soon .order-label {
+    color: var(--ink-faint);
+}
+
+.order-btn.is-soon .order-icon {
+    opacity: 0.5;
+}
+
 .order-btn.is-off {
     opacity: 0.35;
 }
