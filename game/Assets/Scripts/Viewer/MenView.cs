@@ -1026,7 +1026,17 @@ namespace Journal.Viewer
             if (ppm >= 2.5f)
                 foreach (var ar in rec.Arrows)
                 {
-                    if (ar.T1 > t || ar.End > 2 || !In(ar.X1, ar.Y1, 1)) continue;
+                    if (ar.T1 > t || ar.End > 2 && ar.End != 5 || !In(ar.X1, ar.Y1, 1)) continue;
+                    if (ar.End == 5)
+                    {
+                        // в постройку (Г103): торчит из стены назад, к стрелку — настильная длинно, с крыши (круто сверху) коротко; оперение на конце
+                        ArrowAt(ar, ar.T1 - 0.02f, out _, out _, out _, out var fa, out var fp);
+                        float Lb = Mathf.Max(0.18f, 0.7f * Mathf.Cos(fp)), cx = ar.X1 - Mathf.Cos(fa) * Lb / 2, cy = ar.Y1 - Mathf.Sin(fa) * Lb / 2;
+                        var mb = Aff.At(cx, cy).R(fa + Mathf.PI / 2);
+                        deadTop.Quad(px, mb.S(0.4f * thin, Lb * 10), shaft, solid);
+                        if (ppm >= 8) deadTop.Quad(px, Aff.At(ar.X1 - Mathf.Cos(fa) * Lb * 0.9f, ar.Y1 - Mathf.Sin(fa) * Lb * 0.9f).R(fa + Mathf.PI / 2).S(0.9f, 1.3f), fletch, solid);
+                        continue;
+                    }
                     float ang = Mathf.Atan2(ar.Y1 - ar.Y0, ar.X1 - ar.X0), L = ar.End == 1 ? 0.3f : ar.End == 2 ? 0.7f : 0.4f;
                     float x = ar.X1, y = ar.Y1;
                     if (ar.End == 2) { int s = (int)(ar.T0 * 1000); x += (H(s, 1) - 0.5f) * 0.7f; y += (H(s, 2) - 0.5f) * 0.7f; ang += (H(s, 3) - 0.5f) * 2.5f; }
