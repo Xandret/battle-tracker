@@ -76,7 +76,7 @@ namespace Journal.Play
             menuButton.text = "Меню";
             menuClose.clicked += () => { menu.AddToClassList("hidden"); ShowMain(); };
             menuClose.text = "Назад";
-            GameSettings.Init(GetComponent<UIDocument>());
+            GameSettings.Init(GetComponent<UIDocument>()); GameSettings.ApplyAudio();
             armies = new ArmyEditor(hud);
             lineup = new LineupPanel(hud, (path, ids) => { pc.NewBattle(() => PlayScenarios.FromSave(path, ids)); menu.AddToClassList("hidden"); }, ShowMenu);
             armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed)); menu.AddToClassList("hidden"); }, ShowMenu);

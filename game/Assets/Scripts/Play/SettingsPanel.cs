@@ -43,6 +43,13 @@ namespace Journal.Play
             var tags = new Toggle("Подписи над отрядами") { value = GameSettings.Tags }; tags.AddToClassList("set-field"); box.Add(tags);
             tags.RegisterValueChangedCallback(e => { GameSettings.Tags = e.newValue; Changed?.Invoke(); });
 
+            Head(box, "Звук");
+            var vol = new SliderInt("Громкость", 0, 100) { value = GameSettings.Volume, showInputField = false }; vol.AddToClassList("set-field"); box.Add(vol);
+            var volLabel = new Label($"{GameSettings.Volume}%"); volLabel.AddToClassList("set-value"); vol.Add(volLabel);
+            vol.RegisterValueChangedCallback(e => { GameSettings.Volume = e.newValue; volLabel.text = $"{e.newValue}%"; });
+            var gore = new Toggle("Жестокие звуки (крики павших)") { value = GameSettings.Gore }; gore.AddToClassList("set-field"); box.Add(gore);
+            gore.RegisterValueChangedCallback(e => GameSettings.Gore = e.newValue);
+
             Head(box, "Битва");
             int si = Array.FindIndex(Speeds, s => Mathf.Approximately(s.V, GameSettings.Speed));
             var speed = new DropdownField("Скорость показа хода", Speeds.Select(s => s.Name).ToList(), Math.Max(0, si)); speed.AddToClassList("set-field"); box.Add(speed);

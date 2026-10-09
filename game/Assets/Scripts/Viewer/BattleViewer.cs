@@ -116,6 +116,7 @@ namespace Journal.Viewer
             fortView = new FortView(transform);
             banners = new Banners(transform);
             MiniatureLook.Setup(cam);   // облик «миниатюры на столе» (В15)
+            gameObject.AddComponent<BattleAudio>().Init(this);   // звук боя по записи
         }
         void Start()
         {

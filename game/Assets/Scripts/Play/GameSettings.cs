@@ -18,6 +18,10 @@ namespace Journal.Play
         public static float Speed { get => PlayerPrefs.GetFloat(P + "speed", 1); set => PlayerPrefs.SetFloat(P + "speed", value); }
         public static bool Tags { get => PlayerPrefs.GetInt(P + "tags", 1) == 1; set => PlayerPrefs.SetInt(P + "tags", value ? 1 : 0); }
         public static bool AutoPause { get => PlayerPrefs.GetInt(P + "autoPause", 0) == 1; set => PlayerPrefs.SetInt(P + "autoPause", value ? 1 : 0); }
+        // звук боя (BattleAudio): общая громкость 0…100 и «жестокие звуки» (крики павших)
+        public static int Volume { get => PlayerPrefs.GetInt(P + "volume", 80); set { PlayerPrefs.SetInt(P + "volume", value); Journal.Viewer.BattleAudio.Volume = value / 100f; } }
+        public static bool Gore { get => PlayerPrefs.GetInt(P + "gore", 1) == 1; set { PlayerPrefs.SetInt(P + "gore", value ? 1 : 0); Journal.Viewer.BattleAudio.Gore = value; } }
+        public static void ApplyAudio() { Journal.Viewer.BattleAudio.Volume = Volume / 100f; Journal.Viewer.BattleAudio.Gore = Gore; }
 
         static UIDocument doc; static Vector2Int baseRef = new Vector2Int(1600, 900); static float baseScale = 1;
 

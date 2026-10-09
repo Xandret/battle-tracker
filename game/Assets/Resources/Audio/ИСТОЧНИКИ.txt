@@ -1,0 +1,16 @@
+Звуки боя — откуда (все CC0, общественное достояние: можно использовать как угодно, указывать авторов не обязательно).
+Скачано 09.10.2026 с разрешения Алекса.
+
+1) Kenney «Impact Sounds» — https://kenney.nl/assets/impact-sounds (CC0)
+   Battle/impactMetal_*, impactPlate_*, impactPunch_*, impactSoft_*, impactWood_*, impactGeneric_light_*
+2) Kenney «RPG Audio» — https://kenney.nl/assets/rpg-audio (CC0)
+   Battle/drawKnife*, metalClick, chop, knifeSlice*
+3) SSE Library на archive.org (CC0 1.0) — mp3-копии отдельных записей, под своими именами:
+   https://archive.org/details/SSE_Library_CROWDS   — melee_crowd_out, melee_crowd_in, melee_yell, melee_groans, army_angry, army_mob,
+                                                     cheer_men, cheer_big, panic, charge_call
+   https://archive.org/details/SSE_Library_WEAPONS  — arrows_whoosh, arrow_thud_soft, arrows_shoot, arrow_hit_man, crossbow, sword_fight,
+                                                     sword_hit_big
+   https://archive.org/details/SSE_Library_ANIMALS  — horse_gallop_by, horse_gallop_bridle, horse_fast, horse_trot, horse_whinny, horse_whinny_ex
+   https://archive.org/details/SSE_Library_VOICES   — death_scream, male_scream, grunt_fall, grunts
+   https://archive.org/details/SSE_Library_FIGHT    — bodyfall_dirt, body_hit, punch_fall
+   Какой исходный файл стоит за каждым именем — в первой строке совпадает с названием записи на archive.org (BATTLE/…, HORSE/… и т. д.).
