@@ -368,7 +368,30 @@ namespace Journal.Viewer
         // Ap — фаза удара из движка (Б2; −1 — считать по своему ритму), Parry — сколько секунд назад принял удар на щит (−1 — нет)
         // MeleeFor — сколько секунд в схватке (−1 — нет), Down — сколько секунд лежит сбитый (−1 — стоит), Rise — сколько до подъёма
         // Impact — сколько секунд со сшибки коня (−1 — не было за 0,6 с); Second — второй ряд колет через плечо
-        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
+        // Brace — защитник ждёт удара своего противника (0…1, к мигу удара — 1): щит или оружие навстречу
+        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
+        // парные поединки: по кому и когда придётся ближайший удар (отряд << 32 | боец → миг удара), на кадр
+        readonly Dictionary<long, float> incoming = new Dictionary<long, float>();
+        int curUnit;   // отряд, которого бойцов сейчас рисуем (для MenMelee)
+        void Incoming(int f0, float t)
+        {
+            incoming.Clear();
+            for (int f = f0; f <= Math.Min(f0 + 1, rec.Men.Count - 1); f++)
+                foreach (var mf in rec.Men[f])
+                {
+                    if (mf?.EngFoe == null) continue;
+                    for (int k = 0; k < mf.EngFoe.Length; k++)
+                    {
+                        int foe = mf.EngFoe[k]; if (foe < 0) continue;
+                        long key = (long)(foe >> 20) << 32 | (uint)(foe & 0xFFFFF);
+                        foreach (float T in new[] { mf.EngSw[k], mf.EngNx[k] })
+                        {
+                            if (float.IsNaN(T) || T - t < -0.15f || T - t > 0.45f) continue;
+                            if (!incoming.TryGetValue(key, out var was) || Math.Abs(T - t) < Math.Abs(was - t)) incoming[key] = T;
+                        }
+                    }
+                }
+        }
         readonly HashSet<int> figAtk = new HashSet<int>();
         readonly List<ManP> M = new List<ManP>();
         readonly Dictionary<int, float> figTop = new Dictionary<int, float>();
@@ -397,6 +420,7 @@ namespace Journal.Viewer
             bool In(float x, float y, float pad) => x > view.xMin - pad && x < view.xMax + pad && y > view.yMin - pad && y < view.yMax + pad;
             IndexArrows();
             PrepFrame(f0, t32, In);
+            if (rec.MenMelee) Incoming(f0, t32);
             // павшие между кадрами (Б2: в миг удара) — уже лежат, живыми их не рисуем
             fallenNow.Clear();
             for (int i = rec.Dead.Count - 1; i >= 0 && rec.Dead[i].Frame > f0; i--)
@@ -431,7 +455,7 @@ namespace Journal.Viewer
         // ── отряд: бойцы движка (Г75) с их местами и курсами; что каждый делает — по схваткам, стрелам и состоянию ──
         void DrawUnit(int ui, MenFrame m0, MenFrame m1, float q, int st, double ft, float t, Color32 col, Func<float, float, float, bool> In, Part soft, Color32 shadow, float ppm)
         {
-            var info = rec.Units[ui]; var ks = kits[ui]; string look = looks[ui];
+            var info = rec.Units[ui]; var ks = kits[ui]; string look = looks[ui]; curUnit = ui;
             bool horse = look == "lance" || look == "barded", flee = st == 1 || st == 3;
             int fi = Math.Min((int)ft, rec.Frames.Count - 1);
             bool cheer = st == 4 && (fi - StateSince(ui, fi)) * rec.Dt < 4;   // сплотились (БД4) — первые 4 с ликуют
@@ -565,6 +589,8 @@ namespace Journal.Viewer
                 if (!float.IsNaN(best)) { m.Atk = true; m.Ap = 0.45f + (t - best); m.Blow = Mathf.RoundToInt(best * 20); }
                 float pa = a1 && !float.IsNaN(e1.pa) && e1.pa <= t ? e1.pa : a0 ? e0.pa : float.NaN;
                 if (!float.IsNaN(pa) && t - pa >= 0 && t - pa < 0.35f) m.Parry = t - pa;
+                // противник замахнулся на него: за 0,4 с до удара — щит (или оружие) навстречу, после удара 0,15 с — опускает
+                if (incoming.TryGetValue((long)curUnit << 32 | (uint)m.Id, out var tin)) { float dd = tin - t; m.Brace = dd >= 0 ? 1 - dd / 0.4f : Mathf.Max(0, 1 + dd / 0.15f); }
                 if (m.Parry >= 0 && m.Parry < 0.12f && m.Vis && m.Kit.ShieldTop != null) clangs.Add((m.X, m.Y, m.Face, m.Parry));
                 M[i] = m;
             }
@@ -705,10 +731,13 @@ namespace Journal.Viewer
             string wk = m.Atk && shoot ? (kit.Side != "none" ? kit.Side : null) : kit.Weapon;
             string kind = !m.Atk || wk == null ? null : Kind(wk, s, blow);
             if (m.Second && kind == "swing") kind = "chop";   // из-за спин — только колоть и сверху
-            if (m.Atk && ap >= 0) { oy -= m.Ap < 0 && ap > 0.3f && ap < 0.55f ? 0.06f : 0;   // Б2: выпад к противнику уже в X/Y движка (Г78) — свой не добавляем
+            if (m.Atk && ap >= 0) { oy -= m.Ap < 0 && ap > 0.3f && ap < 0.55f ? 0.06f : 0;   // Б2: выпад к противнику уже в X/Y движка (Г78)
+                 if (m.Ap >= 0) oy -= 0.16f * (ap < 0.3f || ap > 0.62f ? 0 : ap < 0.43f ? Ease((ap - 0.3f) / 0.13f) : 1 - Ease((ap - 0.43f) / 0.19f));   // поединок: шаг в удар, в такт ему
                  rot += kind == "swing" ? 0.18f * Mathf.Sin(ap * 6.283f) : kind == "chop" ? -0.08f * Mathf.Sin(ap * 6.283f) : 0; }
             if (cheer && !m.Atk) oy -= 0.05f * Mathf.Max(0, Mathf.Sin(t * 9 + ph0 * 6.283f));   // ликуют — подпрыгивают
             if (m.Parry >= 0) { float c = 1 - m.Parry / 0.35f; oy += 0.12f * c * c; }   // принял удар на щит — толкнуло назад
+            bool guard = m.Brace > 0 && (!m.Atk || ap < 0.22f || ap > 0.66f);   // ждёт удара, сам сейчас не бьёт
+            if (guard) oy += 0.05f * m.Brace;
             var Mm = bas.T(ox, oy - lean).R(rot);
             float st = step != 0 ? step : m.Atk ? Mathf.Sin(ap * 6.283f) * 0.6f : 0;   // ноги: на ходу и в бою шагают
             // щит: под стрелами — над головой; в рукопашной — вперёд, навстречу удару врага (прикрывается между своими ударами)
@@ -719,6 +748,7 @@ namespace Journal.Viewer
                 if (raise) Sh = new[] { -0.03f, -0.05f, -0.1f, 1, 0.9f };
                 else if (m.Parry >= 0) { float c = 1 - m.Parry / 0.35f; c = c * c; Sh = new[] { Sh[0] + 0.07f * c, Sh[1] - 0.14f * c, Sh[2] + 0.4f * c, Sh[3], Sh[4] }; }   // Б2: принял удар
                 else if (m.Atk) { float c = Mathf.Max(0, Mathf.Sin((ap + 0.5f) * 6.283f)); Sh = new[] { Sh[0] + 0.04f + 0.05f * c, Sh[1] - 0.06f - 0.09f * c, Sh[2] + 0.15f + 0.2f * c, Sh[3], Sh[4] }; }
+                if (guard && m.Parry < 0) Sh = Mix(Sh, new[] { -0.07f, -0.3f, -0.1f, Sh[3] * 1.05f, Sh[4] }, Ease(m.Brace));   // щит — перед собой, навстречу удару
             }
             // оружие
             string wpn = wk, wb = Kits.Base(wk); var W2 = PW;
@@ -729,6 +759,7 @@ namespace Journal.Viewer
                 if (ap > 0.3f && ap < 0.56f) Smear(Mm, wpn, kind, wb, ap, Wb, col);
                 if (!rec.MenMelee && ap >= 0.42f && ap < 0.5f) sparks.Add((m.X, m.Y, m.Face, kind == "thrust" ? (wb == "pike" ? -3.7f : Thrust(wb) ? -1.35f : -0.85f) : -0.75f, ap));
             }
+            else if (guard && Sh == null && W2 != null && !Thrust(wb)) W2 = Mix(W2, new[] { 0.08f, -0.3f, -1.15f, 1, 0.7f }, Ease(m.Brace));   // без щита — оружие поперёк, принять удар
             else if (cheer && W2 != null) W2 = new[] { W2[0], W2[1] - 0.05f, W2[2] * 0.3f - 0.1f, 1, Mathf.Min(W2[4], 0.3f) + 0.08f * Mathf.Sin(t * 9 + ph0 * 6.283f) };   // вскинули оружие
             else if (W2 != null && step != 0) W2 = new[] { W2[0], W2[1], W2[2] + 0.03f * step, W2[3], W2[4] };
             // плоский боец (В18); стрелок в рукопашной держит запасное оружие одной рукой

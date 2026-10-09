@@ -24,7 +24,8 @@ namespace Journal.Viewer
     // Рукопашная по бойцам (Б2, только при MenBodies): кто в схватке — Eng (номера бойцов), прошлый удар EngSw, следующий по ритму EngNx, удар на щит EngPa (часы боя; NaN — не было).
     // Только сцепившиеся — запись не растёт на всё войско
     // Сбитые с ног конём (Г90): Down — номера бойцов, DownAt — когда сбит, DownEnd — когда встанет (часы боя); только лежащие
-    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; }
+    // EngFoe — его противник (парный поединок): номер отряда в записи × 2^20 + номер бойца; −1 — нет
+    public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng, EngFoe; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
 
     public sealed class Recording
@@ -128,11 +129,13 @@ namespace Journal.Viewer
         }
         static int State(Mover m) => m.Gone ? 2 : m.Fleeing ? (m.RallyPending ? 3 : 1) : m.Rallied ? 4 : 0;
         // кто из бойцов отряда в схватке (Б2): с противником или только что бил либо принял удар на щит
-        readonly List<int> eId = new List<int>(); readonly List<float> eSw = new List<float>(), eNx = new List<float>(), ePa = new List<float>();
+        readonly List<int> eId = new List<int>(), eFoe = new List<int>(); readonly List<float> eSw = new List<float>(), eNx = new List<float>(), ePa = new List<float>();
+        readonly Dictionary<Man, int> manOf = new Dictionary<Man, int>();   // боец сцепившихся отрядов → номер отряда в записи (на кадр)
+        readonly HashSet<Mover> fightMovers = new HashSet<Mover>();
         void MeleeOf(Mover m, MenFrame mf, int n)
         {
             double now = m.Now;   // часы шага (Battle.Clock стоит на начале хода до его конца)
-            eId.Clear(); eSw.Clear(); eNx.Clear(); ePa.Clear();
+            eId.Clear(); eSw.Clear(); eNx.Clear(); ePa.Clear(); eFoe.Clear();
             foreach (var man in m.Men)
             {
                 if (!man.Alive || man.Id >= n) continue;
@@ -140,9 +143,10 @@ namespace Journal.Viewer
                 if (foe == null && !(now - man.SwingAt < 0.6) && !(now - man.ParryAt < 0.6)) continue;
                 eId.Add(man.Id);
                 eSw.Add((float)man.SwingAt); eNx.Add(foe != null ? (float)man.NextSwing : float.NaN); ePa.Add((float)man.ParryAt);
+                eFoe.Add(foe != null && manOf.TryGetValue(foe, out var fu) ? fu << 20 | foe.Id : -1);
             }
             if (eId.Count == 0) return;
-            mf.Eng = eId.ToArray(); mf.EngSw = eSw.ToArray(); mf.EngNx = eNx.ToArray(); mf.EngPa = ePa.ToArray();
+            mf.Eng = eId.ToArray(); mf.EngSw = eSw.ToArray(); mf.EngNx = eNx.ToArray(); mf.EngPa = ePa.ToArray(); mf.EngFoe = eFoe.ToArray();
         }
         // сбитые с ног (Г90): лежат DownLeft с — когда встанут, по часам шага
         void DownOf(Mover m, MenFrame mf, int n)
@@ -179,6 +183,14 @@ namespace Journal.Viewer
                 }
             rec.Heads.Add(heads);
             rec.Soldiers.Add(ms.Select(m => (int)Math.Round(m.P.U.Soldiers)).ToArray());
+            // противники поединков: бойцы отрядов, что сейчас касаются врага, — к номеру их отряда в записи
+            manOf.Clear(); fightMovers.Clear();
+            if (rec.MenMelee && battle != null)
+                foreach (var fg in battle.Fights)
+                    if (!fg.Over && fg.Touching)
+                        foreach (var mv in new[] { fg.A, fg.B })
+                            if (fightMovers.Add(mv) && idx.TryGetValue(mv.P.U.Id, out var ui))
+                                foreach (var man in mv.Men) manOf[man] = ui;
             rec.Men.Add(ms.Select(m =>
             {
                 int n = m.NextManId + 1;
