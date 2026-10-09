@@ -31,7 +31,10 @@ static class LookTests
                 True(plain.deaths[i].X == rec.deaths[i].X && plain.deaths[i].Y == rec.deaths[i].Y && plain.deaths[i].T == rec.deaths[i].T, $"павший {i} не там");
             True(rec.arrows > 100 && rec.log.Count == rec.arrows, $"в журнале {rec.log.Count} стрел из {rec.arrows}");
             var done = rec.log.Where(x => x.T1 > x.T0).ToList();
-            True(done.Count >= rec.log.Count * 0.9, $"долетели {done.Count} из {rec.log.Count}");
+            // не долетели только те, что ещё в воздухе в конце записи: выпущенные раньше чем за 6 с до конца — все на месте
+            double endT = rec.log.Max(x => Math.Max(x.T0, x.T1));
+            int early = rec.log.Count(x => x.T0 < endT - 6), earlyDone = rec.log.Count(x => x.T0 < endT - 6 && x.T1 > x.T0);
+            True(early > rec.log.Count / 2 && earlyDone == early && done.Count >= rec.log.Count * 0.8, $"долетели {done.Count} из {rec.log.Count}; из выпущенных за 6 с до конца и раньше — {earlyDone} из {early}");
             True(done.Count(x => x.End == 1) == rec.deaths.Count, $"сваливших стрел {done.Count(x => x.End == 1)}, павших {rec.deaths.Count}");
             foreach (var x in done)
             {

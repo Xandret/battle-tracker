@@ -301,6 +301,7 @@ if (args.Length > 0 && args[0] == "gap") { MenGapProbe.Run(args.Skip(1).ToArray(
 if (args.Length > 0 && args[0] == "wheel") { MenWheelProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "house") { MenHouseProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "walls") { ArrowWallProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "garrison") { GarrisonProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "forest") { MenForestProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "tune") { MenTuneProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "jerk-trace") { MenJerkTrace.Run(); return 0; }
@@ -696,8 +697,10 @@ void BenchPaths(double gap, bool figures = false, bool reserve = false, int body
 int failed = 0;
 var slow = new List<(string name, double sec)>();
 var clock = System.Diagnostics.Stopwatch.StartNew();
+string only = args.Length > 1 && args[0] == "only" ? args[1] : null;   // -- only <подстрока>: только тесты с ней в названии
 foreach (var (name, run) in tests)
 {
+    if (only != null && !name.Contains(only)) continue;
     var sw = System.Diagnostics.Stopwatch.StartNew();
     try { run(); }
     catch (Exception e)

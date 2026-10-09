@@ -104,13 +104,19 @@ namespace BattleCore
         // halfWidth > 0 — путь для строя такой полуширины (Г59); extraBlocked — клетки, которые обходить
         // как непроходимые (свой стоящий отряд, Г61). Без них цена — ровно зона досягаемости трекера.
         // Сама постройка дешёвая: местность — готовая (Ground), цены считаются по мере спроса (Search).
-        public static FlowField Build(Geo geo, Rules r, bool horse, double tx, double ty, double halfWidth = 0, bool[] extraBlocked = null)
+        public static FlowField Build(Geo geo, Rules r, bool horse, double tx, double ty, double halfWidth = 0, bool[] extraBlocked = null, BattleMap.PassRules pass = null)
         {
             var m = geo?.Map;
             if (m == null) return null;
             long t0 = Stopwatch.GetTimestamp();
             var f = new FlowField { Map = m, Geo = geo, R = r, Horse = horse, W = m.W, H = m.H, CellW = geo.W / m.W, CellH = geo.H / m.H, HalfWidth = halfWidth };
-            var g = Ground.Of(m, r, horse, f.CellW, f.CellH);
+            var g = Ground.Of(m, r, horse, f.CellW, f.CellH, pass != null && pass.Walls, pass != null && pass.Gates);
+            // Г104: закрытые ворота для врага — как клетки в обход
+            if (pass?.Blocked != null)
+            {
+                if (extraBlocked == null) extraBlocked = (bool[])pass.Blocked.Clone();
+                else { extraBlocked = (bool[])extraBlocked.Clone(); for (int i = 0; i < extraBlocked.Length; i++) extraBlocked[i] |= pass.Blocked[i]; }
+            }
             if (extraBlocked == null) { f.mult = g.Mult; f.large = g.Large; f.Clearance = g.Clear; }
             else
             {
@@ -201,7 +207,8 @@ namespace BattleCore
         // Не сошлось — считается заново; прежние виды карты (до пролома, другие правила) держатся, пока их не вытеснят.
         sealed class Ground
         {
-            public readonly bool Horse; public readonly int W, H; public readonly double CellW, CellH, Small;
+            public readonly bool Horse, Walls, Gates; public readonly int W, H; public readonly double CellW, CellH, Small;
+            readonly BattleMap.PassRules pass;                    // Г104: только флаги — закрытые ворота в карту кладёт Build
             public readonly byte[] T, Z;                          // снимок слоёв карты, по которому всё посчитано
             readonly double[] codeMult = new double[256];         // множитель по коду местности
             readonly int[] codeAt = new int[256];                 // первая клетка с этим кодом (−1 — кода на карте нет)
@@ -211,7 +218,7 @@ namespace BattleCore
 
             static readonly ConditionalWeakTable<TerrainMap, List<Ground>> byMap = new ConditionalWeakTable<TerrainMap, List<Ground>>();
 
-            public static Ground Of(TerrainMap m, Rules r, bool horse, double cw, double ch)
+            public static Ground Of(TerrainMap m, Rules r, bool horse, double cw, double ch, bool walls = false, bool gates = false)
             {
                 var list = byMap.GetValue(m, _ => new List<Ground>());
                 lock (list)
@@ -219,11 +226,11 @@ namespace BattleCore
                     for (int k = 0; k < list.Count; k++)
                     {
                         var g = list[k];
-                        if (!g.Fits(m, r, horse, cw, ch)) continue;
+                        if (!g.Fits(m, r, horse, cw, ch, walls, gates)) continue;
                         if (k > 0) { list.RemoveAt(k); list.Insert(0, g); }
                         return g;
                     }
-                    var ng = new Ground(m, r, horse, cw, ch);
+                    var ng = new Ground(m, r, horse, cw, ch, walls, gates);
                     list.Insert(0, ng);
                     if (list.Count > 4) list.RemoveAt(list.Count - 1);
                     Interlocked.Increment(ref StatGrounds);
@@ -231,9 +238,10 @@ namespace BattleCore
                 }
             }
 
-            Ground(TerrainMap m, Rules r, bool horse, double cw, double ch)
+            Ground(TerrainMap m, Rules r, bool horse, double cw, double ch, bool walls, bool gates)
             {
-                Horse = horse; W = m.W; H = m.H; CellW = cw; CellH = ch; Small = r.Move.SmallObstacleM;
+                Horse = horse; Walls = walls; Gates = gates; pass = walls || gates ? new BattleMap.PassRules { Walls = walls, Gates = gates } : null;
+                W = m.W; H = m.H; CellW = cw; CellH = ch; Small = r.Move.SmallObstacleM;
                 T = (byte[])m.T.Clone(); Z = (byte[])m.Z.Clone();
                 for (int c = 0; c < 256; c++) codeAt[c] = -1;
                 // множитель клетки зависит только от её кода местности (BattleMap.MoveMult) — считается раз на код
@@ -242,7 +250,7 @@ namespace BattleCore
                 for (int i = 0; i < n; i++)
                 {
                     int c = T[i];
-                    if (codeAt[c] < 0) { codeAt[c] = i; codeMult[c] = BattleMap.MoveMult(m, i, horse, r) ?? double.NaN; }
+                    if (codeAt[c] < 0) { codeAt[c] = i; codeMult[c] = BattleMap.MoveMult(m, i, horse, r, pass) ?? double.NaN; }
                     Mult[i] = codeMult[c];
                 }
                 for (int c = 0; c < 256; c++)
@@ -253,12 +261,13 @@ namespace BattleCore
                 ClearanceOf(W, H, cw, ch, Mult, null, Small, out Large, out Clear);
             }
 
-            bool Fits(TerrainMap m, Rules r, bool horse, double cw, double ch)
+            bool Fits(TerrainMap m, Rules r, bool horse, double cw, double ch, bool walls, bool gates)
             {
+                if (Walls != walls || Gates != gates) return false;
                 if (Horse != horse || W != m.W || H != m.H || !SameBits(CellW, cw) || !SameBits(CellH, ch) || !SameBits(Small, r.Move.SmallObstacleM)) return false;
                 if (!new ReadOnlySpan<byte>(T).SequenceEqual(m.T) || !new ReadOnlySpan<byte>(Z).SequenceEqual(m.Z)) return false;
                 for (int c = 0; c < 256; c++)
-                    if (codeAt[c] >= 0 && !SameBits(BattleMap.MoveMult(m, codeAt[c], horse, r) ?? double.NaN, codeMult[c])) return false;
+                    if (codeAt[c] >= 0 && !SameBits(BattleMap.MoveMult(m, codeAt[c], horse, r, pass) ?? double.NaN, codeMult[c])) return false;
                 return true;
             }
         }

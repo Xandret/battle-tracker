@@ -63,7 +63,7 @@ namespace BattleCore
                 else { tx = t.P.X; ty = t.P.Y; stop = (t.P.Fp.Depth + m.P.Fp.Depth) / 2; }
             }
             tx = Math.Max(0, Math.Min(Geo.W - 1e-6, tx)); ty = Math.Max(0, Math.Min(Geo.H - 1e-6, ty));
-            var F = FlowField.Build(Geo, R, BattleMap.IsHorse(u), tx, ty, m.NominalFp.Front / 2);
+            var F = FlowField.Build(Geo, R, BattleMap.IsHorse(u), tx, ty, m.NominalFp.Front / 2, null, m.Pass);
             List<(double x, double y)> route;
             if (F == null) route = new List<(double x, double y)> { (m.P.X, m.P.Y), (tx, ty) };
             else

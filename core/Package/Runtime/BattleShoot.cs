@@ -93,7 +93,8 @@ namespace BattleCore
             return dz > 0 ? Js.Round(max * (1 + R.Map.Height.RangePerLevel * dz)) : max;
         }
         bool Standing(Mover m) => m.Vs < 0.05 && m.AboutLeft <= 1e-9;
-        bool Facing(Mover s, Mover t) => Math.Abs(MoveSim.AngleDiff(s.P.Facing, MoveSim.HeadingOf(t.P.X - s.P.X, t.P.Y - s.P.Y))) <= FaceTolDeg;
+        // гарнизон (Г104) не разворачивается — бьёт по всему, что перед стеной (±90°)
+        bool Facing(Mover s, Mover t) => Math.Abs(MoveSim.AngleDiff(s.P.Facing, MoveSim.HeadingOf(t.P.X - s.P.X, t.P.Y - s.P.Y))) <= (s.Garrisoned ? 90 : FaceTolDeg);
         // Может ли s сейчас стрелять по t
         bool CanShoot(Mover s, Mover t) =>
             Alive(s) && OnField(t) && Shooter(s) && Enemies(s.P.U, t.P.U) && !InMelee(s) && !TangledWithFriends(t, s)
@@ -114,7 +115,9 @@ namespace BattleCore
                 o.X = t.P.X - hx / hl * stand; o.Y = t.P.Y - hy / hl * stand;
             }
             o.Facing = MoveSim.HeadingOf(hx, hy);
-            if (gap <= range) MoveSim.TurnInPlace(m, o); else MoveSim.Give(m, o, Geo, R);
+            if (gap <= range && m.Garrisoned) { o.Facing = m.P.Facing; MoveSim.TurnInPlace(m, o); }   // Г104: гарнизон стоит как стоял
+            else if (gap <= range) MoveSim.TurnInPlace(m, o);
+            else { m.Garrisoned = false; MoveSim.Give(m, o, Geo, R); }
             aimed[m] = (t.P.X, t.P.Y);
         }
         void ReplanShoot(Mover m, Mover t)
@@ -158,28 +161,31 @@ namespace BattleCore
             {
                 var man = b.Man;
                 b.X = man.X; b.Y = man.Y; b.Facing = man.Facing;
-                b.Ground = GroundZ(b.X, b.Y);
+                b.Ground = GroundZ(b.X, b.Y) + man.Z;   // Г104: на стене — с её верха
             }
         }
         double GroundZ(double x, double y) => Geo?.Map == null ? 0 : Terrain.CellAt(Geo.Map, x / Geo.W, y / Geo.H).Z * R.Ranged.MetersPerLevel;
         bool Forest(double x, double y) => Geo?.Map != null && Terrain.CellAt(Geo.Map, x / Geo.W, y / Geo.H).T == Terrain.Id("forest");
 
         // Г103: верх постройки над землёй клетки по коду местности (0 — стрелу не держит); окоп/вал — бруствер по краю клетки
-        double[] buildTop; byte trenchId;
+        double[] buildTop; byte trenchId, wallId, towerId; double standMax;   // standMax — Г104: выше земли на столько могут стоять бойцы (верх стен), 0 — стен нет
         void BuildTops()
         {
-            buildTop = new double[256]; trenchId = Terrain.Id("trench");
+            buildTop = new double[256]; trenchId = Terrain.Id("trench"); wallId = Terrain.Id("wall"); towerId = Terrain.Id("tower");
             foreach (var kv in R.Ranged.BuildingHeightM) if (Terrain.ByKey.TryGetValue(kv.Key, out var tt)) buildTop[tt.Id] = kv.Value;
             buildTop[trenchId] = R.Ranged.ParapetHeightM;
+            standMax = Geo?.Map != null && Terrain.HasAny(Geo.Map, Terrain.Id("wall"), Terrain.Id("tower")) ? Math.Max(buildTop[Terrain.Id("wall")], buildTop[Terrain.Id("tower")]) : 0;
         }
-        // стрела прошла отрезок (x0,y0,z0)→(x1,y1,z1): воткнулась ли в постройку клетки, где кончила шаг; f — доля отрезка до удара
-        bool HitsBuilding(double x0, double y0, double z0, double x1, double y1, double z1, double g1, out double f)
+        // стрела прошла отрезок (x0,y0,z0)→(x1,y1,z1): воткнулась ли в постройку клетки, где кончила шаг; f — доля отрезка до удара.
+        // Клетка вылета (lx, ly) стрелу не держит: стрелок на стене бьёт вниз через свой парапет (Г104)
+        bool HitsBuilding(double x0, double y0, double z0, double x1, double y1, double z1, double g1, double lx, double ly, out double f)
         {
             f = 1;
             var map = Geo.Map; if (buildTop == null) BuildTops();
             int cx1 = (int)Math.Min(map.W - 1, Math.Max(0, x1 / Terrain.CellM)), cy1 = (int)Math.Min(map.H - 1, Math.Max(0, y1 / Terrain.CellM));
             byte t1 = map.T[cy1 * map.W + cx1]; double top = buildTop[t1];
             if (top <= 0) return false;
+            if (cx1 == (int)Math.Min(map.W - 1, Math.Max(0, lx / Terrain.CellM)) && cy1 == (int)Math.Min(map.H - 1, Math.Max(0, ly / Terrain.CellM))) return false;
             int cx0 = (int)Math.Min(map.W - 1, Math.Max(0, x0 / Terrain.CellM)), cy0 = (int)Math.Min(map.H - 1, Math.Max(0, y0 / Terrain.CellM));
             bool entered = cx0 != cx1 || cy0 != cy1;
             double fIn = 0;   // доля шага, на которой стрела вошла в клетку по xy (вошла — когда пересекла последнюю из границ)
@@ -197,7 +203,11 @@ namespace BattleCore
                 if (!entered || map.T[cy0 * map.W + cx0] == trenchId || zIn >= zTop) return false;
                 f = fIn; return true;
             }
-            if (zIn <= zTop) { f = fIn; return true; }             // вошла в клетку ниже верха — в стену
+            // Г104: у стен и башен над боевым ходом бруствер ParapetHeightM — стрела сбоку (не вдоль стены) бьёт в зубцы; сверху — свободно
+            bool parapet = false;
+            if (entered && (t1 == wallId || t1 == towerId)) { byte t0 = map.T[cy0 * map.W + cx0]; if (t0 != wallId && t0 != towerId) { zTop += R.Ranged.ParapetHeightM; parapet = true; } }
+            if (zIn <= zTop) { f = fIn; return true; }             // вошла в клетку ниже верха — в стену или бруствер
+            if (parapet && Ctx.Rng() < R.Garrison.MerlonShare) { f = fIn; return true; }   // над бруствером — в зубец (доля зубцов в длине стены)
             if (z1 >= zTop || z1 >= z0) return false;              // летит над постройкой
             f = Math.Max(fIn, (z0 - zTop) / (z0 - z1)); return true;   // снижаясь, встретила крышу
         }
@@ -439,7 +449,7 @@ namespace BattleCore
             }
             if (Geo != null && (x1 < 0 || y1 < 0 || x1 > Geo.W || y1 > Geo.H)) { Shots.Ground++; EndShot(ar, x0, y0, z0, x1, y1, z1, 1, subDt, 4); return; }   // улетела с карты
             // постройки и валы (Г103): стена, башня, ворота, частокол, дом — тела своей высоты; окоп — бруствер по краю
-            if (Geo?.Map != null && HitsBuilding(x0, y0, z0, x1, y1, z1, g1, out var fb) && fb <= tEnd)
+            if (Geo?.Map != null && HitsBuilding(x0, y0, z0, x1, y1, z1, g1, ar.LX, ar.LY, out var fb) && fb <= tEnd)
             { Shots.Building++; EndShot(ar, x0, y0, z0, x1, y1, z1, fb, subDt, 5); return; }
             // ветви под кронами (Г38)
             if (z1 < g1 + RR.CanopyHeight && Forest(x1, y1))
@@ -448,7 +458,8 @@ namespace BattleCore
                 ar.CanopyLeft -= seg;
                 if (ar.CanopyLeft <= 0) { Shots.Blocked++; EndShot(ar, x0, y0, z0, x1, y1, z1, tEnd, subDt, 3); return; }
             }
-            if (Math.Min(z0, z1) <= Math.Max(GroundZ(x0, y0), g1) + RR.RiderTop + 0.1)
+            if (buildTop == null) BuildTops();
+            if (Math.Min(z0, z1) <= Math.Max(GroundZ(x0, y0), g1) + RR.RiderTop + 0.1 + standMax)
             {
                 var near = new List<Body>();
                 grid.Near(x0, y0, x1, y1, RR.HorseLength / 2 + grid.MaxHalf + 0.2, near);

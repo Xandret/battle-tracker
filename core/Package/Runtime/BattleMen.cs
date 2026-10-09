@@ -59,7 +59,7 @@ namespace BattleCore
         // Касания бойцов: заполняет touches (по фигуркам, как Bodies.Touch) и menSec, ставит каждому бойцу противника
         void MenTouches()
         {
-            var MR = R.Men; double reach = MR.ReachM;
+            var MR = R.Men; double reach = MR.ReachM, stepM = R.Garrison.StepM;
             strikers.Clear(); menSec.Clear();
             int nm = Movers.Count;
             // 1) пары врагов поблизости — как у фигурок
@@ -139,6 +139,7 @@ namespace BattleCore
                             if (!near[xi, yj]) continue;
                             // отсев по квадрату расстояния — точный зазор только для тех, кто может достать
                             var oj = mgMan[j];
+                            if (Math.Abs(oj.Z - man.Z) > stepM) continue;   // Г104: со стены вниз и снизу на стену — не достать (до приступа)
                             double extraJ = pike[yj] && oj.Row < MR.PikeRanks && oj.DownLeft <= 0 ? MR.PikeTipM + oj.Row * rankD[yj] : 0;
                             double ex = oj.X - man.X, ey = oj.Y - man.Y, lim = rad[xi] + half[xi] + rad[yj] + half[yj] + reach + Math.Max(extra, extraJ);
                             if (ex * ex + ey * ey > lim * lim) continue;

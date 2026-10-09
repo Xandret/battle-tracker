@@ -422,6 +422,7 @@ namespace BattleCore
 
         public static int PaintDisc(TerrainMap m, string layer, double cx, double cy, double r, double value)
         {
+            Touched(m);
             var arr = LayerOf(m, layer); int v = ClampValue(layer, value);
             double rr = Math.Max(0.5, r), r2 = rr * rr;
             int n = 0;
@@ -437,6 +438,7 @@ namespace BattleCore
         // Толстая линия — «капсула»: все клетки не дальше r от отрезка (стены, дороги, реки)
         public static int PaintSegment(TerrainMap m, string layer, double x0, double y0, double x1, double y1, double r, double value)
         {
+            Touched(m);
             var arr = LayerOf(m, layer); int v = ClampValue(layer, value);
             double rr = Math.Max(0.5, r), r2 = rr * rr;
             double dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy;
@@ -453,9 +455,22 @@ namespace BattleCore
         }
 
         // Прямоугольник по двум углам; outline > 0 — только контур такой толщины в клетках (стены замка)
+        // Г104: есть ли на карте хоть одна клетка кода a или b (стены и башни — чтобы не искать их у каждого бойца на каждом шаге);
+        // кэш по карте, кисти его сбрасывают
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, bool[]> hasCodes = new System.Runtime.CompilerServices.ConditionalWeakTable<TerrainMap, bool[]>();
+        public static bool HasAny(TerrainMap m, byte a, byte b)
+        {
+            if (!hasCodes.TryGetValue(m, out var v))
+            {
+                bool any = false; foreach (var t in m.T) if (t == a || t == b) { any = true; break; }
+                hasCodes.AddOrUpdate(m, v = new[] { any });
+            }
+            return v[0];
+        }
+        public static void Touched(TerrainMap m) => hasCodes.Remove(m);
         public static int PaintRect(TerrainMap m, string layer, double x0, double y0, double x1, double y1, double value, double outline = 0)
         {
-            var arr = LayerOf(m, layer); int v = ClampValue(layer, value);
+            var arr = LayerOf(m, layer); int v = ClampValue(layer, value); Touched(m);
             int l = (int)Math.Floor(Math.Min(x0, x1)), r = (int)Math.Floor(Math.Max(x0, x1));
             int t = (int)Math.Floor(Math.Min(y0, y1)), b = (int)Math.Floor(Math.Max(y0, y1));
             int th = (int)Math.Max(0, Js.Round(outline));

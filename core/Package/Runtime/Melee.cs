@@ -31,10 +31,10 @@ namespace BattleCore
         public double FrontFrac, FlankFrac, RearFrac;   // как касаются: во фронт, во фланг, в тыл врага
         int laidOut = -1;
 
-        public void Relayout(Rules r, double menPerFigure)
+        public void Relayout(Rules r, double menPerFigure, bool force = false)
         {
             int n = (int)Math.Max(0, Js.Round(U.Soldiers));
-            if (n == laidOut) return;
+            if (n == laidOut && !force) return;   // force — строй сменился при тех же людях (Г101, Г104)
             laidOut = n;
             Figs = Formation.Layout(U, menPerFigure, r);
             Fp = Formation.Of(U, r);
