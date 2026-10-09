@@ -687,7 +687,7 @@ namespace BattleCore
                 if (by == null) { s.FleeH = double.NaN; continue; }
                 if (!double.IsNaN(s.FleeH)) continue;   // уже обходит — в ту же сторону, не мечется
                 double side = (s.X - by.P.X) * hy - (s.Y - by.P.Y) * hx;   // справа (+) или слева (−) от середины врага по ходу бегства
-                s.FleeH = MoveSim.Norm(m.FleeHeading + (side >= 0 ? -90 : 90));
+                s.FleeH = MoveSim.Norm(m.FleeHeading + (side >= 0 ? -M.FleeDodgeDeg : M.FleeDodgeDeg));
                 if (!s.Turned) { s.Turned = true; s.Axis = m.P.Facing; }   // тело разворачивается к своему курсу постепенно
             }
         }
@@ -1142,6 +1142,29 @@ namespace BattleCore
         // трекера; лишние фигурки падают на месте. Строй развёрнут — место в строю (колонна, шеренга) остаётся за
         // той же фигуркой: колонна не рвётся, даже если ушла в охват (Г68) далеко от своего места. Остальные места
         // (и всё в походной колонне) — ближайшим фигуркам спереди назад ──
+        // Г101: перестроиться — глубина строя в шеренгах (0 — по столу). Строй переразмечается на месте, бойцы идут на новые места
+        // шагом (В14); бегущий не перестраивается. Возвращает false, если нечего менять
+        public bool SetRanks(Mover m, int ranks)
+        {
+            ranks = Math.Max(0, Math.Min(ranks, R.Move.RanksMax));
+            if (m.Gone || m.Fleeing || m.P.Figs.Count == 0 || m.P.U.Ranks == ranks) return false;
+            var was = Formation.Of(m.P.U, R);
+            m.P.U.Ranks = ranks;
+            var now = Formation.Of(m.P.U, R);
+            if (Math.Abs(was.Depth - now.Depth) < 1e-9 && Math.Abs(was.Front - now.Front) < 1e-9) return false;
+            m.LaidMen = -1;   // раскладка заново, потерь не было
+            Relayout(m);
+            m.Reforming = true;   // пока бойцы идут на новые места — без жёстких (Г86) и вполсилы на ходу (Г60)
+            events.Add($"«{m.P.U.Name}»: перестроение — {RanksName(m.P.U)} ({now.Front:0} × {now.Depth:0} м)");
+            return true;
+        }
+        public string RanksName(Unit u)
+        {
+            var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+            double k = u.Ranks <= 0 ? 1 : u.Ranks / f.Ranks;
+            return k < 0.75 ? "цепь" : k < 1.5 ? "линия" : k < 3 ? "глубокий строй" : "колонна";
+        }
+
         public void Relayout(Mover m)
         {
             if (m.Gone) return;   // ушёл с поля — раскладывать некого

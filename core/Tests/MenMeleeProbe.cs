@@ -1208,3 +1208,28 @@ static class MenLakeTrace
         });
     }
 }
+
+// Бегство: ширина толпы по ходам (жалоба Алекса 09.10.2026: бегущий отряд занимал пятую часть карты): dotnet run -- fleew [sN] [wX]
+static class MenFleeWidthProbe
+{
+    public static void Run(string[] opts)
+    {
+        var R = new Rules();
+        foreach (var o in opts) { if (o.StartsWith("s")) R.Move.FleeSpreadDeg = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); if (o.StartsWith("w")) R.Men.FleeSpread = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); if (o.StartsWith("b")) R.Move.FleeBlockM = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); if (o.StartsWith("d")) R.Move.FleeBlockDeg = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); if (o.StartsWith("a")) R.Move.FleeDodgeDeg = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture); }
+        Console.WriteLine($"веер ±{R.Move.FleeSpreadDeg}°, места толпы ×{R.Men.FleeSpread}, уклонение от врага ближе {R.Move.FleeBlockM} м в секторе ±{R.Move.FleeBlockDeg}°, сворот на {R.Move.FleeDodgeDeg}°");
+        var bt = new Battle(MoveTests.Open(1600, 2000), R, new EngineContext { Rng = new Mulberry32(6).Next });
+        var ub = Templates.Get("infantry").Make(2, "Пехота", 1000, 2); ub.Morale = 30; ub.Discipline = 1;
+        var b = bt.Add(ub, 800, 600, 0);
+        var ta = Templates.Get("knights"); var fa = Formation.Of(ta.Make(1, "Враг", 1000, 1), R);
+        var a = bt.Add(ta.Make(1, "Враг", 1000, 1), 800, 600 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+        double front0 = b.P.Fp.Front;
+        for (int t = 1; t <= 5 && !b.Gone; t++)
+        {
+            bt.Turn(); if (t == 1) bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+            var men = b.Men.Where(x => x.Alive).ToList(); if (men.Count == 0) break;
+            double w = men.Max(x => x.X) - men.Min(x => x.X), d = men.Max(x => x.Y) - men.Min(x => x.Y);
+            Console.WriteLine($"   ход {t}: {(b.Fleeing ? "бежит" : "в строю")}, бойцов {men.Count}, толпа {w:0} × {d:0} м (строй был {front0:0} × {b.P.Fp.Depth:0}), середина y={men.Average(x => x.Y):0}; колонн со своим курсом {b.Figs.Count(q => !double.IsNaN(q.FleeH))} из {b.Figs.Count}, враг y={a.P.Y:0}, рыцарей с противником {a.Men.Count(x => x.Foe != null)}");
+        }
+    }
+}

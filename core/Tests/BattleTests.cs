@@ -401,7 +401,7 @@ static class BattleTests
             double y0 = b.P.Y, d0 = JsMath.Hypot(b.P.X - a.P.X, b.P.Y - a.P.Y);
             bt.Turn();
             double run = b.Moved, d1 = JsMath.Hypot(b.P.X - a.P.X, b.P.Y - a.P.Y);
-            True(run >= 80 && run <= 105, $"за ход толпа прошла {run:0} м, норма 100 (сквозь резерв — вполсилы, Г56)");
+            True(run >= 80 && run <= 108, $"за ход толпа прошла {run:0} м, норма 100 (сквозь резерв — вполсилы, Г56; разброс скорости толпы ±5 %, Г71, плюс разбег бойцов Г84)");
             True(d1 > d0 + 80, $"от врага: было {d0:0} м, стало {d1:0}");
             True(b.P.Y > r.P.Y + 30 && r.P.U.Status == "active", $"прошли сквозь резерв: толпа на {b.P.Y:0}, резерв на {r.P.Y:0}");
             for (int i = 0; i < 6 && !b.Gone; i++) bt.Turn();

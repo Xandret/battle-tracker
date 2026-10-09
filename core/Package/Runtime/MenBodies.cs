@@ -173,7 +173,7 @@ namespace BattleCore
                     double d = JsMath.Hypot(a.P.X - b.P.X, a.P.Y - b.P.Y) - ra - JsMath.Hypot(b.P.Fp.Front, b.P.Fp.Depth) / 2;
                     if (d < (SameSide(a.P.U, b.P.U) ? MR.FarFriendM : MR.FarEnemyM)) ok = false;
                 }
-                unitRigid[i] = ok;
+                unitRigid[i] = ok && !a.Reforming;   // перестраивается (узость, выбор построения Г101) — жёстких нет: вставшие на места стеной не пускали бы идущих
             }
             RigidUnits = 0; foreach (var ok in unitRigid) if (ok) RigidUnits++;
             RigidMen = 0;

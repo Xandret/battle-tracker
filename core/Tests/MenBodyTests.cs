@@ -613,6 +613,28 @@ static class MenBodyTests
             True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
         });
 
+        yield return ("Г101: выбор построения — 1000 пехоты из линии в 8 шеренг в колонну в 32 и обратно: фронт 125 → 32 м, бойцы идут на новые места шагом (без прыжков), строй собирается; в бою потери прежние", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(3).Next });
+            var T = Templates.Get("infantry");
+            var m = bt.Add(T.Make(1, "Пехота", 1000, 1), 500, 500, 0);
+            bt.BeginTurn();
+            double front0 = m.P.Fp.Front;
+            True(bt.SetRanks(m, 32), "перестроение не принято");
+            True(Math.Abs(m.P.Fp.Front - 32) < 1 && Math.Abs(m.P.Fp.Depth - 32) < 1 && m.P.Figs.Count == 32 && m.NominalCols == 32, $"строй {m.P.Fp.Front:0} × {m.P.Fp.Depth:0} м, колонн {m.P.Figs.Count}");
+            double worst = 0; var prev = m.Men.ToDictionary(x => x, x => (x.X, x.Y)); var byTurn = new List<double>();
+            double Off() => m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            for (int t = 0; t < 4; t++)
+            {
+                bt.Turn(tt => { foreach (var x in m.Men) { if (prev.TryGetValue(x, out var p)) worst = Math.Max(worst, JsMath.Hypot(x.X - p.Item1, x.Y - p.Item2)); prev[x] = (x.X, x.Y); } });
+                byTurn.Add(Off());
+            }
+            True(worst < 30 * RB.Move.Dt * 1.5, $"прыжок {worst:0.00} м за шаг");
+            True(byTurn[3] < 4 && byTurn[3] < byTurn[2] && byTurn[1] < byTurn[0], $"до мест в среднем по ходам: {string.Join(" → ", byTurn.Select(v => v.ToString("0.0")))} м (из линии 125 м в колонну 32 м — бойцам идти до 60 м сквозь своих; собирается за 4–5 ходов)");
+            True(bt.SetRanks(m, 0) && Math.Abs(m.P.Fp.Front - front0) < 1e-6, $"обратно в линию: фронт {m.P.Fp.Front:0}");
+            True(!bt.SetRanks(m, 0), "повтор того же строя принят как перестроение");
+        });
+
         yield return ("Б5: сквозь своих — проход 30 м между двумя стоящими своими отрядами: строй в 125 м сужает ряды, проходит, никого не продавливает и за проходом снова линия (раньше — стоял упёршись и не проходил)", () =>
         {
             var geo = MoveTests.Open(800, 900); var T = Templates.Get("infantry");
