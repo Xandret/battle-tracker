@@ -115,11 +115,38 @@ namespace Journal.Viewer
                 if (wood) { float s = T.R * 2 * 0.9f / 4.6f; top.Quad(build.Get("tower/wood"), Aff.At(T.X, T.Y).S(s, s), white, plain); }
                 else { float s = T.R / 5; top.Quad(build.Get("tower/stone/" + (open ? "open" : roof)), Aff.At(T.X, T.Y).R((float)Kits.Hash(T.Seed, 6) * 6.283f).S(s, s), white, plain); }
             }
-            // ворота: проход поперёк стены, створки — у наружного края (в атласе наружа — вверх, −y)
+            // ворота (09.10.2026, отзыв Алекса «очень странно отрисовываются»): проход открыт сверху — в нём видна дорога;
+            // по бокам — каменные косяки во всю толщину стены, у наружного края — две створки из досок с железными полосами.
+            // Всё — по оси прохода (Ax, Ay), так что и на косой стене ворота встают вдоль неё
             foreach (var G in f.Gates)
             {
-                float rot = G.Horiz ? (G.Out > 0 ? Mathf.PI : 0) : (G.Out > 0 ? Mathf.PI / 2 : -Mathf.PI / 2);
-                top.Quad(build.Get((G.Mat == FortMap.Palisade ? "gate/wood/" : "gate/stone/") + "closed"), Aff.At(G.X, G.Y).R(rot).S(Mathf.Max(1, (G.W - 0.6f) / 4.4f), 1), white, plain);
+                var o = new Vector2(G.Out * G.Ax, G.Out * G.Ay); if (o.sqrMagnitude < 1e-6f) o = new Vector2(0, -1); o.Normalize();
+                var tg = new Vector2(-o.y, o.x); var c0 = new Vector2(G.X, G.Y);
+                bool wood = G.Mat == FortMap.Palisade;
+                float depth = wood ? PalW + 0.6f : WallW, half = Mathf.Max(2.2f, G.W / 2 - (wood ? 0.3f : 0.6f)), jamb = wood ? 0.45f : 0.8f;
+                var stone = Hex(wood ? "#6e4a2c" : "#cfc8b6"); var plank = Hex("#94612f"); var plankD = Hex("#5c3a1b"); var iron = Hex("#4d5157");
+                void R(Vector2 c, float ht, float ho, Color32 col)   // прямоугольник: полуразмеры вдоль стены (ht) и вдоль прохода (ho)
+                {
+                    var a = c - tg * ht - o * ho; var b = c + tg * ht - o * ho; var cc = c + tg * ht + o * ho; var d = c - tg * ht + o * ho;
+                    int i0 = top.Vert(a.x, a.y, du, dv, col, shadowP); top.Vert(b.x, b.y, du, dv, col, shadowP); top.Vert(cc.x, cc.y, du, dv, col, shadowP); top.Vert(d.x, d.y, du, dv, col, shadowP);
+                    top.Tri(i0, i0 + 1, i0 + 2); top.Tri(i0, i0 + 2, i0 + 3);
+                }
+                // тень в проходе от свода стены — мягкой полосой поперёк
+                R(c0, half, depth / 2, new Color32(30, 22, 12, 70));
+                foreach (int sd in new[] { -1, 1 })
+                {
+                    var jc = c0 + tg * sd * (half + jamb / 2);
+                    R(jc, jamb / 2 + 0.08f, depth / 2 + 0.08f, ink); R(jc, jamb / 2, depth / 2, stone);
+                }
+                // створки — у наружного края, с щелью посередине; доски поперёк и две железные полосы
+                var leafC = c0 + o * (depth / 2 - 0.55f);
+                foreach (int sd in new[] { -1, 1 })
+                {
+                    var lc = leafC + tg * sd * (half / 2 + 0.03f); float lh = half / 2 - 0.05f;
+                    R(lc, lh + 0.07f, 0.4f, ink); R(lc, lh, 0.32f, plank);
+                    for (int k = 1; k < 4; k++) R(lc + tg * (-lh + 2 * lh * k / 4), 0.03f, 0.32f, plankD);
+                    foreach (float fr in new[] { -0.55f, 0.55f }) R(lc + tg * fr * lh, 0.1f, 0.36f, iron);
+                }
             }
             foreach (var R in f.Rubbles) top.Quad(build.Get("rubble/" + (R.Seed % 3)), Aff.At(R.X, R.Y).R((float)Kits.Hash(R.Seed, 7) * 6.283f), white, plain);
             // дома: вальмовая крыша на прямоугольник клеток; кровля — по дому (в остроге — солома и тёс), тень по высоте 6 м

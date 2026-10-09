@@ -15,7 +15,7 @@ namespace Journal.Art
     {
         public const int Wall = 1, Palisade = 2, Trench = 3;            // материал линии (как mat в полигоне)
         public sealed class Line { public int Mat; public List<(float x, float y)> P = new List<(float, float)>(); public bool Closed; public List<int> Out = new List<int>(); }   // Out — наружа по точкам: +1 слева по ходу, −1 справа, 0 — не понять
-        public struct Gate { public float X, Y, W; public bool Horiz; public int Mat, Out; }   // W — ширина проёма вдоль стены (клеток × клетку); Out: наружа по оси прохода (+1 — к +y у Horiz, к +x иначе)
+        public struct Gate { public float X, Y, W, Ax, Ay; public bool Horiz; public int Mat, Out; }   // W — ширина проёма вдоль стены (клеток × клетку); (Ax, Ay) — ось прохода (поперёк стены); Out: наружа по этой оси (+1 — по ней, −1 — против)
         public struct Tower { public float X, Y, R; public int Mat; public int Seed; }
         public struct Rubble { public float X, Y; public int Seed; }
         public struct House { public float X0, Y0, X1, Y1; public int Seed; }   // прямоугольник клеток «здание», метры
@@ -74,11 +74,11 @@ namespace Journal.Art
             void Link(int a, int b) { (adj[a] ??= new List<int>()).Add(b); (adj[b] ??= new List<int>()).Add(a); }
             for (int i = 0; i < n; i++)
             {
-                int mm = mat[i]; if (mm == 0) continue;
+                int mm = mat[i]; if (mm == 0 || m.T[i] == KGate) continue;   // ворота — проём: лента стены через них не идёт
                 int x = i % cols, y = i / cols;
                 foreach (var (dx, dy) in new[] { (1, 0), (0, 1), (1, 1), (-1, 1) })
                 {
-                    if (MatAt(x + dx, y + dy) != mm) continue;
+                    if (MatAt(x + dx, y + dy) != mm || At(x + dx, y + dy) == KGate) continue;
                     if (dx != 0 && dy != 0 && (MatAt(x + dx, y) == mm || MatAt(x, y + dy) == mm)) continue;
                     Link(i, (y + dy) * cols + x + dx);
                 }
@@ -170,7 +170,23 @@ namespace Journal.Art
                 int side = 0; foreach (int j in cells) { int jx = j % cols, jy = j / cols; side += (MatAt(jx - 1, jy) != 0 ? 1 : 0) + (MatAt(jx + 1, jy) != 0 ? 1 : 0) - (MatAt(jx, jy - 1) != 0 ? 1 : 0) - (MatAt(jx, jy + 1) != 0 ? 1 : 0); }
                 bool horiz = side != 0 ? side > 0 : x1 - x0 >= y1 - y0;
                 float ax = horiz ? 0 : 1, ay = horiz ? 1 : 0;   // ось прохода
-                f.Gates.Add(new Gate { X = gx, Y = gy, W = ((horiz ? x1 - x0 : y1 - y0) + 1) * c, Horiz = horiz, Mat = mat[i], Out = OutSide(gx, gy, ax, ay) is int o && o != 0 ? o : -1 });
+                // косая стена (редактор карт): ось прохода — поперёк ближайшего куска стены, а не по сторонам света
+                float bestD = 2.2f * c;
+                foreach (var Lw in f.Lines)
+                {
+                    if (Lw.Mat != mat[i] || Lw.P.Count < 2) continue;
+                    float lwLen = 0; for (int q2 = 0; q2 + 1 < Lw.P.Count; q2++) lwLen += Dist(Lw.P[q2], Lw.P[q2 + 1]);
+                    if (lwLen < 3 * c) continue;   // обрывки внутри башен ось не задают
+                    for (int q2 = 0; q2 + 1 < Lw.P.Count; q2++)
+                    {
+                        var a = Lw.P[q2]; var b = Lw.P[q2 + 1]; float sx = b.x - a.x, sy = b.y - a.y, sl = (float)Math.Sqrt(sx * sx + sy * sy);
+                        if (sl < 1e-3f) continue;
+                        float tt = Math.Max(0, Math.Min(1, ((gx - a.x) * sx + (gy - a.y) * sy) / (sl * sl)));
+                        float d = Dist((gx, gy), (a.x + sx * tt, a.y + sy * tt));
+                        if (d < bestD) { bestD = d; ax = -sy / sl; ay = sx / sl; }
+                    }
+                }
+                f.Gates.Add(new Gate { X = gx, Y = gy, W = (Math.Max(x1 - x0, y1 - y0) + 1) * c, Horiz = horiz, Mat = mat[i], Ax = ax, Ay = ay, Out = OutSide(gx, gy, ax, ay) is int o && o != 0 ? o : -1 });
             }
             // башни: связные куски (по 8 соседям); кусок вдвое больше обычного — несколько башен по скоплениям клеток
             var seen = new bool[n]; var comps = new List<List<int>>();

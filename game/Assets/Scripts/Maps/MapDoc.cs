@@ -238,12 +238,12 @@ namespace Journal.Maps
             }
             foreach (double s in marks)
             {
-                if (f.Gates.Any(g => CircDist(g, s, L, f.Closed) < 14)) continue;
+                if (f.Gates.Any(g => CircDist(g, s, L, f.Closed) < (f.Kind == "wall" ? 27 : 14))) continue;   // надвратные башни — в 12,5 м, сами 15 м
                 var (x, y, _, _) = f.At(s); spots.Add((x, y));
             }
             if (f.Kind == "wall")
                 foreach (double g in f.Gates)
-                    foreach (int sd in new[] { -1, 1 }) { var (x, y, _, _) = f.At(Wrap(g + sd * 10, L, f.Closed)); spots.Add((x, y)); }
+                    foreach (int sd in new[] { -1, 1 }) { var (x, y, _, _) = f.At(Wrap(g + sd * 12.5, L, f.Closed)); spots.Add((x, y)); }
             return spots;
         }
         static double CircDist(double a, double b, double L, bool closed) { double d = Math.Abs(a - b); return closed && L > 0 ? Math.Min(d, L - d) : d; }
@@ -257,21 +257,20 @@ namespace Journal.Maps
                 for (int dy = 0; dy < size; dy++) for (int dx = 0; dx < size; dx++) { int xx = cx + dx, yy = cy + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H) m.T[yy * W + xx] = tower; }
             }
         }
-        // ворота: проём 10 м вдоль стены — клетки стены и башен у точки становятся воротами
+        // ворота: проём 10 м вдоль стены — клетки самой стены на линии в ±5 м от точки становятся воротами (башни — нет:
+        // иначе проём выходит неровным и сдвигается наружу)
         void GateCells(TerrainMap m, MapFeature f)
         {
-            byte gate = K("gate"), wall = K(f.Kind), tower = K("tower");
+            byte gate = K("gate"), wall = K(f.Kind);
+            double L = f.Length();
             foreach (double g in f.Gates)
-            {
-                var (x, y, tx, ty) = f.At(g); double nx = -ty, ny = tx;
-                for (double along = -4.5; along <= 4.5; along += 1.25)
-                    for (double across = -4; across <= 4; across += 1.25)
-                    {
-                        int cx = (int)Math.Floor((x + tx * along + nx * across) / Cell), cy = (int)Math.Floor((y + ty * along + ny * across) / Cell);
-                        if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
-                        int i = cy * W + cx; if (m.T[i] == wall || m.T[i] == tower) m.T[i] = gate;
-                    }
-            }
+                for (double d = -5; d <= 5; d += 0.25)
+                {
+                    var (x, y, _, _) = f.At(Wrap(g + d, L, f.Closed));
+                    int cx = (int)Math.Floor(x / Cell), cy = (int)Math.Floor(y / Cell);
+                    if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+                    int i = cy * W + cx; if (m.T[i] == wall) m.T[i] = gate;
+                }
         }
         // ── поселения ──
         // город: сетка улиц через 35 м (мостовая), площадь у середины с церковью, кварталы — дома с дворами
