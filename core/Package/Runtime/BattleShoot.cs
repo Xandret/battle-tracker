@@ -40,7 +40,7 @@ namespace BattleCore
     public struct ArrowTrace
     {
         public double T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1;
-        public int UnitId; public byte End;
+        public int UnitId; public byte End;   // End: 0 земля, 1 выбил, 2 удержали броня/щит, 3 ветви, 4 за край карты, 5 постройка или вал (Г103)
     }
     // Павший (Г67): где упал, когда (часы боя), чей, куда смотрел, откуда пришёл удар, во что попало
     public struct Death { public double X, Y, T, Facing, Dir; public int UnitId, ManId; public string Part; public bool Killed; }   // ManId — номер бойца (Г75), 0 — неизвестен
@@ -163,6 +163,44 @@ namespace BattleCore
         }
         double GroundZ(double x, double y) => Geo?.Map == null ? 0 : Terrain.CellAt(Geo.Map, x / Geo.W, y / Geo.H).Z * R.Ranged.MetersPerLevel;
         bool Forest(double x, double y) => Geo?.Map != null && Terrain.CellAt(Geo.Map, x / Geo.W, y / Geo.H).T == Terrain.Id("forest");
+
+        // Г103: верх постройки над землёй клетки по коду местности (0 — стрелу не держит); окоп/вал — бруствер по краю клетки
+        double[] buildTop; byte trenchId;
+        void BuildTops()
+        {
+            buildTop = new double[256]; trenchId = Terrain.Id("trench");
+            foreach (var kv in R.Ranged.BuildingHeightM) if (Terrain.ByKey.TryGetValue(kv.Key, out var tt)) buildTop[tt.Id] = kv.Value;
+            buildTop[trenchId] = R.Ranged.ParapetHeightM;
+        }
+        // стрела прошла отрезок (x0,y0,z0)→(x1,y1,z1): воткнулась ли в постройку клетки, где кончила шаг; f — доля отрезка до удара
+        bool HitsBuilding(double x0, double y0, double z0, double x1, double y1, double z1, double g1, out double f)
+        {
+            f = 1;
+            var map = Geo.Map; if (buildTop == null) BuildTops();
+            int cx1 = (int)Math.Min(map.W - 1, Math.Max(0, x1 / Terrain.CellM)), cy1 = (int)Math.Min(map.H - 1, Math.Max(0, y1 / Terrain.CellM));
+            byte t1 = map.T[cy1 * map.W + cx1]; double top = buildTop[t1];
+            if (top <= 0) return false;
+            int cx0 = (int)Math.Min(map.W - 1, Math.Max(0, x0 / Terrain.CellM)), cy0 = (int)Math.Min(map.H - 1, Math.Max(0, y0 / Terrain.CellM));
+            bool entered = cx0 != cx1 || cy0 != cy1;
+            double fIn = 0;   // доля шага, на которой стрела вошла в клетку по xy (вошла — когда пересекла последнюю из границ)
+            if (entered)
+            {
+                double fx = 0, fy = 0;
+                if (cx0 != cx1 && Math.Abs(x1 - x0) > 1e-9) fx = ((x1 > x0 ? cx1 : cx1 + 1) * Terrain.CellM - x0) / (x1 - x0);
+                if (cy0 != cy1 && Math.Abs(y1 - y0) > 1e-9) fy = ((y1 > y0 ? cy1 : cy1 + 1) * Terrain.CellM - y0) / (y1 - y0);
+                fIn = Math.Max(0, Math.Min(1, Math.Max(fx, fy)));
+            }
+            double zTop = g1 + top, zIn = z0 + (z1 - z0) * fIn;
+            if (t1 == trenchId)
+            {
+                // бруствер: держит только вход сбоку ниже верха вала, и не из такого же окопа; сверху — открыто
+                if (!entered || map.T[cy0 * map.W + cx0] == trenchId || zIn >= zTop) return false;
+                f = fIn; return true;
+            }
+            if (zIn <= zTop) { f = fIn; return true; }             // вошла в клетку ниже верха — в стену
+            if (z1 >= zTop || z1 >= z0) return false;              // летит над постройкой
+            f = Math.Max(fIn, (z0 - zTop) / (z0 - z1)); return true;   // снижаясь, встретила крышу
+        }
 
         // ── шаг стрельбы: перестрелки, окна, выстрелы, полёт ──
         void Shoot(double t, double dt)
@@ -400,6 +438,9 @@ namespace BattleCore
                 ground = true;
             }
             if (Geo != null && (x1 < 0 || y1 < 0 || x1 > Geo.W || y1 > Geo.H)) { Shots.Ground++; EndShot(ar, x0, y0, z0, x1, y1, z1, 1, subDt, 4); return; }   // улетела с карты
+            // постройки и валы (Г103): стена, башня, ворота, частокол, дом — тела своей высоты; окоп — бруствер по краю
+            if (Geo?.Map != null && HitsBuilding(x0, y0, z0, x1, y1, z1, g1, out var fb) && fb <= tEnd)
+            { Shots.Building++; EndShot(ar, x0, y0, z0, x1, y1, z1, fb, subDt, 5); return; }
             // ветви под кронами (Г38)
             if (z1 < g1 + RR.CanopyHeight && Forest(x1, y1))
             {
@@ -429,7 +470,7 @@ namespace BattleCore
         {
             ar.Flying = false; ar.Done = true; ar.W.Landed++;
             if (ArrowLog == null || ar.Log < 0) return;
-            var a = ArrowLog[ar.Log];   // где кончился полёт: доля шага f — точка встречи с землёй, ветвями или телом
+            var a = ArrowLog[ar.Log];   // где кончился полёт: доля шага f — точка встречи с землёй, ветвями, постройкой или телом
             a.T1 = curT + f * subDt; a.X1 = x0 + (x1 - x0) * f; a.Y1 = y0 + (y1 - y0) * f; a.Z1 = z0 + (z1 - z0) * f; a.End = end;
             ArrowLog[ar.Log] = a;
         }

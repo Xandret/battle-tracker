@@ -613,6 +613,37 @@ static class MenBodyTests
             True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
         });
 
+        yield return ("Г103: постройки держат стрелы — лучники по пехоте со 100 м: стена 9 м в 10 м перед пехотой режет потери впятеро и больше, стрелы торчат в стене (End 5); вал 1,5 м сверху открыт — потери почти как в поле; одно зерно — один исход", () =>
+        {
+            (double loss, long building, int end5, int ends, string hash) Run(string what, uint seed)
+            {
+                var bt = new Battle(MoveTests.Open(600, 600), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
+                var TB = Templates.Get("infantry"); var TA = Templates.Get("archers");
+                var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 300, 400, 0);
+                var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), RB);
+                var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 300, 400 - (b.P.Fp.Depth / 2 + 100 + fa.Depth / 2), 180);
+                if (what != null)
+                {
+                    int row = (int)((400 - b.P.Fp.Depth / 2 - 10) / Terrain.CellM);   // ряд клеток в 10 м перед передней шеренгой
+                    Terrain.PaintRect(bt.Geo.Map, "t", 0, row, bt.Geo.Map.W - 1, row, Terrain.Id(what));
+                }
+                bt.ArrowLog = new List<ArrowTrace>();
+                bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                long building = 0;
+                for (int t = 0; t < 2; t++) { bt.Turn(); building += bt.Shots.Building; }
+                var done = bt.ArrowLog.Where(x => x.T1 > x.T0).ToList();
+                string h = string.Join(";", done.Take(5).Select(x => $"{x.X1:0.00},{x.Y1:0.00},{x.End}"));
+                return (1000 - b.P.U.Soldiers, building, done.Count(x => x.End == 5), done.Count, h);
+            }
+            var field = Run(null, 7); var wall = Run("wall", 7); var wall2 = Run("wall", 7); var trench = Run("trench", 7);
+            True(field.building == 0 && field.end5 == 0, $"в поле стрелы втыкаются в постройки: {field.building}");
+            True(field.loss > 20, $"в поле потери {field.loss:0}");
+            True(wall.loss * 5 <= field.loss, $"стена: потери {wall.loss:0} против {field.loss:0} в поле");
+            True(wall.end5 == wall.building && wall.end5 * 2 > wall.ends, $"в стене {wall.end5} стрел из {wall.ends}, счётчик {wall.building}");
+            True(wall.hash == wall2.hash, "одно зерно — разный исход");
+            True(trench.loss * 1.5 >= field.loss, $"вал: потери {trench.loss:0} против {field.loss:0} в поле");
+        });
+
         yield return ("Г101: выбор построения — 1000 пехоты из линии в 8 шеренг в колонну в 32 и обратно: фронт 125 → 32 м, бойцы идут на новые места шагом (без прыжков), строй собирается; в бою потери прежние", () =>
         {
             var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(3).Next });

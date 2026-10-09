@@ -36,7 +36,7 @@ static class LookTests
             foreach (var x in done)
             {
                 double d = Math.Sqrt((x.X1 - x.X0) * (x.X1 - x.X0) + (x.Y1 - x.Y0) * (x.Y1 - x.Y0)), v = Math.Sqrt(x.VX * x.VX + x.VY * x.VY);
-                True(x.End <= 4 && x.Z1 > -0.5 && x.Z1 < 3, $"конец полёта: End {x.End}, высота {x.Z1:0.0}");
+                True(x.End <= 5 && x.Z1 > -0.5 && x.Z1 < 3, $"конец полёта: End {x.End}, высота {x.Z1:0.0}");
                 True(d <= v * (x.T1 - x.T0) + 0.5, $"стрела ушла дальше, чем могла: {d:0} м за {x.T1 - x.T0:0.00} с при {v:0} м/с");
             }
         });

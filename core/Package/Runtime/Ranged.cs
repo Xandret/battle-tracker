@@ -21,6 +21,7 @@ namespace BattleCore
     public sealed class ShotStats
     {
         public long Arrows, Hits, HitsFriendly, Out, Killed, Blocked, Ground, Unreachable, LowShots, HighShots;
+        public long Building;   // Г103: воткнулись в постройку или вал
         public Dictionary<string, long> Parts = new Dictionary<string, long> { ["head"] = 0, ["torso"] = 0, ["legs"] = 0, ["horse"] = 0 };
         public double OutPartWeight;   // Σ веса части тела по выбывшим (Г39)
     }
