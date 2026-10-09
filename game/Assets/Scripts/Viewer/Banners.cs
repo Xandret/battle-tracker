@@ -41,7 +41,7 @@ namespace Journal.Viewer
         public void Hide() => mesh.Clear();
 
         // все знамёна кадра; cols — цвет отряда (sRGB, как у бойцов), lin — перевод в цвет вершины проекта
-        public void Draw(Recording rec, double t, Color32[] cols, System.Func<Color32, Color32> lin, Rect view, float ppm)
+        public void Draw(Recording rec, double t, Color32[] cols, System.Func<Color32, Color32> lin, Rect view, float ppm, System.Func<int, Vector3?> cmdAt = null)
         {
             V.Clear(); C.Clear(); I.Clear();
             if (rec == null || rec.Frames.Count == 0 || ppm < 0.25f) { mesh.Clear(); return; }
@@ -68,6 +68,14 @@ namespace Journal.Viewer
                 if (!In(view, b.x, b.y, pad)) continue;
                 bool wave = st == 3 || (st == 4 && (fi - since) * rec.Dt < 4);
                 Standing(b, s, col, wave, (float)t + ui * 0.37f);
+                // личный стяг полководца (Алекс 10.10.2026): у знаменосца стражи, справа от полководца — золотой с полосой цвета отряда
+                var c = cmdAt?.Invoke(ui);
+                if (c != null && st != 1 && st != 3)
+                {
+                    float h = c.Value.z * Mathf.Deg2Rad;
+                    var at = new Vector2(c.Value.x + Mathf.Cos(h) * 1.1f, c.Value.y + Mathf.Sin(h) * 1.1f);
+                    if (In(view, at.x, at.y, pad)) Personal(at, s * 0.85f, col, lin(new Color32(222, 178, 74, 255)), (float)t + ui * 0.53f);
+                }
             }
             mesh.Clear();
             mesh.SetVertices(V); mesh.SetColors(C); mesh.SetTriangles(I, 0);
@@ -100,6 +108,18 @@ namespace Journal.Viewer
             Cloth(p, col);
             // светлая полоса у древка
             Quad(new Vector2(1.5f, -21), new Vector2(10.5f, -21 + Wy(10.5f) * 0.6f), new Vector2(10.5f, -18.8f + Wy(10.5f) * 0.6f), new Vector2(1.5f, -18.8f), Shine);
+        }
+        // личный стяг: прямоугольное полотнище золотом, посередине — полоса цвета отряда, навершие
+        void Personal(Vector2 at, float s, Color32 col, Color32 gold, float t)
+        {
+            o = at; sc = s; rotC = 1; rotS = 0;
+            float Wy(float x) => Mathf.Sin(t * 4 - x * 0.3f) * 1.2f * x / 12;
+            Line(0, 2, 0, -24, 2.4f, Ink); Line(0, 2, 0, -24, 1.2f, Wood);
+            var p = new[] { new Vector2(0, -23), new Vector2(12, -23 + Wy(12)), new Vector2(12, -15 + Wy(12)), new Vector2(0, -15) };
+            Quad(p[0], p[1], p[2], p[3], gold);
+            Quad(new Vector2(4.5f, -23 + Wy(4.5f)), new Vector2(7.5f, -23 + Wy(7.5f)), new Vector2(7.5f, -15 + Wy(7.5f)), new Vector2(4.5f, -15 + Wy(4.5f)), col);
+            Outline(p, 1.1f);
+            Line(-1.6f, -25.5f, 1.6f, -25.5f, 2.2f, gold);   // навершие
         }
         // знамя лежит: древко поперёк, полотнище свисает набок (как drawDropped полигона)
         void Fallen(Vector2 at, float rot, float s, Color32 col)

@@ -12,7 +12,7 @@ namespace Journal.Viewer
 {
     public sealed class UnitInfo
     {
-        public int Id, Faction; public string Name, Tpl, Type, Color, Style;   // Color — #rrggbb (сохранение трекера) или null; Style — стиль облика (В16), null — западный
+        public int Id, Faction, Commander; public string Name, Tpl, Type, Color, Style;   // Commander — номер полководца (0 — нет)   // Color — #rrggbb (сохранение трекера) или null; Style — стиль облика (В16), null — западный
         public double Men, PerMan, RankDepth, Front, Depth;
         public readonly List<double[]> Figs = new List<double[]>();   // по номеру тела: [ширина, глубина, бойцов, ряд]
     }
@@ -150,7 +150,7 @@ namespace Journal.Viewer
             {
                 var m = ms[i]; var u = m.P.U; idx[u.Id] = i;
                 var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
-                var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Name = u.Name, Tpl = tplOf(m), Type = u.Type, Men = u.Soldiers, Color = colorOf?.Invoke(m), Style = styleOf?.Invoke(m),
+                var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Commander = u.CommanderId ?? 0, Name = u.Name, Tpl = tplOf(m), Type = u.Type, Men = u.Soldiers, Color = colorOf?.Invoke(m), Style = styleOf?.Invoke(m),
                     PerMan = f.PerMan, RankDepth = f.RankDepth, Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
                 foreach (var fig in m.P.Figs) info.Figs.Add(new[] { fig.Width, fig.Depth, fig.Men, fig.Rank });
                 Rec.Units.Add(info);

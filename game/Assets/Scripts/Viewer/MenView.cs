@@ -26,6 +26,7 @@
 // Оси: как в полигоне — метры карты, y вниз; курс h — поворот canvas (вперёд — −y); в мир Unity: X = x, Y = −y.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Journal.Art;
 using UnityEngine;
 
@@ -49,6 +50,30 @@ namespace Journal.Viewer
         readonly Mesh decalMesh = NewMesh(), deadMesh = NewMesh(), deadTopMesh = NewMesh(), horseMesh = NewMesh(), menMesh = NewMesh(), airMesh = NewMesh();
         readonly Batch decals = new Batch(), corpses = new Batch(), deadTop = new Batch(), horseB = new Batch(), menB = new Batch(), air = new Batch();
         Kit[][] kits; string[] looks;
+        // полководец и стража (Алекс 10.10.2026): у отряда с полководцем — боец у знамени (полководец) и 4–12 ближайших к нему
+        // (стража); выбраны по первому кадру; пал полководец — его место занимает ближайший живой из стражи
+        int[] cmdId; int[][] guardIds; HashSet<int>[] guardSet; Kit[] cmdKit; Kit[][] guardKits;
+        readonly Dictionary<int, Vector3> cmdAt = new Dictionary<int, Vector3>();   // отряд → где полководец в кадре (x, y, курс°) — личное знамя
+        public Vector3? CmdAt(int ui) => cmdAt.TryGetValue(ui, out var v) ? v : (Vector3?)null;
+        void PickCommand(int i)
+        {
+            cmdId[i] = -1; guardIds[i] = null; guardSet[i] = null;
+            if (rec.Units[i].Commander <= 0 || rec.Men.Count == 0 || rec.Frames.Count == 0) return;
+            var mf = rec.Men[0][i]; var fr = rec.Frames[0][i];
+            float h = fr[2] * Mathf.Deg2Rad, dep = (float)rec.Units[i].Depth;
+            float bx = fr[0] + Mathf.Sin(h) * dep * 0.2f, by = fr[1] - Mathf.Cos(h) * dep * 0.2f;   // как знамя отряда
+            var alive = new List<int>();
+            for (int id = 1; id < mf.Xyh.Length / 3; id++) if (!float.IsNaN(mf.Xyh[3 * id])) alive.Add(id);
+            if (alive.Count == 0) return;
+            float D(int id, float x, float y) { float dx = mf.Xyh[3 * id] - x, dy = mf.Xyh[3 * id + 1] - y; return dx * dx + dy * dy; }
+            int c = alive.OrderBy(id => D(id, bx, by)).First();
+            float cx = mf.Xyh[3 * c], cy = mf.Xyh[3 * c + 1];
+            int n = Mathf.Clamp(alive.Count / 10, 4, 12);
+            cmdId[i] = c; guardIds[i] = alive.Where(id => id != c).OrderBy(id => D(id, cx, cy)).Take(n).ToArray();
+            guardSet[i] = new HashSet<int>(guardIds[i]);
+            string st = ForceStyle ?? rec.Units[i].Style;
+            cmdKit[i] = Kits.Commander(rec.Units[i].Id, looks[i], st); guardKits[i] = Kits.Guard(rec.Units[i].Id, looks[i], st);
+        }
         Recording rec;
         public bool Ok => men != null && horses != null && dead != null;
 
@@ -100,12 +125,14 @@ namespace Journal.Viewer
             rec = r;
             int n = r.Units.Count;
             kits = new Kit[n][]; looks = new string[n];
+            cmdId = new int[n]; guardIds = new int[n][]; guardSet = new HashSet<int>[n]; cmdKit = new Kit[n]; guardKits = new Kit[n][];
             lowL = new List<float>[n]; lowNear = new bool[n]; arrowsOf = new List<int>[n]; arrowsSeen = 0; vis = new Vis[n][];
             for (int i = 0; i < n; i++)
             {
                 looks[i] = Kits.LookOf(r.Units[i].Tpl, r.Units[i].Type);
                 kits[i] = Kits.Of(r.Units[i].Id, looks[i], ForceStyle ?? r.Units[i].Style);
                 lowL[i] = new List<float>(); arrowsOf[i] = new List<int>();
+                PickCommand(i);
             }
         }
 
@@ -370,7 +397,8 @@ namespace Journal.Viewer
         // Impact — сколько секунд со сшибки коня (−1 — не было за 0,6 с); Second — второй ряд колет через плечо
         // Brace — защитник ждёт удара своего противника (0…1, к мигу удара — 1): щит или оружие навстречу
         // Z — высота над землёй (Г104: на стене 9 м, на башне 11)
-        struct ManP { public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace, Z; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
+        // Role — 1 полководец, 2 стража, 0 — рядовой
+        struct ManP { public byte Role; public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace, Z; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
         // парные поединки: по кому и когда придётся ближайший удар (отряд << 32 | боец → миг удара), на кадр
         readonly Dictionary<long, float> incoming = new Dictionary<long, float>();
         int curUnit;   // отряд, которого бойцов сейчас рисуем (для MenMelee)
@@ -415,7 +443,7 @@ namespace Journal.Viewer
         public void Draw(double t, Color32[] unitCol, Rect view, float ppm)
         {
             if (!Ok || rec == null || rec.Frames.Count == 0) return;
-            decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear(); clangs.Clear();
+            decals.Clear(); corpses.Clear(); deadTop.Clear(); horseB.Clear(); menB.Clear(); air.Clear(); sparks.Clear(); clangs.Clear(); cmdAt.Clear();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             float t32 = (float)t;
             bool In(float x, float y, float pad) => x > view.xMin - pad && x < view.xMax + pad && y > view.yMin - pad && y < view.yMax + pad;
@@ -471,6 +499,11 @@ namespace Journal.Viewer
             var ua = rec.Frames[fi][ui]; var ub = rec.Frames[Math.Min(fi + 1, rec.Frames.Count - 1)][ui];
             float ucx = ua[0] + (ub[0] - ua[0]) * q, ucy = ua[1] + (ub[1] - ua[1]) * q;
             var vs = VisOf(ui, n);
+            // полководец пал — его место у ближайшего живого из стражи
+            int cmd = cmdId[ui];
+            if (cmd > 0 && (3 * cmd >= m0.Xyh.Length || float.IsNaN(m0.Xyh[3 * cmd])))
+            { cmd = -1; foreach (var gid in guardIds[ui]) if (3 * gid < m0.Xyh.Length && !float.IsNaN(m0.Xyh[3 * gid])) { cmd = gid; break; } }
+            var gset = guardSet[ui];
             for (int id = 1; id < n; id++)
             {
                 float x = m0.Xyh[3 * id];
@@ -493,7 +526,9 @@ namespace Journal.Viewer
                 float imp = horse && vis ? ImpactAge(ui, id, fi, t) : -1;
                 float z0 = m0.Z != null && id < m0.Z.Length ? m0.Z[id] : 0, z1 = m1.Z != null && id < m1.Z.Length ? m1.Z[id] : 0;
                 M.Add(new ManP { X = x, Y = y, Z = z0 + (z1 - z0) * q, Face = h * Mathf.Deg2Rad, Sp = sp, Ph = ph, Id = id, Seed = seed, Fig = fig, Vis = vis, Shot = float.NaN, Ap = -1, Parry = -1, MeleeFor = mfor, Down = dn, Rise = rise, Impact = imp,
-                    Rank = (fig < info.Figs.Count ? (int)info.Figs[fig][3] : 0) * fd + m0.Row[id], Kit = ks[(int)(H(seed, 4) * ks.Length)] });
+                    Rank = (fig < info.Figs.Count ? (int)info.Figs[fig][3] : 0) * fd + m0.Row[id],
+                    Role = (byte)(id == cmd ? 1 : gset != null && gset.Contains(id) ? 2 : 0),
+                    Kit = id == cmd ? cmdKit[ui] : gset != null && gset.Contains(id) ? guardKits[ui][id % guardKits[ui].Length] : ks[(int)(H(seed, 4) * ks.Length)] });
             }
             if (!anyVis) return;
             // рукопашная: в теле у врага бьют передние (ближе к врагу, чем 1,6 шеренги от самого переднего); остальные напирают
@@ -536,7 +571,7 @@ namespace Journal.Viewer
                 if (from < idx.Count && rec.Arrows[idx[from]].T0 <= t + 0.8f)
                 {
                     GridClear();
-                    for (int i = 0; i < M.Count; i++) if (M[i].Vis) GridAdd(Cell(M[i].X, M[i].Y, 2), i);
+                    for (int i = 0; i < M.Count; i++) if (M[i].Vis && M[i].Role == 0) GridAdd(Cell(M[i].X, M[i].Y, 2), i);   // полководец и стража не стреляют
                     for (int qq = from; qq < idx.Count && rec.Arrows[idx[qq]].T0 <= t + 0.8f; qq++)
                     {
                         var ar = rec.Arrows[idx[qq]];
@@ -563,11 +598,27 @@ namespace Journal.Viewer
                     else horseB.Quad(hsoft, Aff.At(m.X + 0.08f, m.Y + 0.1f).R(m.Face).S(0.9f, 2.25f), shadow, new Vector4(0, 0, 1, 0));
                 }
             }
+            // полководец (Алекс 10.10.2026): золотое кольцо под ногами — видно и издали; где он — личному знамени
+            foreach (var m in M)
+            {
+                if (m.Role != 1) continue;
+                cmdAt[ui] = new Vector3(m.X, m.Y, m.Face * Mathf.Rad2Deg);
+                if (!m.Vis || flee) break;
+                var px = men.Get("util/px"); float r = horse ? 2.0f : 0.95f, w = Mathf.Max(0.09f, 2.2f / ppm);
+                var gold = new Color32(232, 186, 82, 230); var solid = new Vector4(0, 0, 1, 0);
+                for (int k = 0; k < 24; k++)
+                {
+                    float a = k * Mathf.PI * 2 / 24, seg = r * Mathf.PI * 2 / 24 * 1.08f;
+                    deadTop.Quad(px, Aff.At(m.X + Mathf.Cos(a) * r, m.Y + Mathf.Sin(a) * r).R(a).S(w * 10, seg * 10), gold, solid);
+                }
+                break;
+            }
             for (int i = 0; i < M.Count; i++)
             {
                 var m = M[i]; if (!m.Vis) continue;
                 bool engaged = ef != null && ef.ContainsKey(m.Fig), fireHere = fire.Contains(ui * 100000L + m.Fig);
-                DrawMan(m, look, horse, flee, cheer, engaged, fireHere, shoot, active, low, t, col, ppm);
+                if (m.Role > 0 && !horse && (look == "bow" || look == "crossbow")) DrawMan(m, "sword", false, flee, cheer, engaged, false, false, false, low, t, col, ppm);   // полководец и стража стрелков — с мечом
+                else DrawMan(m, look, horse, flee, cheer, engaged, fireHere, shoot, active, low, t, col, ppm);
             }
         }
 
@@ -651,7 +702,8 @@ namespace Journal.Viewer
             if (engaged && !m.Atk) oy = -0.03f - 0.03f * Mathf.Sin(t * 3 + ph0 * 6.283f);   // задние напирают
             var (PW, PSh) = Rest(kit, m.Rank, low);
             var bas = Aff.At(m.X, m.Y).R(m.Face);
-            if (m.Z > 0) { float k = 1 + 0.012f * m.Z; bas = bas.S(k, k); }   // на стене (Г104): ближе к глазу — на 11–13 % крупнее
+            if (m.Z > 0) { float k = 1 + 0.012f * m.Z; bas = bas.S(k, k); }
+            if (m.Role > 0) { float k = m.Role == 1 ? 1.15f : 1.05f; bas = bas.S(k, k); }   // полководец крупнее на 15 %, стража — на 5 %   // на стене (Г104): ближе к глазу — на 11–13 % крупнее
 
             // издали (меньше 16 px/м, В18) — как у образца: капсула со шлемом; из оружия — древки передних шеренг и опущенное копьё
             if (ppm < 16)

@@ -125,16 +125,16 @@ namespace Journal.Art
             },
             ["south"] = new Dictionary<string, K>   // Италия, Иберия, мавры: бригантины, салады и барбюты, адарги, дротики
             {
-                ["militia"] = new K { Helm = W(("hair", 30), ("cap", 25), ("turban", 25), ("kettle", 20)), Weapon = W(("javelin", 35), ("spear", 30), ("fork", 10), ("club", 10), ("sword", 15)),
-                    Shield = W(("adarga", 35), ("round", 25), ("none", 40)), Paint = W(("plain", 50), ("halves", 25), ("wood", 25)) },
-                ["spear"] = new K { Helm = W(("barbute", 35), ("kettle", 35), ("sallet", 30)), Weapon = W(("spear", 70), ("javelin", 30)), Shield = W(("adarga", 30), ("heater", 40), ("round", 30)),
+                ["militia"] = new K { Helm = W(("hair", 35), ("cap", 35), ("kettle", 30)), Weapon = W(("spear", 40), ("javelin", 15), ("fork", 15), ("club", 15), ("sword", 15)),
+                    Shield = W(("round", 40), ("none", 60)), Paint = W(("plain", 50), ("halves", 25), ("wood", 25)) },
+                ["spear"] = new K { Helm = W(("barbute", 35), ("kettle", 35), ("sallet", 30)), Weapon = W(("spear", 85), ("javelin", 15)), Shield = W(("heater", 50), ("round", 30), ("buckler", 20)),
                     Paint = W(("plain", 30), ("halves", 25), ("stripe", 25), ("quarters", 20)), Armour = W(("leather", 55), ("mail", 25), ("cloth", 20)) },
-                ["sword"] = new K { Helm = W(("sallet", 50), ("barbute", 50)), Weapon = W(("sword", 70), ("falchion", 30)), Shield = W(("heater", 50), ("adarga", 30), ("buckler", 20)),
+                ["sword"] = new K { Helm = W(("sallet", 50), ("barbute", 50)), Weapon = W(("sword", 70), ("falchion", 30)), Shield = W(("heater", 60), ("buckler", 40)),
                     Armour = W(("leather", 50), ("plate", 50)), Back = W(("none", 100)) },
                 ["pike"] = new K { Helm = W(("sallet", 40), ("kettle", 40), ("barbute", 20)), Weapon = W(("pike", 60), ("halberd", 40)), Armour = W(("leather", 50), ("cloth", 50)) },
-                ["bow"] = new K { Helm = W(("cap", 40), ("turban", 30), ("kettle", 30)) },
+                ["bow"] = new K { Helm = W(("cap", 50), ("kettle", 50)) },
                 ["crossbow"] = new K { Helm = W(("kettle", 50), ("sallet", 50)), Armour = W(("leather", 50), ("mail", 30), ("cloth", 20)) },
-                ["lance"] = new K { Helm = W(("sallet", 50), ("barbute", 30), ("bascinet", 20)), Shield = W(("heater", 70), ("adarga", 30)), Armour = W(("plate", 60), ("leather", 40)),
+                ["lance"] = new K { Helm = W(("sallet", 50), ("barbute", 30), ("bascinet", 20)), Shield = W(("heater", 100)), Armour = W(("plate", 60), ("leather", 40)),
                     Bard = W(("cloth", 80), ("none", 20)) },
                 ["barded"] = new K { Helm = W(("sallet", 100)) },
             },
@@ -156,6 +156,98 @@ namespace Journal.Art
                     Back = W(("sashimono", 100)), Bard = W(("cloth", 100)) },
             },
         };
+        // ── подвиды (Алекс 10.10.2026): поправки поверх культуры, по наборам; чего нет — как у культуры ──
+        static readonly Dictionary<string, Dictionary<string, K>> SubStyled = new Dictionary<string, Dictionary<string, K>>
+        {
+            ["west-england"] = new Dictionary<string, K>   // длинные луки, биллы, бригантины
+            {
+                ["militia"] = new K { Helm = W(("hood", 35), ("kettle", 25), ("cap", 25), ("hair", 15)), Weapon = W(("spear", 35), ("halberd", 30), ("club", 15), ("axe", 10), ("sword", 10)) },
+                ["spear"] = new K { Helm = W(("sallet", 40), ("kettle", 40), ("bascinet", 20)), Weapon = W(("halberd", 55), ("spear", 35), ("axe", 10)), Shield = W(("none", 50), ("buckler", 30), ("heater", 20)),
+                    Armour = W(("leather", 50), ("mail", 30), ("cloth", 20)) },
+                ["sword"] = new K { Helm = W(("bascinet", 50), ("sallet", 30), ("great", 20)), Weapon = W(("sword", 50), ("mace", 25), ("axe", 25)), Armour = W(("plate", 70), ("mail", 30)) },
+                ["pike"] = new K { Weapon = W(("halberd", 70), ("pike", 30)), Helm = W(("sallet", 40), ("kettle", 40), ("capSteel", 20)) },
+                ["bow"] = new K { Helm = W(("sallet", 30), ("kettle", 30), ("cap", 20), ("hood", 20)), Side = W(("sword", 40), ("falchion", 30), ("mace", 30)), Armour = W(("leather", 60), ("cloth", 40)) },
+                ["lance"] = new K { Helm = W(("bascinet", 50), ("great", 30), ("sallet", 20)), Armour = W(("plate", 70), ("mail", 30)) },
+                ["barded"] = new K { Helm = W(("great", 60), ("bascinet", 40)) },
+            },
+            ["west-central"] = new Dictionary<string, K>   // Империя: салады, шапели, павезы, алебарды
+            {
+                ["militia"] = new K { Helm = W(("kettle", 35), ("hair", 25), ("cap", 25), ("hood", 15)), Weapon = W(("spear", 35), ("halberd", 20), ("club", 15), ("axe", 10), ("fork", 10), ("sword", 10)) },
+                ["spear"] = new K { Helm = W(("kettle", 50), ("sallet", 35), ("capSteel", 15)), Weapon = W(("spear", 50), ("halberd", 50)), Shield = W(("none", 40), ("heater", 30), ("buckler", 30)),
+                    Armour = W(("mail", 40), ("plate", 20), ("cloth", 20), ("leather", 20)) },
+                ["sword"] = new K { Helm = W(("sallet", 60), ("bascinet", 25), ("great", 15)), Weapon = W(("sword", 60), ("mace", 40)), Shield = W(("heater", 60), ("buckler", 40)), Armour = W(("plate", 80), ("mail", 20)) },
+                ["pike"] = new K { Weapon = W(("pike", 60), ("halberd", 40)), Helm = W(("kettle", 50), ("sallet", 30), ("capSteel", 20)) },
+                ["bow"] = new K { Helm = W(("kettle", 50), ("cap", 50)) },
+                ["crossbow"] = new K { Helm = W(("kettle", 50), ("sallet", 50)), Armour = W(("mail", 40), ("leather", 30), ("cloth", 30)) },
+                ["lance"] = new K { Helm = W(("sallet", 50), ("great", 30), ("bascinet", 20)), Armour = W(("plate", 80), ("mail", 20)), Bard = W(("cloth", 50), ("full", 20), ("none", 30)) },
+            },
+            ["north-rus"] = new Dictionary<string, K>   // Русь: шишаки, каплевидные щиты, чешуя, топоры и сабли, сложные луки
+            {
+                ["militia"] = new K { Helm = W(("hair", 35), ("cap", 30), ("shishak", 20), ("hood", 15)), Weapon = W(("spear", 45), ("axe", 35), ("club", 10), ("fork", 10)), Shield = W(("round", 50), ("kite", 25), ("none", 25)) },
+                ["spear"] = new K { Helm = W(("shishak", 70), ("capSteel", 15), ("nasal", 15)), Weapon = W(("spear", 75), ("axe", 25)), Shield = W(("kite", 70), ("round", 30)),
+                    Armour = W(("mail", 40), ("scale", 40), ("cloth", 20)) },
+                ["sword"] = new K { Helm = W(("shishak", 100)), Weapon = W(("sword", 40), ("sabre", 30), ("axe", 30)), Shield = W(("kite", 80), ("round", 20)), Armour = W(("scale", 50), ("mail", 50)) },
+                ["bow"] = new K { Weapon = W(("recurve", 100)), Helm = W(("cap", 40), ("shishak", 30), ("hair", 30)), Side = W(("axe", 50), ("sabre", 30), ("none", 20)) },
+                ["lance"] = new K { Helm = W(("shishak", 100)), Weapon = W(("lance", 60), ("sabre", 25), ("mace", 15)), Shield = W(("kite", 80), ("round", 20)), Armour = W(("scale", 50), ("mail", 50)),
+                    Bard = W(("none", 80), ("cloth", 20)) },
+                ["barded"] = new K { Helm = W(("shishak", 100)), Armour = W(("scale", 100)), Shield = W(("kite", 100)), Bard = W(("cloth", 100)) },
+            },
+            ["east-steppe"] = new Dictionary<string, K>   // степь: малахаи, конные лучники, сабли
+            {
+                ["militia"] = new K { Helm = W(("cap", 50), ("pointed", 30), ("hair", 20)), Weapon = W(("spear", 40), ("sabre", 25), ("axe", 20), ("club", 15)), Shield = W(("round", 50), ("none", 50)) },
+                ["spear"] = new K { Helm = W(("pointed", 60), ("cap", 40)), Weapon = W(("spear", 60), ("sabre", 40)), Armour = W(("lamellar", 40), ("leather", 40), ("cloth", 20)) },
+                ["sword"] = new K { Weapon = W(("sabre", 70), ("mace", 30)), Armour = W(("lamellar", 100)) },
+                ["bow"] = new K { Helm = W(("cap", 50), ("pointed", 50)), Side = W(("sabre", 70), ("none", 30)), Armour = W(("leather", 50), ("cloth", 30), ("lamellar", 20)) },
+                ["lance"] = new K { Helm = W(("pointed", 60), ("cap", 40)), Weapon = W(("recurve", 50), ("sabre", 30), ("lance", 20)), Shield = W(("round", 40), ("none", 60)),
+                    Armour = W(("lamellar", 40), ("leather", 40), ("cloth", 20)), Bard = W(("none", 90), ("lamellar", 10)) },
+            },
+            ["east-china"] = new Dictionary<string, K>   // Китай: ламелляр и чешуя, гуаньдао и цзи, арбалеты
+            {
+                ["militia"] = new K { Helm = W(("cap", 40), ("hair", 30), ("pointed", 30)), Weapon = W(("spear", 60), ("halberd", 15), ("sabre", 15), ("club", 10)), Shield = W(("round", 40), ("none", 60)) },
+                ["spear"] = new K { Helm = W(("pointed", 70), ("capSteel", 30)), Weapon = W(("spear", 60), ("halberd", 40)), Shield = W(("round", 50), ("none", 50)),
+                    Armour = W(("lamellar", 50), ("scale", 30), ("cloth", 20)) },
+                ["sword"] = new K { Weapon = W(("sabre", 50), ("sword", 50)), Shield = W(("round", 70), ("none", 30)), Armour = W(("lamellar", 60), ("scale", 40)) },
+                ["pike"] = new K { Weapon = W(("pike", 50), ("halberd", 50)), Helm = W(("pointed", 60), ("cap", 40)) },
+                ["bow"] = new K { Helm = W(("cap", 50), ("pointed", 50)), Side = W(("sabre", 60), ("none", 40)) },
+                ["crossbow"] = new K { Helm = W(("pointed", 50), ("cap", 50)), Back = W(("quiver", 100)), Armour = W(("lamellar", 40), ("cloth", 60)) },
+                ["lance"] = new K { Weapon = W(("lance", 60), ("sabre", 40)), Shield = W(("round", 50), ("none", 50)), Armour = W(("lamellar", 60), ("scale", 40)), Bard = W(("none", 60), ("cloth", 40)) },
+            },
+            ["south-byzantium"] = new Dictionary<string, K>   // Византия: ламелляр, каплевидные щиты, катафракты
+            {
+                ["militia"] = new K { Helm = W(("cap", 40), ("hair", 30), ("pointed", 30)), Weapon = W(("spear", 60), ("club", 15), ("mace", 15), ("sword", 10)), Shield = W(("round", 60), ("none", 40)) },
+                ["spear"] = new K { Helm = W(("pointed", 60), ("capSteel", 25), ("nasal", 15)), Weapon = W(("spear", 90), ("mace", 10)), Shield = W(("kite", 50), ("round", 50)),
+                    Armour = W(("lamellar", 50), ("mail", 30), ("cloth", 20)) },
+                ["sword"] = new K { Helm = W(("pointed", 70), ("nasal", 30)), Weapon = W(("sword", 50), ("mace", 30), ("axe", 20)), Shield = W(("kite", 60), ("round", 40)), Armour = W(("lamellar", 70), ("mail", 30)) },
+                ["pike"] = new K { Helm = W(("pointed", 50), ("capSteel", 50)), Armour = W(("cloth", 50), ("lamellar", 50)) },
+                ["bow"] = new K { Weapon = W(("recurve", 100)), Helm = W(("pointed", 40), ("cap", 60)), Side = W(("sword", 50), ("none", 50)) },
+                ["crossbow"] = new K { Helm = W(("pointed", 60), ("kettle", 40)), Back = W(("none", 60), ("pavise", 40)) },
+                ["lance"] = new K { Helm = W(("pointed", 100)), Weapon = W(("lance", 60), ("mace", 25), ("sword", 15)), Shield = W(("kite", 70), ("round", 30)), Armour = W(("lamellar", 80), ("mail", 20)),
+                    Bard = W(("none", 40), ("cloth", 30), ("lamellar", 30)) },
+                ["barded"] = new K { Helm = W(("pointed", 100)), Armour = W(("lamellar", 100)), Shield = W(("kite", 100)), Bard = W(("lamellar", 100)) },
+            },
+            ["south-iberia"] = new Dictionary<string, K>   // Иберия, мавры: адарги, дротики, тюрбаны, хинеты
+            {
+                ["militia"] = new K { Helm = W(("hair", 30), ("cap", 25), ("turban", 25), ("kettle", 20)), Weapon = W(("javelin", 35), ("spear", 30), ("fork", 10), ("club", 10), ("sword", 15)),
+                    Shield = W(("adarga", 35), ("round", 25), ("none", 40)) },
+                ["spear"] = new K { Helm = W(("kettle", 40), ("barbute", 30), ("turban", 30)), Weapon = W(("spear", 60), ("javelin", 40)), Shield = W(("adarga", 50), ("round", 30), ("heater", 20)),
+                    Armour = W(("leather", 60), ("mail", 20), ("cloth", 20)) },
+                ["sword"] = new K { Helm = W(("sallet", 40), ("barbute", 30), ("turban", 30)), Weapon = W(("sword", 60), ("falchion", 40)), Shield = W(("adarga", 50), ("heater", 30), ("buckler", 20)) },
+                ["bow"] = new K { Helm = W(("cap", 40), ("turban", 40), ("kettle", 20)) },
+                ["crossbow"] = new K { Helm = W(("kettle", 60), ("sallet", 40)) },
+                ["lance"] = new K { Helm = W(("turban", 30), ("sallet", 40), ("barbute", 30)), Weapon = W(("javelin", 40), ("lance", 40), ("sword", 20)), Shield = W(("adarga", 70), ("heater", 30)),
+                    Armour = W(("leather", 60), ("mail", 40)), Bard = W(("none", 50), ("cloth", 50)) },
+            },
+        };
+        static readonly Dictionary<string, int[]> SubCloths = new Dictionary<string, int[]>
+        {
+            ["west-england"] = new[] { 0xb03a2e, 0xd8d0c0, 0x2f3f6a, 0x7a6b4f, 0x8b7a5c, 0x5f6650, 0xa3977d },
+            ["west-central"] = new[] { 0xd0a838, 0x2a2622, 0xc8c0a8, 0x8a2a2a, 0x5a5a5a, 0x7a6b4f, 0x3a4a3a },
+            ["north-rus"] = new[] { 0x9a2a22, 0x6a5a48, 0xd8d0b8, 0x3a4a6a, 0x4a5a3a, 0x7a3a2a, 0x8a7a5f },
+            ["east-steppe"] = new[] { 0x7a5a3a, 0x5a4a3a, 0x9a7a4a, 0x3a4a5a, 0x8a3a2a, 0xb09060, 0x4a3a2a },
+            ["east-china"] = new[] { 0x9a2a2a, 0x2a2a2a, 0xc8a040, 0x2a3a5a, 0x6a4a2a, 0xb03030, 0x3a3a3a },
+            ["south-byzantium"] = new[] { 0x5a2a5a, 0x8a2a2a, 0xb8902a, 0x2a3a6a, 0xd8d0c0, 0x4a2a4a, 0x7a5a3a },
+            ["south-iberia"] = new[] { 0xd8ccb0, 0xb0823a, 0x8a3a2a, 0x5a3a2a, 0x2a5a4a, 0xe8e0c8, 0x9a5a2e },
+        };
         // своя одежда, масти (номера в COATS) и волосы — по стилю
         static readonly int[] ClothsWest = { 0x8b7a5c, 0x7d6b4f, 0xa08d6a, 0x6f6a5e, 0x9a8f7a, 0x7a5c48, 0x5f6650, 0xa3977d };
         static readonly Dictionary<string, int[]> Cloths = new Dictionary<string, int[]>
@@ -174,7 +266,7 @@ namespace Journal.Art
         // цвета доспеха (F_ARMC в пробе) — рукава у раскладок с бронёй
         static readonly Dictionary<string, int> ArmourRgb = new Dictionary<string, int> { ["mail"] = 0xa2a7aa, ["plate"] = 0xb4b9bc, ["scale"] = 0xa9a48d, ["lamellar"] = 0xaeb3b5 };
         static readonly HashSet<string> Tabards = new HashSet<string> { "plain", "halves", "quarters", "cross", "chevron", "stripe" };
-        public static bool IsStyle(string s) => s != null && Styled.ContainsKey(s);
+        public static bool IsStyle(string s) => s != null && Styled.ContainsKey(Journal.Art.Styles.BaseOf(s));
 
         static string Pick((string, int)[] list, double r)
         {
@@ -187,16 +279,37 @@ namespace Journal.Art
         public static string LayoutOf(string armour, string style) =>
             armour == "cloth" || armour == "leather" ? "cloth" : armour == "oyoroi" ? "lacing" : armour == "dou" ? "dou" : style == "north" ? "cloak" : armour == "lamellar" ? "kaftan" : "tabard";
 
+        // полководец и стража (Алекс 10.10.2026: «должны выделяться на фоне всего отряда», снаряжение — по культуре): лучший
+        // комплект культуры и подвида — пешим мечники, конным тяжёлые рыцари; у всех плащ; у полководца на топфхелме гребень
+        public static Kit Commander(int unitId, string look, string style)
+        {
+            bool horse = look == "lance" || look == "barded";
+            var k = Of(unitId * 7 + 900001, horse ? "barded" : "sword", style)[0];
+            if (!horse) { k.Back = "back/cape"; k.BackKind = "cape"; }
+            if (k.Helm == "great") { k.Crest = true; k.Head = "head/great/crest"; }
+            return k;
+        }
+        public static Kit[] Guard(int unitId, string look, string style)
+        {
+            bool horse = look == "lance" || look == "barded";
+            var ks = Of(unitId * 7 + 900003, horse ? "barded" : "sword", style);
+            if (!horse) foreach (var k in ks) { k.Back = "back/cape"; k.BackKind = "cape"; }
+            return ks;
+        }
+
         // Комплекты отряда: как kitsF в пробе
         public static Kit[] Of(int unitId, string look, string style = "west")
         {
             if (!IsStyle(style)) style = "west";
+            string sub = style; style = Journal.Art.Styles.BaseOf(style);   // подвид: культура + поправки
             var T0 = Table[look]; Styled[style].TryGetValue(look, out var S);
-            var T = S == null ? T0 : new K { Helm = S.Helm ?? T0.Helm, Weapon = S.Weapon ?? T0.Weapon, Shield = S.Shield ?? T0.Shield, Paint = S.Paint ?? T0.Paint,
-                Back = S.Back ?? T0.Back, Armour = S.Armour ?? T0.Armour, Side = S.Side ?? T0.Side, Bard = S.Bard ?? T0.Bard, Own = T0.Own, Uniform = T0.Uniform };
+            K U = null; if (SubStyled.TryGetValue(sub, out var su)) su.TryGetValue(look, out U);
+            K Over(K a, K o) => o == null ? a : new K { Helm = o.Helm ?? a.Helm, Weapon = o.Weapon ?? a.Weapon, Shield = o.Shield ?? a.Shield, Paint = o.Paint ?? a.Paint,
+                Back = o.Back ?? a.Back, Armour = o.Armour ?? a.Armour, Side = o.Side ?? a.Side, Bard = o.Bard ?? a.Bard, Own = a.Own, Uniform = a.Uniform };
+            var T = Over(Over(T0, S), U);
             int seed = unitId * 1013 + 7, N = T.Uniform ? 6 : 12;
             bool horse = look == "lance" || look == "barded";
-            var cloths = Cloths[style]; var coats = Coats[style]; var hairs = style == "fareast" ? HairsFarEast : Hairs;
+            var cloths = SubCloths.TryGetValue(sub, out var sc) ? sc : Cloths[style]; var coats = Coats[style]; var hairs = style == "fareast" || sub == "east-china" ? HairsFarEast : Hairs;
             int c2 = (int)(Hash(seed, 2) * 3);
             string oneHelm = Pick(T.Helm, Hash(seed, 3)), onePaint = Pick(T.Paint ?? W(("plain", 1)), Hash(seed, 4));
             var kits = new Kit[N];

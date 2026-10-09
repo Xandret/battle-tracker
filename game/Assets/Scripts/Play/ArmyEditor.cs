@@ -387,7 +387,7 @@ namespace Journal.Play
             if (!stylePicked.Contains(u)) u["style"] = file.DefaultStyle(fid, name, except: u);
             if (!kitPicked.Contains(u)) u["kit"] = KitSets.Guess(name, (string)u["type"], (string)u["weapon"]);
             // ни прошлого отряда фракции, ни подсказки в названии — Западный по умолчанию, пусть выберут (В16)
-            bool unguessed = !stylePicked.Contains(u) && Styles.Guess(name) == null && !file.UnitsOf(fid).Any(x => x != u && Styles.Known((string)x["style"]));
+            bool unguessed = !stylePicked.Contains(u) && Styles.GuessFull(name) == null && !file.UnitsOf(fid).Any(x => x != u && Styles.Known((string)x["style"]));
             if (tpl != null || unguessed || (string)u["style"] != style || (string)u["kit"] != kit)
                 Say($"По названию: {(tpl != null ? tpl + " · " : "")}{KitSets.NameOf((string)u["kit"])} · {Styles.NameOf((string)u["style"])}"
                     + (unguessed ? " — край по названию не угадан, выбери стиль справа" : " — можно сменить справа"));

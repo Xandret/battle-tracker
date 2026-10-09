@@ -251,10 +251,10 @@ namespace Journal.Armies
         public string DefaultStyle(int? factionId, string name, JObject except = null)
         {
             var last = UnitsOf(factionId).LastOrDefault(u => u != except && Styles.Known((string)u["style"]));
-            return (string)last?["style"] ?? Styles.Guess(name) ?? Styles.Default;
+            return (string)last?["style"] ?? Styles.GuessFull(name) ?? Styles.Default;
         }
         // облик отряда, у которого полей нет (старые сохранения): угадать, не записывая
-        public static string StyleOf(JObject u) => Styles.Known((string)u["style"]) ? (string)u["style"] : Styles.Guess((string)u["name"]) ?? Styles.Default;
+        public static string StyleOf(JObject u) => Styles.Known((string)u["style"]) ? (string)u["style"] : Styles.GuessFull((string)u["name"]) ?? Styles.Default;
         public static string KitOf(JObject u) => KitSets.Known((string)u["kit"]) ? (string)u["kit"] : KitSets.Guess((string)u["name"], (string)u["type"], (string)u["weapon"]);
     }
 }

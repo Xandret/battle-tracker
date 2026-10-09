@@ -388,13 +388,10 @@ namespace Journal.Viewer
             var cp = cam.transform.position; float vh = cam.orthographicSize, vw = vh * cam.aspect;
             var viewRect = new Rect(cp.x - vw, -cp.y - vh, 2 * vw, 2 * vh);
             fortView?.Gates(rec, t);
-            banners?.Draw(rec, t, unitColRaw, Lin, viewRect, ppm);
-            if (menView != null && menView.Ok && ppm >= MenFrom)
-            {
-                menView.Draw(t, unitColRaw, viewRect, ppm);
-                unitsMesh.Clear();
-                return;
-            }
+            bool near = menView != null && menView.Ok && ppm >= MenFrom;
+            if (near) menView.Draw(t, unitColRaw, viewRect, ppm);
+            banners?.Draw(rec, t, unitColRaw, Lin, viewRect, ppm, near ? menView.CmdAt : (System.Func<int, Vector3?>)null);   // личный стяг — где полководец
+            if (near) { unitsMesh.Clear(); return; }
             menView?.Hide();
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
             // павшие — под отрядами
