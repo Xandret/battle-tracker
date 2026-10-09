@@ -152,17 +152,12 @@ namespace Journal.Play
             if (own.HasValue && own.Value != SideOf(m)) return $"стены держит {Session.Name(own.Value)}";
             return null;
         }
-        // onWall — (x, y) на самой стене (отпустили на ней): «наружу» движок считает от середины всех стен; иначе (x, y) — двор,
-        // наружу — от него. Точку двигаем к ближайшей клетке стены, а не башни: у края башни ряд клеток — в три клетки, и строй
-        // вставал колонной в 7 м шириной (движок берёт ряд через ближайшую клетку)
+        // onWall — отпустили на стене (мышь у клетки стены, ± клетка): точку — на саму клетку, тогда «наружу» движок считает
+        // от середины всех стен; иначе (x, y) — двор, наружу — от него. Ряд вдоль стены выбирает движок (Garrison.RowPick)
         public bool ToWall(Mover m, double x, double y, bool quiet = false, bool onWall = false)
         {
             string why = WallWhy(m);
-            if (why == null && WallCell(x, y, 60, out var wx, out var wy))
-            {
-                double dx = x - wx, dy = y - wy, d = Math.Sqrt(dx * dx + dy * dy), c = Game.Geo.Map.Cell;
-                if (onWall || d < 1e-6) { x = wx; y = wy; } else { x = wx + dx / d * 0.6 * c; y = wy + dy / d * 0.6 * c; }
-            }
+            if (why == null && onWall && WallCell(x, y, 8, out var wx, out var wy)) { x = wx; y = wy; }
             if (why == null && !Battle.Garrison(m, x, y)) why = "стены ближе 60 м нет или на ней нет места";
             if (why != null) { if (!quiet) Say($"«{m.P.U.Name}»: {why}"); return false; }
             if (CanDeploy) Deployed(m);
