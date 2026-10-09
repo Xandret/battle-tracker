@@ -43,7 +43,7 @@ namespace Journal.Play
             ppm = Screen.height / (2 * cam.orthographicSize);
             bool orders = pc.Phase == PlayPhase.Orders;
             // рамки выбора и наведения — где отряд виден (по его бойцам в записи), а не где он в счёте
-            if (pc.Hover != null && pc.Hover != pc.Selected && PlayController.Present(pc.Hover)) { pc.BoxOf(pc.Hover, out var hx, out var hy, out var hf, out var hw, out var hd); Footprint(hx, hy, hf, hw, hd, White, 1.5f); }
+            if (pc.Hover != null && pc.Hover != pc.Selected && PlayController.Present(pc.Hover) && !pc.Hover.Fleeing) { pc.BoxOf(pc.Hover, out var hx, out var hy, out var hf, out var hw, out var hd); Footprint(hx, hy, hf, hw, hd, White, 1.5f); }
             if (orders)
                 foreach (var m in pc.Battle.Movers)
                 {
@@ -56,7 +56,7 @@ namespace Journal.Play
                 if (!PlayController.Present(s)) continue;
                 bool main = s == pc.Selected;
                 pc.BoxOf(s, out var sx, out var sy, out var sf, out var sw, out var sd);
-                Footprint(sx, sy, sf, sw, sd, Gold, main ? 2.5f : 2f);
+                if (!s.Fleeing) Footprint(sx, sy, sf, sw, sd, Gold, main ? 2.5f : 2f);   // бегущий — толпа, не строй (Г100)
                 if (!orders) continue;
                 if (pc.Dragging && !main)
                 {

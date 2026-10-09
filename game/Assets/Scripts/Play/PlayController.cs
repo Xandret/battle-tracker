@@ -100,6 +100,24 @@ namespace Journal.Play
             Changed?.Invoke();
         }
 
+        // Г101: построение выбранных — глубина строя от стола: цепь ½, линия 1 (по столу), глубокий строй 2, колонна 4.
+        // Перестраиваются на месте (Battle.SetRanks): бойцы идут на новые места шагом; бегущий не перестраивается
+        public void SetFormation(double share)
+        {
+            if (Phase != PlayPhase.Orders || Battle == null || Selection.Count == 0) return;
+            int n = 0;
+            foreach (var m in Selection)
+            {
+                if (!Present(m) || m.Fleeing) continue;
+                var f = Battle.R.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : Battle.R.Map.Formation["infantry"];
+                int ranks = Math.Abs(share - 1) < 1e-9 ? 0 : Math.Max(1, (int)Math.Round(f.Ranks * share));
+                if (Battle.SetRanks(m, ranks)) n++;
+            }
+            var lead = Selected ?? Selection[0];
+            Say(n > 0 ? $"Перестроение: {Battle.RanksName(lead.P.U)} — бойцы идут на новые места (на это уйдёт ход-другой)" : "Строй уже такой");
+            RefreshPreviews(); Changed?.Invoke();
+        }
+
         // вернуть смотрелке эту битву (после редактора карт, который показывал свою карту)
         public void ReShow() { if (viewer != null && recorder != null) { viewer.SetLive(recorder.Rec); viewer.T = ShowTime; } }
 

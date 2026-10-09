@@ -33,6 +33,14 @@ namespace Journal.Play
             void Ring(float x, float y, float r, float a0 = 0, float a1 = 360) { p.BeginPath(); p.Arc(P(x, y), r * s, Angle.Degrees(a0), Angle.Degrees(a1)); p.Stroke(); }
             switch (kind)
             {
+                case "f-skirmish":   // цепь: редкий ряд
+                    foreach (float x in new[] { 3f, 9f, 15f, 21f }) Dot(x, 12, 1.6f); break;
+                case "f-line":       // линия: два плотных ряда
+                    for (float x = 4; x <= 20; x += 4) { Dot(x, 10, 1.4f); Dot(x, 14, 1.4f); } break;
+                case "f-deep":       // глубокий строй: квадрат 4 × 4
+                    for (float x = 6; x <= 18; x += 4) for (float y = 6; y <= 18; y += 4) Dot(x, y, 1.4f); break;
+                case "f-column":     // колонна: узко и длинно
+                    for (float y = 3; y <= 21; y += 4) { Dot(10, y, 1.4f); Dot(14, y, 1.4f); } break;
                 case "move":      // стрелка вперёд со следом
                     Line(5, 19, 17, 7); Poly(19, 5, 11, 7, 17, 13); Line(4, 13, 8, 17); break;
                 case "attack":    // скрещённые мечи

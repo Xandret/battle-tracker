@@ -30,7 +30,7 @@ namespace Journal.Play
         VisualElement menu, menuList; Label menuStatus;
         LineupPanel lineup;                 // состав битвы из сохранения трекера (Г98)
         MainMenu mainMenu; SettingsPanel settings; ArmyBattlePanel armyBattle;
-        MapEditor mapEditor;                // редактор карт (Г100)   // главное меню, настройки, бой своими армиями
+        MapEditor mapEditor;                // редактор карт (Г102)   // главное меню, настройки, бой своими армиями
         VisualElement overTable; object overBuilt;   // итог битвы «кто сколько потерял» — строится раз на конец битвы
         ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
         bool menuBusy;
@@ -285,6 +285,11 @@ namespace Journal.Play
             Add("retreat", "Отступить", "О", () => pc.Retreat(), "Пятиться лицом к врагу на половине нормы");
             Add("rally", "Сплотить", "С", () => pc.Rally(), "Бегущим: когда враг дальше 150 м — бросок d100 ≤ дисциплина");
             Add("cancel", "Отменить", "⌫", () => pc.Cancel(), "Снять новый приказ — отряд продолжит прежний");
+            // Г101: построение — глубина строя; перестраиваются на месте, бойцы идут на новые места шагом
+            Add("f-skirmish", "Цепь", "строй", () => pc.SetFormation(0.5), "Вдвое мельче строя по столу: шире фронт, меньше шеренг");
+            Add("f-line", "Линия", "строй", () => pc.SetFormation(1), "Строй по столу");
+            Add("f-deep", "Глубокий", "строй", () => pc.SetFormation(2), "Глубокий строй: вдвое больше шеренг, уже фронт");
+            Add("f-column", "Колонна", "строй", () => pc.SetFormation(4), "Колонна: вчетверо глубже — для узостей и марша");
         }
 
         void LateUpdate()
@@ -500,6 +505,9 @@ namespace Journal.Play
                 kv.Value.EnableInClassList("is-off", !on);
             }
             orderBtn["charge"].EnableInClassList("is-on", pc.ChargeMode);
+            string rn = pc.Selected != null && pc.Battle != null ? pc.Battle.RanksName(pc.Selected.P.U) : null;
+            foreach (var (k, name) in new[] { ("f-skirmish", "цепь"), ("f-line", "линия"), ("f-deep", "глубокий строй"), ("f-column", "колонна") })
+                orderBtn[k].EnableInClassList("is-on", rn == name && !pc.Selected.Fleeing);
         }
 
         // ── подсказка над отрядом под мышью ──

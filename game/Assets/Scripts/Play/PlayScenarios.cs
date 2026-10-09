@@ -89,7 +89,7 @@ namespace Journal.Play
             // ширина карты — под самую широкую линию, но не уже шаблона
             double widest = sides.Max(L => L.Sum(x => Formation.Of(x.u, R).Front + 25));
             var input = new Dictionary<string, object> { ["widthM"] = Math.Max(1600, Math.Min(7000, widest + 500)), ["depthM"] = 1300.0 };
-            // карта: шаблон движка или файл редактора карт («file:путь», Г100) — тогда её размер как есть
+            // карта: шаблон движка или файл редактора карт («file:путь», Г102) — тогда её размер как есть
             bool fromFile = mapId.StartsWith("file:");
             var mapDoc = fromFile ? Journal.Maps.MapDoc.FromJson(System.IO.File.ReadAllText(mapId.Substring(5))) : null;
             var map = fromFile ? mapDoc.Bake() : MapGen.Generate(mapId, input, seed);
@@ -116,7 +116,7 @@ namespace Journal.Play
             var foot = list.Where(x => !Ranged(x.u) && x.u.Type != "cavalry").OrderByDescending(x => x.u.Soldiers).ToList();
             // главная линия: половина конницы, пехота, другая половина конницы
             var main = cav.Where((_, i) => i % 2 == 0).Concat(foot).Concat(cav.Where((_, i) => i % 2 == 1)).ToList();
-            // между армиями ~520 м; на мелкой карте (редактор, Г100) — ближе, чтобы обе влезли
+            // между армиями ~520 м; на мелкой карте (редактор, Г102) — ближе, чтобы обе влезли
             double off = Math.Min(260, H * 0.36);
             Line(pb, main, H / 2 + dir * off, dir, facing, side);
             Line(pb, ranged, H / 2 + dir * (off - 70), dir, facing, side);

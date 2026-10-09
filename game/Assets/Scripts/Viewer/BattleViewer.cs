@@ -76,7 +76,7 @@ namespace Journal.Viewer
             rec = r; t = 0; playing = false;
             BuildGround(); FitView();
         }
-        // карта без отрядов (редактор карт, Г100): земля и укрепления, камера — как в игре; fit — показать всю карту
+        // карта без отрядов (редактор карт, Г102): земля и укрепления, камера — как в игре; fit — показать всю карту
         public void ShowMap(TerrainMap m, string name, bool fit)
         {
             Init();
@@ -402,6 +402,22 @@ namespace Journal.Viewer
                 if (rec.StateAt(u, f0) == 2) continue;   // ушёл с поля
                 var col = unitCol[u]; var ec = unitEdge[u];
                 float h0 = a[2], dh = Mathf.DeltaAngle(a[2], b[2]);
+                // бегущий (Г100): не плашки колонн, а его бойцы — точками не меньше ~2,5 px
+                int stU = rec.StateAt(u, f0);
+                if ((stU == 1 || stU == 3) && f0 < rec.Men.Count)
+                {
+                    var m0 = rec.Men[f0][u]; var m1 = f1 < rec.Men.Count ? rec.Men[f1][u] : m0; float dot = Mathf.Max(1.1f, 2.5f / ppm);
+                    for (int pass = 0; pass < 2; pass++)
+                        for (int id = 1; id < m0.Xyh.Length / 3; id++)
+                        {
+                            float x = m0.Xyh[3 * id]; if (float.IsNaN(x)) continue;
+                            float y = m0.Xyh[3 * id + 1];
+                            if (3 * id + 1 < m1.Xyh.Length && !float.IsNaN(m1.Xyh[3 * id])) { x += (m1.Xyh[3 * id] - x) * q; y += (m1.Xyh[3 * id + 1] - y) * q; }
+                            float e = pass == 0 ? 2 * edge : 0;
+                            Quad(x, y, dot + e, dot + e, 0, pass == 0 ? ec : col);
+                        }
+                    continue;
+                }
                 // два прохода: сначала обводки всех тел отряда, потом заливки — иначе между соседними телами видны швы
                 for (int pass = 0; pass < 2; pass++)
                     for (int k = 0; 5 + 2 * k < a.Length; k++)

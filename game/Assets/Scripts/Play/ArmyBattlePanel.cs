@@ -21,7 +21,7 @@ namespace Journal.Play
             public DropdownField FileBox, FacBox; public ScrollView List; public Label Sum;
         }
         static readonly (string Id, string Name)[] BuiltIn = { ("field", "Поле"), ("forest", "Лес"), ("hills", "Холмы"), ("river", "Река"), ("desert", "Пустыня") };
-        // шаблоны движка и карты редактора (Saves/Maps, Г100): у них Id «file:путь»
+        // шаблоны движка и карты редактора (Saves/Maps, Г102): у них Id «file:путь»
         List<(string Id, string Name)> Maps = BuiltIn.ToList();
         void RefreshMaps(string pick)
         {
