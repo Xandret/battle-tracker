@@ -87,6 +87,18 @@ namespace Journal.Play
                 double h = pc.DeployFacing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h), L = pc.DeployUnit.P.Fp.Depth / 2 + 12;
                 Line(pc.DeployX, pc.DeployY, pc.DeployX + fx * L, pc.DeployY + fy * L, col, 2);
             }
+            // прочность ворот, которые рубят (Г105): полоска над проходом — что осталось; выбиты — полоски нет
+            var vrec = pc.ViewRec;
+            if (vrec != null)
+                for (int g = 0; g < vrec.Gates.Count; g++)
+                {
+                    int fr = Mathf.Clamp((int)(pc.ViewT / vrec.Dt), 0, Mathf.Max(0, vrec.Frames.Count - 1));
+                    if ((vrec.GateAt(g, fr) & 4) != 0 || !vrec.GateHpAt(g, fr, out var hp, out var mx) || mx <= 0) continue;
+                    float k = Mathf.Clamp01(hp / mx), hw = 5, gx = vrec.Gates[g].X, gy = vrec.Gates[g].Y - 6;
+                    var fill = k > 0.5f ? Ok : k > 0.25f ? new Color32(230, 186, 92, 255) : Bad;
+                    Line(gx - hw - 0.3f, gy, gx + hw + 0.3f, gy, new Color32(20, 16, 10, 220), 7);
+                    if (k > 0) Line(gx - hw, gy, gx - hw + 2 * hw * k, gy, fill, 4);
+                }
             // ворота под мышью — их можно открыть или закрыть щелчком
             if (orders && pc.GateHover >= 0 && pc.Battle != null)
             {

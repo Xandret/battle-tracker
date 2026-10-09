@@ -225,6 +225,8 @@ namespace Journal.Art
                     for (int j = 0; j < C.Count; j++) if (acc[j].n > 0) C[j] = (acc[j].x / acc[j].n, acc[j].y / acc[j].n);
                 }
                 float r = (float)Math.Sqrt((double)P.Count / kk) * c * 0.52f + 0.3f;
+                // одна башня — круг ядра (Г105: Terrain.TowerCircle — середина клеток, r = √(N·S/π)): стрелы и высота бойца — по нему же
+                if (kk == 1 && Terrain.TowerCircle(m, cells[0], out var tcx, out var tcy, out var tr)) { C[0] = ((float)tcx, (float)tcy); r = (float)tr; }
                 for (int j = 0; j < C.Count; j++) f.Towers.Add(new Tower { X = C[j].x, Y = C[j].y, R = r, Mat = mat[cells[0]], Seed = cells[0] + j });
             }
             // дома: связный кусок клеток «здание» режется на прямоугольники — от верхней левой клетки вправо, потом вниз

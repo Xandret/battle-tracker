@@ -69,7 +69,8 @@ namespace Journal.Viewer
 
         // створки ворот (Г104): по записи боя — закрыты, открыты или распахнуты, пока в проходе свои; поворот на петлях внутрь
         // за 1,2 с. Hinge — середина створок у наружного края прохода, O — наружу, Tg — вдоль стены
-        sealed class GateDraw { public Vector2 Mid, O, Tg; public float Half, Open = -1; public int Rec = -1; }
+        // Hit — сколько секунд назад по воротам пришёлся удар (дрожат, летят щепки), Broken — выбиты (Г105)
+        sealed class GateDraw { public Vector2 Mid, O, Tg; public float Half, Open = -1, Hit = 99; public int Rec = -1, HitFrame = -1; public bool Broken; }
         readonly List<GateDraw> gates = new List<GateDraw>();
         Mesh leafMesh; Recording gatesFor; Vector2 leafUv;
 
@@ -192,9 +193,19 @@ namespace Journal.Viewer
             bool dirty = false; float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
             foreach (var G in gates)
             {
-                float want = G.Rec >= 0 && rec.GateAt(G.Rec, fr) != 0 ? 1 : 0, was = G.Open;
+                int st = G.Rec >= 0 ? rec.GateAt(G.Rec, fr) : 0;
+                float want = st != 0 ? 1 : 0, was = G.Open;
                 G.Open = Mathf.MoveTowards(was, want, dt / 1.2f);
                 dirty |= G.Open != was;
+                bool broken = (st & 4) != 0; dirty |= broken != G.Broken; G.Broken = broken;
+                // удар: прочность упала в одном из двух последних кадров — створки вздрагивают, летят щепки
+                float hit = 99;
+                if (G.Rec >= 0 && !broken)
+                    for (int f = fr; f >= Mathf.Max(1, fr - 2); f--)
+                        if (rec.GateHpAt(G.Rec, f, out var h1, out _) && rec.GateHpAt(G.Rec, f - 1, out var h0, out _) && h1 < h0 - 1e-3f || rec.GateHpAt(G.Rec, f, out _, out _) && !rec.GateHpAt(G.Rec, f - 1, out _, out _))
+                        { hit = (float)(t - f * rec.Dt); G.HitFrame = f; break; }
+                if (hit < 0.6f || G.Hit < 0.6f) dirty = true;
+                G.Hit = hit;
             }
             if (dirty) BuildLeaves();
         }
@@ -210,13 +221,38 @@ namespace Journal.Viewer
                 g.Vert(v2.x, v2.y, leafUv.x, leafUv.y, col, prm); g.Vert(v3.x, v3.y, leafUv.x, leafUv.y, col, prm);
                 g.Tri(i, i + 1, i + 2); g.Tri(i, i + 2, i + 3);
             }
+            var chip = Hex("#b98a52");
             foreach (var G in gates)
             {
                 float e = G.Open * G.Open * (3 - 2 * G.Open), ang = e * 1.45f, lh = G.Half / 2 - 0.05f;   // до 83°: к стене прохода
+                // удар тараном или топорами: створки вдавливает внутрь и отпускает (0,25 с), щепки разлетаются наружу
+                float jolt = G.Hit < 0.25f ? 0.12f * (1 - G.Hit / 0.25f) : 0;
+                if (G.Hit < 0.6f)
+                    for (int k = 0; k < 6; k++)
+                    {
+                        float hs = (float)Kits.Hash(G.HitFrame * 31 + k, 3), a = (hs - 0.5f) * 2.4f, sp = 2 + 3 * (float)Kits.Hash(G.HitFrame * 31 + k, 4), u = G.Hit;
+                        var p = G.Mid + G.O * (0.4f + sp * u) + G.Tg * ((float)Kits.Hash(G.HitFrame * 31 + k, 5) - 0.5f) * G.Half * 1.6f + G.Tg * a * sp * u * 0.5f;
+                        var cd = (G.Tg * Mathf.Cos(a * 3) + G.O * Mathf.Sin(a * 3)).normalized;
+                        var cc = chip; cc.a = (byte)(255 * (1 - u / 0.6f));
+                        Q(p, cd, 0.18f, new Vector2(-cd.y, cd.x), 0.05f, cc);
+                    }
                 foreach (int sd in new[] { -1, 1 })
                 {
-                    var hinge = G.Mid + G.Tg * sd * G.Half;
+                    var hinge = G.Mid + G.Tg * sd * G.Half - G.O * jolt;
                     var dir = -sd * Mathf.Cos(ang) * G.Tg - Mathf.Sin(ang) * G.O; var n = new Vector2(-dir.y, dir.x);
+                    if (G.Broken)
+                    {
+                        // выбиты (Г105): левая створка повисла на одной петле, правая сорвана и лежит в проходе; по проходу — доски
+                        float sk = sd < 0 ? 1.1f : 0.35f;
+                        dir = -sd * Mathf.Cos(sk) * G.Tg - Mathf.Sin(sk) * G.O; n = new Vector2(-dir.y, dir.x);
+                        if (sd > 0) hinge = G.Mid - G.O * (1.6f + 0.4f * (float)Kits.Hash((int)(G.Mid.x * 7), 6)) + G.Tg * 0.8f;
+                        for (int k = 0; k < 5; k++)
+                        {
+                            var pp = G.Mid - G.O * (0.6f + 2.6f * (float)Kits.Hash(k * 13 + (int)G.Mid.y, 7)) + G.Tg * ((float)Kits.Hash(k * 17 + (int)G.Mid.x, 8) - 0.5f) * G.Half * 1.6f;
+                            float aa = (float)Kits.Hash(k * 19, 9) * 6.283f; var dd = new Vector2(Mathf.Cos(aa), Mathf.Sin(aa));
+                            Q(pp, dd, 0.55f, new Vector2(-dd.y, dd.x), 0.12f, plankD);
+                        }
+                    }
                     var lc = hinge + dir * (lh + 0.02f);
                     Q(lc, dir, lh + 0.07f, n, 0.4f, ink); Q(lc, dir, lh, n, 0.32f, plank);
                     for (int k = 1; k < 4; k++) Q(lc + dir * (-lh + 2 * lh * k / 4), dir, 0.03f, n, 0.32f, plankD);

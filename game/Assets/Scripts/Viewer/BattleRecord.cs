@@ -29,8 +29,9 @@ namespace Journal.Viewer
     public sealed class MenFrame { public float[] Xyh, Ph; public short[] Fig; public byte[] Row; public int[] Eng, EngFoe; public float[] EngSw, EngNx, EngPa; public int[] Down; public float[] DownAt, DownEnd; public float[] Z; }
     public struct ArrowRec { public float T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1; public int Unit; public byte End; }
     // ворота (Г104): середина группы клеток ворот, м; St — [кадр, состояние, …]: 0 — закрыты, 1 — открыты (или стены ничьи —
-    // проход всем), 2 — в проходе свои (створки распахнуты, пока проходят; бит к «открыты»)
-    public sealed class GateRec { public float X, Y; public readonly List<int> St = new List<int>(); }
+    // проход всем), 2 — в проходе свои (створки распахнуты, пока проходят; бит к «открыты»), 4 — выбиты (Г105: пролом);
+    // Hp — [кадр, осталось, всего, …] прочности (Г105: враг рубит закрытые ворота), только при смене; пусто — не рубили
+    public sealed class GateRec { public float X, Y; public readonly List<int> St = new List<int>(); public readonly List<float> Hp = new List<float>(); }
 
     public sealed class Recording
     {
@@ -92,6 +93,13 @@ namespace Journal.Viewer
             return true;
         }
 
+        // прочность ворот к кадру: false — целы (не рубили)
+        public bool GateHpAt(int g, int frame, out float hp, out float max)
+        {
+            var L = Gates[g].Hp; hp = max = 0; bool any = false;
+            for (int i = 0; i < L.Count && L[i] <= frame; i += 3) { hp = L[i + 1]; max = L[i + 2]; any = true; }
+            return any;
+        }
         public int GateAt(int g, int frame)
         {
             var L = Gates[g].St; int st = 0;
@@ -143,7 +151,7 @@ namespace Journal.Viewer
 
         // ── ворота (Г104): связные группы клеток «gate» карты; открыты ли — у движка (Battle.GateOpen), раз в 5 с и по RefreshGates;
         // свои в проходе — каждый кадр (по клетке бойца) ──
-        int[] gateOf; bool[] gateOpen;
+        int[] gateOf; bool[] gateOpen, gateBroken;
         void FindGates(TerrainMap map)
         {
             byte gate = Terrain.Id("gate"); int W = map.W, H = map.H;
@@ -166,7 +174,7 @@ namespace Journal.Viewer
                 }
                 Rec.Gates.Add(new GateRec { X = (float)(sx / n * map.Cell), Y = (float)(sy / n * map.Cell) });
             }
-            if (Rec.Gates.Count > 0) { gateOpen = new bool[Rec.Gates.Count]; GateFlags(); }
+            if (Rec.Gates.Count > 0) { gateOpen = new bool[Rec.Gates.Count]; gateBroken = new bool[Rec.Gates.Count]; GateFlags(); }
         }
         void GateFlags()
         {
@@ -182,7 +190,20 @@ namespace Journal.Viewer
         void GateSnap(int fr)
         {
             var map = Rec.Map; double cell = map.Cell; var st = new int[gateOpen.Length];
-            for (int g = 0; g < st.Length; g++) st[g] = gateOpen[g] ? 1 : 0;
+            byte gate = Terrain.Id("gate");
+            for (int g = 0; g < st.Length; g++)
+            {
+                var G = Rec.Gates[g];
+                // выбиты (Г105): клетка в середине ворот — уже не ворота (пролом); прочность — пока рубят
+                int cc = (int)(G.Y / cell) * map.W + (int)(G.X / cell);
+                if (!gateBroken[g] && cc >= 0 && cc < map.T.Length && map.T[cc] != gate && gateOf[cc] == g) gateBroken[g] = true;
+                st[g] = gateBroken[g] ? 5 : gateOpen[g] ? 1 : 0;
+                var hp = gateBroken[g] ? null : battle.GateHp(G.X, G.Y);
+                float h = gateBroken[g] ? 0 : hp != null ? (float)hp.Value.hp : float.NaN, mx = hp != null ? (float)hp.Value.max : G.Hp.Count > 0 ? G.Hp[G.Hp.Count - 1] : 0;
+                if (float.IsNaN(h) || G.Hp.Count == 0 && h >= mx) continue;   // целы — не пишем
+                if (G.Hp.Count >= 3 && Math.Abs(G.Hp[G.Hp.Count - 2] - h) < 0.01f) continue;
+                G.Hp.Add(fr); G.Hp.Add(h); G.Hp.Add(mx);
+            }
             if (battle.FortOwner.HasValue)
                 foreach (var m in ms)
                 {

@@ -228,6 +228,8 @@ namespace Journal.Play
 
         // ворота: щелчок между ходами — открыть или закрыть (только хозяин стен; ничьи стены станут твоими — ворота закрыты)
         public int GateHover { get; private set; } = -1;
+        public Recording ViewRec => viewer?.Rec;             // что показано и на какое время — для подсказок по записи (прочность ворот)
+        public double ViewT => viewer != null ? viewer.T : ShowTime;
         public GateRec GateOf(int g) => recorder != null && g >= 0 && g < recorder.Rec.Gates.Count ? recorder.Rec.Gates[g] : null;
         int GateAt(Vector2 p)
         {
