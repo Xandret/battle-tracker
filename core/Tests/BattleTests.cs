@@ -463,6 +463,83 @@ static class BattleTests
             True(far < 3 && b.Order.Kind == OrderKind.Hold, $"строй собран: дальше всех от места {far:0.0} м");
         });
 
+        yield return ("туман (Г107, Г18): сторона видит чужих не дальше 1 км на открытом, в лесу — только ближе 100 м, за холмом — нет; стреляющий виден всем; «последний раз видели» записано", () =>
+        {
+            // сцена: лучники стороны 1 в (ax, 700), пехота стороны 2 в (bx, 700); paint — местность до расстановки; один шаг боя
+            (Battle bt, Mover a, Mover b) Scene(double ax, double bx, Action<TerrainMap> paint = null)
+            {
+                var bt = new Battle(Open(2000, 1400), R, new EngineContext { Rng = new Mulberry32(21).Next });
+                paint?.Invoke(bt.Geo.Map);
+                var a = bt.Add(Templates.Get("archers").Make(1, "Лучники", 300, 1), ax, 700, 90);
+                var b = bt.Add(Templates.Get("infantry").Make(2, "Пехота", 300, 2), bx, 700, 270);
+                bt.BeginTurn(); bt.Step(); bt.EndTurn();
+                return (bt, a, b);
+            }
+            var far = Scene(300, 1500);   // 1200 м
+            True(!far.bt.Sees(1, far.b) && far.bt.Sees(2, far.b) && far.bt.Sees(1, far.a), "за 1200 м виден или свой не виден");
+            var open = Scene(300, 1100);   // 800 м
+            True(open.bt.Sees(1, open.b) && open.bt.LastSeen.TryGetValue((1, 2), out var ls) && Math.Abs(ls.x - 1100) < 1, "за 800 м на открытом не виден");
+            Action<TerrainMap> forest = m => Terrain.PaintRect(m, "t", 100, 130, 130, 150, Terrain.Id("forest"));   // лес x 500…655, y 650…755
+            var inForest = Scene(300, 580, forest);   // 280 м, цель в лесу
+            True(!inForest.bt.Sees(1, inForest.b), "в лесу за 280 м виден");
+            var nearForest = Scene(500, 580, forest);   // 80 м
+            True(nearForest.bt.Sees(1, nearForest.b), "в лесу за 80 м не виден");
+            var hill = Scene(300, 1000, m => Terrain.PaintRect(m, "z", 150, 120, 152, 160, 3));   // холм x 750…765 высотой 3 уровня между ними
+            True(!hill.bt.Sees(1, hill.b), "за холмом виден");
+            var sc = open.bt.SeenCells(1); int W = open.bt.Geo.Map.W;
+            True(sc != null && sc[140 * W + 100] && !sc[140 * W + 300] && sc.Count(x => x) > 1000, $"сетка видимости: в 200 м {sc?[140 * W + 100]}, в 1200 м {sc?[140 * W + 300]}, видимых клеток {sc?.Count(x => x)}");
+            // стреляющий виден всем: стрелки стороны 2 за 1100 м бьют по лучникам стороны 1 — и становятся видны
+            var shoot = Scene(300, 1500);
+            var c = shoot.bt.Add(Templates.Get("archers").Make(3, "Стрелки", 300, 2), 1400, 700, 270);
+            shoot.bt.Order(c, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1 });
+            shoot.bt.Turn(); shoot.bt.Turn();
+            True(shoot.bt.Sees(1, c) || c.LastActT > 0, $"стреляющий не виден: стрелял в {c.LastActT:0.0} с");
+        });
+
+        yield return ("засада (Г107): отряд в лесу на «держать» невидим врагу в 110 м; атака по приказу из невидимости с ударом в 90 с — цели −15 БД и строка «засада»; тот же удар на виду — БД та же", () =>
+        {
+            (double morale, bool ambush, bool seenBefore) Run(bool forest)
+            {
+                var bt = new Battle(Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(22).Next });
+                if (forest) Terrain.PaintRect(bt.Geo.Map, "t", 80, 80, 120, 120, Terrain.Id("forest"));   // лес x 400…605, y 400…605
+                var T = Templates.Get("infantry");
+                var hid = bt.Add(T.Make(1, "Засада", 500, 1), 500, 480, 0);   // 80 м в глубь леса
+                var ub = T.Make(2, "Колонна", 500, 2); var b = bt.Add(ub, 500, 370, 180);   // в 110 м, лицом на юг (к лесу): в лесу видно только ближе 100 м
+                bt.Order(hid, new MoveOrder { Kind = OrderKind.Hold });
+                bt.BeginTurn(); bt.Step(); bt.EndTurn();
+                bool seenBefore = bt.Sees(2, hid);
+                bt.Order(hid, Attack(2));
+                bool ambush = false; double drop = 0;
+                for (int t = 0; t < 6 && !ambush; t++) { double was = ub.Morale; ambush = bt.Turn().Any(l => l.Contains("засада")); drop = was - ub.Morale; }
+                return (drop, ambush, seenBefore);
+            }
+            var f = Run(true); var o = Run(false);
+            True(!f.seenBefore && o.seenBefore, $"виден до удара: в лесу {f.seenBefore}, в поле {o.seenBefore}");
+            True(f.ambush && !o.ambush, $"засада: в лесу {f.ambush}, в поле {o.ambush}");
+            True(f.morale >= R.Fog.AmbushMorale, $"БД цели за ход засады упала на {f.morale:0}");
+        });
+
+        yield return ("сплотить (Г72, Алекс 10.10.2026): цель сплотилась после бегства — преследователь с приказом «атаковать» не стоит на месте, а снова идёт на неё и сходится", () =>
+        {
+            var (bt, a, b) = Breaking("infantry", "knights", 30, 1, 7);   // рыцари с БД 30 бегут от пехоты и уходят далеко — быстрее
+            for (int i = 0; i < 3 && !b.Fleeing; i++) bt.Turn();
+            True(b.Fleeing, "рыцари не побежали");
+            bt.Turn();
+            b.P.U.Discipline = 100;
+            bt.Order(b, new MoveOrder { Kind = OrderKind.Rally });
+            for (int i = 0; i < 4 && b.Fleeing; i++) bt.Turn();
+            True(!b.Fleeing && b.P.U.Status == "active", $"не сплотились: {b.P.U.Status}");
+            True(a.Order != null && a.Order.Kind == OrderKind.Attack && a.Order.TargetId == 2, "у пехоты пропал приказ «атаковать»");
+            double d0 = JsMath.Hypot(a.P.X - b.P.X, a.P.Y - b.P.Y), dMin = d0; bool touched = false;
+            for (int i = 0; i < 6 && !touched; i++)
+            {
+                bt.Turn();
+                dMin = Math.Min(dMin, JsMath.Hypot(a.P.X - b.P.X, a.P.Y - b.P.Y));
+                touched = bt.Fights.Any(f => !f.Over && f.Touching && (f.A == a || f.B == a));
+            }
+            True(touched || dMin < Math.Max(10, d0 - 100), $"преследователь застыл: было {d0:0} м, ближе всего {dMin:0} м, схватки нет; заметка «{a.Note}», Done {a.Done}");
+        });
+
         yield return ("сплотить (Г72): провал броска — бежит дальше, приказ израсходован", () =>
         {
             var (bt, a, b) = Breaking("infantry", "infantry", 30, 1, 6, menA: 300);

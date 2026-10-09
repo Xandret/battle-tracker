@@ -73,6 +73,8 @@ namespace BattleCore
         public MoveOrder Order;
         public FlowField Field;
         public BattleMap.PassRules Pass;        // Г104: чем этому отряду можно пройти сверх местности (стены хозяина, открытые ворота); null — как всем
+        public double LastActT = double.NaN;     // Г107: когда последний раз стрелял или касался врага (часы боя) — виден всем RevealSec
+        public double AmbushFrom = double.NaN;   // Г107: приказ «атаковать» отдан, пока отряд был невидим цели (часы боя) — удар в Fog.AmbushSec — засада
         public bool Garrisoned;                  // Г104: стоит гарнизоном на стене — не разворачивается на цель (линия в 100 м слетела бы со стены), стреляет по всему впереди
         public Track Track;
         public bool Side;                // Г54: ближний ход — без поворота
