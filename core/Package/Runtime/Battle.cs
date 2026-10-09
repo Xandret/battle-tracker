@@ -210,18 +210,20 @@ namespace BattleCore
             if (map == null || m.Gone || m.Fleeing || BattleMap.IsHorse(u) || u.Soldiers <= 0) return false;
             byte wall = Terrain.Id("wall"), tower = Terrain.Id("tower"); int W = map.W, H = map.H;
             bool Walk(int i) => map.T[i] == wall || map.T[i] == tower;
-            int best = -1; double bd = R.Garrison.SeekM;
+            // ближайшие клетки стены и башен — из RowPick ближайших берётся та, через которую прямой ряд длиннее (ближайшая может быть
+            // краем башни 3 × 3: ряд через неё — три клетки, и строй встал бы колонной во двор; чат облика, 10.10.2026)
+            var near = new List<(double d, int i)>();
             for (int i = 0; i < map.T.Length; i++)
             {
                 if (!Walk(i)) continue;
                 double d = JsMath.Hypot((i % W + 0.5) * Terrain.CellM - x, (i / W + 0.5) * Terrain.CellM - y);
-                if (d < bd) { bd = d; best = i; }
+                if (d < R.Garrison.SeekM) near.Add((d, i));
             }
-            if (best < 0) return false;
+            if (near.Count == 0) return false;
             if (!fortOwner.HasValue && u.FactionId.HasValue && u.FactionId != 0) FortOwner = u.FactionId;
             if (!IsOwner(u)) return false;
-            // прямой ряд через ближайшую клетку: вдоль x или вдоль y — что длиннее
-            int bx = best % W, by = best / W;
+            near.Sort((p, q) => p.d.CompareTo(q.d));
+            int bx = 0, by = 0;
             int Run(int dx, int dy, out int lo)
             {
                 int hi = 0; lo = 0;
@@ -229,6 +231,15 @@ namespace BattleCore
                 for (int k = 1; bx - dx * k >= 0 && by - dy * k >= 0 && bx - dx * k < W && by - dy * k < H && Walk((by - dy * k) * W + bx - dx * k); k++) lo = k;
                 return lo + hi + 1;
             }
+            int best = -1, bestLen = 0;
+            for (int c = 0; c < near.Count && c < Math.Max(1, R.Garrison.RowPick); c++)
+            {
+                bx = near[c].i % W; by = near[c].i / W;
+                int len = Math.Max(Run(1, 0, out _), Run(0, 1, out _));
+                if (len > bestLen) { bestLen = len; best = near[c].i; }
+            }
+            // прямой ряд через выбранную клетку: вдоль x или вдоль y — что длиннее
+            bx = best % W; by = best / W;
             int nx = Run(1, 0, out int xlo), ny = Run(0, 1, out int ylo);
             double dx, dy, lenM, cxM, cyM;
             if (nx >= ny) { dx = 1; dy = 0; lenM = nx * Terrain.CellM; cxM = (bx - xlo + nx / 2.0) * Terrain.CellM; cyM = (by + 0.5) * Terrain.CellM; }
