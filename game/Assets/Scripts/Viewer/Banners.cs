@@ -74,7 +74,7 @@ namespace Journal.Viewer
                 {
                     float h = c.Value.z * Mathf.Deg2Rad;
                     var at = new Vector2(c.Value.x + Mathf.Cos(h) * 1.1f, c.Value.y + Mathf.Sin(h) * 1.1f);
-                    if (In(view, at.x, at.y, pad)) Personal(at, s * 0.85f, col, lin(new Color32(222, 178, 74, 255)), (float)t + ui * 0.53f);
+                    if (In(view, at.x, at.y, pad)) Personal(at, s * 1.25f, col, lin(new Color32(222, 178, 74, 255)), (float)t + ui * 0.53f);   // Г121: крупнее и выше знамён отрядов
                 }
             }
             mesh.Clear();
@@ -109,17 +109,23 @@ namespace Journal.Viewer
             // светлая полоса у древка
             Quad(new Vector2(1.5f, -21), new Vector2(10.5f, -21 + Wy(10.5f) * 0.6f), new Vector2(10.5f, -18.8f + Wy(10.5f) * 0.6f), new Vector2(1.5f, -18.8f), Shine);
         }
-        // личный стяг: прямоугольное полотнище золотом, посередине — полоса цвета отряда, навершие
+        // личный стяг (Г121): высокое древко — выше знамён отрядов, золотое полотнище с гербом — щит цвета отряда со стропилом,
+        // навершие крестом
         void Personal(Vector2 at, float s, Color32 col, Color32 gold, float t)
         {
             o = at; sc = s; rotC = 1; rotS = 0;
-            float Wy(float x) => Mathf.Sin(t * 4 - x * 0.3f) * 1.2f * x / 12;
-            Line(0, 2, 0, -24, 2.4f, Ink); Line(0, 2, 0, -24, 1.2f, Wood);
-            var p = new[] { new Vector2(0, -23), new Vector2(12, -23 + Wy(12)), new Vector2(12, -15 + Wy(12)), new Vector2(0, -15) };
+            float Wy(float x) => Mathf.Sin(t * 4 - x * 0.3f) * 1.2f * x / 14;
+            Line(0, 2, 0, -36, 2.4f, Ink); Line(0, 2, 0, -36, 1.2f, Wood);
+            var p = new[] { new Vector2(0, -35), new Vector2(14, -35 + Wy(14)), new Vector2(14, -23 + Wy(14)), new Vector2(0, -23) };
             Quad(p[0], p[1], p[2], p[3], gold);
-            Quad(new Vector2(4.5f, -23 + Wy(4.5f)), new Vector2(7.5f, -23 + Wy(7.5f)), new Vector2(7.5f, -15 + Wy(7.5f)), new Vector2(4.5f, -15 + Wy(4.5f)), col);
+            // герб: щит цвета отряда, золотое стропило
+            float w0 = Wy(4), w1 = Wy(10), wm = Wy(7);
+            var sh = new[] { new Vector2(4, -33 + w0), new Vector2(10, -33 + w1), new Vector2(10, -28.5f + w1), new Vector2(7, -25 + wm), new Vector2(4, -28.5f + w0) };
+            Quad(sh[0], sh[1], sh[2], sh[4], col); Tri(sh[4], sh[2], sh[3], col);
+            Line(4.6f, -27.6f + w0, 7, -30.6f + wm, 1.1f, gold); Line(7, -30.6f + wm, 9.4f, -27.6f + w1, 1.1f, gold);
+            Outline(sh, 0.8f);
             Outline(p, 1.1f);
-            Line(-1.6f, -25.5f, 1.6f, -25.5f, 2.2f, gold);   // навершие
+            Line(-2f, -38f, 2f, -38f, 2.2f, gold); Line(0, -40f, 0, -36f, 2.2f, gold);   // навершие крестом
         }
         // знамя лежит: древко поперёк, полотнище свисает набок (как drawDropped полигона)
         void Fallen(Vector2 at, float rot, float s, Color32 col)

@@ -835,6 +835,21 @@
     background-color: rgba(59, 48, 31, 0.95);
 }
 
+.tag-cmd {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: #f0c860;
+    margin-left: 6px;
+    padding-left: 4px;
+    border-left-width: 3px;
+    border-color: #f0c860;
+    white-space: nowrap;
+}
+
+.unit-tag.has-cmd {
+    border-color: #b8902e;
+}
+
 .unit-tag.is-flee {
     background-color: rgba(120, 34, 24, 0.9);
 }

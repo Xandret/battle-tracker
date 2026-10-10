@@ -41,7 +41,7 @@ namespace Journal.Play
         VisualElement feed, summaryBox, detailsBox; Label detailsToggle; ScrollView detailsScroll;
         int feedFrame = -1; readonly Dictionary<long, float> pairShown = new Dictionary<long, float>();
 
-        sealed class Tag { public VisualElement Root; public Label Men, Name; public Icon Kind, State; }
+        sealed class Tag { public VisualElement Root; public Label Men, Name, Cmd; public Icon Kind, State; }
         sealed class Card
         {
             public VisualElement Root, HpFill, MoFill; public Label Men, Flag, Ai; public Icon Order, State;
@@ -902,6 +902,10 @@ namespace Journal.Play
                 t.Men.text = $"{u.Soldiers:0}";
                 bool sel = pc.IsSelected(m), hov = m == pc.Hover;
                 t.Name.EnableInClassList("hidden", !(names || sel || hov));
+                var cmd = pc.CommanderOf(m); bool hasCmd = cmd != null && !cmd.Dead;
+                if (hasCmd) t.Cmd.text = cmd.Name + (cmd.Wounded ? " (ранен)" : "");   // золотая черта слева — метка полководца (★ в шрифте нет)
+                t.Cmd.EnableInClassList("hidden", !hasCmd);
+                t.Root.EnableInClassList("has-cmd", hasCmd);
                 t.Root.EnableInClassList("is-selected", sel);
                 t.Root.EnableInClassList("is-hover", hov && !sel);
                 t.Root.EnableInClassList("is-flee", m.Fleeing);
@@ -917,6 +921,7 @@ namespace Journal.Play
             var stripe = new VisualElement(); stripe.AddToClassList("tag-stripe"); t.Root.Add(stripe);
             t.Kind = new Icon(Icon.OfType(pc.Game.Tpl.TryGetValue(m, out var tpl) ? tpl : "", m.P.U.Type)); t.Kind.AddToClassList("tag-icon"); t.Root.Add(t.Kind);
             t.Men = new Label(); t.Men.AddToClassList("tag-men"); t.Root.Add(t.Men);
+            t.Cmd = new Label(); t.Cmd.AddToClassList("tag-cmd"); t.Cmd.AddToClassList("hidden"); t.Root.Add(t.Cmd);   // Г121: полководец — видно и издали
             t.Name = new Label(m.P.U.Name); t.Name.AddToClassList("tag-name"); t.Root.Add(t.Name);
             t.State = new Icon(""); t.State.AddToClassList("tag-state"); t.Root.Add(t.State);
             var mm = m;

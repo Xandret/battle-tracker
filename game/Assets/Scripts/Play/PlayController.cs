@@ -85,6 +85,8 @@ namespace Journal.Play
         void Awake()
         {
             viewer = FindAnyObjectByType<BattleViewer>();
+            // Г121: полководец со свитой подсвечен, когда его отряд под мышью или выбран
+            MenView.Lit = ui => { var ms = Battle?.Movers; if (ms == null || ui >= ms.Count) return 0; var m = ms[ui]; return IsSelected(m) ? 2 : m == Hover ? 1 : 0; };
             NewBattle();
         }
 

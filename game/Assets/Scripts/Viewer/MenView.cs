@@ -643,18 +643,32 @@ namespace Journal.Viewer
                     M[i] = m; break;
                 }
             }
-            // полководец (Алекс 10.10.2026): золотое кольцо под ногами — видно и издали; где он — личному знамени
+            // полководец (Алекс 10.10.2026): золотое кольцо под ногами — видно и издали; где он — личному знамени.
+            // Г121: под мышью и выбранный — кольцо ярче и толще, вокруг свиты — второе, пунктиром (контур полководца со стражей)
             foreach (var m in M)
             {
                 if (m.Role != 1) continue;
                 cmdAt[ui] = new Vector3(m.X, m.Y, m.Face * Mathf.Rad2Deg);
                 if (!m.Vis || flee) break;
-                var px = men.Get("util/px"); float r = horse ? 2.0f : 0.95f, w = Mathf.Max(0.09f, 2.2f / ppm);
-                var gold = new Color32(232, 186, 82, 230); var solid = new Vector4(0, 0, 1, 0);
-                for (int k = 0; k < 24; k++)
+                int lit = Lit?.Invoke(ui) ?? 0;
+                var px = men.Get("util/px"); float r = horse ? 2.6f : 1.3f, w = Mathf.Max(0.09f, (lit > 0 ? 3.6f : 2.2f) / ppm);
+                byte al = (byte)(lit == 0 ? 230 : 200 + 55 * (0.5f + 0.5f * Mathf.Sin(t * 5)));
+                var gold = lit > 0 ? new Color32(255, 214, 110, al) : new Color32(232, 186, 82, 230); var solid = new Vector4(0, 0, 1, 0);
+                var cm = m;
+                void Ring(float rr, float ww, int n, bool dash)
                 {
-                    float a = k * Mathf.PI * 2 / 24, seg = r * Mathf.PI * 2 / 24 * 1.08f;
-                    deadTop.Quad(px, Aff.At(m.X + Mathf.Cos(a) * r, m.Y + Mathf.Sin(a) * r).R(a).S(w * 10, seg * 10), gold, solid);
+                    for (int k = 0; k < n; k++)
+                    {
+                        if (dash && (k & 1) == 1) continue;
+                        float a = k * Mathf.PI * 2 / n, seg = rr * Mathf.PI * 2 / n * (dash ? 0.8f : 1.08f);
+                        deadTop.Quad(px, Aff.At(cm.X + Mathf.Cos(a) * rr, cm.Y + Mathf.Sin(a) * rr).R(a).S(ww * 10, seg * 10), gold, solid);
+                    }
+                }
+                Ring(r, w, 24, false);
+                if (lit > 0)
+                {
+                    float far = 0; foreach (var g in M) if (g.Role == 2 && g.Vis) far = Mathf.Max(far, Mathf.Sqrt((g.X - m.X) * (g.X - m.X) + (g.Y - m.Y) * (g.Y - m.Y)));
+                    if (far > r + 0.5f) Ring(far + (horse ? 1.6f : 0.8f), w * 0.7f, 48, true);
                 }
                 break;
             }
@@ -704,6 +718,8 @@ namespace Journal.Viewer
         // 0,05 с на марше и 0,2 с в схватке, у коня 0,08 и 0,4; в схватку входит за 0,3 с, выходит за 1 с. Перемотка, пауза
         // дольше 0,5 с или рывок дальше 6 м — сразу на место. Ход и фаза шага — по нарисованному пути
         public static bool LagClamp = true;   // Г118: выключатель — для замера «до/после» на одном бою
+        // Г121: подсветка полководца со свитой — 0 нет, 1 отряд под мышью, 2 выбран (задаёт игра)
+        public static Func<int, int> Lit;
         static float lastSnap;   // Г118: последний Smooth сбросил сглаживание скачком на столько м (0 — нет)
         static void Smooth(ref Vis v, float x, float y, float cx, float cy, float sp, float ph, bool fight, bool horse, float t,
                            out float ox, out float oy, out float osp, out float oph)
@@ -767,7 +783,7 @@ namespace Journal.Viewer
             var (PW, PSh) = Rest(kit, m.Rank, low);
             var bas = Aff.At(m.X, m.Y).R(m.Face);
             if (m.Z > 0) { float k = 1 + 0.012f * m.Z; bas = bas.S(k, k); }
-            if (m.Role > 0) { float k = m.Role == 1 ? 1.15f : 1.05f; bas = bas.S(k, k); }   // полководец крупнее на 15 %, стража — на 5 %   // на стене (Г104): ближе к глазу — на 11–13 % крупнее
+            if (m.Role > 0) { float k = m.Role == 1 ? 1.5f : 1.1f; bas = bas.S(k, k); }   // Г121 (Алекс): полководец в полтора раза крупнее, стража — на 10 %   // на стене (Г104): ближе к глазу — на 11–13 % крупнее
 
             // издали (меньше 16 px/м, В18) — как у образца: капсула со шлемом; из оружия — древки передних шеренг и опущенное копьё
             if (ppm < 16)
