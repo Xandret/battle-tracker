@@ -1188,10 +1188,13 @@ namespace Journal.Play
             if (mouse.rightButton.wasPressedThisFrame && (!ui || UiHover != null))
             {
                 var from = ui ? new Vector2((float)UiHover.P.X, (float)UiHover.P.Y) : mp;
-                Dragging = true; DragFrom = DragTo = from; previewAt = 0; DragPreview = null;
+                Dragging = true; DragFrom = DragTo = from; previewAt = 0; DragPreview = null; DragTurn = 0;
             }
             if (!Dragging) return;
             if (!ui) DragTo = mp;
+            // Q/E при зажатой ПКМ — курс по 15° (встать лицом куда угодно, хоть назад от пути: дойдёт и развернётся)
+            if (kb != null && kb.qKey.wasPressedThisFrame) DragTurn = MoveSim.Norm(DragTurn - 15);
+            if (kb != null && kb.eKey.wasPressedThisFrame) DragTurn = MoveSim.Norm(DragTurn + 15);
             bool alt = kb != null && (kb.leftAltKey.isPressed || kb.rightAltKey.isPressed);
             DragOrdersFor(alt);
             DragOrder = Selected != null && DragOrders.TryGetValue(Selected, out var mo) ? mo : null;
@@ -1213,6 +1216,7 @@ namespace Journal.Play
                 foreach (var kv in orders) Order(kv.Key, kv.Value);
             }
         }
+        public double DragTurn { get; private set; }   // доворот курса приказа клавишами Q/E, °
         void CancelDrag() { Dragging = false; DragPreview = null; DragOrder = null; DragOrders.Clear(); DragPreviews.Clear(); DragAdvice.Clear(); adviseAt = 0; }
 
         // для проверки из CLI: протянуть ПКМ от точки до точки карты (как мышью) и отпустить
@@ -1249,7 +1253,9 @@ namespace Journal.Play
         // Что значит ПКМ сейчас — каждому выбранному свой приказ:
         // по врагу — все атакуют (натиск — с Alt или кнопкой); по земле, не протянув — идти, один — лицом по ходу, группа —
         // сохраняя расстановку, повернувшись лицом по ходу; протянув — встать фронтом вдоль линии (как в Total War: линия —
-        // фронт; группа — по порядку слева направо, каждому — доля линии по ширине его строя)
+        // фронт, тянешь от левого фланга к правому — лицом «вперёд» от линии; справа налево — кругом; группа — по порядку
+        // слева направо, каждому — доля линии по ширине его строя). Q/E при зажатой ПКМ — доворот курса по 15° (Алекс
+        // 10.10.2026: встать «в наблюдение на юг», когда точка севернее, — раньше курс брался от пути и назад не ставился)
         void DragOrdersFor(bool alt)
         {
             DragOrders.Clear();
@@ -1267,11 +1273,11 @@ namespace Journal.Play
             double cx = movers.Average(m => m.P.X), cy = movers.Average(m => m.P.Y);
             if (len > 4)
             {
-                // фронт — линия от DragFrom к DragTo; лицом — в ту сторону от неё, что дальше от того места, откуда идёт группа
-                double ux = fx / len, uy = fy / len, nx = -uy, ny = ux;
+                // фронт — линия от DragFrom (левый фланг) к DragTo (правый): лицом — вперёд от неё (правый фланг — справа от
+                // смотрящего: для курса h вправо — (cos h, sin h), вперёд — (sin h, −cos h))
+                double ux = fx / len, uy = fy / len, nx = uy, ny = -ux;
                 double mx = (DragFrom.x + DragTo.x) / 2, my = (DragFrom.y + DragTo.y) / 2;
-                if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
-                double facing = MoveSim.HeadingOf(nx, ny);
+                double facing = MoveSim.Norm(MoveSim.HeadingOf(nx, ny) + DragTurn);
                 // по порядку вдоль линии — как стоят сейчас (так строи не пересекают друг друга); не хватает линии — шире
                 var order = movers.OrderBy(m => (m.P.X - mx) * ux + (m.P.Y - my) * uy).ToList();
                 const double gap = 6;
@@ -1284,11 +1290,11 @@ namespace Journal.Play
                 }
                 return;
             }
-            double head = MoveSim.HeadingOf(DragFrom.x - cx, DragFrom.y - cy);
+            double head = MoveSim.Norm(MoveSim.HeadingOf(DragFrom.x - cx, DragFrom.y - cy) + DragTurn);
             if (movers.Count == 1)
             {
                 var m = movers[0];
-                DragOrders[m] = new MoveOrder { Kind = OrderKind.Move, X = DragFrom.x, Y = DragFrom.y, Facing = MoveSim.HeadingOf(DragFrom.x - m.P.X, DragFrom.y - m.P.Y) };
+                DragOrders[m] = new MoveOrder { Kind = OrderKind.Move, X = DragFrom.x, Y = DragFrom.y, Facing = MoveSim.Norm(MoveSim.HeadingOf(DragFrom.x - m.P.X, DragFrom.y - m.P.Y) + DragTurn) };
                 return;
             }
             // группа: расстановка поворачивается вместе с ней — с общего курса на курс движения
