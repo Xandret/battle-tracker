@@ -199,6 +199,40 @@ namespace Journal.Play
             return true;
         }
         // переставлен до первого хода: новый приказ снят — стоит, где встал; запись боя — заново (кадр 0 — с новыми местами)
+        // расстановка протяжкой ПКМ (Алекс 10.10.2026: «нельзя свободно повернуть, только перетаскивать»): как приказ «идти» —
+        // линия фронта и угол, Q/E — доворот, — но отряды встают туда сразу (Session.Place), ходов не тратя
+        void DeployTo(List<KeyValuePair<Mover, MoveOrder>> orders)
+        {
+            int ok = 0; string last = null;
+            foreach (var kv in orders)
+            {
+                var o = kv.Value;
+                if (o.Kind != OrderKind.Move || double.IsNaN(o.X)) { last = "в расстановке — только встать (ПКМ по земле)"; continue; }
+                var why = Session.Place(kv.Key, o.X, o.Y, double.IsNaN(o.Facing) ? kv.Key.P.Facing : o.Facing);
+                if (why == null) { kv.Key.Garrisoned = false; ok++; } else last = $"«{kv.Key.P.U.Name}»: {why}";
+            }
+            if (ok > 0) Redrawn();
+            Say(last != null ? last + (ok > 0 ? $" (встали {ok})" : "") : ok == 1 ? "Встал" : $"Встали: {ok}");
+        }
+        // Q/E в расстановке без протяжки — выбранные поворачиваются на месте
+        void DeployTurn(double by)
+        {
+            int ok = 0; string last = null;
+            foreach (var m in Selection.ToList())
+            {
+                var why = Session.Place(m, m.P.X, m.P.Y, MoveSim.Norm(m.P.Facing + by));
+                if (why == null) ok++; else last = $"«{m.P.U.Name}»: {why}";
+            }
+            if (ok > 0) Redrawn();
+            if (last != null) Say(last);
+        }
+        // переставлены в расстановке: запись — заново (кадр 0 — с новыми местами), подсказки — заново
+        void Redrawn()
+        {
+            Rerecord();
+            if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+            RefreshPreviews(); Changed?.Invoke();
+        }
         void Deployed(Mover m)
         {
             Session.Pending.Remove(m);
@@ -1106,12 +1140,18 @@ namespace Journal.Play
         float PixelsPerMeter => viewer != null && viewer.Cam != null ? Screen.height / (2 * viewer.Cam.orthographicSize) : 1;
 
         // Отряд под точкой карты: внутри рамки, где он виден, или рядом — не дальше 1,5 м или 8 px (издали строй — полоска)
-        public Mover UnitAt(Vector2 p)
+        // enemyOf > 0 — сперва враги этой стороны (ПКМ по свалке: «атаковать», а не «идти» к своему, что рубится с ним), нет — любой
+        public Mover UnitAt(Vector2 p, int enemyOf = 0)
+        {
+            if (enemyOf > 0) { var e = UnitAtWhere(p, m => SideOf(m) != enemyOf); if (e != null) return e; }
+            return UnitAtWhere(p, null);
+        }
+        Mover UnitAtWhere(Vector2 p, Func<Mover, bool> ok)
         {
             Mover best = null; double bd = double.MaxValue, tol = Math.Max(1.5, 8 / PixelsPerMeter);
             foreach (var m in Battle.Movers)
             {
-                if (!Present(m) || !SeenNow(m)) continue;
+                if (!Present(m) || !SeenNow(m) || ok != null && !ok(m)) continue;
                 BoxOf(m, out var x, out var y, out var f, out var w, out var d);
                 double h = f * Math.PI / 180, dx = p.x - x, dy = p.y - y;
                 double lx = Math.Abs(dx * Math.Cos(h) + dy * Math.Sin(h)) - w / 2, ly = Math.Abs(dx * Math.Sin(h) - dy * Math.Cos(h)) - d / 2;
@@ -1147,6 +1187,7 @@ namespace Journal.Play
                     if (kb.backspaceKey.wasPressedThisFrame) Cancel();
                     if (kb.yKey.wasPressedThisFrame) WallSelected();   // Н — на стену
                     if (kb.gKey.wasPressedThisFrame) ToggleDuel();   // П — поединок (нельзя — скажет почему)
+                    if (Deploying && !Dragging && DeployUnit == null) { if (kb.qKey.wasPressedThisFrame) DeployTurn(-15); if (kb.eKey.wasPressedThisFrame) DeployTurn(15); }
                 }
                 if (kb.tabKey.wasPressedThisFrame) { ActiveSide = Session.Sides.SkipWhile(s => s != ActiveSide).Skip(1).DefaultIfEmpty(Session.Sides.First()).First(); Select(null); if (ViewSide > 0) ViewSide = ActiveSide; }
                 if (kb.vKey.wasPressedThisFrame) CycleView();   // М — чьими глазами
@@ -1253,7 +1294,8 @@ namespace Journal.Play
             {
                 var orders = DragOrders.ToList();
                 CancelDrag();
-                foreach (var kv in orders) Order(kv.Key, kv.Value);
+                if (Deploying) DeployTo(orders);
+                else foreach (var kv in orders) Order(kv.Key, kv.Value);
             }
         }
         public double DragTurn { get; private set; }   // доворот курса приказа клавишами Q/E, °
@@ -1272,7 +1314,8 @@ namespace Journal.Play
         {
             var orders = DragOrders.ToList();
             CancelDrag();
-            foreach (var kv in orders) Order(kv.Key, kv.Value);
+            if (Deploying) DeployTo(orders);
+            else foreach (var kv in orders) Order(kv.Key, kv.Value);
         }
 
         // рамка: отряды стороны выбранного (или активной) с серединой внутри; Ctrl — к уже выбранным
@@ -1301,7 +1344,7 @@ namespace Journal.Play
             DragOrders.Clear();
             var group = Selection.Where(Present).ToList();
             if (group.Count == 0) return;
-            var target = UnitAt(DragFrom);
+            var target = UnitAt(DragFrom, SideOf(group[0]));
             if (target != null && !group.Contains(target) && SideOf(target) != SideOf(group[0]))
             {
                 foreach (var m in group) DragOrders[m] = new MoveOrder { Kind = OrderKind.Attack, TargetId = target.P.U.Id, Charge = (alt || ChargeMode) && Units.IsCav(m.P.U) };   // натиск — только конница
