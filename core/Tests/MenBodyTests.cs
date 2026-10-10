@@ -709,6 +709,22 @@ static class MenBodyTests
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
         });
 
+        // ── перестановка (Алекс 10.10.2026): боком, если так быстрее ──
+        yield return ("перестановка (Алекс 10.10.2026): лучники в 200 м фронтом идут на 60 м влево-назад с тем же курсом — боком и назад без поворота строем (курс за ход меняется меньше 5°), на месте за два хода; та же точка в 500 м — обычным маршем с поворотом", () =>
+        {
+            var geo = MoveTests.Open(1000, 1000);
+            var m = Mover.Place(Templates.Get("archers").Make(1, "Лучники", 1000, 1), 500, 500, 0, RB);
+            MoveSim.Give(m, new MoveOrder { X = 450, Y = 540, Facing = 0 }, geo, RB);
+            True(m.Side, "короткая перестановка пошла с поворотом строем");
+            double maxTurn = 0; int turns = 0;
+            for (; turns < 3 && !m.Done; turns++) MoveSim.Turn(new[] { m }, geo, RB, tt => maxTurn = Math.Max(maxTurn, Math.Abs(MoveSim.AngleDiff(m.P.Facing, 0))));
+            True(m.Done && turns <= 2, $"не дошёл за {turns} ходов: ({m.P.X:0}, {m.P.Y:0})");
+            True(maxTurn < 5, $"курс уходил на {maxTurn:0}°");
+            var m2 = Mover.Place(Templates.Get("archers").Make(2, "Лучники", 1000, 1), 500, 500, 0, RB);
+            MoveSim.Give(m2, new MoveOrder { X = 200, Y = 900, Facing = 0 }, geo, RB);
+            True(!m2.Side, "дальний переход пошёл боком");
+        });
+
         // ── Г111 п.3: повороты строем ──
         yield return ("Г111 п.3: поворот строем на 90° — вокруг ближнего фланга: фланг со стороны поворота сдвигается меньше 8 м, дальний идёт дугой; пехота 125 м поворачивает не быстрее 45°/с и не быстрее марша на фланге (≥ 30 с, Г118), конница — не быстрее 30°/с", () =>
         {

@@ -24,6 +24,7 @@ static class BattleTests
         return (bt, a, b);
     }
     static MoveOrder Attack(int target, bool charge = false) => new MoveOrder { Kind = OrderKind.Attack, TargetId = target, Charge = charge };
+    static Fight FightOf(Mover a, Mover b, Battle bt) => bt.Fights.FirstOrDefault(f => !f.Over && (f.A == a && f.B == b || f.A == b && f.B == a));
     static double[][] Corner(Mover m)
     {
         double f = m.P.Fp.Front / 2, d = m.P.Fp.Depth / 2;
@@ -337,6 +338,53 @@ static class BattleTests
             int Lines(string from, bool counter) => bt.Details.Count(l => l.Contains($" · {from} → ") && l.Contains("(ответ)") == counter);
             True(Lines("Левые", false) == 1 && Lines("Правые", false) == 1, "обе атаки: " + string.Join(" | ", bt.Details));
             True(Lines("Стоят", true) == (int)Units.CounterLimit(b.P.U, R), "ответы «Стоят»: " + string.Join(" | ", bt.Details));
+        });
+
+        yield return ("свита (Г121): у отряда с полководцем свита из 12 бойцов на ближайших к нему местах в строю (все ближе 4 м от него по местам), состав держится три хода марша и в схватке (сменяются только павшие), после поединка свита та же и на местах; без полководца свиты нет", () =>
+        {
+            var bt = new Battle(Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(91).Next, CommanderOf = u => u.Id == 1 ? new Commander { Id = 1, Name = "Воевода", FactionId = 1, Valor = 12 } : null });
+            var T = Templates.Get("infantry");
+            var a = bt.Add(T.Make(1, "Дружина", 1000, 1), 500, 700, 0); a.P.U.CommanderId = 1;
+            var b = bt.Add(T.Make(2, "Враг", 1000, 2), 500, 300, 180);
+            bt.Order(a, new MoveOrder { X = 500, Y = 600, Facing = 0 }); bt.Turn();
+            var cm = a.CommanderMan; True(cm != null && a.Guard.Count == R.Duel.GuardN && a.Guard.All(x => x.Guard) && b.Guard.Count == 0, $"полководец {cm != null}, свита {a.Guard.Count}, у врага {b.Guard.Count}");
+            var (hx, hy) = Soldiers.HomeOf(a, cm);
+            True(a.Guard.All(x => { var h = Soldiers.HomeOf(a, x); return JsMath.Hypot(h.x - hx, h.y - hy) < 4; }), "свита не рядом с полководцем по местам");
+            var set0 = new HashSet<Man>(a.Guard);
+            bt.Order(a, new MoveOrder { X = 500, Y = 450, Facing = 0 }); bt.Turn(); bt.Turn();
+            True(a.Guard.Count(set0.Contains) == R.Duel.GuardN, $"на марше состав сменился: осталось {a.Guard.Count(set0.Contains)} из {R.Duel.GuardN}");
+            bt.Order(a, Attack(2)); bt.Turn(); bt.Turn();
+            int kept = a.Guard.Count(set0.Contains), dead = set0.Count(x => !x.Alive);
+            True(a.Guard.Count == R.Duel.GuardN && kept + dead >= R.Duel.GuardN, $"в схватке: свита {a.Guard.Count}, прежних {kept}, павших из прежних {dead}");
+            True(a.Guard.All(x => x.Alive && JsMath.Hypot(x.X - cm.X, x.Y - cm.Y) < 8) || !cm.Alive, $"свита разбрелась: до {a.Guard.Max(x => JsMath.Hypot(x.X - cm.X, x.Y - cm.Y)):0} м от полководца");
+        });
+
+        yield return ("разворот к бою (Г120): пехота наступает на линию наискось с фронта — за 80 м выходит на ось её центра, доворачивается и бьёт всем фронтом: к касанию курс в пределах 8° от оси врага и в деле не меньше колонн, чем без разворота (где строй врезается углом, курс 15–20° мимо); атака с фланга — без разворота, колонной", () =>
+        {
+            (double skew, double engaged, bool deploy) Run(double deployM)
+            {
+                var r = new Rules(); r.Move.DeployM = deployM;
+                var bt = new Battle(Open(1000, 1000), r, new EngineContext { Rng = new Mulberry32(81).Next });
+                var T = Templates.Get("infantry");
+                var b = bt.Add(T.Make(2, "Линия", 1000, 2), 500, 500, 0);
+                var a = bt.Add(T.Make(1, "Наступающие", 1000, 1), 560, 300, 200);
+                bt.Order(b, new MoveOrder { Kind = OrderKind.Hold }); bt.Order(a, Attack(2));
+                bool deploy = a.Order.Deploy; double skew = double.NaN, eng = 0;
+                for (int t = 0; t < 4 && double.IsNaN(skew); t++)
+                    bt.Turn(tt => { var f = FightOf(a, b, bt); if (f != null && double.IsNaN(skew)) skew = Math.Abs(MoveSim.AngleDiff(a.P.Facing, 180)); });
+                for (int t = 0; t < 1; t++) bt.Turn(tt => { var f = FightOf(a, b, bt); if (f != null) eng = Math.Max(eng, f.Of(a).Engaged); });
+                return (skew, eng, deploy);
+            }
+            var with = Run(80); var without = Run(0);
+            True(with.deploy && !without.deploy, $"точка разворота: с {with.deploy}, без {without.deploy}");
+            True(!double.IsNaN(with.skew) && with.skew <= 8, $"к касанию курс мимо оси врага на {with.skew:0}° (без разворота {without.skew:0}°)");
+            True(with.engaged >= without.engaged * 0.95, $"в деле с разворотом {with.engaged:0}, без {without.engaged:0}");
+            var bt2 = new Battle(Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(82).Next });
+            var T2 = Templates.Get("infantry");
+            var b2 = bt2.Add(T2.Make(2, "Линия", 1000, 2), 500, 500, 0);
+            var a2 = bt2.Add(T2.Make(1, "Во фланг", 1000, 1), 750, 500, 270);
+            bt2.Order(a2, Attack(2));
+            True(!a2.Order.Deploy, "атака с фланга пошла через точку разворота");
         });
 
         yield return ("охват (Г111 п.4): рыцари шире пехоты, половина мест у врага занята своими — колонны не уходят за спиной строя на другой край: ни одна не оказалась на противоположной стороне врага от той, где начала", () =>

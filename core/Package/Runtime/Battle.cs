@@ -406,6 +406,7 @@ namespace BattleCore
             if (o.Kind == OrderKind.Hold) { m.Order = o; m.Track = null; m.Done = true; m.Vs = 0; return; }
             if (o.Kind == OrderKind.Attack)
             {
+                if (o.Charge && !Units.IsCav(m.P.U)) o.Charge = false;   // Алекс 10.10.2026: натиск — только конница (арбалетчики в игре шли «с натиском»; бой его и так не считал, но в приказе и журнале он оставался)
                 var t = ById(o.TargetId);
                 if (t != null)
                 {
@@ -416,12 +417,32 @@ namespace BattleCore
             }
             MoveSim.Give(m, o, Geo, R);
         }
-        // идти на цель: в её центр, лицом к ней; у её строя остановят тела (Г58)
+        // идти на цель: в её центр, лицом к ней; у её строя остановят тела (Г58). Г120: издали с фронта или с тыла — сперва в точку
+        // разворота перед её строем (DeployM), оттуда — в сшибку всем фронтом
         void Aim(Mover m, MoveOrder o, Mover t)
         {
+            o.ViaX = o.ViaY = double.NaN; o.Deploy = false;
+            var dp = !m.InMelee && FightOf(m, t) == null ? DeployPoint(m, t) : null;
+            if (dp != null) { o.ViaX = dp.Value.x; o.ViaY = dp.Value.y; }
             o.X = t.P.X; o.Y = t.P.Y; o.Facing = MoveSim.HeadingOf(t.P.X - m.P.X, t.P.Y - m.P.Y);
             MoveSim.Give(m, o, Geo, R);
+            o.Deploy = !double.IsNaN(o.ViaX);
             aimed[m] = (t.P.X, t.P.Y);
+        }
+        // Г120: точка разворота перед строем цели — на оси её центра, в DeployM от её строя с той стороны, откуда идём (фронт или тыл);
+        // null — сбоку от её строя (удар во фланг колонной), уже ближе DeployMinM или разворот выключен
+        (double x, double y)? DeployPoint(Mover m, Mover t)
+        {
+            var M = R.Move;
+            if (M.DeployM <= 0 || Shooter(m) || m.Fleeing) return null;
+            t.P.ToLocal(m.P.X, m.P.Y, out var lx, out var ly);
+            if (Math.Abs(lx) > t.P.Fp.Front / 2) return null;   // сбоку — во фланг, как есть
+            double gap = Gap(m, t);
+            if (gap < M.DeployMinM) return null;
+            double side = ly < 0 ? -1 : 1, d = t.P.Fp.Depth / 2 + m.P.Fp.Depth / 2 + Math.Min(M.DeployM, Math.Max(M.DeployMinM, gap - 1));
+            t.P.ToWorld(0, side * d, out var px, out var py);
+            px = Math.Max(1, Math.Min(Geo.W - 1, px)); py = Math.Max(1, Math.Min(Geo.H - 1, py));
+            return (px, py);
         }
         // цель ушла дальше ReplanMoveM — путь заново (раз в ReplanSec); в схватке с ней — не дёргаемся
         void Replan(Mover m)
@@ -465,7 +486,8 @@ namespace BattleCore
             foreach (var v in Volleys) { v.LossA = v.LossB = v.Friendly = 0; v.Arrows = 0; }
             Shots = new ShotStats();
             shotThisTurn = new List<Volley>();
-            foreach (var m in Movers) chargesLeft[m] = (int)Units.AttackLimit(m.P.U, R);   // Г29: 1 натиск за ход, 2 при дисциплине 80+
+            foreach (var m in Movers) chargesLeft[m] = (int)Units.AttackLimit(m.P.U, R);   // Г29: 1 натиск за ход, 2 при дисциплине
+            if (MenMode) foreach (var m in Movers) if (OnField(m) && !m.Fleeing) PickCommander(m);   // Г121: полководец и свита — состав раз в ход 80+
             stepK = 0;
         }
         // Один шаг Dt; false — ход кончился (шагов больше нет)

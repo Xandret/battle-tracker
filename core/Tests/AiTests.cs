@@ -87,11 +87,11 @@ static class AiTests
                         if (!archersTouched && FightOf(bt, k, ar) != null) archersTouched = true;
                         if (!archersTouched && FightOf(bt, k, inf) != null) hit = true;
                     });
-                    if (t == 0 && cover) placed = JsMath.Hypot(inf.P.X - ar.P.X, inf.P.Y - (ar.P.Y - (ar.P.Fp.Depth + inf.P.Fp.Depth) / 2 - R.Ai.CoverGapM));
+                    if (t == 1 && cover) placed = JsMath.Hypot(inf.P.X - ar.P.X, inf.P.Y - (ar.P.Y - (ar.P.Fp.Depth + inf.P.Fp.Depth) / 2 - R.Ai.CoverGapM));   // за два хода: короткая перестановка идёт боком на половине нормы (Алекс 10.10.2026)
                     if (archersTouched || k.Fleeing || k.P.U.Soldiers <= 0) break;
                 }
                 intercepted = hit;
-                why = string.Join(" | ", all) + (cover ? $"; после 1-го хода пехота в {placed:0} м от места прикрытия" : "");
+                why = string.Join(" | ", all) + (cover ? $"; после 2-го хода пехота в {placed:0} м от места прикрытия" : "");
                 if (cover) True(placed < 25, $"пехота не встала перед лучниками: {why}");
                 return 500 - ar.P.U.Soldiers;
             }

@@ -27,6 +27,7 @@ namespace BattleCore
         public double Z;             // Г104: на чём стоит над землёй клетки — верх стены или башни (0 — земля); для рисунка и стрел
         public double PostX = double.NaN, PostY, PostFacing = double.NaN;   // Г108: пост вместо места в строю (полководец в круге, стража по кольцу); NaN — нет
         public bool InDuel;          // Г108: полководец в поединке — круг его не выталкивает
+        public bool Guard;           // Г121: в свите полководца (Mover.Guard) — для рисунка
         public bool Alive = true;
         public double Hu;            // своя доля 0…1 (хеш номера): фаза выпадов и виляния
         public Body Body;            // мишень для стрел (Г33) — та же точка

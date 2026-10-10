@@ -40,6 +40,24 @@ static class OrdersTests
             True(Run(true).SequenceEqual(Run(false)), "по шагам вышло иначе");
         });
 
+        yield return ("расстановка (Алекс 10.10.2026): до первого хода сессия в фазе Deploy — отряд переставляется свободно (Place), не тратя хода и без приказа; за свою зону — отказ с причиной; приказы в расстановке не принимаются; EndDeploy — к приказам, после первого хода расстановки нет", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(7).Next });
+            var T = Templates.Get("infantry");
+            var a = bt.Add(T.Make(1, "Свои", 1000, 1), 500, 800, 0); var b = bt.Add(T.Make(2, "Враг", 1000, 2), 500, 200, 180);
+            var ses = new BattleSession(bt);
+            ses.Zones[1] = (0, 500, 1000, 1000); ses.Zones[2] = (0, 0, 1000, 500);
+            True(ses.BeginDeploy() && ses.Phase == Phase.Deploy, "в расстановку не вошли");
+            True(ses.SetOrder(a, new MoveOrder { X = 500, Y = 600, Facing = 0 }) != null, "приказ в расстановке принят");
+            True(ses.Place(a, 300, 650, 90) == null && Math.Abs(a.P.X - 300) < 1e-6 && Math.Abs(a.P.Y - 650) < 1e-6 && Math.Abs(a.P.Facing - 90) < 1e-6 && a.Order == null && ses.Turn == 1, $"не переставился: ({a.P.X:0}, {a.P.Y:0}) курс {a.P.Facing:0}, приказ {a.Order?.Kind}");
+            True(ses.Place(a, 300, 300, 0) != null && Math.Abs(a.P.Y - 650) < 1e-6, "за зону поставили");
+            True(ses.Place(b, 700, 300, 180) == null, "врага не переставили");
+            ses.EndDeploy(); True(ses.Phase == Phase.Orders, "к приказам не перешли");
+            True(ses.Place(a, 300, 600, 0) != null, "после расстановки переставили");
+            ses.SetOrder(a, new MoveOrder { X = 300, Y = 600, Facing = 90 }); ses.Go(); while (ses.Step()) { }
+            True(!ses.BeginDeploy(), "после первого хода расстановка открылась");
+        });
+
         yield return ("отступить (Г81): пятится лицом к врагу на половине нормы и выходит из схватки", () =>
         {
             var (bt, a, b) = Duel("infantry", "infantry", 0.5, 4);
