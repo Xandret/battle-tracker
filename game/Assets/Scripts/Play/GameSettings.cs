@@ -25,7 +25,8 @@ namespace Journal.Play
         // звук боя (BattleAudio): общая громкость 0…100 и «жестокие звуки» (крики павших)
         public static int Volume { get => PlayerPrefs.GetInt(P + "volume", 80); set { PlayerPrefs.SetInt(P + "volume", value); Journal.Viewer.BattleAudio.Volume = value / 100f; } }
         public static bool Gore { get => PlayerPrefs.GetInt(P + "gore", 1) == 1; set { PlayerPrefs.SetInt(P + "gore", value ? 1 : 0); Journal.Viewer.BattleAudio.Gore = value; } }
-        public static void ApplyAudio() { Journal.Viewer.BattleAudio.Volume = Volume / 100f; Journal.Viewer.BattleAudio.Gore = Gore; }
+        public static int Music { get => PlayerPrefs.GetInt(P + "music", 70); set { PlayerPrefs.SetInt(P + "music", value); MenuMusic.Volume = value / 100f; } }
+        public static void ApplyAudio() { Journal.Viewer.BattleAudio.Volume = Volume / 100f; Journal.Viewer.BattleAudio.Gore = Gore; MenuMusic.Volume = Music / 100f; }
 
         static UIDocument doc; static Vector2Int baseRef = new Vector2Int(1600, 900); static float baseScale = 1;
 

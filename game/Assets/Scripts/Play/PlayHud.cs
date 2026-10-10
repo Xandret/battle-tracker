@@ -41,6 +41,7 @@ namespace Journal.Play
         VisualElement feed, summaryBox, detailsBox; Label detailsToggle; ScrollView detailsScroll;
         int feedFrame = -1; readonly Dictionary<long, float> pairShown = new Dictionary<long, float>();
 
+        MenuMusic music;
         sealed class Tag { public VisualElement Root; public Label Men, Name, Cmd; public Icon Kind, State; }
         sealed class Card
         {
@@ -77,6 +78,7 @@ namespace Journal.Play
             menuClose.clicked += () => { menu.AddToClassList("hidden"); ShowMain(); };
             menuClose.text = "Назад";
             GameSettings.Init(GetComponent<UIDocument>()); GameSettings.ApplyAudio();
+            music = gameObject.AddComponent<MenuMusic>();   // музыка заставки (Алекс 10.10.2026)
             armies = new ArmyEditor(hud);
             lineup = new LineupPanel(hud, (path, ids) => { pc.NewBattle(() => PlayScenarios.FromSave(path, ids)); menu.AddToClassList("hidden"); }, ShowMenu);
             armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed)); menu.AddToClassList("hidden"); }, ShowMenu);
@@ -160,15 +162,7 @@ namespace Journal.Play
                 OpenLineup(f);
             });
             menuList.Add(open);
-            foreach (var f in PlayScenarios.Saves())
-            {
-                var item = new VisualElement(); item.AddToClassList("menu-item");
-                var n = new Label(Journal.Viewer.SaveScene.Label(f)); n.AddToClassList("menu-item-name"); item.Add(n);
-                var d = new Label(f); d.AddToClassList("menu-item-note"); item.Add(d);
-                var ff = f;
-                item.RegisterCallback<ClickEvent>(_ => OpenLineup(ff));
-                menuList.Add(item);
-            }
+            // сохранения из папки Saves в списке не показываем (Алекс 10.10.2026) — открываются через «Открыть сохранение трекера…»
             menu.RemoveFromClassList("hidden");
         }
 
@@ -364,6 +358,9 @@ namespace Journal.Play
             pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
             mapEditor.Tick();
             hud.EnableInClassList("is-bare", !pc.Chosen || mapEditor.Visible);   // поле-заставка за главным меню — без панелей битвы
+            tags.style.display = GameSettings.Tags && pc.Chosen && !mapEditor.Visible ? DisplayStyle.Flex : DisplayStyle.None;   // и без табличек отрядов
+            // музыка — в меню и пока битва не выбрана; бой под ней тише
+            if (music != null) { music.Want = mainMenu.Visible || !pc.Chosen || !menu.ClassListContains("hidden") || lineup.Visible || armyBattle.Visible; Journal.Viewer.BattleAudio.Duck = music.Want ? 0.35f : 1; }
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb != null && kb.escapeKey.wasPressedThisFrame && pc.Blocked && !escHandled) Back();
             escHandled = false;
@@ -383,7 +380,7 @@ namespace Journal.Play
             turnNumber.text = Mathf.Max(1, turn).ToString();
             double tin = pc.ShowTime - pc.TurnStartTime;
             phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
-            phaseSub.text = orders && pc.MidTurn ? $"Пауза посреди хода ({tin:0.0} с): приказы подействуют с этого мига · Enter — продолжить ход" : orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ (можно на стену), Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
+            phaseSub.text = orders && pc.MidTurn ? $"Пауза посреди хода ({tin:0.0} с): приказы — с этого мига · Enter — дальше" : orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни отряд ЛКМ, Q/E — повернуть · приказов {s.Pending.Count}" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
             progressFill.style.width = Length.Percent(showing ? (float)(100 * tin / bt.R.Move.TurnSec) : orders ? 0 : 100);
             goButton.EnableInClassList("hidden", !orders);
             speedGroup.EnableInClassList("hidden", !showing);

@@ -16,6 +16,7 @@ namespace Journal.Viewer
     public sealed class BattleAudio : MonoBehaviour
     {
         public static float Volume = 0.8f;       // общая громкость (настройки)
+        public static float Duck = 1;            // под музыкой меню бой тише (заставка)
         public static bool Gore = true;          // «жестокие звуки»: крики павших
 
         BattleViewer viewer;
@@ -72,7 +73,7 @@ namespace Journal.Viewer
             if (!clips.TryGetValue(kind, out var set) || set.Length == 0) return;
             float cx = view.center.x, cy = view.center.y, hw = view.width / 2, hh = view.height / 2;
             float dx = (x - cx) / Mathf.Max(1, hw), dy = (y - cy) / Mathf.Max(1, hh), d = Mathf.Sqrt(dx * dx + dy * dy);
-            float v = vol * Volume * Mathf.Clamp01(1.25f - 0.6f * d);
+            float v = vol * Volume * Duck * Mathf.Clamp01(1.25f - 0.6f * d);
             if (v < 0.02f) return;
             AudioSource src = null;
             foreach (var s in pool) if (!s.isPlaying) { src = s; break; }
@@ -197,7 +198,7 @@ namespace Journal.Viewer
         void Beds(float m, float h, float p, float a)
         {
             float k = 1 - Mathf.Exp(-Time.unscaledDeltaTime / 0.6f);
-            void To(AudioSource s, float target, float max) { if (s != null) s.volume += (target * max * Volume - s.volume) * k; }
+            void To(AudioSource s, float target, float max) { if (s != null) s.volume += (target * max * Volume * Duck - s.volume) * k; }
             To(melee, m, 0.8f); To(horses, h, 0.7f); To(panic, p, 0.55f); To(army, a, 0.4f);
         }
         // перемотка или новая запись: указатели — на нынешний миг, без звуков за пропущенное

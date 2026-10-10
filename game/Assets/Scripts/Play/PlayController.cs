@@ -549,6 +549,75 @@ namespace Journal.Play
             }, new[] { $"добавлен «{name}» ({men:0}) за {Session.Name(side)}" });
         }
 
+        // ── заставка главного меню (Алекс 10.10.2026): пока битва не выбрана — учебный бой идёт сам, обе стороны под ИИ (Г113);
+        // камера сама: от схватки к схватке, раз в несколько секунд — общий план; после 8 ходов — новый бой с другим зерном ──
+        object demoGame; uint demoSeed = 2026; float shotUntil, shotSize = 60; int shotA = -1, shotB = -1; Vector2 camAt; float camSize = 120;
+        void Demo()
+        {
+            if (Game == null || viewer == null) return;
+            if (demoGame != Game)
+            {
+                demoGame = Game; shotUntil = 0;
+                var s1 = SideUnits(1).ToList(); var s2 = SideUnits(2).ToList();
+                if (s1.Count > 0 && s2.Count > 0)
+                {
+                    var r = new System.Random((int)demoSeed);
+                    // кто обходит, кто наступает — по зерну: бои на заставке разные
+                    int flank = r.Next(2) + 1, adv = 3 - flank;
+                    var foes = flank == 1 ? s2 : s1; var mine = flank == 1 ? s1 : s2;
+                    Battle.AssignSide(flank, AiKind.Flank, foes[r.Next(foes.Count)].P.U.Id);
+                    Battle.AssignSide(adv, r.Next(2) == 0 ? AiKind.Advance : AiKind.Cover, r.Next(2) == 0 ? mine[r.Next(mine.Count)].P.U.Id : 0);
+                    if (Battle.Assigned.Count(m => SideOf(m) == adv) == 0) Battle.AssignSide(adv, AiKind.Advance, mine[0].P.U.Id);
+                }
+                var c0 = Centre(Battle.Movers.Where(Present)); camAt = c0; camSize = 150;
+            }
+            if (Phase == PlayPhase.Orders && Session.Turn <= 8) { Speed = 1; Go(); }
+            else if (Phase == PlayPhase.Over || Phase == PlayPhase.Orders)
+            {
+                demoSeed++; uint sd = demoSeed; lastMake = () => PlayScenarios.Training(sd); NewBattle();
+                return;
+            }
+            // камера: схватка — ближе; нет схваток — общий план над серединой войск
+            if (Time.unscaledTime > shotUntil) PickShot();
+            Vector2 aim; float size;
+            var ms = Battle.Movers;
+            if (shotA >= 0 && shotA < ms.Count && shotB < ms.Count && Present(ms[shotA]))
+            {
+                BoxOf(ms[shotA], out var ax, out var ay, out _, out _, out _);
+                if (shotB >= 0 && Present(ms[shotB])) { BoxOf(ms[shotB], out var bx, out var by, out _, out _, out _); aim = new Vector2((ax + bx) / 2, (ay + by) / 2); }
+                else aim = new Vector2(ax, ay);
+                size = shotSize;
+            }
+            else { aim = Centre(ms.Where(Present)); size = 170; }
+            float k = 1 - Mathf.Exp(-Time.unscaledDeltaTime / 2.2f);   // плывёт, а не прыгает
+            camAt += (aim - camAt) * k; camSize += (size - camSize) * k;
+            // кадр — правее середины экрана: слева меню
+            float aspect = viewer.Cam != null ? viewer.Cam.aspect : 16f / 9;
+            viewer.LookAt(camAt.x - camSize * aspect * 0.28f, camAt.y, camSize);
+        }
+        Vector2 Centre(IEnumerable<Mover> ms)
+        {
+            float x = 0, y = 0; int n = 0;
+            foreach (var m in ms) { BoxOf(m, out var mx, out var my, out _, out _, out _); x += mx; y += my; n++; }
+            return n == 0 ? camAt : new Vector2(x / n, y / n);
+        }
+        void PickShot()
+        {
+            var rec = viewer.Rec; var r = new System.Random((int)(Time.unscaledTime * 1000));
+            shotUntil = Time.unscaledTime + 7 + (float)r.NextDouble() * 4;
+            shotA = shotB = -1;
+            if (rec != null && rec.Fights.Count > 0 && r.Next(4) > 0)
+            {
+                var f = rec.Fights[Mathf.Clamp((int)(viewer.T / rec.Dt), 0, rec.Fights.Count - 1)];
+                if (f.Length >= 2) { int q = 2 * r.Next(f.Length / 2); shotA = f[q]; shotB = f[q + 1]; shotSize = 26 + (float)r.NextDouble() * 18; return; }
+            }
+            // нет схватки — за отрядом на марше (конница — чаще: она красивее идёт), иначе — за любым
+            var live = Battle.Movers.Select((m, i) => (m, i)).Where(p => Present(p.m) && p.m.Order != null && p.m.Order.Kind != OrderKind.Hold).ToList();
+            var cav = live.Where(p => p.m.P.U.Type == "cavalry").ToList();
+            var pick = cav.Count > 0 && r.Next(2) == 0 ? cav : live.Count > 0 ? live : Battle.Movers.Select((m, i) => (m, i)).Where(p => Present(p.m)).ToList();
+            if (pick.Count > 0) { shotA = pick[r.Next(pick.Count)].i; shotSize = 32 + (float)r.NextDouble() * 22; }
+        }
+
         // ── Г113: поручения ИИ (вид ГМа, между ходами) — отряду, группе или всей стороне: держать, наступать, прикрыть, фланговый
         // манёвр. Приказы по ним раздаёт движок в «Ход!» (BattleSession.Go → Battle.AiOrders), глазами стороны (туман);
         // отряд, которому на этот ход отдан приказ, ИИ не трогает. Цель — щелчком после кнопки; отмена — как у прочих правок ГМа ──
@@ -811,6 +880,7 @@ namespace Journal.Play
         void UpdateBody()
         {
             if (Game == null) return;
+            if (!Chosen) Demo();
             if (Phase == PlayPhase.Showing) AdvanceTurn();
             else if (Phase == PlayPhase.Orders) { DrainPreviews(); FlushAdvice(); }
             HandleInput();

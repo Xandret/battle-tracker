@@ -47,6 +47,9 @@ namespace Journal.Play
             var vol = new SliderInt("Громкость", 0, 100) { value = GameSettings.Volume, showInputField = false }; vol.AddToClassList("set-field"); box.Add(vol);
             var volLabel = new Label($"{GameSettings.Volume}%"); volLabel.AddToClassList("set-value"); vol.Add(volLabel);
             vol.RegisterValueChangedCallback(e => { GameSettings.Volume = e.newValue; volLabel.text = $"{e.newValue}%"; });
+            var mus = new SliderInt("Музыка в меню", 0, 100) { value = GameSettings.Music, showInputField = false }; mus.AddToClassList("set-field"); box.Add(mus);
+            var musLabel = new Label($"{GameSettings.Music}%"); musLabel.AddToClassList("set-value"); mus.Add(musLabel);
+            mus.RegisterValueChangedCallback(e => { GameSettings.Music = e.newValue; musLabel.text = $"{e.newValue}%"; });
             var gore = new Toggle("Жестокие звуки (крики павших)") { value = GameSettings.Gore }; gore.AddToClassList("set-field"); box.Add(gore);
             gore.RegisterValueChangedCallback(e => GameSettings.Gore = e.newValue);
 

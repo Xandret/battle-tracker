@@ -70,7 +70,7 @@
 }
 
 .phase-block {
-    width: 230px;
+    width: 260px;
     margin-right: 14px;
 }
 
@@ -82,6 +82,9 @@
 .phase-sub {
     font-size: 11px;
     color: var(--ink-dim);
+    white-space: normal;   /* длинная подсказка — в две строки, а не под кнопку «Ход!» */
+    max-height: 30px;
+    overflow: hidden;
 }
 
 .progress {
@@ -1743,6 +1746,58 @@
     align-items: center;
     justify-content: center;
     background-color: rgba(10, 8, 6, 0.78);
+}
+
+.main-menu.is-splash {
+    align-items: flex-start;
+    padding-left: 6%;
+    background-color: rgba(10, 8, 6, 0);
+}
+
+.main-vignette {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    -unity-background-scale-mode: stretch-to-fill;
+}
+
+.main-menu.is-splash > .main-vignette {
+    display: flex;
+}
+
+.main-menu.is-splash > .main-box {
+    background-color: rgba(26, 21, 15, 0.82);
+    border-color: rgba(176, 138, 66, 0.7);
+}
+
+.main-menu.is-splash .main-title {
+    font-size: 40px;
+    letter-spacing: 1px;
+}
+
+.main-orn {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    margin: 6px 0 4px 0;
+}
+
+.main-orn-line {
+    width: 90px;
+    height: 1px;
+    background-color: var(--gold);
+    opacity: 0.8;
+}
+
+.main-orn-dia {
+    width: 8px;
+    height: 8px;
+    margin: 0 8px;
+    rotate: 45deg;
+    background-color: var(--gold-bright);
 }
 
 .main-menu.is-pause {
