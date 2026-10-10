@@ -3,16 +3,17 @@
 // npm run discord:post -- --send               — отправить свежий патч (запись текущей версии из package.json)
 // npm run discord:post -- --send --version 30.8 — отправить запись другой версии
 // npm run discord:post -- --send --all         — всю историю, от старых записей к свежей
+// npm run discord:post -- --send --bot          — от имени бота: DISCORD_BOT_TOKEN и DISCORD_CHANNEL_ID в tracker/.env
 // Адрес вебхука — DISCORD_WEBHOOK_URL в tracker/.env (файл вне git). Нарезка и отправка — tools/discord-webhook.mjs:
 // сообщения до 2000 символов (предел вебхука), блоки кода не рвутся, на 429 ждём и повторяем.
 import fs from "node:fs";
 import { loadEnv } from "./env.mjs";
-import { entryOf, allEntries, splitForWebhook, withFooter, sendParts, webhookUrl } from "./discord-webhook.mjs";
+import { entryOf, allEntries, splitForWebhook, withFooter, sendParts, sendPartsBot, webhookUrl } from "./discord-webhook.mjs";
 
 loadEnv();
 const ROOT = new URL("../", import.meta.url);
 const args = process.argv.slice(2);
-const SEND = args.includes("--send"), ALL = args.includes("--all");
+const SEND = args.includes("--send"), ALL = args.includes("--all"), BOT = args.includes("--bot");
 const vi = args.indexOf("--version");
 const pkg = JSON.parse(fs.readFileSync(new URL("package.json", ROOT), "utf8"));
 const md = fs.readFileSync(new URL("PATCHNOTES.md", ROOT), "utf8");
@@ -31,6 +32,9 @@ console.log(`${entries.length === 1 ? `Патчноут v${entries[0].version}` 
 if(!SEND){
   messages.forEach((m, i) => console.log(`\n────── сообщение ${i + 1}/${messages.length} · ${m.length} символов ──────\n${m}`));
   console.log("\nЭто пробный прогон — ничего не отправлено. Отправить: npm run discord:post -- --send");
+} else if(BOT){
+  try{ await sendPartsBot(process.env.DISCORD_BOT_TOKEN, (process.env.DISCORD_CHANNEL_ID || "").trim(), messages); console.log("Готово."); }
+  catch(e){ console.error("✘ " + e.message); process.exit(1); }
 } else {
   const url = webhookUrl(ROOT);
   if(!url){

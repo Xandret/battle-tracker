@@ -78,12 +78,25 @@ export function splitForWebhook(text, limit = LIMIT){
 export const withFooter = (parts, version) => parts.map((p, i) => `${p}\n\n-# v${version} · часть ${i + 1}/${parts.length}`);
 
 // Отправка по порядку; fetchImpl и sleep подменяются в тесте
-export async function sendParts(url, messages, {fetchImpl = fetch, sleep = ms => new Promise(r => setTimeout(r, ms)), log = console.log} = {}){
+export async function sendParts(url, messages, opts = {}){
   if(!WEBHOOK_RE.test(url)) throw new Error("это не адрес вебхука Discord (нужен https://discord.com/api/webhooks/…)");
+  return postParts(url + "?wait=true", {}, messages, opts);
+}
+
+// То же от имени бота: POST /channels/{id}/messages с токеном бота (DISCORD_BOT_TOKEN в .env).
+// Боту нужно право «Отправлять сообщения» в этом канале.
+export async function sendPartsBot(token, channelId, messages, opts = {}){
+  if(!token) throw new Error("нет токена бота: DISCORD_BOT_TOKEN в tracker/.env");
+  if(!/^\d{15,25}$/.test(channelId || "")) throw new Error("нет ID канала: DISCORD_CHANNEL_ID в tracker/.env (ПКМ по каналу → «Копировать ID канала»)");
+  return postParts(`https://discord.com/api/v10/channels/${channelId}/messages`,
+    {Authorization: `Bot ${token}`, "User-Agent": "battle-tracker-patchnotes (local script, 1.0)"}, messages, opts);
+}
+
+async function postParts(endpoint, extraHeaders, messages, {fetchImpl = fetch, sleep = ms => new Promise(r => setTimeout(r, ms)), log = console.log} = {}){
   for(let i = 0; i < messages.length; i++){
     for(let attempt = 1; ; attempt++){
-      const res = await fetchImpl(url + "?wait=true", {
-        method: "POST", headers: {"Content-Type": "application/json"},
+      const res = await fetchImpl(endpoint, {
+        method: "POST", headers: {"Content-Type": "application/json", ...extraHeaders},
         // упоминания выключены (в тексте нет @everyone по ошибке), ссылки — без превью
         body: JSON.stringify({content: messages[i], allowed_mentions: {parse: []}, flags: 4}),
       });
