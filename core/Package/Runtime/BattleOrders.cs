@@ -76,7 +76,7 @@ namespace BattleCore
             var tr = Track.Build(F, route);
             if (tr == null) { p.Note = "пути нет"; return p; }
             p.Route = tr.Points;
-            if (o.Kind == OrderKind.Move) side = tr.Cost <= R.Move.CloseShare * norm;   // Г54: близко — боком и назад, без поворота
+            if (o.Kind == OrderKind.Move) side = MoveSim.PreferSide(m, tr, o, R);   // Г54: близко или если так быстрее — боком и назад, без поворота
             // за ход: норма; пятится или идёт боком/назад — половина (Г54, Г81); до врага — не ближе касания
             bool back = side && tr.Pieces.Count > 0 && Math.Abs(MoveSim.AngleDiff(m.P.Facing, MoveSim.HeadingOf(tr.Pieces[0].X1 - tr.Pieces[0].X0, tr.Pieces[0].Y1 - tr.Pieces[0].Y0))) > R.Move.ForwardConeDeg;
             double budget = back ? norm * R.Move.SideSpeed : norm;
@@ -108,7 +108,7 @@ namespace BattleCore
         }
     }
 
-    public enum Phase { Orders, Playing, Over }
+    public enum Phase { Deploy, Orders, Playing, Over }   // Deploy — расстановка до первого хода (Алекс 10.10.2026): отряды переставляются свободно, ходов не тратят
 
     // Сессия боя (WEGO): приказы обеим сторонам с одного экрана (Г79) — хотсит и туман войны позже
     public sealed class BattleSession
@@ -125,6 +125,26 @@ namespace BattleCore
 
         public BattleSession(Battle battle) { Battle = battle; }
 
+        // ── расстановка до первого хода (Алекс 10.10.2026: «нужно добавить этап расстановки») ──
+        // Зоны по сторонам (FactionId → прямоугольник в метрах), пусто — ставить можно где угодно. BeginDeploy — в фазу расстановки
+        // (только до первого хода); Place — переставить отряд (Battle.Relocate: на непроходимое — сдвигается к ближайшему месту, где строй
+        // помещается); null — принято, иначе почему нет. EndDeploy — к приказам первого хода
+        public readonly Dictionary<int, (double x0, double y0, double x1, double y1)> Zones = new Dictionary<int, (double, double, double, double)>();
+        public bool BeginDeploy()
+        {
+            if (Turn != 1 || Phase != Phase.Orders || Battle.Movers.Any(m => m.Order != null)) return false;
+            Phase = Phase.Deploy; return true;
+        }
+        public string Place(Mover m, double x, double y, double facing)
+        {
+            if (Phase != Phase.Deploy) return "расстановка кончилась — отряды ходят по приказам";
+            if (!Present(m)) return "отряда на поле нет";
+            if (Zones.TryGetValue(SideOf(m), out var z) && (x < z.x0 || x > z.x1 || y < z.y0 || y > z.y1)) return "за пределами своей зоны расстановки";
+            return Battle.Relocate(m, x, y, facing) ? null : "здесь строй не помещается";
+        }
+        public void EndDeploy() { if (Phase == Phase.Deploy) Phase = Phase.Orders; }
+        public bool InZone(Mover m) => !Zones.TryGetValue(SideOf(m), out var z) || (m.P.X >= z.x0 && m.P.X <= z.x1 && m.P.Y >= z.y0 && m.P.Y <= z.y1);
+
         public static int SideOf(Mover m) => m.P.U.FactionId ?? 0;
         public IEnumerable<int> Sides => Battle.Movers.Select(SideOf).Distinct().OrderBy(s => s);
         public IEnumerable<Mover> UnitsOf(int side) => Battle.Movers.Where(m => SideOf(m) == side);
@@ -134,6 +154,7 @@ namespace BattleCore
         // Приказ на этот ход (уйдёт отряду по «Ход!»); null — принят, иначе — почему нет
         public string SetOrder(Mover m, MoveOrder o)
         {
+            if (Phase == Phase.Deploy) return "идёт расстановка — сперва «К бою»";
             if (Phase != Phase.Orders) return "сейчас идёт ход — приказы между ходами";
             if (!Present(m)) return "отряда на поле нет";
             if (m.Fleeing && o.Kind != OrderKind.Rally) return "бежит — слышит только «сплотить»";

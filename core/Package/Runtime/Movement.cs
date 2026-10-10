@@ -28,6 +28,8 @@ namespace BattleCore
         public double X, Y, Facing;
         public OrderKind Kind = OrderKind.Move;
         public int TargetId; public bool Charge;
+        public bool Deploy;                       // Г120: путь к цели идёт через точку разворота перед её строем (ViaX, ViaY) — там строй доворачивается в линию
+        public double ViaX = double.NaN, ViaY = double.NaN;
     }
 
     // Фигурка в мире: где и как быстро, м и м/с. Dvx, Dvy, Vmax — куда хочет на этом шаге (после взгляда вперёд);
@@ -189,6 +191,15 @@ namespace BattleCore
             {
                 if (m.Field.Target < 0) { m.Note = "на карте негде встать"; return; }
                 route = m.Field.Route(m.P.X, m.P.Y, tx, ty);
+                // Г120: через точку разворота — путь к ней своей картой, от неё к цели — картой цели; не вышло — напрямую
+                if (route != null && !double.IsNaN(o.ViaX))
+                {
+                    var fVia = FlowField.Build(geo, r, BattleMap.IsHorse(m.P.U), o.ViaX, o.ViaY, m.NominalFp.Front / 2, null, m.Pass);
+                    var r1 = fVia?.Target >= 0 ? fVia.Route(m.P.X, m.P.Y, o.ViaX, o.ViaY) : null;
+                    var r2 = r1 != null ? m.Field.Route(r1[r1.Count - 1].x, r1[r1.Count - 1].y, tx, ty) : null;
+                    if (r1 != null && r2 != null) { route = new List<(double x, double y)>(r1); route.AddRange(r2.Skip(1)); }
+                    else o.ViaX = double.NaN;
+                }
                 if (route == null)
                 {
                     // Г105: цели не достичь (за закрытыми воротами, за стеной, за рекой) — идёт к ближайшей к ней достижимой клетке и
@@ -216,10 +227,26 @@ namespace BattleCore
             if (m.Track == null) { m.Note = "пути нет"; return; }
             if (m.Track.Pieces.Count == 0) m.OnSpot = true;   // уже на месте — остаётся довернуться
             // атакующий идёт на врага лицом, а не боком (Г54 — только для приказа «двигаться»)
-            m.Side = o.Kind == OrderKind.Move && m.Track.Cost <= r.Move.CloseShare * BattleMap.UnitSpeed(m.P.U, r)
+            m.Side = o.Kind == OrderKind.Move && PreferSide(m, m.Track, o, r)
                   || o.Kind == OrderKind.Retreat;   // Г81: отступает — пятится, не поворачиваясь, на половине нормы
             // разгон переходит в новый приказ, только если он ведёт туда же, куда отряд уже идёт
             if (m.Side || m.Track.Pieces.Count == 0 || Math.Abs(AngleDiff(m.P.Facing, LegHeading(m.Track, 0))) > r.Move.MarchAlignDeg) m.Vs = 0;
+        }
+
+        // Г54 и Алекс 10.10.2026 («при перестановке отряд делает полный разворот строем вместо того, чтобы быстро сменить позицию»):
+        // идти боком и назад без поворота (на SideSpeed нормы) — если так быстрее, чем повернуться к пути, пройти и повернуться к курсу
+        // (повороты строем медленные, Г118: линия в 125 м на 90° — около 30 с); ближе CloseShare нормы — всегда боком. Разворот кругом
+        // (больше AboutFaceDeg) быстрый — считается за AboutFaceSec
+        public static bool PreferSide(Mover m, Track track, MoveOrder o, Rules r)
+        {
+            var M = r.Move; double norm = BattleMap.UnitSpeed(m.P.U, r);
+            if (track == null || track.Pieces.Count == 0) return false;
+            if (track.Cost <= M.CloseShare * norm) return true;
+            double WheelSec(double deg) { deg = Math.Abs(deg); return deg > M.AboutFaceDeg ? M.AboutFaceSec : deg / Math.Max(1e-6, WheelRate(m, r)); }
+            double d1 = AngleDiff(m.P.Facing, LegHeading(track, 0)), d2 = AngleDiff(LegHeading(track, track.Points.Count - 2), o.Facing);
+            double marchSec = track.Cost / norm * M.TurnSec + (Math.Abs(d1) > M.MarchAlignDeg ? WheelSec(d1) : 0) + (Math.Abs(d2) > 1 ? WheelSec(d2) : 0);
+            double sideSec = track.Cost / (norm * M.SideSpeed) * M.TurnSec + (Math.Abs(AngleDiff(m.P.Facing, o.Facing)) > 1 ? WheelSec(AngleDiff(m.P.Facing, o.Facing)) : 0);
+            return sideSec <= marchSec;
         }
 
         // Встать на месте и развернуться к o.Facing (колесом или кругом, Г52) — без поиска пути: стрелку,
@@ -293,7 +320,7 @@ namespace BattleCore
             for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
             if (M.MenBodies) MenBodies.Step(ms, M.Dt, r, geo);   // Б1: тела — бойцы, фигурка — колонна за якорем; Б5 — деревья леса по карте
             else Bodies.Step(ms, M.Dt, r);
-            foreach (var m in ms) if (m.Fleeing) FollowCrowd(m, M.Dt);
+            foreach (var m in ms) if (m.Fleeing) FollowCrowd(m, M.Dt, r);
             if (!M.MenBodies) Soldiers.Step(ms, M.Dt, r);   // бойцы внутри фигурок (Г75)
             foreach (var m in ms) if (!m.Fleeing) DetourCheck(m, ms, geo, M.Dt, r);   // свой перегородил путь — обход (Г61)
             if ((k + 1) % every == 0) foreach (var m in ms) if (!m.Fleeing) Reassign(m, r);
@@ -483,7 +510,7 @@ namespace BattleCore
         // озеро, а фигурка на другом берегу) — идёт по карте направлений отряда, пока не увидит своё место.
         // Здесь — только «куда хочет» (Dvx, Dvy, Vmax); шаг и тела — Bodies.Step.
         // Бегущая толпа (Г70): центр отряда — середина фигурок, курс — прочь от врага; пройденное — в норму хода
-        static void FollowCrowd(Mover m, double dt)
+        static void FollowCrowd(Mover m, double dt, Rules r)
         {
             if (m.Figs.Count == 0) return;
             var main = m.Figs.Where(s => double.IsNaN(s.FleeH)).ToList();   // центр — по основной толпе, отбившиеся не в счёт
@@ -491,7 +518,11 @@ namespace BattleCore
             double cx = main.Average(s => s.X), cy = main.Average(s => s.Y);
             double v = m.Figs.Average(s => JsMath.Hypot(s.Vx, s.Vy));   // путь — по скорости фигурок: центр прыгает, когда уходят за край
             m.Moved += v * dt; m.Spent += v * dt; m.Vs = v;
-            m.P.X = cx; m.P.Y = cy; m.P.Facing = m.FleeHeading;
+            // Г118 (Графика, п.а): опорная точка догоняет середину толпы не быстрее полутора норм — в миг бегства она стояла в 38 м от
+            // бойцов (строй бился, рамка ждала) и прыгала на 48 м за кадр; по ней знамёна и таблички
+            double dx = cx - m.P.X, dy = cy - m.P.Y, dl = JsMath.Hypot(dx, dy), step = TopSpeed(m.P.U, r) * 1.5 * dt;
+            if (dl > step) { m.P.X += dx / dl * step; m.P.Y += dy / dl * step; } else { m.P.X = cx; m.P.Y = cy; }
+            m.P.Facing = m.FleeHeading;
         }
         // Бегущая фигурка (Г70, Г71): сама по себе, по карте направлений к краю карты, на норме отряда — каждая
         // чуть со своим курсом и скоростью (толпа расходится веером и растягивается); строя и мест нет
@@ -687,9 +718,17 @@ namespace BattleCore
             }
             // Б1: шире — не раньше NarrowWidenSec после перестроения и только если шире хотя бы на 2 колонны (или обратно в
             // линию): иначе строй дёргается между 6 и 7 колоннами на каждом бугорке берега
-            if (M.MenBodies && want > m.Cols && want < m.NominalCols && (want - m.Cols < 2 || m.NarrowSince < M.NarrowWidenSec)) want = m.Cols;
-            if (M.MenBodies && want > m.Cols && m.NarrowSince < M.NarrowWidenSec) want = m.Cols;
+            // Г120: к бою — в линию сразу: атакующий у точки разворота или ближе 1,5 DeployM к цели расширяется без выдержки
+            bool deploy = M.DeployWide && M.DeployM > 0 && m.Order != null && m.Order.Kind == OrderKind.Attack && want == m.NominalCols && NearTarget(m, ms, M.DeployM * 1.5);
+            if (!deploy && M.MenBodies && want > m.Cols && want < m.NominalCols && (want - m.Cols < 2 || m.NarrowSince < M.NarrowWidenSec)) want = m.Cols;
+            if (!deploy && M.MenBodies && want > m.Cols && m.NarrowSince < M.NarrowWidenSec) want = m.Cols;
             if (want != m.Cols) { SetCols(m, want); m.NarrowSince = 0; }
+        }
+
+        static bool NearTarget(Mover m, IList<Mover> ms, double maxM)
+        {
+            foreach (var q in ms) if (q != m && q.P.U.Id == m.Order.TargetId) return JsMath.Hypot(q.P.X - m.P.X, q.P.Y - m.P.Y) - (q.P.Fp.Depth + m.P.Fp.Depth) / 2 <= maxM;
+            return false;
         }
 
         // ── обход своих (Г61) ──

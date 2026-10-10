@@ -78,12 +78,35 @@ namespace BattleCore
         // Пал — место занимает ближайший живой (в Relayout). Стража — GuardN ближайших к нему
         public Man PickCommander(Mover m)
         {
-            var c = CmdrOf(m); if (c == null || c.Dead || m.Men.Count == 0) { m.CommanderMan = null; return null; }
-            if (m.CommanderMan != null && m.CommanderMan.Alive && m.Men.Contains(m.CommanderMan)) return m.CommanderMan;
+            var c = CmdrOf(m); if (c == null || c.Dead || m.Men.Count == 0) { m.CommanderMan = null; ClearGuard(m); return null; }
+            if (m.CommanderMan != null && m.CommanderMan.Alive && m.Men.Contains(m.CommanderMan)) { RefreshGuard(m); return m.CommanderMan; }
             m.P.ToWorld(0, -m.P.Fp.Depth / 5, out var bx, out var by);
             m.CommanderMan = m.Men.Where(x => x.Alive).OrderBy(x => (x.X - bx) * (x.X - bx) + (x.Y - by) * (x.Y - by)).FirstOrDefault();
+            RefreshGuard(m);
             return m.CommanderMan;
         }
+        // Г121: свита — Duel.GuardN бойцов на ближайших к полководцу местах в строю (по местам, не по тому, где стоят сейчас): состав
+        // держится, пока бойцы живы, павших и ушедших заменяют ближайшие; идёт с полководцем как одно целое — на своих местах в строю.
+        // В поединке та же свита держит кольцо (Post). Man.Guard — пометка для рисунка (контур свиты)
+        void RefreshGuard(Mover m)
+        {
+            var cm = m.CommanderMan;
+            if (cm == null || !cm.Alive) { ClearGuard(m); return; }
+            int n = R.Duel.GuardN;
+            m.Guard.RemoveAll(x => !x.Alive || x == cm || !m.Men.Contains(x));
+            if (m.Guard.Count >= n) return;
+            var (hx, hy) = Soldiers.HomeOf(m, cm);
+            var pick = new HashSet<Man>(m.Guard);
+            foreach (var x in m.Men.Where(x => x.Alive && x != cm && !pick.Contains(x)).OrderBy(x => { var h = Soldiers.HomeOf(m, x); return (h.x - hx) * (h.x - hx) + (h.y - hy) * (h.y - hy); }))
+            {
+                if (m.Guard.Count >= n) break;
+                m.Guard.Add(x); x.Guard = true;
+            }
+            foreach (var x in m.Men) x.Guard = pick.Contains(x) || m.Guard.Contains(x);
+        }
+        void ClearGuard(Mover m) { foreach (var g in m.Guard) g.Guard = false; m.Guard.Clear(); }
+        // свита стороны для показа и ИИ: устойчивый состав (пересчёт раз в ход и при перераскладке)
+        public IReadOnlyList<Man> GuardOf(Mover m) => m.Guard;
         static void Post(Man x, double px, double py, double face) { x.PostX = px; x.PostY = py; x.PostFacing = face; }
         static void Release(Man x) { x.PostX = double.NaN; x.PostFacing = double.NaN; x.InDuel = false; x.Reseat = true; }
 
@@ -107,7 +130,7 @@ namespace BattleCore
                     {
                         if (cm == null) continue;
                         cm.InDuel = true;
-                        m.Guard = m.Men.Where(x => x.Alive && x != cm).OrderBy(x => (x.X - cm.X) * (x.X - cm.X) + (x.Y - cm.Y) * (x.Y - cm.Y)).Take(R.Duel.GuardN).ToList();
+                        RefreshGuard(m);   // Г121: кольцо держит та же свита, что идёт с полководцем
                     }
                 }
                 MenBodies.Obstacles.Add((d.X, d.Y, d.R));
@@ -161,7 +184,7 @@ namespace BattleCore
         void Finish(Duel d, Mover winner, double t)
         {
             // тела — обратно в строй
-            foreach (var m in new[] { d.A, d.B }) { foreach (var g in m.Guard) Release(g); m.Guard.Clear(); }
+            foreach (var m in new[] { d.A, d.B }) foreach (var g in m.Guard) Release(g);   // Г121: свита остаётся свитой — обратно на свои места в строю
             if (d.ManA != null) Release(d.ManA); if (d.ManB != null) Release(d.ManB);
             d.Over = true; d.Fighting = false; d.EndT = t;
             if (winner == null) return;   // сорван
