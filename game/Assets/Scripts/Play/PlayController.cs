@@ -97,7 +97,7 @@ namespace Journal.Play
             Game = lastMake();
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
-            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false;
+            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false; GmPlacing = null;
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
@@ -367,41 +367,119 @@ namespace Journal.Play
             ("hunger", "Голод", -70), ("supplies", "Нехватка припасов", -30), ("cmdrDied", "Гибель полководца", -30),
         };
         public readonly List<string> GmLog = new List<string>();
-        readonly Stack<List<(Mover m, double morale, double fatigue)>> gmUndo = new Stack<List<(Mover, double, double)>>();
+        // отмена правок ГМа: что вернуть (по шагу назад)
+        readonly Stack<(string what, Action undo)> gmUndo = new Stack<(string, Action)>();
         public bool GmCanEdit => Phase == PlayPhase.Orders && Battle != null;
         public int GmUndoCount => gmUndo.Count;
-        void GmEdit(IEnumerable<Mover> ms, Action<Unit> change, Func<Mover, string> note)
+        void GmDone(string what, Action undo, IEnumerable<string> lines)
         {
-            if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
-            var undo = new List<(Mover, double, double)>(); var lines = new List<string>();
-            foreach (var m in ms.Where(Present).ToList())
-            {
-                var u = m.P.U; undo.Add((m, u.Morale, u.Fatigue));
-                double mo = u.Morale, fa = u.Fatigue; change(u);
-                u.Morale = Math.Max(0, Math.Round(u.Morale)); u.Fatigue = Math.Max(0, Math.Min(100, Math.Round(u.Fatigue)));
-                lines.Add($"«{u.Name}» {note(m)}: БД {mo:0} → {u.Morale:0}" + (Math.Abs(fa - u.Fatigue) > 0.5 ? $", усталость {fa:0} → {u.Fatigue:0}" : ""));
-            }
-            if (undo.Count == 0) return;
-            gmUndo.Push(undo);
+            gmUndo.Push((what, undo));
             foreach (var l in lines) GmLog.Add($"ход {Session.Turn}: {l}");
-            Say(lines.Count == 1 ? "ГМ: " + lines[0] : $"ГМ: {lines.Count} отр. — {note(undo[0].Item1)}");
             RefreshPreviews(); Changed?.Invoke();
         }
-        public void GmMorale(IEnumerable<Mover> ms, double delta) => GmEdit(ms, u => u.Morale += delta, _ => $"БД {(delta >= 0 ? "+" : "")}{delta:0}");
-        public void GmFatigue(IEnumerable<Mover> ms, double delta) => GmEdit(ms, u => u.Fatigue += delta, _ => $"усталость {(delta >= 0 ? "+" : "")}{delta:0}");
+        // БД — по правилам стола (MoraleRules.ApplyMoraleChange: ноль — слом и проверка на побег, выше нуля — снова в руках);
+        // отмена возвращает и слом, и отложенный штраф дисциплины
+        void GmUnits(IEnumerable<Mover> ms, Action<Unit, List<string>> change, Func<Unit, string> note)
+        {
+            if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
+            var saved = new List<(Unit u, Unit was)>(); var lines = new List<string>();
+            foreach (var m in ms.Where(Present).ToList())
+            {
+                var u = m.P.U; var was = u.Clone(); saved.Add((u, was));
+                var extra = new List<string>(); change(u, extra);
+                lines.Add($"«{u.Name}» {note(u)}: БД {was.Morale:0} → {u.Morale:0}" + (Math.Abs(was.Fatigue - u.Fatigue) > 0.5 ? $", усталость {was.Fatigue:0} → {u.Fatigue:0}" : ""));
+                lines.AddRange(extra);
+            }
+            if (saved.Count == 0) return;
+            Say(saved.Count == 1 ? "ГМ: " + lines[0] : $"ГМ: {saved.Count} отр. — {note(saved[0].u)}");
+            GmDone(note(saved[0].u), () => { foreach (var (u, was) in saved) { u.Morale = was.Morale; u.Fatigue = was.Fatigue; u.Broken = was.Broken; u.BreakGrace = was.BreakGrace; u.BreakPenalty = was.BreakPenalty; } }, lines);
+        }
+        void SetMorale(Unit u, double v, List<string> lines) => MoraleRules.ApplyMoraleChange(u, Math.Round(v), lines, Battle.R).ApplyTo(u);
+        public void GmMorale(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (u, l) => SetMorale(u, u.Morale + delta, l), _ => $"БД {(delta >= 0 ? "+" : "")}{delta:0}");
+        public void GmFatigue(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (u, l) => u.Fatigue = Math.Max(0, Math.Min(100, Math.Round(u.Fatigue + delta))), _ => $"усталость {(delta >= 0 ? "+" : "")}{delta:0}");
         public void GmMod(IEnumerable<Mover> ms, int mod)
         {
             var (_, name, v) = MoraleMods[mod];
-            GmEdit(ms, u => u.Morale += v, _ => $"{name} {(v >= 0 ? "+" : "")}{v:0}");
+            GmUnits(ms, (u, l) => SetMorale(u, u.Morale + v, l), _ => $"{name} {(v >= 0 ? "+" : "")}{v:0}");
         }
         public IEnumerable<Mover> SideUnits(int side) => Battle.Movers.Where(m => SideOf(m) == side);
         public void GmUndo()
         {
             if (!GmCanEdit || gmUndo.Count == 0) return;
-            var undo = gmUndo.Pop();
-            foreach (var (m, mo, fa) in undo) { m.P.U.Morale = mo; m.P.U.Fatigue = fa; }
-            GmLog.Add($"ход {Session.Turn}: отменена правка ({undo.Count} отр.)");
-            Say("Правка ГМа отменена"); RefreshPreviews(); Changed?.Invoke();
+            var (what, undo) = gmUndo.Pop(); undo();
+            GmLog.Add($"ход {Session.Turn}: отменено — {what}");
+            Say($"Отменено: {what}"); RefreshPreviews(); Changed?.Invoke();
+        }
+
+        // численность, убрать и добавить отряд — до первого хода (бой не начат: строй раскладывается заново); после — когда
+        // движок даст SetSoldiers, Remove и подкрепление на ходу
+        public string GmRosterWhy => CanDeploy ? null : "после первого хода — когда движок даст правку численности и подкрепления";
+        public void GmSoldiers(Mover m, double delta)
+        {
+            if (m == null || !GmCanEdit) return;
+            if (GmRosterWhy != null) { Say("Численность — " + GmRosterWhy); return; }
+            var u = m.P.U; double was = u.Soldiers, now = Math.Max(1, Math.Round(was + delta));
+            if (now == was) return;
+            SetSoldiers(m, now);
+            Say($"ГМ: «{u.Name}» — бойцов {was:0} → {now:0}");
+            GmDone($"«{u.Name}» бойцов {was:0} → {now:0}", () => SetSoldiers(m, was), new[] { $"«{u.Name}»: бойцов {was:0} → {now:0}" });
+        }
+        void SetSoldiers(Mover m, double n)
+        {
+            var u = m.P.U; u.Soldiers = n; u.Initial = Math.Max(u.Initial, n);
+            Game.StartMen[m] = n; AtStart[m] = (n, u.TotKilled, u.TotWounded);
+            Battle.Relocate(m, m.P.X, m.P.Y, m.P.Facing);   // строй и бойцы — заново по новой численности
+            Deployed(m);
+        }
+        public void GmRemove(Mover m)
+        {
+            if (m == null || !GmCanEdit) return;
+            if (GmRosterWhy != null) { Say("Убрать отряд — " + GmRosterWhy); return; }
+            int i = Battle.Movers.IndexOf(m); if (i < 0) return;
+            var keep = (tpl: Game.Tpl.TryGetValue(m, out var t0) ? t0 : null, st: Game.Style.TryGetValue(m, out var s0) ? s0 : null, col: Game.Color.TryGetValue(m, out var c0) ? c0 : null,
+                men: Game.StartMen.TryGetValue(m, out var n0) ? n0 : m.P.U.Soldiers, at: AtStart.TryGetValue(m, out var a0) ? a0 : (m.P.U.Soldiers, 0, 0));
+            Battle.Movers.RemoveAt(i);
+            Game.Tpl.Remove(m); Game.Style.Remove(m); Game.Color.Remove(m); Game.StartMen.Remove(m); AtStart.Remove(m);
+            Session.Pending.Remove(m); Selection.Remove(m); AfterSelect(); previews.Remove(m);
+            Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+            Say($"ГМ: «{m.P.U.Name}» убран с поля");
+            GmDone($"«{m.P.U.Name}» убран", () =>
+            {
+                Battle.Movers.Insert(Math.Min(i, Battle.Movers.Count), m);
+                if (keep.tpl != null) Game.Tpl[m] = keep.tpl; if (keep.st != null) Game.Style[m] = keep.st; if (keep.col != null) Game.Color[m] = keep.col;
+                Game.StartMen[m] = keep.men; AtStart[m] = keep.at;
+                Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+            }, new[] { $"«{m.P.U.Name}» убран с поля" });
+        }
+        // добавить: шаблон, сторона, численность, имя — потом щелчок по карте
+        public (string tpl, int side, double men, string name)? GmPlacing { get; private set; }
+        public void GmStartAdd(string tpl, int side, double men, string name)
+        {
+            if (!GmCanEdit) return;
+            if (GmRosterWhy != null) { Say("Добавить отряд — " + GmRosterWhy); return; }
+            GmPlacing = (tpl, side, Math.Max(1, Math.Round(men)), string.IsNullOrWhiteSpace(name) ? Templates.Get(tpl)?.Name ?? tpl : name.Trim());
+            Say("Щёлкни по карте, где поставить отряд (Esc — отмена)");
+        }
+        void GmPlace(Vector2 at)
+        {
+            var (tpl, side, men, name) = GmPlacing.Value; GmPlacing = null;
+            var t = Templates.Get(tpl); if (t == null) return;
+            int id = Battle.Movers.Count == 0 ? 1 : Battle.Movers.Max(x => x.P.U.Id) + 1;
+            var u = t.Make(id, name, men, side);
+            // лицом к середине чужих
+            var foes = Battle.Movers.Where(x => SideOf(x) != side).ToList();
+            double facing = foes.Count == 0 ? (side == 1 ? 0 : 180) : MoveSim.HeadingOf(foes.Average(x => x.P.X) - at.x, foes.Average(x => x.P.Y) - at.y);
+            var m = Battle.Add(u, at.x, at.y, facing);
+            Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });
+            Game.Tpl[m] = tpl; Game.StartMen[m] = u.Soldiers; AtStart[m] = (u.Soldiers, 0, 0);
+            Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+            Select(m);
+            Say($"ГМ: добавлен «{name}» ({men:0}) за {Session.Name(side)}");
+            GmDone($"добавлен «{name}»", () =>
+            {
+                Battle.Movers.Remove(m); Game.Tpl.Remove(m); Game.StartMen.Remove(m); AtStart.Remove(m); Session.Pending.Remove(m);
+                Selection.Remove(m); AfterSelect(); Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+            }, new[] { $"добавлен «{name}» ({men:0}) за {Session.Name(side)}" });
         }
         public bool CardsAll { get; set; }   // ГМ: карточки обеих сторон разом — приказы за любую сторону без переключения
 
@@ -651,7 +729,7 @@ namespace Journal.Play
             {
                 if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) Go();
                 if (kb.spaceKey.wasPressedThisFrame && Phase == PlayPhase.Showing) Paused = !Paused;
-                if (kb.escapeKey.wasPressedThisFrame) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
+                if (kb.escapeKey.wasPressedThisFrame && GmPlacing == null) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
                 if (ctrl && kb.aKey.wasPressedThisFrame) SelectMany(Battle.Movers.Where(m => SideOf(m) == ActiveSide));
                 if (Selection.Count > 0 && Phase == PlayPhase.Orders && !ctrl)
                 {
@@ -677,6 +755,12 @@ namespace Journal.Play
             if (newHover != Hover) { Hover = newHover; Changed?.Invoke(); }
             GateHover = !ui && newHover == null && Phase == PlayPhase.Orders ? GateAt(mp) : -1;
 
+            // ГМ ставит новый отряд: щелчок по карте — сюда (Г112)
+            if (GmPlacing != null)
+            {
+                if (kb != null && kb.escapeKey.wasPressedThisFrame) { GmPlacing = null; Say("Отменено"); }
+                else if (mouse.leftButton.wasPressedThisFrame && !ui) { GmPlace(mp); return; }
+            }
             // ЛКМ: по отряду — выбрать (Ctrl — добавить); по земле — рамка; отпустил без рамки — снять выбор
             if (mouse.leftButton.wasPressedThisFrame && !ui)
             {

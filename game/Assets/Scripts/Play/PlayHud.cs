@@ -633,7 +633,8 @@ namespace Journal.Play
         }
         // ── Г112: раздел ГМа под панелью отряда — «ГМ ▸» раскрывает: БД и усталость выбранных ±, модификаторы БД по таблице этапа 3
         // (отряду или всей его стороне), отмена правки, последние правки. Только в виде ГМа и между ходами ──
-        VisualElement gmBox, gmBody; Label gmHead, gmFatigue, gmMorale, gmLogLabel; DropdownField gmMod; bool gmOpen; string gmKey;
+        VisualElement gmBox, gmBody, gmMenRow; Label gmHead, gmFatigue, gmMorale, gmMen, gmLogLabel; DropdownField gmMod, gmTpl, gmSide; bool gmOpen; string gmKey;
+        Button gmRemove, gmAdd; IntegerField gmAddMen; TextField gmAddName;
         void GmBox()
         {
             if (gmBox == null)
@@ -642,30 +643,41 @@ namespace Journal.Play
                 gmHead = new Label("ГМ ▸"); gmHead.AddToClassList("gm-head"); gmHead.tooltip = "Инструменты ГМа: правка боевого духа и усталости, модификаторы БД по таблице, отмена";
                 gmHead.RegisterCallback<ClickEvent>(_ => { gmOpen = !gmOpen; gmKey = null; }); gmBox.Add(gmHead);
                 gmBody = new VisualElement(); gmBox.Add(gmBody);
-                VisualElement Line2(string label, out Label val, System.Action<double> step, string tipText)
+                VisualElement Line2(string label, out Label val, System.Action<double> step, string tipText, double mul = 1)
                 {
                     var r = new VisualElement(); r.AddToClassList("gm-row");
                     var k = new Label(label); k.AddToClassList("gm-key"); r.Add(k);
-                    foreach (var d in new[] { -10.0, -5.0 }) { var dd = d; var b = new Button(() => step(dd)) { text = $"{d:0}" }; b.AddToClassList("gm-btn"); r.Add(b); }
+                    foreach (var d in new[] { -10.0, -5.0 }) { var dd = d * mul; var b = new Button(() => step(dd)) { text = $"{dd:0}" }; b.AddToClassList("gm-btn"); r.Add(b); }
                     val = new Label(); val.AddToClassList("gm-val"); r.Add(val);
-                    foreach (var d in new[] { 5.0, 10.0 }) { var dd = d; var b = new Button(() => step(dd)) { text = $"+{d:0}" }; b.AddToClassList("gm-btn"); r.Add(b); }
+                    foreach (var d in new[] { 5.0, 10.0 }) { var dd = d * mul; var b = new Button(() => step(dd)) { text = $"+{dd:0}" }; b.AddToClassList("gm-btn"); r.Add(b); }
                     r.tooltip = tipText; gmBody.Add(r); return r;
                 }
                 Line2("БД", out gmMorale, d => pc.GmMorale(pc.Selection, d), "Боевой дух выбранных отрядов — правка ГМа, с журналом и отменой");
                 Line2("Усталость", out gmFatigue, d => pc.GmFatigue(pc.Selection, d), "Усталость выбранных, % — правка ГМа");
-                gmMod = new DropdownField("Модификатор БД", PlayController.MoraleMods.Select(x => $"{x.Name} {(x.Value >= 0 ? "+" : "")}{x.Value:0}").ToList(), 0); gmMod.AddToClassList("gm-mod"); gmBody.Add(gmMod);
+                gmMenRow = Line2("Бойцов", out gmMen, d => pc.GmSoldiers(pc.Selected, d), "Численность выбранного отряда ±50/±100 — до первого хода (строй раскладывается заново)", 10);
+                gmMod = new DropdownField("Модификатор", PlayController.MoraleMods.Select(x => $"{x.Name} {(x.Value >= 0 ? "+" : "")}{x.Value:0}").ToList(), 0); gmMod.AddToClassList("gm-mod"); gmBody.Add(gmMod);
                 var mr = new VisualElement(); mr.AddToClassList("gm-row");
                 var toUnit = new Button(() => pc.GmMod(pc.Selection, gmMod.index)) { text = "Выбранным" }; toUnit.AddToClassList("army-btn"); toUnit.AddToClassList("small"); mr.Add(toUnit);
                 var toSide = new Button(() => { if (pc.Selected != null) pc.GmMod(pc.SideUnits(PlayController.SideOf(pc.Selected)), gmMod.index); }) { text = "Всей стороне" }; toSide.AddToClassList("army-btn"); toSide.AddToClassList("small"); mr.Add(toSide);
                 var undo = new Button(() => pc.GmUndo()) { text = "Отменить" }; undo.AddToClassList("army-btn"); undo.AddToClassList("small"); mr.Add(undo);
                 gmBody.Add(mr);
+                // состав (до первого хода): убрать выбранный, добавить новый — шаблон, сторона, бойцов, имя, потом щелчок по карте
+                var rr = new VisualElement(); rr.AddToClassList("gm-row");
+                gmRemove = new Button(() => pc.GmRemove(pc.Selected)) { text = "Убрать с поля" }; gmRemove.AddToClassList("army-btn"); gmRemove.AddToClassList("small"); rr.Add(gmRemove);
+                gmBody.Add(rr);
+                gmTpl = new DropdownField("Новый отряд", Templates.Base.Select(x => x.Name).ToList(), 1); gmTpl.AddToClassList("gm-mod"); gmBody.Add(gmTpl);
+                gmSide = new DropdownField("Сторона", new List<string> { "1", "2" }, 0); gmSide.AddToClassList("gm-mod"); gmBody.Add(gmSide);
+                gmAddMen = new IntegerField("Бойцов") { value = 500 }; gmAddMen.AddToClassList("gm-mod"); gmBody.Add(gmAddMen);
+                gmAddName = new TextField("Имя") { value = "" }; gmAddName.AddToClassList("gm-mod"); gmBody.Add(gmAddName);
+                gmAdd = new Button(() => pc.GmStartAdd(Templates.Base[System.Math.Max(0, gmTpl.index)].Id, System.Math.Max(0, gmSide.index) + 1, gmAddMen.value, gmAddName.value)) { text = "Поставить щелчком по карте" };
+                gmAdd.AddToClassList("army-btn"); gmAdd.AddToClassList("small"); gmBody.Add(gmAdd);
                 gmLogLabel = new Label(); gmLogLabel.AddToClassList("gm-log"); gmBody.Add(gmLogLabel);
             }
             bool can = pc.ViewSide == 0;
             gmBox.EnableInClassList("hidden", !can);
             if (!can) return;
             var m = pc.Selected; bool edit = pc.GmCanEdit;
-            string key = $"{gmOpen}|{edit}|{m?.P.U.Morale}|{m?.P.U.Fatigue}|{pc.GmLog.Count}|{pc.GmUndoCount}|{pc.Selection.Count}";
+            string key = $"{gmOpen}|{edit}|{m?.P.U.Morale}|{m?.P.U.Fatigue}|{m?.P.U.Soldiers}|{pc.GmLog.Count}|{pc.GmUndoCount}|{pc.Selection.Count}|{pc.GmRosterWhy}|{pc.Session.SideNames.Count}";
             if (key == gmKey) return;
             gmKey = key;
             gmHead.text = gmOpen ? "ГМ ▾" : "ГМ ▸";
@@ -673,7 +685,11 @@ namespace Journal.Play
             gmBody.SetEnabled(edit);
             if (m == null) return;
             string more = pc.Selection.Count > 1 ? $" (и ещё {pc.Selection.Count - 1})" : "";
-            gmMorale.text = $"{m.P.U.Morale:0}{more}"; gmFatigue.text = $"{m.P.U.Fatigue:0}%";
+            gmMorale.text = $"{m.P.U.Morale:0}{more}"; gmFatigue.text = $"{m.P.U.Fatigue:0}%"; gmMen.text = $"{m.P.U.Soldiers:0}";
+            bool roster = pc.GmRosterWhy == null;
+            gmMenRow.SetEnabled(roster); gmRemove.SetEnabled(roster); gmAdd.SetEnabled(roster);
+            gmMenRow.tooltip = roster ? "Численность выбранного отряда ±50/±100 — строй раскладывается заново" : "Численность — " + pc.GmRosterWhy;
+            gmSide.choices = pc.Session.Sides.Select(sd => pc.Session.Name(sd)).ToList();
             gmLogLabel.text = (edit ? "" : "Правки — между ходами.\n") + string.Join("\n", pc.GmLog.Skip(System.Math.Max(0, pc.GmLog.Count - 4)));
         }
 

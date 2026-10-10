@@ -476,8 +476,21 @@
 }
 
 .gm-mod {
-    margin-top: 6px;
+    margin-top: 4px;
+    margin-left: 0;
+    margin-right: 0;
     font-size: 12px;
+}
+
+.gm-mod > .unity-base-field__label {
+    min-width: 86px;
+    width: 86px;
+    font-size: 12px;
+}
+
+.gm-mod > .unity-base-field__input {
+    flex-grow: 1;
+    flex-shrink: 1;
 }
 
 .gm-log {
@@ -1828,3 +1841,8 @@
 .me-panel .unity-toggle__checkmark { background-color: #15110b; border-color: var(--edge); }
 .me-num .unity-base-field__label { min-width: 70px; }
 .me-num-short .unity-base-field__label { min-width: 12px; }
+
+/* поля раздела ГМа — тёмные, как в редакторе карт */
+.gm-box .unity-base-text-field__input, .gm-box .unity-base-popup-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }
+.gm-box .unity-base-text-field__input:focus, .gm-box .unity-base-popup-field__input:focus { border-color: var(--gold); }
+.gm-box .unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--gold); }
