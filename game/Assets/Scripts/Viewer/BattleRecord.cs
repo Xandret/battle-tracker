@@ -180,6 +180,83 @@ namespace Journal.Viewer
         public Func<int, Mover, bool> Sees;
         int[] sides;   // стороны на поле (1…7) — для видимости
 
+        // ── Г112: инструменты ГМа и откат хода ──
+        // последний кадр — заново (правка ГМа между ходами: численность, убран или добавлен отряд): время записи не сдвигается
+        public void ResnapLast()
+        {
+            var rec = Rec; int n = rec.Frames.Count;
+            if (n > 0)
+            {
+                rec.Frames.RemoveAt(n - 1); rec.Heads.RemoveAt(n - 1); rec.Soldiers.RemoveAt(n - 1); rec.Men.RemoveAt(n - 1);
+                if (rec.Fights.Count == n) rec.Fights.RemoveAt(n - 1);
+                if (rec.Seen.Count == n) rec.Seen.RemoveAt(n - 1);
+            }
+            Snap();
+        }
+        // отряды боя — новые объекты (Battle.Restore: откат хода, отмена правки ГМа): перепривязать по номеру отряда; кого в бою
+        // больше нет (отменили «добавить») — прежний объект помечается ушедшим
+        public void Rebind(IList<Mover> movers)
+        {
+            var byId = movers.ToDictionary(m => m.P.U.Id);
+            var oldGait = gait.ToList(); gait.Clear();
+            for (int i = 0; i < ms.Count; i++)
+            {
+                var old = ms[i];
+                if (byId.TryGetValue(Rec.Units[i].Id, out var nm)) ms[i] = nm; else old.Gone = true;
+                foreach (var kv in oldGait) if (kv.Key == old) gait[ms[i]] = kv.Value;
+            }
+        }
+        // подкрепление посреди битвы (Г112 п.5): отряд — в запись; в прежних кадрах его нет (заглушка на месте появления, состояние «ушёл»)
+        public void AddUnit(Mover m, string tpl, string color, string style)
+        {
+            var R = Rules.Base; var rec = Rec; var u = m.P.U;
+            int i = ms.Count; ms.Add(m); idx[u.Id] = i;
+            var f = R.Map.Formation.TryGetValue(u.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+            var info = new UnitInfo { Id = u.Id, Faction = u.FactionId ?? 1, Commander = u.CommanderId ?? 0, Name = u.Name, Tpl = tpl, Type = u.Type, Men = u.Soldiers, Color = color, Style = style,
+                PerMan = f.PerMan, RankDepth = f.RankDepth, Front = m.P.Fp.Front, Depth = m.P.Fp.Depth };
+            foreach (var fig in m.P.Figs) info.Figs.Add(new[] { fig.Width, fig.Depth, fig.Men, fig.Rank });
+            rec.Units.Add(info);
+            for (int k = 0; k < rec.Frames.Count; k++)
+            {
+                var a = rec.Frames[k]; Array.Resize(ref a, a.Length + 1); a[a.Length - 1] = new[] { (float)m.P.X, (float)m.P.Y, (float)m.P.Facing, 0f }; rec.Frames[k] = a;
+                var mm = rec.Men[k]; Array.Resize(ref mm, mm.Length + 1); mm[mm.Length - 1] = new MenFrame { Xyh = new[] { float.NaN, float.NaN, float.NaN }, Ph = new float[1], Fig = new short[1], Row = new byte[1] }; rec.Men[k] = mm;
+                var so = rec.Soldiers[k]; Array.Resize(ref so, so.Length + 1); rec.Soldiers[k] = so;
+                if (k < rec.Seen.Count) { var se = rec.Seen[k]; Array.Resize(ref se, se.Length + 1); se[se.Length - 1] = 0xFE; rec.Seen[k] = se; }
+            }
+            var st = rec.States.ToList(); st.Add(new List<int> { 0, 2, Math.Max(0, rec.Frames.Count - 1), State(m) }); rec.States = st.ToArray();
+            sides = ms.Select(x => x.P.U.FactionId ?? 1).Where(x => x > 0 && x < 8).Distinct().ToArray();
+        }
+        // откат хода: запись — назад к кадру начала хода; счётчики павших и стрел — по восстановленному бою (в записи павшие и стрелы
+        // идут один к одному с Battle.Deaths и ArrowLog); стрелы, что на тот миг летели, — снова в полёте
+        public void Rewind(int frame)
+        {
+            var rec = Rec; int keep = frame + 1; float tF = frame * (float)rec.Dt;
+            void Cut<T>(List<T> L) { if (L.Count > keep) L.RemoveRange(keep, L.Count - keep); }
+            Cut(rec.Frames); Cut(rec.Heads); Cut(rec.Soldiers); Cut(rec.Men); Cut(rec.Fights); Cut(rec.Seen);
+            rec.Done = false;
+            int D = battle.Deaths.Count; if (rec.Dead.Count > D) rec.Dead.RemoveRange(D, rec.Dead.Count - D); seenDead = Math.Min(D, rec.Dead.Count);
+            var log = battle.ArrowLog; int L = log?.Count ?? 0;
+            if (rec.Arrows.Count > L) rec.Arrows.RemoveRange(L, rec.Arrows.Count - L);
+            seenArrow = Math.Min(L, rec.Arrows.Count); pending.Clear();
+            for (int i = 0; i < seenArrow; i++)
+                if (!(log[i].T1 > log[i].T0))
+                {
+                    var r = rec.Arrows[i]; r.T1 = float.PositiveInfinity; r.X1 = r.Y1 = r.Z1 = float.NaN; r.End = 255; rec.Arrows[i] = r;
+                    pending.Add((i, i));
+                }
+            foreach (var S in rec.States) while (S.Count > 2 && S[S.Count - 2] > frame) S.RemoveRange(S.Count - 2, 2);
+            for (int g = 0; g < rec.Gates.Count; g++)
+            {
+                var G = rec.Gates[g];
+                while (G.St.Count >= 2 && G.St[G.St.Count - 2] > frame) G.St.RemoveRange(G.St.Count - 2, 2);
+                while (G.Hp.Count >= 3 && G.Hp[G.Hp.Count - 3] > frame) G.Hp.RemoveRange(G.Hp.Count - 3, 3);
+                if (gateBroken != null) gateBroken[g] = G.St.Count >= 2 && (G.St[G.St.Count - 1] & 4) != 0;
+            }
+            if (gateOpen != null) GateFlags();
+            while (rec.Duels.Count > battle.Duels.Count) rec.Duels.RemoveAt(rec.Duels.Count - 1);
+            foreach (var d in rec.Duels) d.Strikes.RemoveAll(s => s.t > tF + 1e-4f);
+        }
+
         // поединки (Г108): из движка в запись — новые добавляются, идущие обновляются, удары дописываются
         void SnapDuels()
         {

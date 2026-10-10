@@ -97,7 +97,7 @@ namespace Journal.Play
             Game = lastMake();
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
-            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false; GmPlacing = null;
+            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false; GmPlacing = null; turnSnaps.Clear();
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
@@ -359,15 +359,10 @@ namespace Journal.Play
         // ── Г112: инструменты ГМа (Алекс 10.10.2026) — правки между ходами: БД, усталость, модификаторы БД по таблице этапа 3
         // (SPEC, Q5; числа — пока здесь, уйдут в Rules), всё с журналом и отменой. Численность, убрать и добавить отряд —
         // с API движка (SetSoldiers, Remove, Add на ходу) ──
-        public static readonly (string Key, string Name, double Value)[] MoraleMods =
-        {
-            ("speech", "Речь командира", 20), ("tradition", "Традиции", 20), ("motivation", "Мотивация", 50), ("allies", "Союзники рядом", 5),
-            ("legitimacy", "Легитимность", 10), ("popular", "Популярность полководца", 30), ("divided", "Разделённость", -20),
-            ("famousFoe", "Именитый враг", -20), ("outnumbered", "Врагов больше", -40), ("foeRep", "Репутация врага", -40),
-            ("hunger", "Голод", -70), ("supplies", "Нехватка припасов", -30), ("cmdrDied", "Гибель полководца", -30),
-        };
+        // таблица модификаторов БД — движка (Rules.MoraleMods, черновик до ГМа)
+        public (string key, string name, double value)[] MoraleMods => Battle?.R.MoraleMods ?? Rules.Base.MoraleMods;
         public readonly List<string> GmLog = new List<string>();
-        // отмена правок ГМа: что вернуть (по шагу назад)
+        // отмена правок ГМа, по шагу назад: БД и усталость — поля отрядов (по номеру отряда), состав — снимок боя (Battle.Snapshot)
         readonly Stack<(string what, Action undo)> gmUndo = new Stack<(string, Action)>();
         public bool GmCanEdit => Phase == PlayPhase.Orders && Battle != null;
         public int GmUndoCount => gmUndo.Count;
@@ -377,30 +372,45 @@ namespace Journal.Play
             foreach (var l in lines) GmLog.Add($"ход {Session.Turn}: {l}");
             RefreshPreviews(); Changed?.Invoke();
         }
-        // БД — по правилам стола (MoraleRules.ApplyMoraleChange: ноль — слом и проверка на побег, выше нуля — снова в руках);
-        // отмена возвращает и слом, и отложенный штраф дисциплины
-        void GmUnits(IEnumerable<Mover> ms, Action<Unit, List<string>> change, Func<Unit, string> note)
+        Unit UnitById(int id) => Battle.Movers.FirstOrDefault(x => x.P.U.Id == id)?.P.U;
+        // БД — по правилам стола (MoraleRules.ApplyMoraleChange: ноль — слом и проверка на побег, выше нуля — снова в руках)
+        void GmUnits(IEnumerable<Mover> ms, Action<List<Mover>, List<string>> change, string note)
         {
             if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
-            var saved = new List<(Unit u, Unit was)>(); var lines = new List<string>();
-            foreach (var m in ms.Where(Present).ToList())
+            var list = ms.Where(Present).ToList(); if (list.Count == 0) return;
+            var saved = list.Select(m => (id: m.P.U.Id, was: m.P.U.Clone())).ToList();
+            var extra = new List<string>(); change(list, extra);
+            var lines = new List<string>();
+            foreach (var (id, was) in saved)
             {
-                var u = m.P.U; var was = u.Clone(); saved.Add((u, was));
-                var extra = new List<string>(); change(u, extra);
-                lines.Add($"«{u.Name}» {note(u)}: БД {was.Morale:0} → {u.Morale:0}" + (Math.Abs(was.Fatigue - u.Fatigue) > 0.5 ? $", усталость {was.Fatigue:0} → {u.Fatigue:0}" : ""));
-                lines.AddRange(extra);
+                var u = UnitById(id);
+                lines.Add($"«{u.Name}» {note}: БД {was.Morale:0} → {u.Morale:0}" + (Math.Abs(was.Fatigue - u.Fatigue) > 0.5 ? $", усталость {was.Fatigue:0} → {u.Fatigue:0}" : ""));
             }
-            if (saved.Count == 0) return;
-            Say(saved.Count == 1 ? "ГМ: " + lines[0] : $"ГМ: {saved.Count} отр. — {note(saved[0].u)}");
-            GmDone(note(saved[0].u), () => { foreach (var (u, was) in saved) { u.Morale = was.Morale; u.Fatigue = was.Fatigue; u.Broken = was.Broken; u.BreakGrace = was.BreakGrace; u.BreakPenalty = was.BreakPenalty; } }, lines);
+            lines.AddRange(extra);
+            Say(saved.Count == 1 ? "ГМ: " + lines[0] : $"ГМ: {saved.Count} отр. — {note}");
+            GmDone(note, () =>
+            {
+                foreach (var (id, was) in saved)
+                {
+                    var u = UnitById(id); if (u == null) continue;
+                    u.Morale = was.Morale; u.Fatigue = was.Fatigue; u.Broken = was.Broken; u.BreakGrace = was.BreakGrace; u.BreakPenalty = was.BreakPenalty;
+                }
+            }, lines);
         }
-        void SetMorale(Unit u, double v, List<string> lines) => MoraleRules.ApplyMoraleChange(u, Math.Round(v), lines, Battle.R).ApplyTo(u);
-        public void GmMorale(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (u, l) => SetMorale(u, u.Morale + delta, l), _ => $"БД {(delta >= 0 ? "+" : "")}{delta:0}");
-        public void GmFatigue(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (u, l) => u.Fatigue = Math.Max(0, Math.Min(100, Math.Round(u.Fatigue + delta))), _ => $"усталость {(delta >= 0 ? "+" : "")}{delta:0}");
+        void Broken(Unit u, List<string> lines) => MoraleRules.ApplyMoraleChange(u, u.Morale, lines, Battle.R).ApplyTo(u);
+        public void GmMorale(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (L, x) =>
+        {
+            foreach (var m in L) MoraleRules.ApplyMoraleChange(m.P.U, Math.Round(m.P.U.Morale + delta), x, Battle.R).ApplyTo(m.P.U);
+        }, $"БД {(delta >= 0 ? "+" : "")}{delta:0}");
+        public void GmFatigue(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (L, x) =>
+        {
+            foreach (var m in L) m.P.U.Fatigue = Math.Max(0, Math.Min(100, Math.Round(m.P.U.Fatigue + delta)));
+        }, $"усталость {(delta >= 0 ? "+" : "")}{delta:0}");
+        // модификатор БД по таблице — движком (Battle.ApplyMorale: строка в журнал хода), слом — по правилам стола
         public void GmMod(IEnumerable<Mover> ms, int mod)
         {
-            var (_, name, v) = MoraleMods[mod];
-            GmUnits(ms, (u, l) => SetMorale(u, u.Morale + v, l), _ => $"{name} {(v >= 0 ? "+" : "")}{v:0}");
+            var (key, name, v) = MoraleMods[mod];
+            GmUnits(ms, (L, x) => { Battle.ApplyMorale(L, key); foreach (var m in L) Broken(m.P.U, x); }, $"{name} {(v >= 0 ? "+" : "")}{v:0}");
         }
         public IEnumerable<Mover> SideUnits(int side) => Battle.Movers.Where(m => SideOf(m) == side);
         public void GmUndo()
@@ -411,52 +421,75 @@ namespace Journal.Play
             Say($"Отменено: {what}"); RefreshPreviews(); Changed?.Invoke();
         }
 
-        // численность, убрать и добавить отряд — до первого хода (бой не начат: строй раскладывается заново); после — когда
-        // движок даст SetSoldiers, Remove и подкрепление на ходу
-        public string GmRosterWhy => CanDeploy ? null : "после первого хода — когда движок даст правку численности и подкрепления";
+        // ── состав (Г112 п.3, п.5): численность, убрать, добавить — движком (SetSoldiers, Remove, Add), в любой ход между ходами;
+        // отмена — снимком боя ──
+        public string GmRosterWhy => GmCanEdit ? null : "между ходами";
+        // всё, что игра держит об отрядах по ссылке на Mover (облик, численность на начало, итог), — по номеру отряда
+        sealed class GameRefs { public Dictionary<int, (string tpl, string style, string color, double men, (double, double, double) at)> U = new Dictionary<int, (string, string, string, double, (double, double, double))>(); public List<int> Sel = new List<int>(); }
+        GameRefs SaveRefs()
+        {
+            var g = new GameRefs();
+            foreach (var m in Battle.Movers)
+                g.U[m.P.U.Id] = (Game.Tpl.TryGetValue(m, out var t) ? t : null, Game.Style.TryGetValue(m, out var st) ? st : null, Game.Color.TryGetValue(m, out var c) ? c : null,
+                                 Game.StartMen.TryGetValue(m, out var n) ? n : m.P.U.Soldiers, AtStart.TryGetValue(m, out var a) ? a : (m.P.U.Soldiers, 0, 0));
+            g.Sel.AddRange(Selection.Select(m => m.P.U.Id));
+            return g;
+        }
+        // после Battle.Restore отряды — новые объекты: словари игры, выбор и запись — к ним
+        void LoadRefs(GameRefs g)
+        {
+            Game.Tpl.Clear(); Game.Style.Clear(); Game.Color.Clear(); Game.StartMen.Clear(); AtStart.Clear();
+            foreach (var m in Battle.Movers)
+            {
+                if (!g.U.TryGetValue(m.P.U.Id, out var v)) continue;
+                if (v.tpl != null) Game.Tpl[m] = v.tpl; if (v.style != null) Game.Style[m] = v.style; if (v.color != null) Game.Color[m] = v.color;
+                Game.StartMen[m] = v.men; AtStart[m] = v.at;
+            }
+            Selection.Clear(); foreach (var id in g.Sel) { var m = Battle.Movers.FirstOrDefault(x => x.P.U.Id == id); if (m != null && Present(m)) Selection.Add(m); }
+            Hover = null; UiHover = null; previews.Clear(); previewQueue.Clear(); Session.Pending.Clear();
+            recorder.Rebind(Battle.Movers);
+            AfterSelect();
+        }
+        // правка состава: снимок до неё — для отмены
+        void GmRoster(string what, Func<bool> act, IEnumerable<string> lines)
+        {
+            if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
+            var snap = Battle.Snapshot(); var refs = SaveRefs(); bool pre = CanDeploy;
+            if (!act()) return;
+            AfterRoster(pre);
+            GmDone(what, () => { Battle.Restore(snap); LoadRefs(refs); AfterRoster(pre); }, lines);
+            Say("ГМ: " + what);
+        }
+        // запись — к составу: до первого хода — заново; потом — последний кадр заново (время записи не двигается)
+        void AfterRoster(bool pre)
+        {
+            if (pre) { Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false); }
+            else recorder.ResnapLast();
+            RefreshPreviews(); Changed?.Invoke();
+        }
         public void GmSoldiers(Mover m, double delta)
         {
-            if (m == null || !GmCanEdit) return;
-            if (GmRosterWhy != null) { Say("Численность — " + GmRosterWhy); return; }
+            if (m == null) return;
             var u = m.P.U; double was = u.Soldiers, now = Math.Max(1, Math.Round(was + delta));
             if (now == was) return;
-            SetSoldiers(m, now);
-            Say($"ГМ: «{u.Name}» — бойцов {was:0} → {now:0}");
-            GmDone($"«{u.Name}» бойцов {was:0} → {now:0}", () => SetSoldiers(m, was), new[] { $"«{u.Name}»: бойцов {was:0} → {now:0}" });
-        }
-        void SetSoldiers(Mover m, double n)
-        {
-            var u = m.P.U; u.Soldiers = n; u.Initial = Math.Max(u.Initial, n);
-            Game.StartMen[m] = n; AtStart[m] = (n, u.TotKilled, u.TotWounded);
-            Battle.Relocate(m, m.P.X, m.P.Y, m.P.Facing);   // строй и бойцы — заново по новой численности
-            Deployed(m);
+            GmRoster($"«{u.Name}» бойцов {was:0} → {now:0}", () =>
+            {
+                if (!Battle.SetSoldiers(m, now)) return false;
+                Game.StartMen[m] = Math.Max(Game.StartMen.TryGetValue(m, out var s0) ? s0 : 0, now);
+                return true;
+            }, new[] { $"«{u.Name}»: бойцов {was:0} → {now:0}" });
         }
         public void GmRemove(Mover m)
         {
-            if (m == null || !GmCanEdit) return;
-            if (GmRosterWhy != null) { Say("Убрать отряд — " + GmRosterWhy); return; }
-            int i = Battle.Movers.IndexOf(m); if (i < 0) return;
-            var keep = (tpl: Game.Tpl.TryGetValue(m, out var t0) ? t0 : null, st: Game.Style.TryGetValue(m, out var s0) ? s0 : null, col: Game.Color.TryGetValue(m, out var c0) ? c0 : null,
-                men: Game.StartMen.TryGetValue(m, out var n0) ? n0 : m.P.U.Soldiers, at: AtStart.TryGetValue(m, out var a0) ? a0 : (m.P.U.Soldiers, 0, 0));
-            Battle.Movers.RemoveAt(i);
-            Game.Tpl.Remove(m); Game.Style.Remove(m); Game.Color.Remove(m); Game.StartMen.Remove(m); AtStart.Remove(m);
-            Session.Pending.Remove(m); Selection.Remove(m); AfterSelect(); previews.Remove(m);
-            Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
-            Say($"ГМ: «{m.P.U.Name}» убран с поля");
-            GmDone($"«{m.P.U.Name}» убран", () =>
-            {
-                Battle.Movers.Insert(Math.Min(i, Battle.Movers.Count), m);
-                if (keep.tpl != null) Game.Tpl[m] = keep.tpl; if (keep.st != null) Game.Style[m] = keep.st; if (keep.col != null) Game.Color[m] = keep.col;
-                Game.StartMen[m] = keep.men; AtStart[m] = keep.at;
-                Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
-            }, new[] { $"«{m.P.U.Name}» убран с поля" });
+            if (m == null) return;
+            string name = m.P.U.Name;
+            GmRoster($"«{name}» убран с поля", () => { if (!Battle.Remove(m)) return false; Selection.Remove(m); AfterSelect(); return true; }, new[] { $"«{name}» убран с поля" });
         }
         // добавить: шаблон, сторона, численность, имя — потом щелчок по карте
         public (string tpl, int side, double men, string name)? GmPlacing { get; private set; }
         public void GmStartAdd(string tpl, int side, double men, string name)
         {
-            if (!GmCanEdit) return;
-            if (GmRosterWhy != null) { Say("Добавить отряд — " + GmRosterWhy); return; }
+            if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
             GmPlacing = (tpl, side, Math.Max(1, Math.Round(men)), string.IsNullOrWhiteSpace(name) ? Templates.Get(tpl)?.Name ?? tpl : name.Trim());
             Say("Щёлкни по карте, где поставить отряд (Esc — отмена)");
         }
@@ -464,22 +497,50 @@ namespace Journal.Play
         {
             var (tpl, side, men, name) = GmPlacing.Value; GmPlacing = null;
             var t = Templates.Get(tpl); if (t == null) return;
-            int id = Battle.Movers.Count == 0 ? 1 : Battle.Movers.Max(x => x.P.U.Id) + 1;
-            var u = t.Make(id, name, men, side);
-            // лицом к середине чужих
-            var foes = Battle.Movers.Where(x => SideOf(x) != side).ToList();
-            double facing = foes.Count == 0 ? (side == 1 ? 0 : 180) : MoveSim.HeadingOf(foes.Average(x => x.P.X) - at.x, foes.Average(x => x.P.Y) - at.y);
-            var m = Battle.Add(u, at.x, at.y, facing);
-            Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });
-            Game.Tpl[m] = tpl; Game.StartMen[m] = u.Soldiers; AtStart[m] = (u.Soldiers, 0, 0);
-            Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
-            Select(m);
-            Say($"ГМ: добавлен «{name}» ({men:0}) за {Session.Name(side)}");
-            GmDone($"добавлен «{name}»", () =>
+            bool pre = CanDeploy;
+            GmRoster($"добавлен «{name}» ({men:0}) за {Session.Name(side)}", () =>
             {
-                Battle.Movers.Remove(m); Game.Tpl.Remove(m); Game.StartMen.Remove(m); AtStart.Remove(m); Session.Pending.Remove(m);
-                Selection.Remove(m); AfterSelect(); Rerecord(); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
+                int id = Battle.Movers.Count == 0 ? 1 : Battle.Movers.Max(x => x.P.U.Id) + 1;
+                var u = t.Make(id, name, men, side);
+                var foes = Battle.Movers.Where(x => SideOf(x) != side && Present(x)).ToList();   // лицом к середине чужих
+                double facing = foes.Count == 0 ? (side == 1 ? 0 : 180) : MoveSim.HeadingOf(foes.Average(x => x.P.X) - at.x, foes.Average(x => x.P.Y) - at.y);
+                var m = Battle.Add(u, at.x, at.y, facing);
+                Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });
+                Game.Tpl[m] = tpl; Game.StartMen[m] = u.Soldiers; AtStart[m] = (u.Soldiers, 0, 0);
+                if (!pre) { recorder.AddUnit(m, tpl, null, null); if (viewer != null) viewer.SetLive(recorder.Rec, fit: false); }   // подкрепление: в запись
+                Selection.Clear(); Selection.Add(m); AfterSelect();
+                return true;
             }, new[] { $"добавлен «{name}» ({men:0}) за {Session.Name(side)}" });
+        }
+
+        // ── Г112 п.2: откат хода — снимок боя перед каждым «Ход!» (последние 5); откат возвращает бой, запись, журнал, сводки
+        // и время показа к началу прошлого хода; приказы того хода снимаются — отдать заново ──
+        sealed class TurnSnap { public object Snap; public GameRefs Refs; public int Turn, Frame, Summaries, Logs; public double Show; }
+        readonly List<TurnSnap> turnSnaps = new List<TurnSnap>();
+        public int TurnSnapCount => turnSnaps.Count;
+        void SaveTurn()
+        {
+            turnSnaps.Add(new TurnSnap { Snap = Battle.Snapshot(), Refs = SaveRefs(), Turn = Session.Turn, Frame = recorder.Rec.Frames.Count - 1, Summaries = Summaries.Count, Logs = Session.Logs.Count, Show = ShowTime });
+            if (turnSnaps.Count > 5) turnSnaps.RemoveAt(0);
+        }
+        public void RollbackTurn()
+        {
+            if ((Phase != PlayPhase.Orders && Phase != PlayPhase.Over) || Battle == null || turnSnaps.Count == 0) return;
+            var ts = turnSnaps[turnSnaps.Count - 1]; turnSnaps.RemoveAt(turnSnaps.Count - 1);
+            CancelDrag();
+            Battle.Restore(ts.Snap);
+            Session.Turn = ts.Turn; Session.Phase = BattleCore.Phase.Orders; Session.Outcome = null; Session.Winner = -1;
+            while (Session.Logs.Count > ts.Logs) Session.Logs.RemoveAt(Session.Logs.Count - 1);
+            while (Summaries.Count > ts.Summaries) Summaries.RemoveAt(Summaries.Count - 1);
+            current = null; EndedByPlayer = false;
+            recorder.Rewind(ts.Frame);
+            LoadRefs(ts.Refs);
+            ShowTime = TurnStartTime = ts.Show; Phase = PlayPhase.Orders;
+            gmUndo.Clear();   // правки до отката — к другому бою
+            GmLog.Add($"откат к началу хода {ts.Turn}");
+            if (viewer != null) viewer.T = ShowTime;
+            RefreshPreviews();
+            Say($"Ход {ts.Turn} откатан — отдайте приказы заново"); Changed?.Invoke();
         }
         public bool CardsAll { get; set; }   // ГМ: карточки обеих сторон разом — приказы за любую сторону без переключения
 
@@ -491,6 +552,7 @@ namespace Journal.Play
         {
             if (Phase != PlayPhase.Orders) return;
             CancelDrag();
+            SaveTurn();   // снимок для отката хода (Г112 п.2)
             current = TurnSummary.Begin(Battle, Session.Turn);
             Session.Go();
             Phase = PlayPhase.Showing; Paused = false;

@@ -388,6 +388,8 @@ namespace Journal.Viewer
         // стрелы отряда — по времени вылета (в живой записи дописываются почти по порядку)
         void IndexArrows()
         {
+            // запись укоротили (откат хода, Г112) — указатель стрел заново
+            if (arrowsSeen > rec.Arrows.Count) { foreach (var l0 in arrowsOf) l0.Clear(); arrowsSeen = 0; }
             for (; arrowsSeen < rec.Arrows.Count; arrowsSeen++)
             {
                 var ar = rec.Arrows[arrowsSeen]; if (ar.Unit < 0 || ar.Unit >= arrowsOf.Length) continue;
