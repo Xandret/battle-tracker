@@ -343,13 +343,44 @@ foreach (var (name, run) in MenTests.All()) Test(name, run);
 foreach (var (name, run) in MenBodyTests.All()) Test(name, run);   // Б1: бойцы — тела (Г82, Г92)
 // ── приказы и ход (И2, Г79–Г81), см. OrdersTests.cs ──
 foreach (var (name, run) in OrdersTests.All()) Test(name, run);
-Test("тела не прыгают: ни тело, ни фигурка в кадре полигона не сдвигается за шаг дальше 45 м/с (мост, давка, бой с потерями)", () =>
+// Г118: мерило гладкого движения вместо порога 45 м/с — по всем сценам полигона, по каждому бойцу, кадр 0,2 с: скорость не выше своей
+// наибольшей +10 %, конь не едет назад и вбок быстрее шага, курс не быстрее 90/180 °/с, разгон и тормоз не резвее нормы. Пока —
+// планка-трещотка (Smooth.MaxShare, MaxGrossShare — черновик): доля нарушений среди замеров и доля грубых (больше GrossK пределов)
+Test("мерило гладкости (Г118): по всем сценам полигона доля нарушений и доля грубых (> 4 пределов) не выше планки Rules.Smooth; грубых «скорость» и «конь задом/вбок» быстрее 2 норм — нет", () =>
 {
-    var j = Polygon.Jumps("Река: брод и мост", "Бой: фланг и потери");
-    if (j.Count > 0) throw new Exception($"прыжков {j.Count}: " + string.Join(" | ", j.Take(3)));
+    var S = Rules.Base.Smooth;
+    var rep = Polygon.Smooth();
+    double share = rep.Samples > 0 ? rep.Count / (double)rep.Samples : 0;
+    int gross = rep.Recs.Count(r => r.val > r.lim * S.GrossK);
+    double grossShare = rep.Samples > 0 ? gross / (double)rep.Samples : 0;
+    var tele = rep.Recs.Where(r => (r.kind == "скорость" || r.kind == "конь задом" || r.kind == "конь вбок") && r.val > 2 * MoveSim.TopSpeed(Templates.Get("knights").Make(0, "", 1, 1), Rules.Base)).ToList();
+    string by = string.Join(", ", rep.ByKind.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}"));
+    if (share > S.MaxShare || grossShare > S.MaxGrossShare || tele.Count > 0)
+        throw new Exception($"нарушений {rep.Count} из {rep.Samples} ({share * 100:0.00} % при планке {S.MaxShare * 100:0.0} %), грубых {gross} ({grossShare * 100:0.000} % при планке {S.MaxGrossShare * 100:0.00} %), телепортов {tele.Count}: {by}{(tele.Count > 0 ? " | " + tele[0].line : "")}");
 });
 
 if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
+// Г118: мерило гладкости по сценам полигона (dotnet run --project Tests -- smooth [сцена…] [--all]): счёт по видам и первые примеры
+if (args.Length > 0 && args[0] == "smooth")
+{
+    bool all = args.Contains("--all");
+    int ti = Array.IndexOf(args, "--trace");
+    if (ti >= 0 && ti + 2 < args.Length) { Polygon.TraceUnit = args[ti + 1]; Polygon.TraceMan = int.Parse(args[ti + 2]); }
+    Polygon.TraceCol = args.Contains("--col");
+    var rep = Polygon.Smooth(args.Skip(1).Where((a, i) => a != "--all" && a != "--col" && !(ti >= 0 && i + 1 >= ti && i + 1 <= ti + 2)).ToArray());
+    Console.WriteLine($"замеров {rep.Samples}, нарушений {rep.Count}");
+    foreach (var kv in rep.ByKind.OrderByDescending(k => k.Value)) Console.WriteLine($"  {kv.Key}: {kv.Value} (худшее {rep.Worst[kv.Key]:0.0})");
+    foreach (var kv in rep.ByScene.OrderByDescending(k => k.Value)) Console.WriteLine($"  сцена «{kv.Key}»: {kv.Value}");
+    foreach (var kind in rep.ByKind.Keys) foreach (var l in rep.Lines.Where(l => l.Contains($": {kind} — ")).Take(all ? 1000 : 4)) Console.WriteLine("  " + l);
+    foreach (var g in rep.Recs.GroupBy(r => r.kind)) { Console.WriteLine($"худшие по виду «{g.Key}»:"); foreach (var r in g.OrderByDescending(r => r.val).Take(6)) Console.WriteLine("  " + r.line); }
+    Console.WriteLine("по отрядам и видам:");
+    foreach (var g in rep.Recs.GroupBy(r => (r.scene, r.unit, r.kind)).OrderByDescending(g => g.Count()).Take(40))
+    {
+        var bins = g.GroupBy(r => { double q = r.val / Math.Max(1e-9, r.lim); return q < 1.25 ? "≤1,25" : q < 1.5 ? "≤1,5" : q < 2 ? "≤2" : q < 4 ? "≤4" : ">4"; }).OrderBy(b => b.Key);
+        Console.WriteLine($"  {g.Key.scene} · «{g.Key.unit}» · {g.Key.kind}: {g.Count()}  [{string.Join(", ", bins.Select(b => $"{b.Key}: {b.Count()}"))}]  по 5 с: {string.Join(" ", g.GroupBy(r => (int)(r.t / 5) * 5).OrderBy(b => b.Key).Select(b => $"{b.Key}:{b.Count()}"))}");
+    }
+    return 0;
+}
 if (args.Length > 0 && args[0] == "calibrate") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); CalibrateRanged(args.Length > 2 ? int.Parse(args[2]) : 400); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-melee") { Calibrate(args.Length > 1 ? int.Parse(args[1]) : 1000); return 0; }
 if (args.Length > 0 && args[0] == "calibrate-ranged") { CalibrateRanged(args.Length > 1 ? int.Parse(args[1]) : 400); return 0; }

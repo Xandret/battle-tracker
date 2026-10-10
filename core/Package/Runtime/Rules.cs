@@ -184,13 +184,14 @@ namespace BattleCore
             // Г111 п.3 (Алекс 10.10.2026: «повороты строем, как на учении»): фланг не быстрее WheelK марша (было 3), не быстрее
             // WheelMaxDegPerSec (было 180; конница — WheelMaxDegPerSecHorse); цель сбоку — заход вокруг ближнего фланга (WheelPivotFlank:
             // ближний фланг стоит, дальний идёт дугой), сзади — разворот кругом через центр (AboutFaceDeg). Числа — черновик до ГМа
-            public double WheelK = 2, WheelMaxDegPerSec = 45, WheelMaxDegPerSecHorse = 30; public bool WheelPivotFlank = true;
+            public double WheelK = 1, WheelMaxDegPerSec = 45, WheelMaxDegPerSecHorse = 30; public bool WheelPivotFlank = true;   // Г118: фланг не быстрее марша (было 2 — тела бежали вдвое быстрее своей наибольшей)
             public double AboutFaceDeg = 135, AboutFaceSec = 1;
             public double MarchAlignDeg = 20;     // курс разошёлся с путём сильнее — стоп и поворот колесом
             // Г54: цель ближе этой доли нормы — без поворота: боком и назад — на доле скорости
             public double CloseShare = 1.0 / 3, SideSpeed = 0.5, ForwardConeDeg = 45;
             // Фигурка догоняет своё место в строю: быстрее марша, резвее отряда, отставание выбирает за SlotTau с
-            public double FigureCatchUp = 1.3, FigureAccelK = 2, SlotTau = 0.5;
+            public double FigureCatchUp = 1.05, FigureAccelK = 1, SlotTau = 1.0;   // Г118: якорь колонны разгоняется как отряд (FigureAccelK 2 → 1: тела отставали на старте на 15–30 м и толпились); догон колонны — не быстрее наибольшей +5 % (было 1,3; мерило даёт +10 %); подтяжка якоря к месту мягче (SlotTau 0,5 → 1: якорь метался 1…22 м/с на изломе пути)
+            public double TurnSlowK = 1.0, TurnMinShare = 0.3;   // Г118: доворот на марше — центр не быстрее нормы × TurnSlowK − ω × полфронта (внешний фланг не быстрее нормы), но не медленнее TurnMinShare нормы
             // Шаг 2 — тела (Г56–Г58): фигурка — капсула размером с квадратик; перекрытие меньше BodyTol не считается
             public double BodyTol = 0.05, LookAheadSec = 0.6, YieldMargin = 0.5;
             // Г111 п.2 (Алекс 10.10.2026: «конница заезжает в чужой строй»): враги твёрдые — у касания с врагом ход к нему гасится разом,
@@ -216,7 +217,7 @@ namespace BattleCore
             public double ClearancePenalty = 2;     // путь ближе полфронта к крупному препятствию — до ×(1 + это) дороже (только выбор пути)
             public double NarrowMarginM = 1;        // зазор строя до края прохода с каждой стороны
             public double NarrowSlack = 0.1;        // проход уже строя меньше чем на эту долю — не сужается: крайние прижмутся
-            public double NarrowAheadM = 30;        // колонна должна сложиться за столько до узости
+            public double NarrowAheadM = 60;        // колонна должна сложиться за столько до узости (Г118: якорь не быстрее нормы +5 % — складываться дольше; было 30)
             // Г111 п.5: ширина прохода — по всему фронту, центрированному на оси пути: 2 × меньшее плечо (NarrowCentered; было l + r — строй
             // у берега «умещался», но половина его лезла в воду); стенки прохода — и медленная местность (брод, лес) дороже оси в CorridorSlowK раз
             public bool NarrowCentered = false; public double CorridorSlowK = 0; public bool ViaToHome = true;   // ViaToHome — обходящий боец идёт к своему месту (поиск в окне), не к цели отряда
@@ -268,7 +269,8 @@ namespace BattleCore
         {
             public double Tau = 0.5;          // Г76: боец догоняет своё место за ~Tau с — строй «дышит» на поворотах и в давке
             public double SpeedK = 1.4, WalkMin = 2;   // предел скорости бойца — скорость фигурки (не меньше WalkMin) × SpeedK
-            public double AccelK = 1.5;       // разгон и тормоз бойца — резвее его фигурки во столько раз (иначе всадник пролетает мимо остановившейся фигурки)
+            public double BodyMaxK = 1.05;    // Г118: и никогда не быстрее своей наибольшей (норма отряда после разгона, в натиске × Cavalry.ChargeMult) × BodyMaxK (мерило даёт 1,1)
+            public double AccelK = 1.0;       // Г118: разгон и тормоз бойца — ровно как у его отряда (FigureAccelK 1 × 1; было 1,5 × 2 — втрое резвее нормы) (иначе всадник пролетает мимо остановившейся фигурки)
             public double MaxLagM = 2.5;      // дальше этого от своего места боец не отстаёт и не вылетает
             public double Jitter = 0.15;      // личное смещение места — доля шага в строю
             public double BodyShare = 0.45;   // Г77: радиус тела — доля шага в строю; ближе — расходятся (с любым бойцом)
@@ -313,7 +315,7 @@ namespace BattleCore
             // Г94 (Алекс): у бойца свой курс тела — поворачивается не быстрее TurnDegPerSec; вбок и назад относительно курса — не
             // быстрее Side/Back (конь назад почти не ходит — сперва развернётся). Дальше FaceMoveM от места или быстрее FaceMoveMps —
             // лицом по ходу; у места — по колонне; в схватке — на противника; бегущий — по ходу
-            public double FootTurnDegPerSec = 360, HorseTurnDegPerSec = 120;
+            public double FootTurnDegPerSec = 180, HorseTurnDegPerSec = 90;   // Г118: пеший ~180 °/с, конь ~90 °/с (было 360 и 120)
             public double FootSideMps = 1.5, FootBackMps = 1.0, HorseSideMps = 0.5, HorseBackMps = 0.3;
             public double FaceMoveM = 1.5, FaceMoveMps = 1.5;
             // колонна стоит, боец ближе StandShuffleM к месту — держит курс строя и подтягивается на место шагом (конь вбок как пеший,
@@ -333,6 +335,7 @@ namespace BattleCore
             // схватке и не в охвате, идут одним телом с якорем: замораживаются там, где стоят (сдвиг от якоря), ни на кого не
             // смотрят и не толкаются между собой; для обычных бойцов рядом они — неподвижные тела. Иначе — поштучно
             public double FarEnemyM = 60, FarFriendM = 20, RigidSnapM = 1.0, UnderFireSec = 2;
+            public double RigidSnapMps = 0.3, RigidTurnDegPerSec = 1;   // Г118: одним телом — только идя со скоростью якоря (разница не больше) и пока колонна не поворачивает быстрее
             public double PushMaxMps = 6;
             // Г90 (Б3): натиск телами. Конь с разбега (натиск готов —
             // Mover.ChargeReady) пешему врагу не уступает: тот сбит с ног на DownSecMin…DownSecMax с и отброшен, конь теряет ChargeLoss
@@ -369,6 +372,18 @@ namespace BattleCore
             public bool Journal = true;        // решения ИИ — строкой в журнал хода
         }
         public AiR Ai = new AiR();
+        // Г118 — мерило гладкого движения (по записи боя, по каждому бойцу, кадр показа SampleSec). Числа — черновик, уточняются по ощущению Алекса
+        public sealed class SmoothR
+        {
+            public double SampleSec = 0.2;          // кадр показа
+            public double VmaxK = 1.1;              // скорость — не выше своей наибольшей (норма отряда после разгона; в натиске × Cavalry.ChargeMult) больше чем на столько
+            public double HorseBackMps = 2, HorseSideMps = 2;   // конь не едет назад и вбок быстрее шага
+            public double HorseTurnDegPerSec = 90, FootTurnDegPerSec = 180;   // курс тела меняется не быстрее
+            public double AccelK = 1.0;             // скорость меняется не быстрее разгона своего рода войск (TopSpeed / AccelSec) × AccelK — и в торможении
+            public double TolK = 1.05;              // допуск мерила на округление кадра к пределам курса и разгона
+            public double GrossK = 4, MaxShare = 0.04, MaxGrossShare = 0.003;   // планка-трещотка теста: доля нарушений среди замеров и доля грубых (> GrossK пределов) — пока столько, снижать по мере починки
+        }
+        public SmoothR Smooth = new SmoothR();
         // Г112 п.4 (панель ГМа, таблица этапа 3 — Q5): готовые модификаторы БД; ключ, название, значение. Применяет ГМ (Battle.ApplyMorale),
         // сам — только «гибель полководца» (поединок, Г108)
         public (string key, string name, double value)[] MoraleMods =
@@ -494,7 +509,8 @@ namespace BattleCore
         static Rules MakeFigures()
         {
             var r = new Rules(); r.Move.MenBodies = false;
-            r.Move.WheelK = 3; r.Move.WheelMaxDegPerSec = 180; r.Move.WheelMaxDegPerSecHorse = 180; r.Move.WheelPivotFlank = false;   // старый режим фигурок — повороты Г52 как были (Г111 п.3 — для бойцов-тел)
+            r.Move.WheelK = 3; r.Move.WheelMaxDegPerSec = 180; r.Move.WheelMaxDegPerSecHorse = 180; r.Move.WheelPivotFlank = false;   // старый режим фигурок — повороты
+            r.Move.FigureCatchUp = 1.3; r.Move.FigureAccelK = 2; r.Move.SlotTau = 0.5; r.Move.TurnSlowK = 0;   // старый режим фигурок — догон и подтяжка до Г118 Г52 как были (Г111 п.3 — для бойцов-тел)
             return r;
         }
         public static Rules Get(string id) => Base;   // наборы 2 и 3 — после согласования с ГМом
