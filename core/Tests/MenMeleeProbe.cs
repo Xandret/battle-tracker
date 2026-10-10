@@ -1382,3 +1382,46 @@ static class DuelProbe
         }
     }
 }
+
+// Г111 п.2: заезжает ли конница в чужой строй — глубина тел рыцарей за передним краем пехоты и перекрытия тел врагов
+// (dotnet run --project Tests -- penet [dN] [charge])
+static class PenetrationProbe
+{
+    public static void Run(string[] opts)
+    {
+        double dist = 30; bool charge = opts.Contains("charge");
+        foreach (var o in opts) if (o.StartsWith("d")) dist = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture);
+        var R = Rules.Base;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(5).Next });
+        var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+        var b = bt.Add(TB.Make(2, "Пехота", 1000, 2), 500, 500, 0);
+        var fa = Formation.Of(TA.Make(1, "Рыцари", 1000, 1), R);
+        var a = bt.Add(TA.Make(1, "Рыцари", 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = charge });
+        double f = R.Map.Formation["infantry"].PerMan; double radF = R.Men.BodyShare * Math.Min(f, R.Map.Formation["infantry"].RankDepth);
+        var fc = R.Map.Formation["cavalry"]; double radH = R.Men.BodyShare * Math.Min(fc.PerMan, fc.RankDepth);
+        for (int t = 0; t < 2; t++)
+        {
+            double maxDepth = 0, sumDepth = 0; int inside = 0, samples = 0, overlaps = 0; double maxOver = 0;
+            bt.Turn(tt =>
+            {
+                if (Math.Abs(tt % 1.0) > 0.03) return;
+                samples++;
+                foreach (var x in a.Men)
+                {
+                    if (!x.Alive) continue;
+                    b.P.ToLocal(x.X, x.Y, out var lx, out var ly);   // ly: минус — вперёд (к рыцарям); передний край пехоты — ly = −Depth/2
+                    double depth = ly + b.P.Fp.Depth / 2;   // насколько тело рыцаря зашло за передний край пехоты
+                    if (Math.Abs(lx) <= b.P.Fp.Front / 2 && depth > 0 && ly <= b.P.Fp.Depth / 2) { inside++; sumDepth += depth; maxDepth = Math.Max(maxDepth, depth); }
+                    foreach (var y in b.Men)
+                    {
+                        if (!y.Alive) continue;
+                        double dd = JsMath.Hypot(x.X - y.X, x.Y - y.Y) - radH - radF;   // грубо: по кругам (капсула коня длиннее — занижает)
+                        if (dd < -0.15) { overlaps++; maxOver = Math.Max(maxOver, -dd); }
+                    }
+                }
+            });
+            Console.WriteLine($"ход {t + 1}: рыцарей за передним краем пехоты в среднем за замер {(double)inside / Math.Max(1, samples):0.0}, глубина средняя {(inside > 0 ? sumDepth / inside : 0):0.00} м, наибольшая {maxDepth:0.00} м; перекрытий тел с врагом глубже 0,15 м за замер {(double)overlaps / Math.Max(1, samples):0.0}, наибольшее {maxOver:0.00} м; потери пехоты {1000 - b.P.U.Soldiers:0}, рыцарей {1000 - a.P.U.Soldiers:0}");
+        }
+    }
+}
