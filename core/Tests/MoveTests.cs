@@ -205,21 +205,18 @@ static class MoveTests
             Near(m.Moved, 50, 0.01, "метров по земле");
         });
 
-        yield return ("движение (Г52): поворот колесом на 90° у 1000 пехоты — около 5 с, ход недобран", () =>
+        yield return ("движение (Г52, Г111 п.3): поворот колесом на 90° у 1000 пехоты — вокруг ближнего фланга, дальний фланг идёт в WheelK раза быстрее марша: по правилам ≈ 15 с, ход недобран", () =>
         {
             var geo = Open(800, 600);
             var m = Unit("infantry", 1, 200, 300, 0);
-            double turned = -1;
-            var log = Go(m, geo, 700, 300, 90, t => { if (turned < 0 && Math.Abs(MoveSim.AngleDiff(m.P.Facing, 90)) < 1e-6) turned = t; });
-            double full = Math.PI / 2 * (125.0 / 2) / (3 * 100.0 / 15);   // дуга фланга ÷ (3 × марш) = 4,9 с
-            Near(turned, full, 0.06, "весь поворот на 90°");
-            // стоя — пока курс расходится с путём больше чем на 20°, последние 20° — уже на ходу
-            Near(m.WheelSec, full * (90 - R.Move.MarchAlignDeg) / 90, 0.06, "секунд стоя на поворот");
+            double turned = -1, t0 = 0;
+            var log = Go(m, geo, 700, 300, 90, t => { if (turned < 0 && Math.Abs(MoveSim.AngleDiff(m.P.Facing, 90)) < 1e-6) turned = t0 + t; });
+            for (int k = 1; k < 4 && turned < 0; k++) { t0 += R.Move.TurnSec; MoveSim.Turn(new[] { m }, geo, R, t => { if (turned < 0 && Math.Abs(MoveSim.AngleDiff(m.P.Facing, 90)) < 1e-6) turned = t0 + t; }); }
+            double march = 100.0 / 15, arm = R.Move.WheelPivotFlank ? 125.0 : 62.5;
+            double full = Math.Max(90 / R.Move.WheelMaxDegPerSec, Math.PI / 2 * arm / (R.Move.WheelK * march));   // дуга дальнего фланга ÷ (WheelK × марш)
+            Near(turned, full, 0.3, "весь поворот на 90°");
             Near(m.P.Facing, 90, 1e-6, "смотрит на восток");
-            // после поворота — с места на наибольшей скорости до конца хода: столько нормы и успевает
-            double top = MoveSim.TopSpeed(m.P.U, R), ta = MoveSim.AccelSec(m.P.U, R);
-            Near(m.Spent, top * (15 - m.WheelSec - ta / 2), 0.2, "нормы после поворота");
-            True(log[0].Contains("недобрал"), "журнал говорит про недобор: " + log[0]);
+            True(log[0].Contains("недобрал") && log[0].Contains("поворот колесом"), "журнал говорит про недобор и поворот: " + log[0]);
         });
 
         yield return ("движение (Г52): цель сзади — кругом за 1 с, фигурки не сходят с мест", Figs(() =>

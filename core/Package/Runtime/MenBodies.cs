@@ -286,7 +286,9 @@ namespace BattleCore
                         man.ViaX = double.NaN;
                         if (MoveSim.Free(F, man.X, man.Y) && double.IsInfinity(F.SegmentCost(man.X, man.Y, hx, hy)))
                         {
-                            int next = F.Next(F.CellOf(man.X, man.Y));
+                            // Г111 п.5: в обход — к своему месту в строю (поиск в окне), а не к цели отряда, куда ведёт вся карта
+                            int from = F.CellOf(man.X, man.Y), next = M.ViaToHome ? F.LocalStep(from, F.CellOf(hx, hy), 12) : -1;
+                            if (next < 0) next = F.Next(from);
                             if (next >= 0) { var cc = F.CenterOf(next); man.ViaX = cc.x; man.ViaY = cc.y; }
                         }
                     }

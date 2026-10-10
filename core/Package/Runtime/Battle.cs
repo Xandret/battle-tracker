@@ -45,6 +45,7 @@ namespace BattleCore
         public Geo Geo; public Rules R; public EngineContext Ctx;
         public List<Mover> Movers = new List<Mover>();
         public List<Fight> Fights = new List<Fight>();
+        public int WrapOpposite;             // Г111 п.4: сколько раз колонне в охвате дали место на противоположной стороне врага (должно быть 0)
         public double Clock;                 // часы боя, с — с начала первого хода
         public double MenPerFigure = 10;
         public int BodyK;                    // Г87: людей в бойце-теле; 0 — выбрать по численности на поле перед первым ходом
@@ -1294,9 +1295,16 @@ namespace BattleCore
                 }
             }
             var free = Enumerable.Range(0, slots.Count).Where(i => !busy[i]).ToList();
-            void Take(List<int> col, int si, int behind)
+            void Take(List<int> col, int si, int behind, bool fresh = false)
             {
                 var sl = slots[si];
+                if (R.Men.WrapNoOppositeEdge && fresh)   // старое место держится (враг развернулся — сторона в его осях та же), считаем только новые
+                {
+                    // счёт нарушений правила сектора (Г111 п.4) — для тестов: место на противоположной стороне от головы колонны
+                    var h0 = x.Figs[col[0]]; Q.ToLocal(MenMode ? h0.AX : h0.X, MenMode ? h0.AY : h0.Y, out var qx, out var qy);
+                    int pe = qy < -D ? 0 : qy > D ? 1 : (qx < 0 ? 2 : 3), se = sl.ny < 0 ? 0 : sl.ny > 0 ? 1 : sl.nx < 0 ? 2 : 3;
+                    if (pe == 0 && se == 1 || pe == 1 && se == 0 || pe == 2 && se == 3 || pe == 3 && se == 2) WrapOpposite++;
+                }
                 foreach (int k in col)
                 {
                     var s = x.Figs[k];
@@ -1326,15 +1334,22 @@ namespace BattleCore
                 if (same >= 0 && JsMath.Hypot(slots[same].lx - head.WSlotX, slots[same].ly - head.WSlotY) < figW * 0.5) { free.Remove(same); Take(col, same, 0); }
                 else later.Add(col);
             }
+            // Г111 п.4: сторона врага, где колонна сейчас (0 фронт, 1 тыл, 2 левый фланг, 3 правый); место — не на противоположной:
+            // за спиной строя на другой край не уходят, если там мест нет — встают второй линией за своими
+            int EdgeOf(double lx, double ly) => ly < -D ? 0 : ly > D ? 1 : (lx < 0 ? 2 : 3);   // впереди переднего края — фронт (и нависающие шире строя), позади заднего — тыл, между — фланги
+            int EdgeOfSlot(int i) => slots[i].ny < 0 ? 0 : slots[i].ny > 0 ? 1 : slots[i].nx < 0 ? 2 : 3;
+            int Opposite(int e) => e == 0 ? 1 : e == 1 ? 0 : e == 2 ? 3 : 2;
             foreach (var col in later)
             {
                 var head = x.Figs[col[0]];
                 bool had = head.WFoe == y;
                 double lx = head.WSlotX, ly = head.WSlotY;
                 if (!had) Q.ToLocal(head.X, head.Y, out lx, out ly);
-                int si = Nearest(free, lx, ly);
-                if (si >= 0) { free.Remove(si); Take(col, si, 0); }
-                else if (had) Take(col, Nearest(Enumerable.Range(0, slots.Count), lx, ly), col.Count);   // мест нет — второй линией за своим
+                Q.ToLocal(MenMode ? head.AX : head.X, MenMode ? head.AY : head.Y, out var hx, out var hy);   // где голова колонны (якорь; середина бойцов растянутой колонны врёт)
+                int forbid = R.Men.WrapNoOppositeEdge ? Opposite(EdgeOf(hx, hy)) : -1;
+                int si = Nearest(free.Where(i => EdgeOfSlot(i) != forbid), lx, ly);
+                if (si >= 0) { free.Remove(si); Take(col, si, 0, true); }
+                else if (had || R.Men.WrapNoOppositeEdge) Take(col, Nearest(Enumerable.Range(0, slots.Count).Where(i => EdgeOfSlot(i) != forbid), lx, ly), col.Count, true);   // мест нет — второй линией за своим
                 else foreach (int k in col) x.Figs[k].WFoe = null;
             }
         }

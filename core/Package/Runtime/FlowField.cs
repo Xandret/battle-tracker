@@ -480,12 +480,20 @@ namespace BattleCore
 
         // Ширина прохода поперёк направления (dx, dy) — единичный вектор — в точке (x, y): сколько свободно влево
         // и вправо до крупного препятствия или края карты, но не дальше maxHalf в каждую сторону (Г59)
-        public (double left, double right) Corridor(double x, double y, double dx, double dy, double maxHalf) =>
-            (Probe(x, y, -dy, dx, maxHalf), Probe(x, y, dy, -dx, maxHalf));
-        // Грубо — шагом в полклетки, потом делением пополам до 5 см: мост в 15 м должен мериться как 15, а не как 10
-        double Probe(double x, double y, double px, double py, double max)
+        public (double left, double right) Corridor(double x, double y, double dx, double dy, double maxHalf, double slowK = 0) =>
+            (Probe(x, y, -dy, dx, maxHalf, slowK), Probe(x, y, dy, -dx, maxHalf, slowK));
+        // Грубо — шагом в полклетки, потом делением пополам до 5 см: мост в 15 м должен мериться как 15, а не как 10.
+        // slowK > 0 (Г111 п.5): клетка дороже клетки оси в slowK раз (брод рядом с мостом, лес у дороги) — тоже стенка
+        double Probe(double x, double y, double px, double py, double max, double slowK = 0)
         {
-            bool Blocked(double s) { double qx = x + px * s, qy = y + py * s; return !Inside(qx, qy) || large[CellOf(qx, qy)]; }
+            double axisMult = Inside(x, y) ? mult[CellOf(x, y)] : 1; if (double.IsNaN(axisMult)) slowK = 0;
+            bool Blocked(double s)
+            {
+                double qx = x + px * s, qy = y + py * s;
+                if (!Inside(qx, qy)) return true;
+                int c = CellOf(qx, qy);
+                return large[c] || slowK > 0 && !double.IsNaN(mult[c]) && mult[c] > axisMult * slowK;
+            }
             double step = Math.Min(CellW, CellH) / 2;
             for (double s = step; s <= max; s += step)
             {
@@ -498,6 +506,35 @@ namespace BattleCore
         }
 
         // Куда шагать из клетки i: сосед, через которого путь до цели дешевле всего; −1 — это цель или не дойти
+        // Г111 п.5: шаг от клетки from к клетке to в обход непроходимого — поиском в ширину в окне ±maxR клеток (боец идёт к своему
+        // месту в строю, а не к цели отряда, куда ведёт вся карта); −1 — не найти (дальше окна или отрезано)
+        public int LocalStep(int from, int to, int maxR)
+        {
+            if (from == to || from < 0 || to < 0) return -1;
+            int fx = from % W, fy = from / W, tx = to % W, ty = to / W;
+            if (Math.Abs(tx - fx) > maxR || Math.Abs(ty - fy) > maxR) return -1;
+            int x0 = Math.Max(0, Math.Min(fx, tx) - maxR), x1 = Math.Min(W - 1, Math.Max(fx, tx) + maxR), y0 = Math.Max(0, Math.Min(fy, ty) - maxR), y1 = Math.Min(H - 1, Math.Max(fy, ty) + maxR);
+            int w = x1 - x0 + 1, h = y1 - y0 + 1;
+            var prev = new int[w * h]; for (int k = 0; k < prev.Length; k++) prev[k] = -2;
+            var q = new Queue<int>(); int Loc(int c) => (c / W - y0) * w + (c % W - x0);
+            prev[Loc(to)] = -1; q.Enqueue(to);   // от цели к бойцу: первый шаг — сосед бойца, что ближе к цели
+            while (q.Count > 0)
+            {
+                int c = q.Dequeue(); int cx = c % W, cy = c / W;
+                for (int d = 0; d < 8; d++)
+                {
+                    int nx = cx + Terrain.N8X[d], ny = cy + Terrain.N8Y[d];
+                    if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
+                    int n = ny * W + nx, l = (ny - y0) * w + (nx - x0);
+                    if (prev[l] != -2 || !Passable(n)) continue;
+                    if (Terrain.N8X[d] != 0 && Terrain.N8Y[d] != 0 && !Passable(cy * W + nx) && !Passable(ny * W + cx)) continue;   // по диагонали между двумя непроходимыми — нет
+                    prev[l] = c;
+                    if (n == from) return c;
+                    q.Enqueue(n);
+                }
+            }
+            return -1;
+        }
         public int Next(int i)
         {
             if (i == Target) return -1;

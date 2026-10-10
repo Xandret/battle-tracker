@@ -181,7 +181,10 @@ namespace BattleCore
             // Г53: разгон и торможение, с — от места до полной скорости и обратно
             public double AccelInfantry = 1, AccelArcher = 1, AccelPike = 1.5, AccelCavalry = 3, AccelHorseArcher = 2;
             // Г52: поворот колесом — фланги идут во столько раз быстрее марша; кругом — каждый на месте
-            public double WheelK = 3, WheelMaxDegPerSec = 180;
+            // Г111 п.3 (Алекс 10.10.2026: «повороты строем, как на учении»): фланг не быстрее WheelK марша (было 3), не быстрее
+            // WheelMaxDegPerSec (было 180; конница — WheelMaxDegPerSecHorse); цель сбоку — заход вокруг ближнего фланга (WheelPivotFlank:
+            // ближний фланг стоит, дальний идёт дугой), сзади — разворот кругом через центр (AboutFaceDeg). Числа — черновик до ГМа
+            public double WheelK = 2, WheelMaxDegPerSec = 45, WheelMaxDegPerSecHorse = 30; public bool WheelPivotFlank = true;
             public double AboutFaceDeg = 135, AboutFaceSec = 1;
             public double MarchAlignDeg = 20;     // курс разошёлся с путём сильнее — стоп и поворот колесом
             // Г54: цель ближе этой доли нормы — без поворота: боком и назад — на доле скорости
@@ -214,6 +217,9 @@ namespace BattleCore
             public double NarrowMarginM = 1;        // зазор строя до края прохода с каждой стороны
             public double NarrowSlack = 0.1;        // проход уже строя меньше чем на эту долю — не сужается: крайние прижмутся
             public double NarrowAheadM = 30;        // колонна должна сложиться за столько до узости
+            // Г111 п.5: ширина прохода — по всему фронту, центрированному на оси пути: 2 × меньшее плечо (NarrowCentered; было l + r — строй
+            // у берега «умещался», но половина его лезла в воду); стенки прохода — и медленная местность (брод, лес) дороже оси в CorridorSlowK раз
+            public bool NarrowCentered = false; public double CorridorSlowK = 0; public bool ViaToHome = true;   // ViaToHome — обходящий боец идёт к своему месту (поиск в окне), не к цели отряда
             public double NarrowCheckSec = 0.5;
             public double RegroupLagM = 3, RegroupShare = 0.2, RegroupSpeed = 0.5;   // Г60: перестраиваются — вдвое медленнее
             public double FrameWaitM = 8, StuckMps = 0.5;
@@ -291,6 +297,7 @@ namespace BattleCore
             // билась меньше WrapRetargetSec назад, нового врага не ищет (иначе цель прыгает между бойцами врага и колонна мечется);
             // конь не выпадает всем телом — выпад коня HorseLungeK от пешего
             public double WrapFightHorseMps = 3, WrapFightFootMps = 2, WrapRetargetSec = 1.0, HorseLungeK = 0.3;
+            public bool WrapNoOppositeEdge = true;   // Г111 п.4: колонна в охвате берёт место только на своей или соседней стороне врага, за его спиной на другой край не уходит — иначе второй линией
             public bool WrapSeekSticky = true, LagMajorityHold = false;   // колонна держится за выбранного бойца врага; якорь не быстрее отставшего большинства (выключено: −3…5 % потерь в контакте; застрявших держит рамка, FrameWaitM)
             public double LagCrawlMps = 0.5;   // …но не медленнее этого (ждать-то надо, а стоять намертво — нет); прыжок якоря назад к бойцам пробовали — хуже
             public double WrapSeekHoldSec = 2.0;   // …но не дольше этого без касания: не достать — ищет другого
@@ -455,7 +462,12 @@ namespace BattleCore
         public static readonly Rules Base = new Rules();
         // старая модель тел — фигурки-капсулы (Г56–Г58, Г75–Г78): только для сравнений и тестов старого режима, пока его код не убран (Г97)
         public static readonly Rules Figures = MakeFigures();
-        static Rules MakeFigures() { var r = new Rules(); r.Move.MenBodies = false; return r; }
+        static Rules MakeFigures()
+        {
+            var r = new Rules(); r.Move.MenBodies = false;
+            r.Move.WheelK = 3; r.Move.WheelMaxDegPerSec = 180; r.Move.WheelMaxDegPerSecHorse = 180; r.Move.WheelPivotFlank = false;   // старый режим фигурок — повороты Г52 как были (Г111 п.3 — для бойцов-тел)
+            return r;
+        }
         public static Rules Get(string id) => Base;   // наборы 2 и 3 — после согласования с ГМом
     }
 }

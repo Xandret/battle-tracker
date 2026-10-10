@@ -287,7 +287,7 @@ static class BattleTests
                 bt.Turn();
                 game += (1000 - b.P.U.Soldiers) / N;
             }
-            True(game >= 0.7 * table && game <= 1.1 * table, $"стол {table:0}, бой в движении {game:0}");
+            True(game >= 0.6 * table && game <= 1.1 * table, $"стол {table:0}, бой в движении {game:0}");   // Г111 п.4: колонны бьются в своём секторе, за спиной строя на другой край не уходят — в тыл заходит меньше: было ≥ 70 % стола, стало ~63 % (вопрос ГМу)
         });
 
         yield return ("охват (Г68, Г63): пехота во фланг пехоте — что не влезло во фланг, огибает; атакованный сам не заворачивает и отвечает слабее стола", Figs(() =>
@@ -337,6 +337,28 @@ static class BattleTests
             int Lines(string from, bool counter) => bt.Details.Count(l => l.Contains($" · {from} → ") && l.Contains("(ответ)") == counter);
             True(Lines("Левые", false) == 1 && Lines("Правые", false) == 1, "обе атаки: " + string.Join(" | ", bt.Details));
             True(Lines("Стоят", true) == (int)Units.CounterLimit(b.P.U, R), "ответы «Стоят»: " + string.Join(" | ", bt.Details));
+        });
+
+        yield return ("охват (Г111 п.4): рыцари шире пехоты, половина мест у врага занята своими — колонны не уходят за спиной строя на другой край: ни одна не оказалась на противоположной стороне врага от той, где начала", () =>
+        {
+            var bt = new Battle(Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(44).Next });
+            var TK = Templates.Get("knights"); var TB = Templates.Get("infantry");
+            var b = bt.Add(TB.Make(2, "Пехота", 400, 2), 500, 500, 0);
+            var blocker = bt.Add(TB.Make(3, "Свои", 400, 1), 500 + b.P.Fp.Front / 2 + 12, 500, 90);   // стоят у правого фланга пехоты — места там заняты
+            var fa = Formation.Of(TK.Make(1, "Рыцари", 600, 1), R);
+            var a = bt.Add(TK.Make(1, "Рыцари", 600, 1), 500, 500 - (b.P.Fp.Depth / 2 + 40 + fa.Depth / 2), 180);
+            bt.Order(a, Attack(2)); bt.Order(blocker, new MoveOrder { Kind = OrderKind.Hold });
+            var side0 = new Dictionary<FigState, int>();
+            int SideAt(double lx, double ly) => ly < -b.P.Fp.Depth / 2 ? 0 : ly > b.P.Fp.Depth / 2 ? 1 : (lx < 0 ? 2 : 3);   // по глубине: впереди — фронт, позади — тыл, между — фланги
+            int Side(FigState s) { b.P.ToLocal(s.AX, s.AY, out var lx, out var ly); return SideAt(lx, ly); }   // по якорю колонны (голове)
+            bool Opp(int p, int q) => p == 0 && q == 1 || p == 1 && q == 0 || p == 2 && q == 3 || p == 3 && q == 2;
+            int crossed = 0; var edgeOf = new Dictionary<FigState, int>();
+            // место колонны у врага сменило сторону на противоположную той, где колонна сейчас (за спиной строя на другой край);
+            // та же сторона держится, даже если враг развернулся или его места сдвинулись с потерями
+            for (int t = 0; t < 3; t++)
+                bt.Turn(tt => { foreach (var s in a.Figs) { if (!s.Wrap || s.WFoe != b) { edgeOf.Remove(s); continue; } int e = SideAt(s.WSlotX, s.WSlotY); if (edgeOf.TryGetValue(s, out var was) && was == e) continue; edgeOf[s] = e; if (Opp(Side(s), e)) crossed++; } });
+            True(a.Figs.Count(s => s.Wrap) > 5, $"охвата не было: колонн в охвате {a.Figs.Count(s => s.Wrap)}");
+            True(bt.WrapOpposite == 0, $"колоннам давали место на противоположной стороне врага: {bt.WrapOpposite} раз (по счёту ядра; по наблюдению за якорями и сменой стороны места — {crossed})");
         });
 
         yield return ("охват (Г68): враг разбит — колонны возвращаются на свои места сквозь свой строй", () =>
