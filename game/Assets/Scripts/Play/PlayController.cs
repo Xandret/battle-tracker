@@ -408,8 +408,17 @@ namespace Journal.Play
         // модификатор БД по таблице — движком (Battle.ApplyMorale: строка в журнал хода), слом — по правилам стола
         public void GmMod(IEnumerable<Mover> ms, int mod)
         {
+            // движком (Battle.ApplyMorale): упал до нуля — проверка на побег, отряд может побежать; отмена — снимком боя
             var (key, name, v) = MoraleMods[mod];
-            GmUnits(ms, (L, x) => Battle.ApplyMorale(L, key), $"{name} {(v >= 0 ? "+" : "")}{v:0}");   // упал до нуля — проверку на побег делает движок
+            var list = ms.Where(Present).ToList(); if (list.Count == 0) return;
+            var lines = new List<string>(); string what = $"{name} {(v >= 0 ? "+" : "")}{v:0}" + (list.Count > 1 ? $" — {list.Count} отр." : $" — «{list[0].P.U.Name}»");
+            GmRoster(what, () =>
+            {
+                var was = list.Select(m => (m.P.U.Name, m.P.U.Morale)).ToList();
+                Battle.ApplyMorale(list, key);
+                for (int i = 0; i < list.Count; i++) lines.Add($"«{was[i].Name}» {name}: БД {was[i].Morale:0} → {list[i].P.U.Morale:0}" + (list[i].Fleeing ? " — бежит!" : ""));
+                return true;
+            }, lines);
         }
         public IEnumerable<Mover> SideUnits(int side) => Battle.Movers.Where(m => SideOf(m) == side);
         public void GmUndo()
