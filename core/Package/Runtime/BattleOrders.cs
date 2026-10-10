@@ -155,6 +155,7 @@ namespace BattleCore
         public void Go()
         {
             if (Phase != Phase.Orders) return;
+            Battle.AiOrders(m => Pending.ContainsKey(m));   // Г113: отряды с поручением ИИ — приказы сами; приказ ГМа на этот ход важнее
             foreach (var kv in Pending)
             {
                 var o = kv.Value;
