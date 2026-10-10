@@ -392,6 +392,113 @@ static class Polygon
         return found;
     }
 
+    // Г118: мерило гладкого движения по записи — по каждому бойцу, кадр показа Smooth.SampleSec: скорость не выше своей наибольшей
+    // (+VmaxK), конь не едет задом и вбок быстрее шага, курс тела не быстрее предела, скорость меняется не быстрее разгона и
+    // торможения. Боец в касании с врагом (Foe), сбитый или в поединке — не считается: остановка о врага и толкотня — не движение.
+    // Возвращает нарушения (строки) и счёт по видам и сценам
+    public sealed class SmoothReport
+    {
+        public readonly List<string> Lines = new List<string>();
+        public readonly Dictionary<string, int> ByKind = new Dictionary<string, int>();
+        public readonly Dictionary<string, int> ByScene = new Dictionary<string, int>();
+        public readonly Dictionary<string, double> Worst = new Dictionary<string, double>();
+        public readonly List<(string scene, string kind, string unit, double t, double val, double lim, string line)> Recs = new List<(string, string, string, double, double, double, string)>();
+        public int Samples;
+        public int Count => Lines.Count;
+    }
+    public static string TraceUnit; public static int TraceMan; public static bool TraceCol;   // след одного бойца по кадрам (зонд smooth --trace [--col])
+    public static SmoothReport Smooth(params string[] only)
+    {
+        var R = Rules.Base; var S = R.Smooth; var rep = new SmoothReport();
+        var prev = new Dictionary<Man, (double x, double y, double vx, double vy, double head, double t, bool contact)>();
+        var prevC = new Dictionary<Mover, (double x, double y, double t)>();   // опорная точка отряда (m.P) — по ней знамёна и таблички (Графика, Г118 п.а)
+        void Add(string scene, string kind, double val, string what, string unit = "", double t = 0, double lim = 0)
+        {
+            rep.Recs.Add((scene, kind, unit, t, val, lim, $"{scene}: {kind} — {what}"));
+            rep.ByKind[kind] = (rep.ByKind.TryGetValue(kind, out var c) ? c : 0) + 1;
+            rep.ByScene[scene] = (rep.ByScene.TryGetValue(scene, out var d) ? d : 0) + 1;
+            if (!rep.Worst.TryGetValue(kind, out var w) || val > w) rep.Worst[kind] = val;
+            rep.Lines.Add($"{scene}: {kind} — {what}");
+        }
+        foreach (var sc in Scenes())
+        {
+            if (only.Length > 0 && !only.Contains(sc.Name)) continue;
+            var ms = sc.Units.Select(u => u.M).ToList();
+            if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
+            prev.Clear(); prevC.Clear(); double clock = 0, last = double.NegativeInfinity;
+            for (int turn = 0; turn < sc.Turns; turn++)
+            {
+                sc.Before?.Invoke(turn);
+                last = double.NegativeInfinity;
+                Action<double> rec = t =>
+                {
+                    if (t - last < S.SampleSec - 1e-6) return;
+                    last = t; double now = clock + t;
+                    foreach (var m in ms)
+                    {
+                        var u = m.P.U; bool horse = BattleMap.IsHorse(u);
+                        double top = MoveSim.TopSpeed(u, R) * (m.ChargeReady ? R.Cavalry.ChargeMult : 1), vmax = top * S.VmaxK;
+                        // рамка (m.P.X/Y): не быстрее нормы + ход фланга при повороте (колесо вокруг фланга несёт центр на полфронта × ω)
+                        if (prevC.TryGetValue(m, out var pc) && !m.Fleeing && !m.Gone)
+                        {
+                            double dtc = now - pc.t, vc = dtc > 1e-9 ? JsMath.Hypot(m.P.X - pc.x, m.P.Y - pc.y) / dtc : 0;
+                            double wheelMps = MoveSim.WheelRate(m, R) * Math.PI / 180 * m.P.Fp.Front / 2;
+                            if (vc > (top + wheelMps) * S.VmaxK) Add(sc.Name, "рамка", vc, $"{now:0.0} с «{u.Name}»: опорная точка {vc:0.0} м/с ({JsMath.Hypot(m.P.X - pc.x, m.P.Y - pc.y):0.0} м за кадр) при норме {top:0.0} + колесо {wheelMps:0.0}", u.Name, now, (top + wheelMps) * S.VmaxK);
+                        }
+                        prevC[m] = (m.P.X, m.P.Y, now);
+                        double acc = MoveSim.TopSpeed(u, R) / Math.Max(0.1, MoveSim.AccelSec(u, R)) * S.AccelK * S.TolK, turnMax = (horse ? S.HorseTurnDegPerSec : S.FootTurnDegPerSec) * S.TolK;
+                        foreach (var man in m.Men)
+                        {
+                            if (!man.Alive) { prev.Remove(man); continue; }
+                            bool contact = man.Foe != null || man.DownLeft > 0 || man.InDuel || !double.IsNaN(man.PostX);
+                            if (TraceUnit != null && u.Name == TraceUnit && man.Id == TraceMan && prev.TryGetValue(man, out var tp))
+                            {
+                                double tvx = (man.X - tp.x) / S.SampleSec, tvy = (man.Y - tp.y) / S.SampleSec; var hm = Soldiers.HomeOf(m, man);
+                                if (TraceCol && man.Fig != null)
+                                {
+                                    var s0 = man.Fig; double hh = s0.Hd * Math.PI / 180, fx0 = Math.Sin(hh), fy0 = -Math.Cos(hh);
+                                    var col = m.Men.Where(x => x.Alive && x.Fig == s0).OrderBy(x => x.Row).Select(x => $"р{x.Row}:{((x.X - s0.AX) * fx0 + (x.Y - s0.AY) * fy0):+0.0;-0.0}/{JsMath.Hypot(x.LastVx, x.LastVy):0.0}{(x.WasRigid ? "ж" : "")}{((x.LastFlag & 2) != 0 ? "п" : "")}{((x.LastFlag & 8) != 0 ? "с" : "")}{((x.LastFlag & 128) != 0 ? "ж?" : "")}{(x.LastBlocked != 0 ? $"у{x.LastBlocked}" : "")}{(x.Reseat ? "R" : "")}");
+                                    Console.WriteLine($"  {now,6:0.0} с колонна: якорь v {JsMath.Hypot(s0.AVx, s0.AVy):0.0}, центроид {((s0.X - s0.AX) * fx0 + (s0.Y - s0.AY) * fy0):+0.0;-0.0}; бойцы (вперёд от якоря / v): {string.Join(" ", col)}");
+                                }
+                                Console.WriteLine($"  {now,6:0.0} с ({man.X:0.0},{man.Y:0.0}) v {JsMath.Hypot(tvx, tvy):0.0} ход {MoveSim.HeadingOf(tvx, tvy):0}° курс {man.Facing:0}° колонна {man.Fig?.Hd:0}° якорь v {JsMath.Hypot(man.Fig?.AVx ?? 0, man.Fig?.AVy ?? 0):0.0} до места {JsMath.Hypot(hm.x - man.X, hm.y - man.Y):0.0} ряд {man.Row}{(man.WasRigid ? " жёсткий" : "")}{(man.Reseat ? " пересадка" : "")}{(man.Fig != null && man.Fig.Wrap ? " охват" : "")}{(m.Held ? " упёрся" : "")}{(double.IsNaN(man.ViaX) ? "" : " в обход")} отряд v {m.Vs:0.0} курс {m.P.Facing:0}°{(m.Done ? " дошёл" : "")}{(m.OnSpot ? " на месте" : "")}{(man.Fig != null && man.Fig.Moving ? "" : " колонна стоит")}");
+                            }
+                            if (prev.TryGetValue(man, out var p) && !p.contact && !contact)
+                            {
+                                double dt = now - p.t; if (dt <= 1e-9) continue;
+                                double vx = (man.X - p.x) / dt, vy = (man.Y - p.y) / dt, v = JsMath.Hypot(vx, vy);
+                                rep.Samples++;
+                                string who = $"{now:0.0} с «{u.Name}» №{man.Id}{(man.WasRigid ? " (жёсткий)" : "")}{(man.Reseat ? " (пересадка)" : "")}{(m.Held ? " (упёрся)" : "")}";
+                                if (v > vmax) Add(sc.Name, "скорость", v, $"{who}: {v:0.0} м/с при наибольшей {top:0.0}", u.Name, now, top);
+                                if (horse && v > 0.5)
+                                {
+                                    double h = man.Facing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h);   // курс тела, что рисуется (Г94)
+                                    double along = vx * fx + vy * fy, side = Math.Abs(-vx * fy + vy * fx);
+                                    if (-along > S.HorseBackMps) Add(sc.Name, "конь задом", -along, $"{who}: назад {-along:0.0} м/с", u.Name, now, S.HorseBackMps);
+                                    else if (side > S.HorseSideMps) Add(sc.Name, "конь вбок", side, $"{who}: вбок {side:0.0} м/с (курс {man.Facing:0}°, ход {MoveSim.HeadingOf(vx, vy):0}°)", u.Name, now, S.HorseSideMps);
+                                }
+                                double dh = Math.Abs(MoveSim.AngleDiff(p.head, man.Facing)) / dt;
+                                if (dh > turnMax && (v > 0.5 || p.vx * p.vx + p.vy * p.vy > 0.25)) Add(sc.Name, "курс", dh, $"{who}: поворот {dh:0}°/с", u.Name, now, turnMax);
+                                double dv = Math.Abs(v - JsMath.Hypot(p.vx, p.vy)) / dt;
+                                if (dv > acc) Add(sc.Name, "разгон", dv, $"{who}: {JsMath.Hypot(p.vx, p.vy):0.0} → {v:0.0} м/с за {dt:0.0} с (предел {acc:0.0} м/с²)", u.Name, now, acc);
+                                prev[man] = (man.X, man.Y, vx, vy, man.Facing, now, contact);
+                            }
+                            else prev[man] = (man.X, man.Y, 0, 0, man.Facing, now, contact);
+                        }
+                    }
+                };
+                if (sc.Battle != null) sc.Battle.Turn(rec); else MoveSim.Turn(ms, sc.Geo, R, rec);
+                clock += R.Move.TurnSec;
+                if (TraceUnit != null)
+                    foreach (var m in ms)
+                    {
+                        var fars = m.Men.Where(x => x.Alive).Select(x => { var h = Soldiers.HomeOf(m, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); }).ToList();
+                        Console.WriteLine($"  конец хода {turn + 1} «{m.P.U.Name}»: центр ({m.P.X:0},{m.P.Y:0}) курс {m.P.Facing:0}° {(m.Done ? "дошёл" : $"идёт, v {m.Vs:0.0}")}{(m.Note != null ? $" «{m.Note}»" : "")}; до мест: в среднем {(fars.Count > 0 ? fars.Average() : 0):0.0} м, дальше 10 м — {fars.Count(f => f > 10)} из {fars.Count}, самый дальний {(fars.Count > 0 ? fars.Max() : 0):0} м; колонн {m.Cols} из {m.NominalCols}");
+                    }
+            }
+        }
+        return rep;
+    }
+
     public static void Write(string root)
     {
         var R = Rules.Base;

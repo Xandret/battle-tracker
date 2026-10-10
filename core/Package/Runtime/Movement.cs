@@ -42,6 +42,7 @@ namespace BattleCore
         public double WSeekT = double.NegativeInfinity;   // когда колонна в охвате в последний раз сама выбрала бойца врага целью (WrapToFoes)
         public Man WSeekMan;                               // тот боец врага: пока жив и близко, цель колонны — он, место у рамки её не перебивает
         public double Hc, Hs, Hd;   // курс фигурки на деле (Soldiers.FigHeading): косинус, синус, градусы — на шаг бойцов
+        public double HdWas = double.NaN;   // Г118: курс на прошлом шаге — жёсткие тела (Г86) только пока колонна не поворачивает
         public long SeatKey = -1;   // В14: состав и размер, при которых бойцы рассажены, — не изменились, пересаживать незачем
         public double X, Y, Vx, Vy;
         public double Dvx, Dvy, Vmax;
@@ -370,9 +371,11 @@ namespace BattleCore
 
             // поворот колесом: к нужному курсу, не быстрее WheelRate; сильно мимо курса — сначала встать
             bool wheel = Math.Abs(diff) > (m.OnSpot ? 1e-6 : M.MarchAlignDeg);
+            double omega = 0;   // Г118: сколько довернули на этом шаге, рад/с — на марше центр сбавляет ход, чтобы внешний фланг не бежал быстрее нормы
             if (Math.Abs(diff) > 1e-9)
             {
                 double step = Math.Sign(diff) * Math.Min(Math.Abs(diff), WheelRate(m, r) * dt);
+                omega = Math.Abs(step) * Math.PI / 180 / dt;
                 if (M.WheelPivotFlank && wheel)
                 {
                     // Г111 п.3: заход вокруг ближнего фланга — фланг со стороны поворота стоит, центр идёт по дуге вокруг него
@@ -389,6 +392,7 @@ namespace BattleCore
             {
                 double cap = top;
                 if (m.Side && Math.Abs(AngleDiff(P.Facing, LegHeading(m.Track, leg))) > M.ForwardConeDeg) cap *= M.SideSpeed;
+                if (omega > 0 && M.TurnSlowK > 0) cap = Math.Min(cap, Math.Max(top * M.TurnMinShare, top * M.TurnSlowK - omega * P.Fp.Front / 2));   // Г118: доворот на ходу — внешний фланг (центр + ω × полфронта) не быстрее нормы
                 target = left <= budget + 1e-9
                     ? Math.Min(cap, Math.Sqrt(2 * acc * left))           // дойдёт в этом ходу — тормозит к цели
                     : Math.Min(cap, budget / Math.Max(tau, dt));         // не дойдёт — тратит ровно норму к концу хода
