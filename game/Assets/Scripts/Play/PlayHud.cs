@@ -390,6 +390,7 @@ namespace Journal.Play
             speed1.EnableInClassList("is-on", Mathf.Approximately(pc.Speed, 1)); speed2.EnableInClassList("is-on", Mathf.Approximately(pc.Speed, 2)); speed4.EnableInClassList("is-on", Mathf.Approximately(pc.Speed, 4));
             Power(s);
             Duels(s);
+            Hints();
             SideTabs(s);
             Cards(s);
             Detail();
@@ -462,6 +463,46 @@ namespace Journal.Play
             }
         }
 
+        // ── Г116а: всплывающие подсказки — при наведении на приказ, кнопку или цифру отряда, через 0,4 с; текст — tooltip элемента
+        // (в игре Unity сам его не показывает) или живой текст (hints) — для чисел, что меняются ──
+        Label hintBox; VisualElement hintOn; float hintSince;
+        readonly Dictionary<VisualElement, System.Func<string>> hints = new Dictionary<VisualElement, System.Func<string>>();
+        static readonly Dictionary<string, string> DetailHints = new Dictionary<string, string>
+        {
+            ["Бойцов"] = "Сколько бойцов в строю сейчас и сколько было в начале битвы. Убитые и раненые выбывают из строя.",
+            ["Боевой дух"] = "БД. Падает от потерь, удара во фланг или тыл, засады, проигранного поединка; растёт от победы и полководца. Чем ниже, тем ближе отряд к бегству.",
+            ["Дисциплина"] = "Выучка: по ней бросают проверки на бегство и «сплотить» бегущих (d100 ≤ дисциплина).",
+            ["Усталость"] = "Копится на марше, бегом и в рукопашной; отдых — стоя.",
+            ["Норма хода"] = "Сколько метров отряд проходит за ход (15 с) по ровному полю; лес, холм, брод и строй в беспорядке — медленнее.",
+        };
+        void Hint(VisualElement e, System.Func<string> text) { hints[e] = text; }
+        void Hints()
+        {
+            if (hintBox == null)
+            {
+                hintBox = new Label(); hintBox.AddToClassList("hint-box"); hintBox.AddToClassList("hidden"); hintBox.pickingMode = PickingMode.Ignore;
+                root.Add(hintBox);
+            }
+            var mp = Mouse.current?.position.ReadValue() ?? Vector2.zero;
+            var pos = RuntimePanelUtils.ScreenToPanel(root.panel, new Vector2(mp.x, Screen.height - mp.y));
+            VisualElement on = null; string text = null;
+            for (var e = root.panel.Pick(pos); e != null && e != root; e = e.parent)
+            {
+                if (hints.TryGetValue(e, out var f)) { text = f(); on = e; break; }
+                if (!string.IsNullOrEmpty(e.tooltip)) { text = e.tooltip; on = e; break; }
+            }
+            if (on != hintOn) { hintOn = on; hintSince = Time.unscaledTime; }
+            bool show = on != null && !string.IsNullOrEmpty(text) && Time.unscaledTime - hintSince > 0.4f;
+            hintBox.EnableInClassList("hidden", !show);
+            if (!show) return;
+            hintBox.text = text;
+            float w = float.IsNaN(hintBox.resolvedStyle.width) ? 280 : hintBox.resolvedStyle.width, h = float.IsNaN(hintBox.resolvedStyle.height) ? 40 : hintBox.resolvedStyle.height;
+            var size = root.layout.size;
+            float x = Mathf.Min(pos.x + 16, size.x - w - 6), y = pos.y + 20 + h > size.y - 6 ? pos.y - h - 10 : pos.y + 20;
+            hintBox.style.left = Mathf.Max(6, x); hintBox.style.top = Mathf.Max(6, y);
+            hintBox.BringToFront();
+        }
+
         Label viewTab;
         void SideTabs(BattleSession s)
         {
@@ -512,6 +553,8 @@ namespace Journal.Play
         }
         void BuildCards(List<Mover> units)
         {
+            foreach (var c0 in cards.Values) foreach (var e in c0.Root.Children()) hints.Remove(e);   // подсказки старых карточек
+            foreach (var c0 in cards.Values) hints.Remove(c0.Root);
             cardsRow.Clear(); cards.Clear();
             bool compact = units.Count > 10;   // много отрядов — мини-карточки в несколько рядов
             cardsRow.EnableInClassList("is-compact", compact); bottomDock.EnableInClassList("is-wide", compact);
@@ -533,7 +576,10 @@ namespace Journal.Play
                 c.Root.RegisterCallback<ClickEvent>(e => { if (e.ctrlKey) pc.Toggle(mm); else pc.Select(mm); if (e.clickCount >= 2) pc.FocusOn(mm); });   // Ctrl — к группе; двойной — камера к отряду
                 c.Root.RegisterCallback<PointerEnterEvent>(_ => pc.UiHover = mm);
                 c.Root.RegisterCallback<PointerLeaveEvent>(_ => { if (pc.UiHover == mm) pc.UiHover = null; });
-                c.Root.tooltip = m.P.U.Name;
+                Hint(c.Root, () => $"{mm.P.U.Name}: {mm.P.U.Soldiers:0} бойцов, БД {mm.P.U.Morale:0} — {Units.MoraleStage(mm.P.U.Morale).Label}.\nЩелчок — выбрать, Ctrl — добавить к группе, двойной — камера к отряду.");
+                Hint(hp, () => $"Бойцы: {mm.P.U.Soldiers:0} из {(pc.Game.StartMen.TryGetValue(mm, out var s0) ? s0 : mm.P.U.Soldiers):0} в начале битвы");
+                Hint(mo, () => $"Боевой дух: {mm.P.U.Morale:0} — {Units.MoraleStage(mm.P.U.Morale).Label}");
+                Hint(c.Order, () => $"Приказ: {OrderText(pc.Session.OrderOf(mm))}" + (pc.Session.Pending.ContainsKey(mm) ? " (новый, уйдёт по «Ход!»)" : ""));
                 cardsRow.Add(c.Root); cards[m] = c;
             }
         }
@@ -576,6 +622,7 @@ namespace Journal.Play
                 var r = new VisualElement(); r.AddToClassList("detail-row");
                 var k = new Label(); k.AddToClassList("detail-key"); var v = new Label(); v.AddToClassList("detail-val");
                 r.Add(k); r.Add(v); detailRows.Add(r);
+                Hint(r, () => DetailHints.TryGetValue(k.text, out var h) ? h : null);
             }
             for (int i = 0; i < rows.Length; i++)
             {

@@ -420,6 +420,20 @@
     margin-right: 10px;
 }
 
+/* всплывающая подсказка (Г116а) */
+.hint-box {
+    position: absolute;
+    max-width: 340px;
+    padding: 6px 10px;
+    background-color: rgba(22, 18, 13, 0.96);
+    border-width: 1px;
+    border-color: var(--gold-deep);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--ink);
+    white-space: normal;
+}
+
 .view-tab {
     margin-left: 10px;
     color: var(--gold);
