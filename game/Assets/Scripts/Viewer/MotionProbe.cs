@@ -21,9 +21,16 @@ namespace Journal.Viewer
         // ниже норм движка (пехота ~100 м за 15 с — 6,7 м/с, конница 250 м — 16,7 м/с), поэтому скорость — от нормы отряда:
         // боец не быстрее нормы × SpeedK (1,4, Rules.Men) — и ещё 10 %; разгон — норма / AccelSec × AccelK (1,5) — и ещё 10 %
         public static Func<int, (float norm, float accelSec)> Norm;
-        public static float SpeedK = 1.4f, AccelK = 1.5f;
+        public static float SpeedK = 1.4f, AccelK = 1.5f, AccOver = 1.1f;
+        // по мерилу ядра (Rules.Smooth, dev d2d7256): Norm — наибольшая скорость отряда (MoveSim.TopSpeed), SpeedK 1, Over 1,1;
+        // разгон — TopSpeed / AccelSec × 1 × 1,05; поворот 90/180 °/с × 1,05 — ставит сценарий замера
+        public static void FromRules(BattleCore.Rules r)
+        {
+            var S = r.Smooth; SpeedK = 1; Over = (float)S.VmaxK; AccelK = (float)S.AccelK; AccOver = (float)S.TolK;
+            TurnHorse = (float)(S.HorseTurnDegPerSec * S.TolK); TurnFoot = (float)(S.FootTurnDegPerSec * S.TolK); HorseSideBack = (float)S.HorseSideMps;
+        }
         static float VMax(int ui, bool horse) => Norm != null ? Norm(ui).norm * SpeedK * Over : (horse ? MaxHorse : MaxFoot) * Over;
-        static float AMax(int ui, bool horse) { if (Norm == null) return (horse ? AccHorse : AccFoot) * Over; var (v, a) = Norm(ui); return v / Mathf.Max(0.2f, a) * AccelK * Over; }
+        static float AMax(int ui, bool horse) { if (Norm == null) return (horse ? AccHorse : AccFoot) * Over; var (v, a) = Norm(ui); return v / Mathf.Max(0.2f, a) * AccelK * AccOver; }
         const float Win = 0.1f;   // окно оценки скорости для разгона, с
 
         sealed class Track { public float T = -1, X, Y, F, WT = -1, WX, WY, VX, VY, VT = -1; }
@@ -95,7 +102,7 @@ namespace Journal.Viewer
         {
             var sb = new StringBuilder();
             sb.AppendLine(Norm != null
-                ? $"Пределы: скорость — норма отряда × {SpeedK} × {Over}; разгон — норма / разгон отряда × {AccelK} × {Over}; конь вбок и назад — {HorseSideBack} м/с × {Over}; поворот — конь {TurnHorse} °/с, пеший {TurnFoot} °/с (черновик Г118)."
+                ? $"Пределы: скорость — наибольшая отряда × {SpeedK * Over:0.##}; разгон — наибольшая / разгон отряда × {AccelK * AccOver:0.##}; конь вбок и назад — {HorseSideBack * Over:0.#} м/с; поворот — конь {TurnHorse:0.#} °/с, пеший {TurnFoot:0.#} °/с (черновик Г118)."
                 : $"Пределы (черновик Г118): скорость — конь {MaxHorse} м/с, пеший {MaxFoot} м/с, ×{Over}; конь вбок и назад — {HorseSideBack} м/с; поворот — конь {TurnHorse} °/с, пеший {TurnFoot} °/с; разгон — конь {AccHorse}, пеший {AccFoot} м/с² ×{Over}.");
             sb.AppendLine("Мерило | замеров | сверх предела | % | наибольшее");
             foreach (var kv in stats.OrderBy(k => k.Key))

@@ -13,7 +13,8 @@ var rec = V.Rec; float end = (rec.Frames.Count - 1) * (float)rec.Dt, step = 1f /
 Journal.Viewer.MotionProbe.Reset();
 var pc = UnityEngine.Object.FindAnyObjectByType<Journal.Play.PlayController>();
 var norms = new System.Collections.Generic.List<(float, float)>();
-foreach (var m in pc.Battle.Movers) norms.Add(((float)(BattleCore.BattleMap.UnitSpeed(m.P.U, pc.Battle.R) / pc.Battle.R.Move.TurnSec), (float)BattleCore.MoveSim.AccelSec(m.P.U, pc.Battle.R)));
+foreach (var m in pc.Battle.Movers) norms.Add(((float)BattleCore.MoveSim.TopSpeed(m.P.U, pc.Battle.R), (float)BattleCore.MoveSim.AccelSec(m.P.U, pc.Battle.R)));
+Journal.Viewer.MotionProbe.FromRules(pc.Battle.R);   // пределы — мерила ядра (Rules.Smooth)
 Journal.Viewer.MotionProbe.Norm = ui => ui < norms.Count ? norms[ui] : (6f, 1f);
 Journal.Viewer.MotionProbe.UnitName = ui => ui < rec.Units.Count ? rec.Units[ui].Name : "#" + ui;
 System.IO.File.Delete(dir + "probe_" + tag + ".txt");

@@ -3,12 +3,12 @@
 var V = UnityEngine.Object.FindAnyObjectByType<Journal.Viewer.BattleViewer>();
 var pc = UnityEngine.Object.FindAnyObjectByType<Journal.Play.PlayController>();
 var rec = V.Rec; float dt = (float)rec.Dt;
-var sb = new System.Text.StringBuilder("сырая запись: разгон (м/с²) по кадрам 0,2 с; предел — норма / разгон отряда × 1,5 × 1,1\n");
+var sb = new System.Text.StringBuilder("сырая запись: разгон (м/с²) по кадрам 0,2 с; предел — наибольшая / разгон отряда × 1,05 (мерило ядра)\n");
 for (int ui = 0; ui < rec.Units.Count; ui++)
 {
     var u = pc.Battle.Movers[ui].P.U;
-    float norm = (float)(BattleCore.BattleMap.UnitSpeed(u, pc.Battle.R) / pc.Battle.R.Move.TurnSec), asec = (float)BattleCore.MoveSim.AccelSec(u, pc.Battle.R);
-    float lim = norm / System.Math.Max(0.2f, asec) * 1.5f * 1.1f;
+    float norm = (float)BattleCore.MoveSim.TopSpeed(u, pc.Battle.R), asec = (float)BattleCore.MoveSim.AccelSec(u, pc.Battle.R);
+    float lim = norm / System.Math.Max(0.2f, asec) * 1.05f;
     long n = 0, over = 0, over3 = 0; float mx = 0;
     for (int f = 2; f < rec.Men.Count; f++)
     {
