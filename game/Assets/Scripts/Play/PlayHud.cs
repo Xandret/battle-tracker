@@ -349,7 +349,8 @@ namespace Journal.Play
             // Г104: гарнизон — пехота на ближайшую стену фронтом наружу (до первого хода — сразу, потом — идёт)
             Add("wall", "На стену", "Н", () => pc.WallSelected(), "Пехота — на ближайшую стену (до 60 м) фронтом наружу; кто не влез — во дворе. Можно и перетащить отряд на стену до первого хода");
             // Г108: поединок полководцев — потом ПКМ по вражескому отряду с полководцем
-            Add("duel", "Поединок", "П", () => { if (pc.CommanderOf(pc.Selected) != null) pc.DuelMode = !pc.DuelMode; }, "Вызвать вражеского полководца на поединок: нажми, потом ПКМ по его отряду (до 80 м). Отказ бьёт по боевому духу его войска");
+            Add("duel", "Поединок", "П", () => pc.ToggleDuel(), "Вызвать вражеского полководца на поединок: нажми, потом ПКМ по его отряду (до 80 м). Отказ бьёт по боевому духу его войска");
+            Hint(orderBtn["duel"], () => pc.DuelWhy(pc.Selected) is string w ? $"Поединок сейчас нельзя: {w}." : "Вызвать вражеского полководца на поединок: нажми (П), потом ПКМ по его отряду. Отказ бьёт по боевому духу его войска");
         }
 
         void LateUpdate()
@@ -483,6 +484,7 @@ namespace Journal.Play
                 hintBox = new Label(); hintBox.AddToClassList("hint-box"); hintBox.AddToClassList("hidden"); hintBox.pickingMode = PickingMode.Ignore;
                 root.Add(hintBox);
             }
+            if (root.panel == null) return;   // панель ещё не готова (выход из игры, перестройка)
             var mp = Mouse.current?.position.ReadValue() ?? Vector2.zero;
             var pos = RuntimePanelUtils.ScreenToPanel(root.panel, new Vector2(mp.x, Screen.height - mp.y));
             VisualElement on = null; string text = null;
@@ -792,7 +794,7 @@ namespace Journal.Play
             bool anyWall = pc.HasWalls && pc.Selection.Any(m => !m.Fleeing && m.P.U.Type != "cavalry");
             foreach (var kv in orderBtn)
             {
-                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "duel" ? pc.Selection.Count == 1 && pc.CommanderOf(pc.Selected) != null && !pc.Selected.Fleeing : kv.Key == "cancel" || anyLine);
+                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "duel" ? pc.DuelMode || pc.DuelWhy(pc.Selected) == null : kv.Key == "cancel" || anyLine);
                 kv.Value.EnableInClassList("is-off", !on);
             }
             orderBtn["charge"].EnableInClassList("is-on", pc.ChargeMode);

@@ -446,7 +446,7 @@ namespace Journal.Viewer
         readonly Dictionary<int, (float at, float end)> down0 = new Dictionary<int, (float, float)>();
         // где боец нарисован (сглаживание): сдвиг от середины отряда и его скорость, где был, ход и фаза шага, доля «в схватке»,
         // с какого времени в схватке; Dx, Dy — нарисован минус место в движке (павший ляжет там, где его видели)
-        struct Vis { public float T, Ex, Ey, Vx, Vy, Px, Py, Sp, Ph, Melee, Since, Dx, Dy; }
+        struct Vis { public float T, Ex, Ey, Vx, Vy, Px, Py, Sp, Ph, Melee, Since, Dx, Dy, Cx, Cy; }
         Vis[][] vis;
         Vis[] VisOf(int ui, int n)
         {
@@ -541,6 +541,7 @@ namespace Journal.Viewer
                 int fig = m0.Fig[id], seed = info.Id * 7919 + id;
                 bool fight = efv != null && efv.ContainsKey(fig) || mel0.ContainsKey(id);
                 Smooth(ref vs[id], x, y, ucx, ucy, sp, ph, fight, horse, t, out x, out y, out sp, out ph);
+                if (MotionProbe.On && lastSnap > 0) MotionProbe.Snap(ui, id, t, lastSnap, horse);   // Г118: сглаживание сброшено скачком
                 float mfor = float.IsNaN(vs[id].Since) ? -1 : t - vs[id].Since, dn = -1, rise = 0;
                 if (down0.TryGetValue(id, out var dw)) { dn = Mathf.Max(0, t - dw.at); rise = dw.end - t; }
                 bool vis = In(x, y, 6); anyVis |= vis;
@@ -568,6 +569,8 @@ namespace Journal.Viewer
                     M[i] = m;
                 }
             }
+            // Г118: мерило гладкости — каждый нарисованный боец (место и курс — как на экране), кроме падающих
+            if (MotionProbe.On) foreach (var m in M) if (m.Down < 0) MotionProbe.Add(ui, m.Id, horse, t, m.X, m.Y, m.Face, m.Atk || m.MeleeFor >= 0);
             // второй ряд (В20): древковые второй шеренги (пики — до четвёртой) колют через плечо передних, если их колонна рубится
             if (!flee && !horse && look != "bow" && look != "crossbow")
             {
@@ -700,11 +703,25 @@ namespace Journal.Viewer
         // сглаживание бойца: пружина (SmoothDamp) к месту в движке — относительно середины отряда; время пружины — у пешего
         // 0,05 с на марше и 0,2 с в схватке, у коня 0,08 и 0,4; в схватку входит за 0,3 с, выходит за 1 с. Перемотка, пауза
         // дольше 0,5 с или рывок дальше 6 м — сразу на место. Ход и фаза шага — по нарисованному пути
+        public static bool LagClamp = true;   // Г118: выключатель — для замера «до/после» на одном бою
+        static float lastSnap;   // Г118: последний Smooth сбросил сглаживание скачком на столько м (0 — нет)
         static void Smooth(ref Vis v, float x, float y, float cx, float cy, float sp, float ph, bool fight, bool horse, float t,
                            out float ox, out float oy, out float osp, out float oph)
         {
             float dtv = t - v.T, ex = x - cx, ey = y - cy;
-            if (v.T <= 0 || dtv < 0 || dtv > 0.5f || (ex - v.Ex) * (ex - v.Ex) + (ey - v.Ey) * (ey - v.Ey) > 36)
+            // Г118: середина отряда (рамка строя) скачет, когда строй пересчитывается (до 10 м за кадр), а сами бойцы идут
+            // плавно; сглаживание — от середины, и весь отряд прыгал вслед за ней. Скачок середины (быстрее, чем ходит строй: пеший
+            // 11 м/с, конный 26 м/с — полторы нормы) — сдвиг
+            // сглаженного места на тот же скачок обратно: нарисованный боец остаётся, где был
+            if (v.T > 0 && dtv > 0 && dtv <= 0.5f)
+            {
+                float dcx = cx - v.Cx, dcy = cy - v.Cy, dc = Mathf.Sqrt(dcx * dcx + dcy * dcy);
+                if (dc > 0.2f && dc / dtv > (horse ? 26 : 11)) { v.Ex -= dcx; v.Ey -= dcy; }
+            }
+            v.Cx = cx; v.Cy = cy;
+            float jump2 = (ex - v.Ex) * (ex - v.Ex) + (ey - v.Ey) * (ey - v.Ey);
+            lastSnap = v.T > 0 && dtv >= 0 && dtv <= 0.5f && jump2 > 36 ? Mathf.Sqrt(jump2) : 0;
+            if (v.T <= 0 || dtv < 0 || dtv > 0.5f || jump2 > 36)
             {
                 v.Ex = ex; v.Ey = ey; v.Vx = v.Vy = 0; v.Sp = sp; v.Ph = ph; v.Px = x; v.Py = y; v.T = t;
                 v.Melee = fight ? 1 : 0; v.Since = fight ? t : float.NaN;
@@ -716,6 +733,11 @@ namespace Journal.Viewer
                 float st = Mathf.Lerp(horse ? 0.08f : 0.05f, horse ? 0.4f : 0.2f, v.Melee);
                 v.Ex = Mathf.SmoothDamp(v.Ex, ex, ref v.Vx, st, Mathf.Infinity, dtv);
                 v.Ey = Mathf.SmoothDamp(v.Ey, ey, ref v.Vy, st, Mathf.Infinity, dtv);
+                // Г118: сглаживание гасит дрожь, но не отстаёт — дальше LagMax от места в движке боец подтягивается сразу на край
+                // (раньше быстрый всадник в схватке отставал на метры от неподвижной середины отряда, на 6 м сглаживание
+                // сбрасывалось — и он прыгал: «телепорт» вбок и назад)
+                float lx = ex - v.Ex, ly = ey - v.Ey, lag = Mathf.Sqrt(lx * lx + ly * ly), lagMax = horse ? 0.8f : 0.5f;
+                if (LagClamp && lag > lagMax) { float k = 1 - lagMax / lag; v.Ex += lx * k; v.Ey += ly * k; }
                 float nx = cx + v.Ex, ny = cy + v.Ey, d = Mathf.Sqrt((nx - v.Px) * (nx - v.Px) + (ny - v.Py) * (ny - v.Py));
                 v.Sp += (d / dtv - v.Sp) * (1 - Mathf.Exp(-dtv / 0.2f));
                 float stride = horse ? (v.Sp < 2.3f ? 1.7f : v.Sp < 4.8f ? 2.8f : 5f) : v.Sp > 2.6f ? 2.4f : 1.4f;

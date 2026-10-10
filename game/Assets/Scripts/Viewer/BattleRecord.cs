@@ -145,6 +145,8 @@ namespace Journal.Viewer
     // ищет летящие по времени). Snap и чтение записи — из одного потока (иначе — под lock(Rec)).
     public sealed class Recorder
     {
+        public static bool HorseBody = false;   // Г118: курс коня в записи — свой (по умолчанию) или капсулы (true, как после Г111 п.2); выключатель для замера
+
         public readonly Recording Rec;
         readonly List<Mover> ms; readonly Battle battle;
         readonly Dictionary<int, int> idx = new Dictionary<int, int>();
@@ -434,7 +436,10 @@ namespace Journal.Viewer
                     if (!man.Alive || man.Id >= n) continue;
                     int id = man.Id;
                     mf.Xyh[3 * id] = (float)man.X; mf.Xyh[3 * id + 1] = (float)man.Y;
-                    mf.Xyh[3 * id + 2] = (float)(horse && rec.Frames.Count > 1 ? man.BodyFacing : man.Facing);   // конь — по курсу своей капсулы (Г111 п.2): рисунок не въезжает в чужой строй
+                    // конь: HorseBody — по курсу капсулы (Г111 п.2: рисунок не въезжает в чужой строй, но капсула лежит вдоль колонны —
+                    // конь «едет боком» до 37 м/с, замер Г118); иначе — по своему курсу (man.Facing: ход вбок и назад движок держит
+                    // относительно него — разворот дугой)
+                    mf.Xyh[3 * id + 2] = (float)(horse && HorseBody && rec.Frames.Count > 1 ? man.BodyFacing : man.Facing);
                     mf.Fig[id] = (short)(man.Fig?.Id ?? 0); mf.Row[id] = (byte)Math.Min(255, man.Row);
                     float px = g.xy[2 * id], py = g.xy[2 * id + 1];
                     if (float.IsNaN(px)) g.ph[id] = (float)Journal.Art.Kits.Hash(m.P.U.Id * 7919 + id, 5);

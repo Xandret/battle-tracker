@@ -334,12 +334,37 @@ namespace Journal.Play
         // принят — со следующего хода оба отряда стоят, стража держит кольцо, полководцы бьются ──
         public bool DuelMode { get; set; }
         public Commander CommanderOf(Mover m) => m == null ? null : Battle?.Ctx?.CommanderOf?.Invoke(m.P.U);
+        // Г121: кнопка и П не молчат — нельзя вызвать, значит сказать почему (нет полководца, бежит, уже в поединке, враг дальше 80 м)
+        public string DuelWhy(Mover m)
+        {
+            if (Phase != PlayPhase.Orders) return "вызов — между ходами";
+            if (m == null) return "выбери отряд с полководцем";
+            if (Selection.Count > 1) return "вызывает один отряд — выбери один";
+            var c = CommanderOf(m);
+            if (c == null || c.Dead) return $"в отряде «{m.P.U.Name}» нет полководца";
+            if (m.Fleeing) return $"«{m.P.U.Name}» бежит";
+            if (Battle.Challenges.Any(x => x.from == m || x.to == m) || Battle.Duels.Any(d => !d.Over && (d.A == m || d.B == m))) return $"«{c.Name}» уже в поединке или вызван";
+            var foes = Battle.Movers.Where(e => SideOf(e) != SideOf(m) && Present(e) && SeenNow(e) && CommanderOf(e) is Commander ce && !ce.Dead)
+                                    .Select(e => (e, d: Math.Sqrt((e.P.X - m.P.X) * (e.P.X - m.P.X) + (e.P.Y - m.P.Y) * (e.P.Y - m.P.Y)))).OrderBy(x => x.d).ToList();
+            if (foes.Count == 0) return "у врага на поле не видно полководцев";
+            double range = Battle.R.Duel.RangeM;
+            if (foes[0].d > range) return $"ближайший вражеский полководец «{CommanderOf(foes[0].e).Name}» («{foes[0].e.P.U.Name}») в {foes[0].d:0} м — вызвать можно не дальше {range:0} м";
+            return null;
+        }
+        public void ToggleDuel()
+        {
+            if (DuelMode) { DuelMode = false; Say("Вызов на поединок — отменён"); return; }
+            var why = DuelWhy(Selected);
+            if (why != null) { Say("Поединок: " + why); return; }
+            DuelMode = true;
+            Say($"«{CommanderOf(Selected).Name}» ищет противника: ПКМ по вражескому отряду с полководцем (до {Battle.R.Duel.RangeM:0} м), Esc — отмена");
+        }
         public void Challenge(Mover target)
         {
             DuelMode = false;
             if (Selected == null || target == null) return;
             var why = Battle.Challenge(Selected, target);
-            Say(why == null ? $"«{CommanderOf(Selected)?.Name}» вызывает «{CommanderOf(target)?.Name}» — ответ до «Ход!»" : why);
+            Say(why == null ? $"«{CommanderOf(Selected)?.Name}» вызывает «{CommanderOf(target)?.Name}» — ответ до «Ход!»" : "Поединок: " + why);
             Changed?.Invoke();
         }
         public void AnswerDuel(Mover b, bool accept)
@@ -997,7 +1022,8 @@ namespace Journal.Play
             {
                 if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) Go();
                 if (kb.spaceKey.wasPressedThisFrame && Phase == PlayPhase.Showing) Paused = !Paused;
-                if (kb.escapeKey.wasPressedThisFrame && GmPlacing == null && AiPicking == null) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
+                if (kb.escapeKey.wasPressedThisFrame && DuelMode) { DuelMode = false; Say("Вызов на поединок — отменён"); }
+                else if (kb.escapeKey.wasPressedThisFrame && GmPlacing == null && AiPicking == null) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
                 if (ctrl && kb.aKey.wasPressedThisFrame) SelectMany(Battle.Movers.Where(m => SideOf(m) == ActiveSide));
                 if (Selection.Count > 0 && Phase == PlayPhase.Orders && !ctrl)
                 {
@@ -1006,7 +1032,7 @@ namespace Journal.Play
                     if (kb.cKey.wasPressedThisFrame) Rally();     // С
                     if (kb.backspaceKey.wasPressedThisFrame) Cancel();
                     if (kb.yKey.wasPressedThisFrame) WallSelected();   // Н — на стену
-                    if (kb.gKey.wasPressedThisFrame && CommanderOf(Selected) != null) DuelMode = !DuelMode;   // П — поединок
+                    if (kb.gKey.wasPressedThisFrame) ToggleDuel();   // П — поединок (нельзя — скажет почему)
                 }
                 if (kb.tabKey.wasPressedThisFrame) { ActiveSide = Session.Sides.SkipWhile(s => s != ActiveSide).Skip(1).DefaultIfEmpty(Session.Sides.First()).First(); Select(null); if (ViewSide > 0) ViewSide = ActiveSide; }
                 if (kb.vKey.wasPressedThisFrame) CycleView();   // М — чьими глазами
