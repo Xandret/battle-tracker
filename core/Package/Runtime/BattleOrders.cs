@@ -132,7 +132,7 @@ namespace BattleCore
         public readonly Dictionary<int, (double x0, double y0, double x1, double y1)> Zones = new Dictionary<int, (double, double, double, double)>();
         public bool BeginDeploy()
         {
-            if (Turn != 1 || Phase != Phase.Orders || Battle.Movers.Any(m => m.Order != null)) return false;
+            if (Turn != 1 || Phase != Phase.Orders || Battle.Movers.Any(m => m.Order != null && m.Order.Kind != OrderKind.Hold)) return false;   // «держать» из сценария — не помеха
             Phase = Phase.Deploy; return true;
         }
         public string Place(Mover m, double x, double y, double facing)

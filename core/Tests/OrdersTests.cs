@@ -47,6 +47,7 @@ static class OrdersTests
             var a = bt.Add(T.Make(1, "Свои", 1000, 1), 500, 800, 0); var b = bt.Add(T.Make(2, "Враг", 1000, 2), 500, 200, 180);
             var ses = new BattleSession(bt);
             ses.Zones[1] = (0, 500, 1000, 1000); ses.Zones[2] = (0, 0, 1000, 500);
+            bt.Order(b, new MoveOrder { Kind = OrderKind.Hold });   // «держать» из сценария расстановке не мешает
             True(ses.BeginDeploy() && ses.Phase == Phase.Deploy, "в расстановку не вошли");
             True(ses.SetOrder(a, new MoveOrder { X = 500, Y = 600, Facing = 0 }) != null, "приказ в расстановке принят");
             True(ses.Place(a, 300, 650, 90) == null && Math.Abs(a.P.X - 300) < 1e-6 && Math.Abs(a.P.Y - 650) < 1e-6 && Math.Abs(a.P.Facing - 90) < 1e-6 && a.Order == null && ses.Turn == 1, $"не переставился: ({a.P.X:0}, {a.P.Y:0}) курс {a.P.Facing:0}, приказ {a.Order?.Kind}");
