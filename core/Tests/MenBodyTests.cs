@@ -109,7 +109,7 @@ static class MenBodyTests
                 return (a, b, bad, steps);
             }
             var (na, nb, bad, steps) = Run(RB); var (oa, ob, _, _) = Run(Rules.Base);
-            True(bad <= 0.05 * steps, $"свои налезали глубже 0,5 м в {bad} шагах из {steps}");
+            True(bad <= 0.08 * steps, $"свои налезали глубже 0,5 м в {bad} шагах из {steps}");   // Г111 п.3: поворот вокруг фланга при обходе заметает соседа — было ≤ 5 %, свои теперь мягкие (п.2)
             double left(Mover m, double tx) => Math.Abs(m.P.X - tx);
             True(left(na, 750) <= left(oa, 750) + 10 && left(nb, 250) <= left(ob, 250) + 10,
                 $"отстали от фигурок: A осталось {left(na, 750):0} (было {left(oa, 750):0}), B {left(nb, 250):0} (было {left(ob, 250):0})");
@@ -338,7 +338,7 @@ static class MenBodyTests
                 }
             });
             True(worstTurn <= 1 + 1e-6, $"курс повернулся быстрее предела в {worstTurn:0.00} раза");
-            True(horseN > 1000 && backN <= 0.01 * horseN, $"кони вне схватки пятились быстрее 2 м/с в {backN} окнах по 0,5 с из {horseN}");
+            True(horseN > 1000 && backN <= 0.015 * horseN, $"кони вне схватки пятились быстрее 2 м/с в {backN} окнах по 0,5 с из {horseN}");   // Г111 п.4: вторая линия за своими — чуть больше топтания, было ≤ 1 %
         });
 
         // ── Г90: натиск телами ──
@@ -706,6 +706,27 @@ static class MenBodyTests
             True(w.garrisonLoss >= 1 && w.garrisonLoss <= 0.7 * f.garrisonLoss, $"потери гарнизона за ход: на стене {w.garrisonLoss:0}, в поле {f.garrisonLoss:0}");
             True(w.building > 0 && f.building == 0, $"стрел в стену: у стены {w.building}, в поле {f.building}");
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
+        });
+
+        // ── Г111 п.3: повороты строем ──
+        yield return ("Г111 п.3: поворот строем на 90° — вокруг ближнего фланга: фланг со стороны поворота сдвигается меньше 8 м, дальний идёт дугой; пехота 125 м поворачивает не быстрее 45°/с и не быстрее 1,5 марша на фланге (≥ 15 с), конница — не быстрее 30°/с", () =>
+        {
+            foreach (var (tpl, maxDeg) in new[] { ("infantry", RB.Move.WheelMaxDegPerSec), ("knights", RB.Move.WheelMaxDegPerSecHorse) })
+            {
+                var geo = MoveTests.Open(600, 600);
+                var m = Mover.Place(Templates.Get(tpl).Make(1, tpl, 1000, 1), 300, 300, 0, RB);
+                double front = m.P.Fp.Front;
+                m.P.ToWorld(front / 2, 0, out var rx0, out var ry0); m.P.ToWorld(-front / 2, 0, out var lx0, out var ly0);   // правый и левый фланг
+                MoveSim.Give(m, new MoveOrder { X = 300, Y = 300, Facing = 90 }, geo, RB);   // довернуть направо на 90° стоя
+                double maxRate = 0, prevF = m.P.Facing; int steps = 0;
+                MoveSim.Turn(new[] { m }, geo, RB, tt => { double d = Math.Abs(MoveSim.AngleDiff(prevF, m.P.Facing)) / RB.Move.Dt; maxRate = Math.Max(maxRate, d); prevF = m.P.Facing; if (Math.Abs(MoveSim.AngleDiff(m.P.Facing, 90)) > 0.5) steps++; });
+                m.P.ToWorld(front / 2, 0, out var rx1, out var ry1); m.P.ToWorld(-front / 2, 0, out var lx1, out var ly1);
+                double march = BattleMap.UnitSpeed(m.P.U, RB) / RB.Move.TurnSec, minSec = Math.Min(90 / maxDeg, (Math.PI / 2 * front) / (RB.Move.WheelK * march));
+                True(maxRate <= maxDeg + 1, $"{tpl}: поворот до {maxRate:0}°/с при пределе {maxDeg}");
+                True(steps * RB.Move.Dt >= minSec - 0.5, $"{tpl}: повернул за {steps * RB.Move.Dt:0.0} с, а на учении не быстрее {minSec:0.0} с");
+                True(JsMath.Hypot(rx1 - rx0, ry1 - ry0) < 8, $"{tpl}: ближний (правый) фланг ушёл на {JsMath.Hypot(rx1 - rx0, ry1 - ry0):0} м");
+                True(JsMath.Hypot(lx1 - lx0, ly1 - ly0) > front * 0.9, $"{tpl}: дальний фланг прошёл {JsMath.Hypot(lx1 - lx0, ly1 - ly0):0} м при фронте {front:0}");
+            }
         });
 
         // ── Г111 п.2: свои мягкие ──

@@ -166,7 +166,10 @@ namespace BattleCore
         public static double WheelRate(Mover m, Rules r)
         {
             double march = BattleMap.UnitSpeed(m.P.U, r) / r.Move.TurnSec;
-            return Math.Min(r.Move.WheelMaxDegPerSec, r.Move.WheelK * march / Math.Max(0.5, m.P.Fp.Front / 2) * 180 / Math.PI);
+            double maxDeg = BattleMap.IsHorse(m.P.U) ? r.Move.WheelMaxDegPerSecHorse : r.Move.WheelMaxDegPerSec;
+            // вокруг фланга — плечо вдвое длиннее (весь фронт), фланг идёт с той же скоростью: градусов вдвое меньше
+            double arm = r.Move.WheelPivotFlank ? Math.Max(0.5, m.P.Fp.Front) : Math.Max(0.5, m.P.Fp.Front / 2);
+            return Math.Min(maxDeg, r.Move.WheelK * march / arm * 180 / Math.PI);
         }
 
         // Приказ: путь по карте направлений, режим марша (Г54). Цель — внутри карты; непроходимая — встаём рядом.
@@ -367,7 +370,18 @@ namespace BattleCore
 
             // поворот колесом: к нужному курсу, не быстрее WheelRate; сильно мимо курса — сначала встать
             bool wheel = Math.Abs(diff) > (m.OnSpot ? 1e-6 : M.MarchAlignDeg);
-            if (Math.Abs(diff) > 1e-9) P.Facing = Norm(P.Facing + Math.Sign(diff) * Math.Min(Math.Abs(diff), WheelRate(m, r) * dt));
+            if (Math.Abs(diff) > 1e-9)
+            {
+                double step = Math.Sign(diff) * Math.Min(Math.Abs(diff), WheelRate(m, r) * dt);
+                if (M.WheelPivotFlank && wheel)
+                {
+                    // Г111 п.3: заход вокруг ближнего фланга — фланг со стороны поворота стоит, центр идёт по дуге вокруг него
+                    double h = P.Facing * Math.PI / 180, px = P.X + Math.Sign(diff) * Math.Cos(h) * P.Fp.Front / 2, py = P.Y + Math.Sign(diff) * Math.Sin(h) * P.Fp.Front / 2;
+                    double a = step * Math.PI / 180, cx = P.X - px, cy = P.Y - py;
+                    P.X = px + cx * Math.Cos(a) - cy * Math.Sin(a); P.Y = py + cx * Math.Sin(a) + cy * Math.Cos(a);
+                }
+                P.Facing = Norm(P.Facing + step);
+            }
             if (wheel) m.WheelSec += dt;
 
             double target = 0;
@@ -547,6 +561,7 @@ namespace BattleCore
                     dvx = (gx - px) / M.SlotTau; dvy = (gy - py) / M.SlotTau;
                     // планка — у цели: далеко от места идёт как шла, за метр до места — не быстрее планки плюс метр в секунду на метр пути
                     if (m.InMelee) vmax = Math.Min(vmax, (BattleMap.IsHorse(u) ? r.Men.WrapFightHorseMps : r.Men.WrapFightFootMps) + JsMath.Hypot(gx - px, gy - py) * r.Men.WrapFightSlope);
+                    if (mb) vmax = Math.Min(vmax, TopSpeed(u, r) * r.Men.WrapSpeedK);   // Г111 п.7: в охват — не вскачь быстрее нормы (и в схватке: планка с наклоном вдали от места давала 25 м/с)
                 }
                 else
                 {
@@ -655,7 +670,7 @@ namespace BattleCore
             for (double q = from; q <= to + 1e-9; q += 2.5)
             {
                 var (x, y, dx, dy) = T.AtMeters(Math.Min(q, T.Length));
-                var (l, rr) = F.Corridor(x, y, dx, dy, half);
+                var (l, rr) = F.Corridor(x, y, dx, dy, half, M.CorridorSlowK);
                 if (friendsNear.Count > 0)
                 {
                     // проход между стоящими своими: сужаемся, только если в него войдёт не меньше FriendGapCols колонн — иначе
@@ -663,7 +678,7 @@ namespace BattleCore
                     double fl = FriendProbe(x, y, -dy, dx, l), fr = FriendProbe(x, y, dy, -dx, rr);
                     if (fl + fr < l + rr && ColsFor(fl + fr) >= M.FriendGapCols) { l = fl; rr = fr; }
                 }
-                int c = ColsFor(l + rr);
+                int c = ColsFor(M.NarrowCentered ? 2 * Math.Min(l, rr) : l + rr);   // Г111 п.5: строй стоит на оси пути — меряем по меньшему плечу
                 if (c < want && (q <= s || q - s <= LeadFor(c))) want = c;
             }
             // Б1: шире — не раньше NarrowWidenSec после перестроения и только если шире хотя бы на 2 колонны (или обратно в

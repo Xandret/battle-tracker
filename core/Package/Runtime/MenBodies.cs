@@ -286,7 +286,9 @@ namespace BattleCore
                         man.ViaX = double.NaN;
                         if (MoveSim.Free(F, man.X, man.Y) && double.IsInfinity(F.SegmentCost(man.X, man.Y, hx, hy)))
                         {
-                            int next = F.Next(F.CellOf(man.X, man.Y));
+                            // Г111 п.5: в обход — к своему месту в строю (поиск в окне), а не к цели отряда, куда ведёт вся карта
+                            int from = F.CellOf(man.X, man.Y), next = M.ViaToHome ? F.LocalStep(from, F.CellOf(hx, hy), 12) : -1;
+                            if (next < 0) next = F.Next(from);
                             if (next >= 0) { var cc = F.CenterOf(next); man.ViaX = cc.x; man.ViaY = cc.y; }
                         }
                     }
@@ -324,7 +326,7 @@ namespace BattleCore
                         else { lx = man.RLx; ly = man.RLy; cx = 0; cy = 0; }
                     }
                     man.WasRigid = rigid;
-                    double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * MR.SpeedK, v = JsMath.Hypot(vx, vy);
+                    double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * (s.Wrap && !s.Fighting ? MR.WrapMenSpeedK : MR.SpeedK), v = JsMath.Hypot(vx, vy);   // Г111 п.7: в охват бойцы не обгоняют якорь
                     if (v > vmax) { vx *= vmax / v; vy *= vmax / v; v = vmax; }
                     if (waiting) { vx = 0; vy = 0; v = 0; }
                     // Г94: курс тела — к нужному не быстрее turn за шаг; вбок и назад относительно курса — медленно. Колонна стоит, боец

@@ -1425,3 +1425,71 @@ static class PenetrationProbe
         }
     }
 }
+
+// Г111 п.7 (остаток): откуда сдвиги больше limM за 0,2 с — первые случаи с состоянием бойца (dotnet run --project Tests -- jerk-big [limM] [charge])
+static class MenJerkBigProbe
+{
+    public static void Run(string[] opts)
+    {
+        double lim = 4; bool charge = opts.Contains("charge");
+        foreach (var o in opts) if (double.TryParse(o, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)) lim = v;
+        var R = Rules.Base;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(5).Next });
+        var TA = Templates.Get("knights"); var TB = Templates.Get("infantry");
+        var b = bt.Add(TB.Make(2, "Пехота", 1000, 2), 500, 500, 0);
+        var fa = Formation.Of(TA.Make(1, "Рыцари", 1000, 1), R);
+        double dist = charge ? 150 : 0.5;
+        var a = bt.Add(TA.Make(1, "Рыцари", 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+        bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = charge });
+        var prev = new Dictionary<Man, (double x, double y, double t)>(); int shown = 0; var why = new Dictionary<string, int>();
+        for (int t = 0; t < 2; t++)
+            bt.Turn(tt =>
+            {
+                if (Math.Abs(tt % 0.2) > 0.03 && Math.Abs(tt % 0.2 - 0.2) > 0.03) return;
+                foreach (var m in new[] { a, b })
+                    foreach (var x in m.Men)
+                    {
+                        if (prev.TryGetValue(x, out var p) && x.Alive)
+                        {
+                            double d = JsMath.Hypot(x.X - p.x, x.Y - p.y);
+                            if (d > lim)
+                            {
+                                var h = Soldiers.HomeOf(m, x); var s = x.Fig;
+                                string w = x.DownLeft > 0 ? "лежит" : x.Reseat ? "пересадка" : !double.IsNaN(x.ViaX) ? "обход via" : s != null && s.Wrap ? "охват" : s != null && s.Returning ? "возврат" : x.Foe != null ? "с противником" : "прочее";
+                                why[w] = (why.TryGetValue(w, out var c) ? c : 0) + 1;
+                                if (shown++ < 10) Console.WriteLine($"{tt,5:0.0} с «{m.P.U.Name}» боец {x.Id}: сдвиг {d:0.0} м ({p.x:0.0},{p.y:0.0})→({x.X:0.0},{x.Y:0.0}); {w}; до места {JsMath.Hypot(h.x - x.X, h.y - x.Y):0.0} м, v {JsMath.Hypot(x.Vx, x.Vy):0.0}, колонна {(s == null ? "—" : $"AV {JsMath.Hypot(s.AVx, s.AVy):0.0} fight={s.Fighting} wrap={s.Wrap} ret={s.Returning}")}, ряд {x.Row}, противник {(x.Foe == null ? "нет" : "есть")}");
+                            }
+                        }
+                        prev[x] = (x.X, x.Y, tt);
+                    }
+            });
+        Console.WriteLine("итого больше порога: " + string.Join(", ", why.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}")));
+    }
+}
+
+// Г111 п.5 (остаток): река с мостом 15 м и бродом 20 м рядом — сужается ли строй до моста, сколько бойцов на броде
+// (dotnet run --project Tests -- ford [centered] [slowK]): правила NarrowCentered и CorridorSlowK выключены — см. SPEC
+static class FordProbe
+{
+    public static void Run(string[] opts)
+    {
+        var RB = Rules.Base;
+        RB.Move.NarrowCentered = opts.Contains("centered"); RB.Move.CorridorSlowK = opts.Contains("slowK") ? 1.5 : 0;
+        var geo = MoveTests.Open(600, 900);
+        Terrain.PaintRect(geo.Map, "t", 0, 70, 119, 73, Terrain.Id("water"));      // река y 350…370
+        Terrain.PaintRect(geo.Map, "t", 58, 70, 60, 73, Terrain.Id("bridge"));     // мост x 290…305
+        Terrain.PaintRect(geo.Map, "t", 61, 70, 64, 73, Terrain.Id("ford"));       // брод x 305…325, справа от моста
+        var m = Mover.Place(Templates.Get("infantry").Make(1, "Пехота", 1000, 1), 300, 600, 0, RB);
+        MoveSim.Give(m, new MoveOrder { X = 300, Y = 150, Facing = 0 }, geo, RB);
+        var ms = new[] { m }; int minCols = int.MaxValue, onFord = 0, checks = 0; byte ford = Terrain.Id("ford");
+        int t = 0;
+        for (; t < 12 && !m.Done; t++)
+            MoveSim.Turn(ms, geo, RB, tt =>
+            {
+                minCols = Math.Min(minCols, m.Cols);
+                foreach (var x in m.Men) { int cx = (int)(x.X / Terrain.CellM), cy = (int)(x.Y / Terrain.CellM); if (cy >= 70 && cy <= 73) { checks++; if (geo.Map.T[cy * geo.Map.W + cx] == ford) onFord++; } }
+            });
+        Console.WriteLine($"дошёл {m.Done} за {t} ходов; колонн в узости {minCols} (мост — 15); на броде {100.0 * onFord / Math.Max(1, checks):0}% замеров бойцов в полосе реки; в конце колонн {m.Cols} из {m.NominalCols}");
+        RB.Move.NarrowCentered = false; RB.Move.CorridorSlowK = 0;
+    }
+}

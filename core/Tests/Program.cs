@@ -305,6 +305,8 @@ if (args.Length > 0 && args[0] == "garrison") { GarrisonProbe.Run(args.Skip(1).T
 if (args.Length > 0 && args[0] == "gate") { GateProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "duel") { DuelProbe.Run(); return 0; }
 if (args.Length > 0 && args[0] == "penet") { PenetrationProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "jerk-big") { MenJerkBigProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "ford") { FordProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "forest") { MenForestProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "tune") { MenTuneProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "jerk-trace") { MenJerkTrace.Run(); return 0; }
