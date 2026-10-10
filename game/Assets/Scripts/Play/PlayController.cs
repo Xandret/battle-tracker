@@ -551,6 +551,8 @@ namespace Journal.Play
 
         // ── заставка главного меню (Алекс 10.10.2026): пока битва не выбрана — учебный бой идёт сам, обе стороны под ИИ (Г113);
         // камера сама: от схватки к схватке, раз в несколько секунд — общий план; после 8 ходов — новый бой с другим зерном ──
+        public bool DemoHold { get; set; }   // открыт редактор карт или армий — заставка стоит и камеру не трогает
+        bool demoHeld;
         object demoGame; uint demoSeed = 2026; float shotUntil, shotSize = 60; int shotA = -1, shotB = -1; Vector2 camAt; float camSize = 120;
         void Demo()
         {
@@ -880,7 +882,7 @@ namespace Journal.Play
         void UpdateBody()
         {
             if (Game == null) return;
-            if (!Chosen) Demo();
+            if (!Chosen) { if (DemoHold) Paused = true; else { if (Phase == PlayPhase.Showing && demoHeld) Paused = false; Demo(); } demoHeld = DemoHold; }
             if (Phase == PlayPhase.Showing) AdvanceTurn();
             else if (Phase == PlayPhase.Orders) { DrainPreviews(); FlushAdvice(); }
             HandleInput();
@@ -1256,7 +1258,7 @@ namespace Journal.Play
             var target = UnitAt(DragFrom);
             if (target != null && !group.Contains(target) && SideOf(target) != SideOf(group[0]))
             {
-                foreach (var m in group) DragOrders[m] = new MoveOrder { Kind = OrderKind.Attack, TargetId = target.P.U.Id, Charge = alt || ChargeMode };
+                foreach (var m in group) DragOrders[m] = new MoveOrder { Kind = OrderKind.Attack, TargetId = target.P.U.Id, Charge = (alt || ChargeMode) && Units.IsCav(m.P.U) };   // натиск — только конница
                 return;
             }
             var movers = group.Where(m => !m.Fleeing).ToList();

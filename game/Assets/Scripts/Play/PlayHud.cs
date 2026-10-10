@@ -332,7 +332,7 @@ namespace Journal.Play
             }
             Add("move", "Идти", "ПКМ", null, "ПКМ по земле — идти; протянуть — куда встать лицом");
             Add("attack", "Атаковать", "ПКМ", null, "ПКМ по врагу — атаковать; стрелки — стрелять");
-            Add("charge", "Натиск", "Alt", () => pc.ChargeMode = !pc.ChargeMode, "Следующая атака — с натиском (конница, разбег ≥ 50 м по чистому)");
+            Add("charge", "Натиск", "Alt", () => { if (pc.Selection.Any(m => Units.IsCav(m.P.U))) pc.ChargeMode = !pc.ChargeMode; else pc.Say("Натиск — только конница"); }, "Следующая атака — с натиском (только конница, разбег ≥ 50 м по чистому)");
             Add("hold", "Держать", "Д", () => pc.Hold(), "Стоять на месте");
             Add("retreat", "Отступить", "О", () => pc.Retreat(), "Пятиться лицом к врагу на половине нормы");
             Add("rally", "Сплотить", "С", () => pc.Rally(), "Бегущим: когда враг дальше 150 м — бросок d100 ≤ дисциплина");
@@ -358,6 +358,7 @@ namespace Journal.Play
             pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
             mapEditor.Tick();
             hud.EnableInClassList("is-bare", !pc.Chosen || mapEditor.Visible);   // поле-заставка за главным меню — без панелей битвы
+            pc.DemoHold = mapEditor.Visible || armies.Visible;   // в редакторах заставка не водит камеру
             tags.style.display = GameSettings.Tags && pc.Chosen && !mapEditor.Visible ? DisplayStyle.Flex : DisplayStyle.None;   // и без табличек отрядов
             // музыка — в меню и пока битва не выбрана; бой под ней тише
             if (music != null) { music.Want = mainMenu.Visible || !pc.Chosen || !menu.ClassListContains("hidden") || lineup.Visible || armyBattle.Visible; Journal.Viewer.BattleAudio.Duck = music.Want ? 0.35f : 1; }
@@ -791,7 +792,7 @@ namespace Journal.Play
             bool anyWall = pc.HasWalls && pc.Selection.Any(m => !m.Fleeing && m.P.U.Type != "cavalry");
             foreach (var kv in orderBtn)
             {
-                bool on = can && (kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "duel" ? pc.DuelMode || pc.DuelWhy(pc.Selected) == null : kv.Key == "cancel" || anyLine);
+                bool on = can && (kv.Key == "charge" ? pc.Selection.Any(m => !m.Fleeing && Units.IsCav(m.P.U)) : kv.Key == "rally" ? anyFlee : kv.Key == "wall" ? anyWall : kv.Key == "duel" ? pc.DuelMode || pc.DuelWhy(pc.Selected) == null : kv.Key == "cancel" || anyLine);
                 kv.Value.EnableInClassList("is-off", !on);
             }
             orderBtn["charge"].EnableInClassList("is-on", pc.ChargeMode);
