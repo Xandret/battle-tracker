@@ -26,6 +26,7 @@ namespace Journal.Play
             float t0 = Time.realtimeSinceStartup;
             try { lineup.StartNow(); } catch (Exception e) { Fail("битва не построилась: " + e.Message); yield break; }
             if (pc.Game == null) { Fail("битвы нет"); yield break; }
+            if (pc.Deploying) pc.Go();   // расстановка — сразу «К бою»
             var ms = pc.Battle.Movers; int orders = 0;
             foreach (var m in ms)
             {

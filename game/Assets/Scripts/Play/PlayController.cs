@@ -105,9 +105,46 @@ namespace Journal.Play
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
             if (viewer != null) { viewer.ShowGui = false; viewer.SetLive(recorder.Rec); viewer.Playing = false; }
+            if (Chosen) StartDeploy();   // выбранная битва — с расстановки (заставка — сразу в бой)
             RefreshPreviews();
             Changed?.Invoke();
         }
+
+        // ── расстановка (Алекс 10.10.2026: «нужен этап расстановки»): до первого хода — фаза Deploy сессии. Свои отряды тянешь ЛКМ,
+        // Q/E — повернуть, ходов не тратит, приказов не даёт (BattleSession.Place); зона стороны — своя половина поля, если войска
+        // стоят врозь (из сохранения трекера вперемешку — где угодно). «К бою» — к приказам первого хода ──
+        public bool Deploying => Game != null && Phase == PlayPhase.Orders && Session?.Phase == BattleCore.Phase.Deploy;
+        void StartDeploy()
+        {
+            // сценарий выдал всем «держать» — BeginDeploy ждёт отряды без приказов: снять, на «К бою» — вернуть (держат, где встали)
+            foreach (var m in Battle.Movers) if (m.Order != null && m.Order.Kind == OrderKind.Hold) m.Order = null;
+            if (!Session.BeginDeploy()) return;
+            Session.Zones.Clear();
+            var sides = Session.Sides.ToList();
+            if (sides.Count == 2)
+            {
+                Vector2 C(int sd) { var L = Battle.Movers.Where(m => SideOf(m) == sd && Present(m)).ToList(); return L.Count == 0 ? Vector2.zero : new Vector2((float)L.Average(m => m.P.X), (float)L.Average(m => m.P.Y)); }
+                Vector2 a = C(sides[0]), c = C(sides[1]); float dist = (a - c).magnitude;
+                if (dist > 200)
+                {
+                    double W = Game.Geo.W, H = Game.Geo.H, gap = Math.Max(30, Math.Min(150, dist * 0.15));
+                    bool alongY = Math.Abs(a.y - c.y) >= Math.Abs(a.x - c.x);
+                    double mid = alongY ? (a.y + c.y) / 2 : (a.x + c.x) / 2;
+                    bool firstLow = alongY ? a.y < c.y : a.x < c.x;
+                    var low = alongY ? (0.0, 0.0, W, mid - gap) : (0.0, 0.0, mid - gap, H);
+                    var high = alongY ? (0.0, mid + gap, W, H) : (mid + gap, 0.0, W, H);
+                    Session.Zones[sides[0]] = firstLow ? low : high; Session.Zones[sides[1]] = firstLow ? high : low;
+                }
+            }
+        }
+        void EndDeployNow()
+        {
+            Session.EndDeploy();
+            foreach (var m in Battle.Movers) if (Present(m) && m.Order == null) Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });
+            RefreshPreviews();
+            Say("К бою! Приказы первого хода — и «Ход!»"); Changed?.Invoke();
+        }
+        public bool InZone(int side, double x, double y) => Session == null || !Session.Zones.TryGetValue(side, out var z) || x >= z.x0 && x <= z.x1 && y >= z.y0 && y <= z.y1;
         void Rerecord()
         {
             recorder = new Recorder(Game.Name, Game.Note, Game.Geo, Game.Battle.Movers, m => Game.Tpl[m], Game.Battle, 99,
@@ -143,7 +180,8 @@ namespace Journal.Play
             if (rec == null || i < 0) return true;
             return rec.Visible(i, Mathf.Clamp((int)(viewer.T / rec.Dt), 0, Mathf.Max(0, rec.Frames.Count - 1)), ViewSide);
         }
-        public bool CanDeploy => Game != null && Phase == PlayPhase.Orders && Session != null && Session.Turn <= 1 && ShowTime <= 0;
+        public bool CanDeploy => Deploying;   // переставлять отряды — только в расстановке
+        bool BeforeFirstTurn => Game != null && Phase == PlayPhase.Orders && Session != null && Session.Turn <= 1 && ShowTime <= 0;
         public bool DeployDragging { get; private set; }
         public Mover DeployUnit { get; private set; }
         public double DeployX, DeployY, DeployFacing; public bool DeployOk;
@@ -152,7 +190,8 @@ namespace Journal.Play
         public bool Redeploy(Mover m, double x, double y, double facing)
         {
             if (!CanDeploy || !Battle.Movers.Contains(m)) return false;
-            if (!Battle.Relocate(m, x, y, facing)) { Say($"«{m.P.U.Name}»: здесь строю не встать — места нет и в 60 м вокруг"); return false; }
+            var why = Session.Place(m, x, y, facing);
+            if (why != null) { Say($"«{m.P.U.Name}»: {why}"); return false; }
             m.Garrisoned = false;   // сняли со стены
             Deployed(m);
             double moved = Math.Sqrt((m.P.X - x) * (m.P.X - x) + (m.P.Y - y) * (m.P.Y - y));
@@ -163,7 +202,7 @@ namespace Journal.Play
         void Deployed(Mover m)
         {
             Session.Pending.Remove(m);
-            Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });
+            if (!Deploying) Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold, X = m.P.X, Y = m.P.Y, Facing = m.P.Facing });   // в расстановке приказов нет — «держать» даст «К бою»
             previews.Remove(m);
             Rerecord();
             if (viewer != null) viewer.SetLive(recorder.Rec, fit: false);
@@ -490,7 +529,7 @@ namespace Journal.Play
         void GmRoster(string what, Func<bool> act, IEnumerable<string> lines)
         {
             if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
-            var snap = Battle.Snapshot(); var refs = SaveRefs(); bool pre = CanDeploy;
+            var snap = Battle.Snapshot(); var refs = SaveRefs(); bool pre = BeforeFirstTurn;
             if (!act()) return;
             AfterRoster(pre);
             GmDone(what, () => { Battle.Restore(snap); LoadRefs(refs); AfterRoster(pre); }, lines);
@@ -533,7 +572,7 @@ namespace Journal.Play
         {
             var (tpl, side, men, name) = GmPlacing.Value; GmPlacing = null;
             var t = Templates.Get(tpl); if (t == null) return;
-            bool pre = CanDeploy;
+            bool pre = BeforeFirstTurn;
             GmRoster($"добавлен «{name}» ({men:0}) за {Session.Name(side)}", () =>
             {
                 int id = Battle.Movers.Count == 0 ? 1 : Battle.Movers.Max(x => x.P.U.Id) + 1;
@@ -854,6 +893,7 @@ namespace Journal.Play
             if (Phase != PlayPhase.Orders) return;
             CancelDrag();
             if (MidTurn) { ResumeMid(); return; }
+            if (Deploying) { EndDeployNow(); return; }   // «К бою»
             SaveTurn();   // снимок для отката хода (Г112 п.2)
             current = TurnSummary.Begin(Battle, Session.Turn);
             Session.Go();
@@ -1159,7 +1199,7 @@ namespace Journal.Play
                         DeployX = mp.x + grabX; DeployY = mp.y + grabY; deployCursor = mp;
                         DeployWall = DeployUnit.P.U.Type != "cavalry" && WallNear(mp.x, mp.y);
                         if (DeployWall) { WallRun(mp.x, mp.y, out DeployWallA, out DeployWallB); DeployOk = WallWhy(DeployUnit) == null; }
-                        else DeployOk = Battle.Fits(DeployUnit.P.U, DeployX, DeployY, DeployFacing);
+                        else DeployOk = Battle.Fits(DeployUnit.P.U, DeployX, DeployY, DeployFacing) && InZone(SideOf(DeployUnit), DeployX, DeployY);
                     }
                 }
                 else

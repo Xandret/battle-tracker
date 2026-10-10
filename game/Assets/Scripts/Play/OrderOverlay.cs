@@ -84,6 +84,15 @@ namespace Journal.Play
             }
             if (orders && pc.Dragging && pc.DragOrder != null && pc.DragOrder.Kind == OrderKind.Move && (pc.DragTo - pc.DragFrom).magnitude > 4)
                 Line(pc.DragFrom.x, pc.DragFrom.y, pc.DragTo.x, pc.DragTo.y, White, 2);   // протянутая линия фронта
+            // расстановка: зоны сторон — рамкой (своя — ярче, чужая — пунктиром)
+            if (pc.Deploying)
+                foreach (var kv in pc.Session.Zones)
+                {
+                    var (x0, y0, x1, y1) = kv.Value; bool own = kv.Key == pc.ActiveSide;
+                    var zc = own ? new Color32(120, 220, 120, 210) : new Color32(220, 120, 100, 150);
+                    float w = own ? 3 : 2;
+                    Line(x0, y0, x1, y0, zc, w, !own); Line(x1, y0, x1, y1, zc, w, !own); Line(x1, y1, x0, y1, zc, w, !own); Line(x0, y1, x0, y0, zc, w, !own);
+                }
             // расстановка: рамка строя там, куда тянут (зелёная — встанет, красная — нет места), стрелка — куда лицом
             if (pc.DeployDragging && pc.DeployUnit != null && pc.DeployWall)
             {

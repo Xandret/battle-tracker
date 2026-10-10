@@ -380,8 +380,9 @@ namespace Journal.Play
             int turn = showing ? s.Turn - (s.Phase == BattleCore.Phase.Playing ? 0 : 1) : s.Turn;
             turnNumber.text = Mathf.Max(1, turn).ToString();
             double tin = pc.ShowTime - pc.TurnStartTime;
-            phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
-            phaseSub.text = orders && pc.Dragging ? "Тяни слева направо — фронт лицом вперёд, справа налево — кругом · Q/E — повернуть" : orders && pc.MidTurn ? $"Пауза посреди хода ({tin:0.0} с): приказы — с этого мига · Enter — дальше" : orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни отряд ЛКМ, Q/E — повернуть · приказов {s.Pending.Count}" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
+            phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : pc.Deploying ? "Расстановка" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
+            goButton.text = pc.Deploying ? "К БОЮ" : "ХОД!";
+            phaseSub.text = orders && pc.Dragging ? "Тяни слева направо — фронт лицом вперёд, справа налево — кругом · Q/E — повернуть" : orders && pc.MidTurn ? $"Пауза посреди хода ({tin:0.0} с): приказы — с этого мига · Enter — дальше" : orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? (pc.DeployDragging && !pc.DeployOk ? "Здесь не встать: за своей зоной или нет места" : "Тяни отряды ЛКМ в зелёной зоне, Q/E — повернуть · Tab — другая сторона") : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
             progressFill.style.width = Length.Percent(showing ? (float)(100 * tin / bt.R.Move.TurnSec) : orders ? 0 : 100);
             goButton.EnableInClassList("hidden", !orders);
             speedGroup.EnableInClassList("hidden", !showing);
