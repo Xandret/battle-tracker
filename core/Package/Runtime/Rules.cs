@@ -194,7 +194,12 @@ namespace BattleCore
             // а перекрытие с врагом разводится целиком, не по кэпу PushMaxMps (кэп 0,45 м за шаг почти равен шагу коня — конь полз в строй);
             // натиск (Г90) — по-прежнему вламывается. HorseBodyOwnCourse — капсула коня по его курсу, не по колонне (пока выключено:
             // разворот длинных тел в строю раскидывает соседей — Г94 кони пятятся, охват рыцарей хуже)
-            public bool EnemySolid = true, HorseBodyOwnCourse = false, HorseBodyOwnCourseInMelee = false;   // …InMelee — то же только в схватке; тоже выключено (охват рыцарей −7 %, кони пятятся, рывки +15 %). Рисунок берёт Man.BodyFacing — курс капсулы
+            public bool EnemySolid = true, HorseBodyOwnCourse = false, HorseBodyOwnCourseInMelee = false;
+            // Г111 п.2 (меняет Г56–Г57, как у Iron Kings): свои мягкие — идущий отряд проходит сквозь стоящий свой: бойцы просачиваются
+            // (на PassThroughSpeed), строй стоящего прогибается (его бойцы уступают целиком) и возвращается на места; оба отряда
+            // в беспорядке, пока идёт проход и DisorderSec после — удар по ним опаснее в DisorderDmgK (черновик ГМу). Два идущих
+            // навстречу — по-прежнему очередь (Г57)
+            public bool FriendSoft = true; public double DisorderSec = 2, DisorderDmgK = 1.25;   // …InMelee — то же только в схватке; тоже выключено (охват рыцарей −7 %, кони пятятся, рывки +15 %). Рисунок берёт Man.BodyFacing — курс капсулы
             public double EnemyLookAheadSec = 0.1;     // врагу уступают в последний миг: врезаются с разгона и упираются (Г58, Г29)
             public double PassThroughSpeed = 0.5;      // Г56: стрелки и свои сквозь друг друга
             public double TieSec = 0.5;                // Г57: «одновременно» — разница прихода меньше этого

@@ -35,6 +35,7 @@ namespace Journal.Viewer
         public readonly List<UnitInfo> Units = new List<UnitInfo>();
         // кадр → отряд → [x, y, курс°, скорость нормы, тело₀ x, y, тело₁ x, y, …]; тела нет — NaN
         public readonly List<float[][]> Frames = new List<float[][]>();
+        public readonly List<float[][]> Boxes = new List<float[][]>();                               // Г111 п.6: кадр → отряд → [фронт, глубина] строя сейчас (после потерь и перестроений), м
         public readonly List<Dictionary<int, float>> Heads = new List<Dictionary<int, float>>();   // кадр → отряд·65536+тело → курс°
         public readonly List<int[]> Fights = new List<int[]>();                                      // кадр → [a, b, a, b, …]
         public readonly List<int[]> Soldiers = new List<int[]>();                                    // кадр → в строю по отрядам
@@ -62,6 +63,7 @@ namespace Journal.Viewer
             float dh = (float)(((b[2] - a[2]) % 360 + 540) % 360 - 180);
             x = a[0] + (b[0] - a[0]) * q; y = a[1] + (b[1] - a[1]) * q; facing = a[2] + dh * q;
             front = (float)Units[ui].Front; depth = (float)Units[ui].Depth;
+            if (f0 < Boxes.Count && ui < Boxes[f0].Length) { front = Boxes[f0][ui][0]; depth = Boxes[f0][ui][1]; }   // Г111 п.6: рамка этого кадра, не начала боя
             if (f0 >= Men.Count) return true;
             var m0 = Men[f0][ui]; var m1 = f1 < Men.Count ? Men[f1][ui] : m0;
             double h = facing * Math.PI / 180; float rx = (float)Math.Cos(h), ry = (float)Math.Sin(h), fx = (float)Math.Sin(h), fy = (float)-Math.Cos(h);
@@ -155,6 +157,7 @@ namespace Journal.Viewer
                 foreach (var s in m.Figs) { a[4 + 2 * s.Id] = (float)s.X; a[5 + 2 * s.Id] = (float)s.Y; }
                 return a;
             }).ToArray());
+            rec.Boxes.Add(ms.Select(m => new[] { (float)m.P.Fp.Front, (float)m.P.Fp.Depth }).ToArray());   // Г111 п.6
             var heads = new Dictionary<int, float>();
             for (int i = 0; i < ms.Count; i++)
                 foreach (var s in ms[i].Figs)

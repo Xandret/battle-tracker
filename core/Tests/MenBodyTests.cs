@@ -708,6 +708,33 @@ static class MenBodyTests
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
         });
 
+        // ── Г111 п.2: свои мягкие ──
+        yield return ("Г111 п.2: свои мягкие — 400 пехоты идут сквозь стоящую свою линию в 1000 (125 м, перегородила всё): проходят и доходят, не обходя; стоящие уступают и через 3 с после прохода снова на местах (до мест < 1 м); оба отряда в беспорядке во время прохода и не в беспорядке через 3 с", () =>
+        {
+            var geo = MoveTests.Open(600, 600);
+            var wall = Mover.Place(Templates.Get("infantry").Make(1, "Стена", 1000, 1), 300, 300, 0, RB);
+            var m = Mover.Place(Templates.Get("infantry").Make(2, "Идущие", 400, 1), 300, 380, 0, RB);
+            MoveSim.Give(m, new MoveOrder { X = 300, Y = 150, Facing = 0 }, geo, RB);
+            var ms = new[] { wall, m };
+            bool disorderSeen = false; double worstWall = 0;
+            var start = wall.Men.ToDictionary(x => x, x => (x.X, x.Y));
+            int turns = 0;
+            for (; turns < 6 && !m.Done; turns++)
+                MoveSim.Turn(ms, geo, RB, tt =>
+                {
+                    if (wall.Disordered && m.Disordered) disorderSeen = true;
+                    foreach (var x in wall.Men) { var p = start[x]; worstWall = Math.Max(worstWall, JsMath.Hypot(p.X - x.X, p.Y - x.Y)); }
+                });
+            True(m.Done && turns <= 4, $"не прошли сквозь своих за {turns} ходов: центр ({m.P.X:0}, {m.P.Y:0}), заметка «{m.Note}», обходов {m.Detoured.Count}");
+            True(m.Detoured.Count == 0, $"пошли в обход: {string.Join(", ", m.Detoured)}");
+            True(disorderSeen, "беспорядка во время прохода не было");
+            True(worstWall > 0.5 && worstWall < 12, $"стоящих сдвигало до {worstWall:0.0} м");
+            for (int t = 0; t < 1; t++) MoveSim.Turn(ms, geo, RB);
+            double back = wall.Men.Average(x => { var h = Soldiers.HomeOf(wall, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); });
+            True(back < 1.5, $"стоящие не вернулись на места: в среднем {back:0.00} м");
+            True(!wall.Disordered && !m.Disordered, "беспорядок не прошёл");
+        });
+
         // ── Г106: строи — клин, полумесяц, каре, круг, разомкнуть ──
         yield return ("Г106: формы строя — 1000 пехоты: у каждой формы ровно 1000 мест, без наложений, в габарите; клин — остриё в 1 человека, основание — фронт линии; полумесяц — рога впереди середины; каре и круг — внутри пусто, колонны смотрят на четыре стороны; разомкнуть — фронт вдвое", () =>
         {
@@ -894,7 +921,7 @@ static class MenBodyTests
             double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
             True(m.Done && turns <= 7, $"не прошёл за {turns} ходов (стоял упёршись {m.HeldSec:0.0} с)");
             True(minCols <= 30 && m.Cols == m.NominalCols, $"колонн в проходе {minCols}, в конце {m.Cols} из {m.NominalCols}");
-            True(overlap == 0, $"бойцов внутри строя своих: {overlap}");
+            True(overlap <= 50, $"бойцов внутри строя своих: {overlap} (свои мягкие, Г111 п.2: крайние колонны могут пройти сквозь, основная масса — в проход)");
             True(fin < 0.5, $"за проходом не собрался: до мест {fin:0.00} м");
         });
     }

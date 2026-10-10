@@ -786,6 +786,7 @@ namespace BattleCore
                         if (sa.Flank > 0) dmg += sa.Flank * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, null, Ctx, w.Charge, 1, "", "flank", mod, roll);
                         if (sa.Rear > 0) dmg += sa.Rear * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, null, Ctx, w.Charge, 1, "", "rear", mod, roll);
                     }
+                    if (w.Def.Disordered) dmg *= R.Move.DisorderDmgK;   // Г111 п.2: строй в беспорядке (свои прошли сквозь) — удар по нему опаснее (черновик ГМу)
                     inc[i] = Math.Max(0, dmg) * portion;
                     if (w.Def == f.A) toA += inc[i]; else toB += inc[i];
                 }
