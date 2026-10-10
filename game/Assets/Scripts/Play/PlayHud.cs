@@ -503,6 +503,16 @@ namespace Journal.Play
             hintBox.BringToFront();
         }
 
+        // в схватке ли отряд сейчас — по записи (колонны боя меняет поток счёта хода, перебирать их отсюда нельзя)
+        bool FightingNow(Mover m)
+        {
+            var rec = viewer?.Rec; int i = pc.Battle.Movers.IndexOf(m);
+            if (rec == null || i < 0 || rec.Fights.Count == 0) return false;
+            var pairs = rec.Fights[Mathf.Clamp((int)(viewer.T / rec.Dt), 0, rec.Fights.Count - 1)];
+            foreach (var x in pairs) if (x == i) return true;
+            return false;
+        }
+
         Label viewTab;
         void SideTabs(BattleSession s)
         {
@@ -546,7 +556,7 @@ namespace Journal.Play
                 var o = s.OrderOf(m);
                 c.Order.Kind = o == null ? "hold" : OrderIcon(o);
                 c.Order.EnableInClassList("is-new", s.Pending.ContainsKey(m));
-                bool fighting = m.Figs.Any(f => f.Fighting);
+                bool fighting = FightingNow(m);
                 c.State.Kind = m.Fleeing ? "flee" : fighting ? "fight" : u.Morale <= 0 ? "broken" : "";
                 c.State.EnableInClassList("hidden", c.State.Kind == "");
             }
@@ -775,7 +785,7 @@ namespace Journal.Play
                 t.Root.EnableInClassList("is-selected", sel);
                 t.Root.EnableInClassList("is-hover", hov && !sel);
                 t.Root.EnableInClassList("is-flee", m.Fleeing);
-                bool fighting = m.Figs.Any(fg => fg.Fighting);
+                bool fighting = FightingNow(m);
                 t.State.Kind = m.Fleeing ? "flee" : fighting ? "fight" : "";
                 t.State.EnableInClassList("hidden", t.State.Kind == "");
             }
