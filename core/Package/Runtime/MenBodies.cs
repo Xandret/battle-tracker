@@ -355,8 +355,8 @@ namespace BattleCore
                     tMan[c] = man; tMi[c] = mi; tM[c] = m; tLx[c] = lx; tLy[c] = ly; tRigid[c] = rigid; if (rigid) RigidMen++;
                     // капсула коня для толкотни лежит вдоль колонны (бегущего — по курсу): развернуть разом длинные тела в плотном
                     // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
-                    double ph = m.Fleeing || inForest ? fh : s.Hd * Math.PI / 180;   // Б5: в лесу — по своему курсу: иначе конь не повернётся между стволами
-                    tUx[c] = Math.Sin(ph); tUy[c] = -Math.Cos(ph); tHalf[c] = half; tRad[c] = rad;
+                    double ph = m.Fleeing || inForest || horse && (M.HorseBodyOwnCourse || M.HorseBodyOwnCourseInMelee && (man.Foe != null || s.Fighting)) ? fh : s.Hd * Math.PI / 180;   // Б5: в лесу — по своему курсу: иначе конь не повернётся между стволами
+                    tUx[c] = Math.Sin(ph); tUy[c] = -Math.Cos(ph); tHalf[c] = half; tRad[c] = rad; man.BodyFacing = ph * 180 / Math.PI;
                     tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax;
                     // расталкивание — не быстрее PushMaxMps, как бы ни был скор сам боец: иначе конь на полном ходу, врезавшись,
                     // отлетал на 2,8 м за шаг — рывок
@@ -713,8 +713,17 @@ namespace BattleCore
             }
             if (ri) wa = 0; else if (rj) wa = 1;   // жёсткий — неподвижное тело: сдвигается другой
             if (rel != Rel.Same) { if (ri) tMan[i].Thaw = true; else if (rj) tMan[j].Thaw = true; }   // чужой налез — жёсткий оттаивает
-            Push(i, nx * pen * wa, ny * pen * wa, rel != Rel.Same ? j : -1, rel == Rel.Enemy);
-            Push(j, -nx * pen * (1 - wa), -ny * pen * (1 - wa), rel != Rel.Same ? i : -1, rel == Rel.Enemy);
+            double capI = tCap[i], capJ = tCap[j];
+            if (rel == Rel.Enemy && M.EnemySolid && (tFlag[i] & 16) == 0 && (tFlag[j] & 16) == 0)
+            {
+                // Г111 п.2: враг твёрдый — ход на врага гасится у касания, перекрытие разводится целиком (а не по кэпу, под который конь полз в строй)
+                var mi = tMan[i]; var mj = tMan[j];
+                double ai = mi.Vx * nx + mi.Vy * ny; if (ai < 0) { mi.Vx -= ai * nx; mi.Vy -= ai * ny; }   // n — от j к i: ход i к j — отрицательная проекция
+                double aj = mj.Vx * nx + mj.Vy * ny; if (aj > 0) { mj.Vx -= aj * nx; mj.Vy -= aj * ny; }
+                capI = Math.Max(capI, pen * wa); capJ = Math.Max(capJ, pen * (1 - wa));
+            }
+            Push(i, nx * pen * wa, ny * pen * wa, rel != Rel.Same ? j : -1, rel == Rel.Enemy, capI);
+            Push(j, -nx * pen * (1 - wa), -ny * pen * (1 - wa), rel != Rel.Same ? i : -1, rel == Rel.Enemy, capJ);
         }
 
         // Г90: конь j в натиске сбил пешего i — лежит DownSecMin…DownSecMax с (свой ритм по хешу), конь теряет ChargeLoss хода
@@ -746,12 +755,13 @@ namespace BattleCore
             tDvx[i] -= ap * nx; tDvy[i] -= ap * ny;
             if (mark && ap < -0.1) { tBlocked[i] = tM[j].P.U.Id; tBlockedEnemy[i] = enemy; }
         }
-        static void Push(int i, double dx, double dy, int other, bool enemy)
+        static void Push(int i, double dx, double dy, int other, bool enemy, double cap = double.NaN)
         {
             if (dx == 0 && dy == 0) return;
+            if (double.IsNaN(cap)) cap = tCap[i];
             double nx = tX[i] + dx, ny = tY[i] + dy;
             double ox = nx - tX0[i], oy = ny - tY0[i], ol = JsMath.Hypot(ox, oy);
-            if (ol > tCap[i]) { nx = tX0[i] + ox * tCap[i] / ol; ny = tY0[i] + oy * tCap[i] / ol; }   // давка: перекрытие рассосётся за несколько шагов
+            if (ol > cap) { nx = tX0[i] + ox * cap / ol; ny = tY0[i] + oy * cap / ol; }   // давка: перекрытие рассосётся за несколько шагов
             var F = tM[i].Field;
             if (F != null && !MoveSim.Free(F, nx, ny) && MoveSim.Free(F, tX[i], tY[i])) return;   // в воду и в стену не выталкиваем
             tX[i] = nx; tY[i] = ny; tFlag[i] |= 4;
