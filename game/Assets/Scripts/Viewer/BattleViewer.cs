@@ -46,7 +46,10 @@ namespace Journal.Viewer
         MenView menView;
         FortView fortView;               // укрепления из клеток карты (В19): стены, башни, ворота, проломы
         Banners banners;                 // знамёна над отрядами (Г7, В11) — и издали, и вблизи
-        const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — плашки
+        const float MenFrom = 3;         // px на метр: ближе — бойцы из рисунка полигона, дальше — блоки отрядов
+        // Г111 п.6: издали — один блок на отряд по контуру его бойцов (выпуклая оболочка) в цвете стороны; между 0,75 и 1,3 MenFrom
+        // блок плавно проступает поверх бойцов. «Всегда блоки» — клавиша B (И)
+        public static bool AlwaysBlocks;
         readonly List<Rect> uiRects = new List<Rect>();
         bool dragging; Vector2 dragFrom; Vector3 camFrom;
         bool live;                       // режим игры: запись снаружи (SetLive)
@@ -113,7 +116,7 @@ namespace Journal.Viewer
             unitsMesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             unitsMesh.MarkDynamic();
             units.AddComponent<MeshFilter>().sharedMesh = unitsMesh;
-            var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 10;
+            var ur = units.AddComponent<MeshRenderer>(); ur.sharedMaterial = mat; ur.sortingOrder = 12;   // поверх бойцов (10): блок проступает на них при отдалении
             menView = new MenView(transform);
             fortView = new FortView(transform);
             banners = new Banners(transform);
@@ -176,6 +179,7 @@ namespace Journal.Viewer
             if (kb != null && kb.f6Key.wasPressedThisFrame) CycleStyle();
             if (kb != null && kb.f7Key.wasPressedThisFrame) MenView.Light = !MenView.Light;
             if (kb != null && kb.f8Key.wasPressedThisFrame) MiniatureLook.On = !MiniatureLook.On;
+            if (kb != null && kb.bKey.wasPressedThisFrame) { AlwaysBlocks = !AlwaysBlocks; blocksToast = Time.unscaledTime + 2f; }
             if (PlayInput) { GameInput(mouse, kb); return; }
             if (kb != null)
             {
@@ -394,15 +398,16 @@ namespace Journal.Viewer
             var cp = cam.transform.position; float vh = cam.orthographicSize, vw = vh * cam.aspect;
             var viewRect = new Rect(cp.x - vw, -cp.y - vh, 2 * vw, 2 * vh);
             fortView?.Gates(rec, t);
-            bool near = menView != null && menView.Ok && ppm >= MenFrom;
+            bool near = menView != null && menView.Ok && !AlwaysBlocks && ppm >= MenFrom * 0.75f;
+            float blockA = AlwaysBlocks ? 1 : Mathf.Clamp01((MenFrom * 1.3f - ppm) / (MenFrom * 0.55f));   // блоки: 0 вблизи → 1 издали
             if (near) menView.Draw(t, unitColRaw, viewRect, ppm);
+            else menView?.Hide();
             banners?.Draw(rec, t, unitColRaw, Lin, viewRect, ppm, near ? menView.CmdAt : (System.Func<int, Vector3?>)null);   // личный стяг — где полководец
-            if (near) { unitsMesh.Clear(); return; }
-            menView?.Hide();
+            if (blockA <= 0) { unitsMesh.Clear(); return; }
             double ft = t / rec.Dt; int f0 = Math.Min((int)Math.Floor(ft), rec.Frames.Count - 1), f1 = Math.Min(f0 + 1, rec.Frames.Count - 1); float q = (float)(ft - f0);
-            // павшие — под отрядами
+            // павшие — под отрядами (вблизи их рисуют бойцы)
             var blood = Lin(new Color32(110, 22, 18, 255));
-            foreach (var dd in rec.Dead) if (dd.Frame <= f0) Quad(dd.X, dd.Y, 0.9f, 1.6f, dd.Dir + 90, blood);   // удар (угол на карте) → курс: +90°
+            if (!near) foreach (var dd in rec.Dead) if (dd.Frame <= f0) Quad(dd.X, dd.Y, 0.9f, 1.6f, dd.Dir + 90, blood);   // удар (угол на карте) → курс: +90°
             var A = rec.Frames[f0]; var B = rec.Frames[f1];
             float edge = 1.5f / ppm;   // обводка ~1,5 px
             for (int u = 0; u < A.Length; u++)
@@ -410,6 +415,7 @@ namespace Journal.Viewer
                 var a = A[u]; var b = B[u]; var info = rec.Units[u];
                 if (rec.StateAt(u, f0) == 2 || !rec.Visible(u, f0, ViewSide)) continue;   // ушёл с поля или не виден (туман)
                 var col = unitCol[u]; var ec = unitEdge[u];
+                col.a = (byte)(col.a * blockA); ec.a = (byte)(ec.a * blockA);
                 float h0 = a[2], dh = Mathf.DeltaAngle(a[2], b[2]);
                 // бегущий (Г100): не плашки колонн, а его бойцы — точками не меньше ~2,5 px
                 int stU = rec.StateAt(u, f0);
@@ -427,19 +433,16 @@ namespace Journal.Viewer
                         }
                     continue;
                 }
-                // два прохода: сначала обводки всех тел отряда, потом заливки — иначе между соседними телами видны швы
-                for (int pass = 0; pass < 2; pass++)
-                    for (int k = 0; 5 + 2 * k < a.Length; k++)
-                    {
-                        float x = a[4 + 2 * k], y = a[5 + 2 * k];
-                        if (float.IsNaN(x)) continue;
-                        if (5 + 2 * k < b.Length && !float.IsNaN(b[4 + 2 * k])) { x += (b[4 + 2 * k] - x) * q; y += (b[5 + 2 * k] - y) * q; }
-                        float head = rec.Heads[f0].TryGetValue(u * 65536 + k, out var hd) ? hd : h0 + dh * q;
-                        var fig = k < info.Figs.Count ? info.Figs[k] : info.Figs[0];
-                        float e = pass == 0 ? 2 * edge : 0;
-                        Quad(x, y, (float)fig[0] + e, (float)fig[1] + e, head, pass == 0 ? ec : col);
-                    }
+                // Г111 п.6: один блок — по контуру бойцов отряда (выпуклая оболочка, на полбойца шире), обводка — цветом края
+                if (f0 < rec.Men.Count && Hull(rec.Men[f0][u], f1 < rec.Men.Count ? rec.Men[f1][u] : rec.Men[f0][u], q))
+                {
+                    int n = hull.Count; float cx = 0, cy = 0; foreach (var p in hull) { cx += p.x; cy += p.y; } cx /= n; cy /= n;
+                    for (int i = 0; i < n; i++) { var p = hull[i]; var d = new Vector2(p.x - cx, p.y - cy); float l = d.magnitude; if (l > 1e-4f) hull[i] = p + d / l * 0.7f; }
+                    Fan(cx, cy, col);
+                    for (int i = 0; i < n; i++) Seg(hull[i], hull[(i + 1) % n], Mathf.Max(2 * edge, 0.35f), ec);
+                }
             }
+            if (near) { FlushUnits(); return; }   // стрелы вблизи — у бойцов
             // стрелы в полёте — чёрточки по ходу (полёт — как у бойцов вблизи: MenView.ArrowAt, конец может быть ещё не известен)
             var ink = Lin(new Color32(30, 24, 18, 255));
             foreach (var ar in rec.Arrows)
@@ -447,20 +450,67 @@ namespace Journal.Viewer
                 if (ar.T0 > t || ar.T1 <= t || !MenView.ArrowAt(ar, (float)t, out var x, out var y, out _, out var ang, out _)) continue;
                 Quad(x, y, 0.12f, 1.2f, ang * Mathf.Rad2Deg + 90, ink);
             }
+            FlushUnits();
+        }
+        void FlushUnits()
+        {
             unitsMesh.Clear();
             unitsMesh.SetVertices(V); unitsMesh.SetColors(C); unitsMesh.SetTriangles(I, 0);
             unitsMesh.RecalculateBounds();
+        }
+
+        // выпуклая оболочка бойцов отряда в момент t (монотонная цепь Эндрю); много бойцов — каждый k-й (контур почти тот же)
+        readonly List<Vector2> pts = new List<Vector2>(), hull = new List<Vector2>();
+        bool Hull(MenFrame m0, MenFrame m1, float q)
+        {
+            pts.Clear(); hull.Clear();
+            int n = m0.Xyh.Length / 3, step = Math.Max(1, n / 600);
+            for (int id = 1; id < n; id += step)
+            {
+                float x = m0.Xyh[3 * id]; if (float.IsNaN(x)) continue;
+                float y = m0.Xyh[3 * id + 1];
+                if (3 * id + 1 < m1.Xyh.Length && !float.IsNaN(m1.Xyh[3 * id])) { x += (m1.Xyh[3 * id] - x) * q; y += (m1.Xyh[3 * id + 1] - y) * q; }
+                pts.Add(new Vector2(x, y));
+            }
+            if (pts.Count < 3) return false;
+            pts.Sort((a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
+            float Cross(Vector2 o, Vector2 a, Vector2 b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+            foreach (var p in pts) { while (hull.Count >= 2 && Cross(hull[hull.Count - 2], hull[hull.Count - 1], p) <= 0) hull.RemoveAt(hull.Count - 1); hull.Add(p); }
+            int lower = hull.Count + 1;
+            for (int i = pts.Count - 2; i >= 0; i--) { var p = pts[i]; while (hull.Count >= lower && Cross(hull[hull.Count - 2], hull[hull.Count - 1], p) <= 0) hull.RemoveAt(hull.Count - 1); hull.Add(p); }
+            hull.RemoveAt(hull.Count - 1);
+            return hull.Count >= 3;
+        }
+        // заливка оболочки веером от середины; обе стороны (обход любой)
+        void Fan(float cx, float cy, Color32 col)
+        {
+            int c0 = V.Count; V.Add(new Vector3(cx, -cy, 0)); C.Add(col);
+            foreach (var p in hull) { V.Add(new Vector3(p.x, -p.y, 0)); C.Add(col); }
+            int n = hull.Count;
+            for (int i = 0; i < n; i++) { int a = c0 + 1 + i, b = c0 + 1 + (i + 1) % n; I.Add(c0); I.Add(a); I.Add(b); I.Add(c0); I.Add(b); I.Add(a); }
+        }
+        void Seg(Vector2 a, Vector2 b, float w, Color32 col)
+        {
+            var d = b - a; float len = d.magnitude; if (len < 1e-4f) return;
+            var nrm = new Vector2(-d.y, d.x) / len * (w / 2); var e = d / len * (w / 2);
+            int i0 = V.Count;
+            foreach (var p in new[] { a - e - nrm, b + e - nrm, b + e + nrm, a - e + nrm }) { V.Add(new Vector3(p.x, -p.y, 0)); C.Add(col); }
+            I.Add(i0); I.Add(i0 + 1); I.Add(i0 + 2); I.Add(i0); I.Add(i0 + 2); I.Add(i0 + 3);
+            I.Add(i0); I.Add(i0 + 2); I.Add(i0 + 1); I.Add(i0); I.Add(i0 + 3); I.Add(i0 + 2);
         }
 
         // ── интерфейс ──
         // стиль облика всем отрядам по кругу (В16): как в данных → западный → … → дальневосточный; подпись — на 2,5 с
         static readonly string[] StyleCycle = { null, "west", "north", "east", "south", "fareast" };
         static readonly string[] StyleNames = { "как в данных", "западный", "северный", "восточный", "южный", "дальневосточный" };
-        int styleIdx; float styleToast;
+        int styleIdx; float styleToast, blocksToast;
         void CycleStyle() { styleIdx = (styleIdx + 1) % StyleCycle.Length; MenView.ForceStyle = StyleCycle[styleIdx]; menView?.Restyle(); styleToast = Time.unscaledTime + 2.5f; }
 
         void OnGUI()
         {
+            if (Time.unscaledTime < blocksToast)
+                GUI.Label(new Rect(Screen.width - 330, 78, 320, 26), AlwaysBlocks ? "Всегда блоки отрядов (B)" : "Вблизи — бойцы, издали — блоки (B)",
+                    new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight, normal = { textColor = new Color(0.98f, 0.95f, 0.85f) } });
             if (Time.unscaledTime < styleToast)
                 GUI.Label(new Rect(Screen.width - 330, 52, 320, 26), $"Стиль облика: {StyleNames[styleIdx]} (F6)",
                     new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight, normal = { textColor = new Color(0.98f, 0.95f, 0.85f) } });
