@@ -195,7 +195,7 @@
     right: 10px;
     top: 104px;
     width: 340px;
-    max-height: 46%;
+    max-height: 60%;
     padding: 8px 10px;
     overflow: hidden;
 }
@@ -281,6 +281,81 @@
 
 .detail-plan.is-bad {
     color: #e0806a;
+}
+
+.adj-box {
+    margin-top: 4px;
+    padding: 4px 6px;
+    border-left-width: 2px;
+    border-color: #c9a227;
+    background-color: rgba(201, 162, 39, 0.08);
+}
+
+.gm-body {
+    max-height: 250px;
+}
+
+.gm-body .unity-scroller--vertical {
+    width: 8px;
+}
+
+.gm-row.gm-wrap {
+    flex-wrap: wrap;
+}
+
+.sum-box > * {
+    flex-shrink: 0;
+}
+
+.adj-scroll {
+    max-height: 140px;
+}
+
+.adj-scroll .sum-event {
+    margin-top: 2px;
+    padding: 1px 4px;
+}
+
+.adj-scroll .sum-text {
+    font-size: 11px;
+}
+
+.adj-head {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: #d8b85a;
+    margin-top: 4px;
+}
+
+.adj-line {
+    font-size: 11px;
+    color: var(--ink-dim);
+    white-space: normal;
+}
+
+.adj-line.is-important {
+    color: #e8b070;
+}
+
+.cards-row.is-compact .card-ai {
+    top: 2px;
+    right: 2px;
+}
+
+.log-line.is-ai {
+    color: #9fb8d8;
+}
+
+.card-ai {
+    position: absolute;
+    right: 4px;
+    top: 54px;
+    font-size: 9px;
+    -unity-font-style: bold;
+    color: #9fb8d8;
+    background-color: rgba(20, 30, 45, 0.85);
+    padding: 0 2px;
+    border-radius: 2px;
 }
 
 .detail-plan.is-good {

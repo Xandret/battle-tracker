@@ -44,7 +44,7 @@ namespace Journal.Play
         sealed class Tag { public VisualElement Root; public Label Men, Name; public Icon Kind, State; }
         sealed class Card
         {
-            public VisualElement Root, HpFill, MoFill; public Label Men, Flag; public Icon Order, State;
+            public VisualElement Root, HpFill, MoFill; public Label Men, Flag, Ai; public Icon Order, State;
         }
 
         // Start, а не OnEnable: корень UIDocument строится в его OnEnable — к Start он уже есть
@@ -564,6 +564,7 @@ namespace Journal.Play
                 bool fighting = FightingNow(m);
                 c.State.Kind = m.Fleeing ? "flee" : fighting ? "fight" : u.Morale <= 0 ? "broken" : "";
                 c.State.EnableInClassList("hidden", c.State.Kind == "");
+                c.Ai.EnableInClassList("hidden", pc.ViewSide != 0 && pc.ViewSide != PlayController.SideOf(m) || pc.AiTaskOf(m) == null);
             }
         }
         void BuildCards(List<Mover> units)
@@ -587,6 +588,7 @@ namespace Journal.Play
                 c.Order = new Icon("hold"); c.Order.AddToClassList("card-order"); c.Root.Add(c.Order);
                 c.State = new Icon(""); c.State.AddToClassList("card-state"); c.Root.Add(c.State);
                 c.Flag = new Label(); c.Flag.AddToClassList("card-flag"); c.Root.Add(c.Flag);
+                c.Ai = new Label("ИИ"); c.Ai.AddToClassList("card-ai"); c.Ai.AddToClassList("hidden"); c.Root.Add(c.Ai);
                 var mm = m;
                 c.Root.RegisterCallback<ClickEvent>(e => { if (e.ctrlKey) pc.Toggle(mm); else pc.Select(mm); if (e.clickCount >= 2) pc.FocusOn(mm); });   // Ctrl — к группе; двойной — камера к отряду
                 c.Root.RegisterCallback<PointerEnterEvent>(_ => pc.UiHover = mm);
@@ -595,6 +597,7 @@ namespace Journal.Play
                 Hint(hp, () => $"Бойцы: {mm.P.U.Soldiers:0} из {(pc.Game.StartMen.TryGetValue(mm, out var s0) ? s0 : mm.P.U.Soldiers):0} в начале битвы");
                 Hint(mo, () => $"Боевой дух: {mm.P.U.Morale:0} — {Units.MoraleStage(mm.P.U.Morale).Label}");
                 Hint(c.Order, () => $"Приказ: {OrderText(pc.Session.OrderOf(mm))}" + (pc.Session.Pending.ContainsKey(mm) ? " (новый, уйдёт по «Ход!»)" : ""));
+                Hint(c.Ai, () => { var t = pc.AiTaskOf(mm); return t == null ? null : $"Поручение ИИ: {pc.AiText(t)}" + (t.Why != "" ? $"\nПоследнее решение: {t.Why}" : "") + "\nПриказ на этот ход от ГМа важнее — ИИ его не тронет."; });
                 cardsRow.Add(c.Root); cards[m] = c;
             }
         }
@@ -623,7 +626,10 @@ namespace Journal.Play
             Rows(("Бойцов", $"{u.Soldiers:0} из {start:0}"), ("Боевой дух", $"{u.Morale:0} — {st.Label}"), ("Дисциплина", $"{u.Discipline:0}"), ("Усталость", $"{u.Fatigue:0}%"),
                  ("Норма хода", $"{BattleMap.UnitSpeed(u, pc.Battle.R):0} м"));
             var o = pc.Session.OrderOf(m);
-            detailOrder.text = "Приказ: " + OrderText(o) + (pc.Session.Pending.ContainsKey(m) ? " (новый)" : "");
+            var task = pc.ViewSide == 0 || pc.ViewSide == PlayController.SideOf(m) ? pc.AiTaskOf(m) : null;
+            detailOrder.text = "Приказ: " + OrderText(o) + (pc.Session.Pending.ContainsKey(m) ? " (новый)" : "")
+                + (task != null ? $"\nИИ: {pc.AiText(task)}" + (task.Why != "" ? $" — {task.Why}" : "") : "");
+            Adjutant();
             GmBox();
             var p = pc.Dragging ? pc.DragPreview : pc.PreviewOf(m);
             detailPlan.RemoveFromClassList("is-bad"); detailPlan.RemoveFromClassList("is-good");
@@ -631,9 +637,31 @@ namespace Journal.Play
             if (p?.ChargeOk == false || p?.Note != null && p.Note.Contains("нет")) detailPlan.AddToClassList("is-bad");
             else if (p?.ChargeOk == true || p?.InRange == true) detailPlan.AddToClassList("is-good");
         }
+        // ── Г116б: адъютант — замечания к приказу: пока тянешь ПКМ — живые, по отдаче — всплывают на 8 с ──
+        VisualElement adjBox; string adjKey;
+        void Adjutant()
+        {
+            if (adjBox == null)
+            {
+                adjBox = new VisualElement(); adjBox.AddToClassList("adj-box"); adjBox.pickingMode = PickingMode.Ignore;
+                detailPlan.parent.Insert(detailPlan.parent.IndexOf(detailPlan) + 1, adjBox);
+            }
+            List<string> L;
+            if (pc.Dragging) L = pc.DragAdvice;
+            else if (Time.time < pc.AdviceUntil) L = pc.Advice.Select(a => pc.Advice.Select(x => x.m).Distinct().Count() > 1 ? $"«{a.m.P.U.Name}»: {a.text}" : a.text).ToList();
+            else L = new List<string>();
+            string key = string.Join("\n", L);
+            if (key == adjKey) return;
+            adjKey = key; adjBox.Clear();
+            adjBox.EnableInClassList("hidden", L.Count == 0);
+            if (L.Count == 0) return;
+            adjBox.Add(Line("Адъютант:", "adj-head"));
+            foreach (var h in L) { var l = Line("• " + h, "adj-line"); l.EnableInClassList("is-important", PlayController.IsImportant(h)); adjBox.Add(l); }
+        }
+
         // ── Г112: раздел ГМа под панелью отряда — «ГМ ▸» раскрывает: БД и усталость выбранных ±, модификаторы БД по таблице этапа 3
         // (отряду или всей его стороне), отмена правки, последние правки. Только в виде ГМа и между ходами ──
-        VisualElement gmBox, gmBody, gmMenRow; Label gmHead, gmFatigue, gmMorale, gmMen, gmLogLabel; DropdownField gmMod, gmTpl, gmSide; bool gmOpen; string gmKey;
+        VisualElement gmBox, gmBody, gmMenRow; Label gmHead, gmFatigue, gmMorale, gmMen, gmLogLabel; DropdownField gmMod, gmTpl, gmSide, gmAi; bool gmOpen; string gmKey;
         Button gmRemove, gmAdd, gmSub, gmRollback, gmMid; IntegerField gmAddMen; TextField gmAddName;
         void GmBox()
         {
@@ -642,7 +670,7 @@ namespace Journal.Play
                 gmBox = new VisualElement(); gmBox.AddToClassList("gm-box"); detail.Add(gmBox);
                 gmHead = new Label("ГМ ▸"); gmHead.AddToClassList("gm-head"); gmHead.tooltip = "Инструменты ГМа: правка боевого духа и усталости, модификаторы БД по таблице, отмена";
                 gmHead.RegisterCallback<ClickEvent>(_ => { gmOpen = !gmOpen; gmKey = null; }); gmBox.Add(gmHead);
-                gmBody = new VisualElement(); gmBox.Add(gmBody);
+                gmBody = new ScrollView(ScrollViewMode.Vertical) { horizontalScrollerVisibility = ScrollerVisibility.Hidden }; gmBody.AddToClassList("gm-body"); gmBox.Add(gmBody);   // на низком экране — прокрутка, а не за край
                 VisualElement Line2(string label, out Label val, System.Action<double> step, string tipText, double mul = 1)
                 {
                     var r = new VisualElement(); r.AddToClassList("gm-row");
@@ -656,7 +684,7 @@ namespace Journal.Play
                 Line2("Усталость", out gmFatigue, d => pc.GmFatigue(pc.Selection, d), "Усталость выбранных, % — правка ГМа");
                 gmMenRow = Line2("Бойцов", out gmMen, d => pc.GmSoldiers(pc.Selected, d), "Численность выбранного отряда ±50/±100 — до первого хода (строй раскладывается заново)", 10);
                 gmMod = new DropdownField("Модификатор", pc.MoraleMods.Select(x => $"{x.name} {(x.value >= 0 ? "+" : "")}{x.value:0}").ToList(), 0); gmMod.AddToClassList("gm-mod"); gmBody.Add(gmMod);
-                var mr = new VisualElement(); mr.AddToClassList("gm-row");
+                var mr = new VisualElement(); mr.AddToClassList("gm-row"); mr.AddToClassList("gm-wrap");
                 var toUnit = new Button(() => pc.GmMod(pc.Selection, gmMod.index)) { text = "Выбранным" }; toUnit.AddToClassList("army-btn"); toUnit.AddToClassList("small"); mr.Add(toUnit);
                 var toSide = new Button(() => { if (pc.Selected != null) pc.GmMod(pc.SideUnits(PlayController.SideOf(pc.Selected)), gmMod.index); }) { text = "Всей стороне" }; toSide.AddToClassList("army-btn"); toSide.AddToClassList("small"); mr.Add(toSide);
                 gmSub = new Button(() => { var m0 = pc.Selected; if (m0?.P.U.SubfactionId != null) pc.GmMod(pc.Battle.Movers.Where(x => x.P.U.SubfactionId == m0.P.U.SubfactionId && PlayController.SideOf(x) == PlayController.SideOf(m0)), gmMod.index); }) { text = "Подфракции" };
@@ -664,7 +692,7 @@ namespace Journal.Play
                 var undo = new Button(() => pc.GmUndo()) { text = "Отменить" }; undo.AddToClassList("army-btn"); undo.AddToClassList("small"); mr.Add(undo);
                 gmBody.Add(mr);
                 // состав (до первого хода): убрать выбранный, добавить новый — шаблон, сторона, бойцов, имя, потом щелчок по карте
-                var rr = new VisualElement(); rr.AddToClassList("gm-row");
+                var rr = new VisualElement(); rr.AddToClassList("gm-row"); rr.AddToClassList("gm-wrap");
                 gmRemove = new Button(() => pc.GmRemove(pc.Selected)) { text = "Убрать с поля" }; gmRemove.AddToClassList("army-btn"); gmRemove.AddToClassList("small"); rr.Add(gmRemove);
                 gmMid = new Button(() => pc.EnterMidOrders()) { text = "Приказы сейчас" }; gmMid.AddToClassList("army-btn"); gmMid.AddToClassList("small");
                 gmMid.tooltip = "Посреди хода, на паузе: отдать приказы, которые подействуют с этого мига (бой пересчитывается до паузы — тот же, что показан)";
@@ -679,6 +707,18 @@ namespace Journal.Play
                 gmAddName = new TextField("Имя") { value = "" }; gmAddName.AddToClassList("gm-mod"); gmBody.Add(gmAddName);
                 gmAdd = new Button(() => pc.GmStartAdd(Templates.Base[System.Math.Max(0, gmTpl.index)].Id, System.Math.Max(0, gmSide.index) + 1, gmAddMen.value, gmAddName.value)) { text = "Поставить щелчком по карте" };
                 gmAdd.AddToClassList("army-btn"); gmAdd.AddToClassList("small"); gmBody.Add(gmAdd);
+                // Г113: поручения ИИ — выбранным или всей стороне; цель — щелчком; «Снять» — вернуть в руки ГМа
+                gmAi = new DropdownField("ИИ", PlayController.AiKinds.Select(k => k.name).ToList(), 0); gmAi.AddToClassList("gm-mod"); gmBody.Add(gmAi);
+                gmAi.tooltip = "ИИ сам раздаёт приказы отрядам с поручением в каждый «Ход!», видя только то, что видит их сторона. Отряд, которому ты отдал приказ на этот ход, ИИ не тронет";
+                gmAi.RegisterValueChangedCallback(_ => gmAi.tooltip = PlayController.AiKinds[System.Math.Max(0, gmAi.index)].tip);
+                var ar = new VisualElement(); ar.AddToClassList("gm-row"); ar.AddToClassList("gm-wrap");
+                var aiSel = new Button(() => pc.AiStart(gmAi.index, pc.Selection, 0)) { text = "Выбранным" }; aiSel.AddToClassList("army-btn"); aiSel.AddToClassList("small"); ar.Add(aiSel);
+                var aiSide = new Button(() => { if (pc.Selected != null) pc.AiStart(gmAi.index, null, PlayController.SideOf(pc.Selected)); }) { text = "Всей стороне" }; aiSide.AddToClassList("army-btn"); aiSide.AddToClassList("small"); ar.Add(aiSide);
+                aiSide.tooltip = "Поручение всем отрядам стороны выбранного — например, отдать врагу ИИ-противника";
+                var aiOff = new Button(() => pc.AiClear(pc.Selection, 0)) { text = "Снять" }; aiOff.AddToClassList("army-btn"); aiOff.AddToClassList("small"); ar.Add(aiOff);
+                aiOff.tooltip = "Снять поручение ИИ с выбранных — приказы снова отдаёшь сам";
+                var aiOffSide = new Button(() => { if (pc.Selected != null) pc.AiClear(null, PlayController.SideOf(pc.Selected)); }) { text = "Снять со стороны" }; aiOffSide.AddToClassList("army-btn"); aiOffSide.AddToClassList("small"); ar.Add(aiOffSide);
+                gmBody.Add(ar);
                 gmLogLabel = new Label(); gmLogLabel.AddToClassList("gm-log"); gmBody.Add(gmLogLabel);
             }
             bool can = pc.ViewSide == 0;
@@ -888,7 +928,7 @@ namespace Journal.Play
         // ── сводка хода справа: потери сторон, главные события (щелчок — камера к отряду), сырой журнал — под «Подробно» ──
         void Log(BattleSession s)
         {
-            int key = pc.Summaries.Count * 1000 + s.Logs.Count;
+            int key = ((pc.Summaries.Count * 1000 + s.Logs.Count) * 8 + GameSettings.Adjutant) * 8 + System.Math.Max(0, pc.ViewSide);
             if (logShown == key) return;
             logShown = key;
             summaryBox.Clear(); detailsScroll.Clear();
@@ -922,7 +962,28 @@ namespace Journal.Play
             }
             if (sum.Events.Count == 0) summaryBox.Add(Line("Ход прошёл без боя: отряды шли и стояли.", "sum-hint"));
             if (sum.Arrows > 0) summaryBox.Add(Line($"Стрел за ход: {sum.Arrows}, выбыло от них: {sum.ArrowHits}", "sum-sub"));
-            if (s.Logs.Count > 0) foreach (var line in s.Logs[s.Logs.Count - 1]) detailsScroll.Add(Line(line, "log-line"));
+            Review(s);
+            if (s.Logs.Count > 0) foreach (var line in s.Logs[s.Logs.Count - 1]) { var l = Line(line, "log-line"); l.EnableInClassList("is-ai", line.StartsWith("ИИ:")); detailsScroll.Add(l); }
+        }
+        // Г116в: разбор хода адъютантом — для стороны, чьими глазами смотрим; у ГМа — для всех сторон. Щелчок по строке — к отряду
+        void Review(BattleSession s)
+        {
+            if (GameSettings.Adjutant == 2 || pc.Reviews.Count == 0) return;
+            var sides = pc.ViewSide > 0 ? new[] { pc.ViewSide } : s.Sides.ToArray();
+            var rows = new List<(int side, string text)>();
+            foreach (var sd in sides) if (pc.Reviews.TryGetValue(sd, out var L)) foreach (var h in PlayController.AdviceFilter(L)) rows.Add((sd, h));
+            summaryBox.Add(Line(rows.Count == 0 ? "Адъютант: замечаний нет" : "Адъютант — разбор хода:", "adj-head"));
+            var box = new ScrollView(ScrollViewMode.Vertical); box.AddToClassList("adj-scroll"); summaryBox.Add(box);
+            int shown = 0;
+            foreach (var (sd, h) in rows)
+            {
+                if (shown++ >= 12) { box.Add(Line($"…и ещё {rows.Count - 12}", "sum-sub")); break; }
+                var row = new VisualElement(); row.AddToClassList("sum-event"); row.AddToClassList("side-" + sd);
+                var t = new Label(h); t.AddToClassList("sum-text"); t.AddToClassList("adj-line"); t.EnableInClassList("is-important", PlayController.IsImportant(h)); row.Add(t);
+                var m = pc.UnitNamed(h, sd);
+                if (m != null) { row.RegisterCallback<ClickEvent>(_ => { pc.FocusOn(m); pc.Select(m); }); row.tooltip = "Показать отряд"; }
+                box.Add(row);
+            }
         }
         static Label Line(string text, string cls) { var l = new Label(text); l.AddToClassList(cls); return l; }
 

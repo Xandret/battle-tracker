@@ -19,6 +19,8 @@ namespace Journal.Play
         public static bool Tags { get => PlayerPrefs.GetInt(P + "tags", 1) == 1; set => PlayerPrefs.SetInt(P + "tags", value ? 1 : 0); }
         // Г111 п.7: досчитать ход целиком, потом показать (иначе — показ идёт следом за счётом и плавно замедляется)
         public static bool ComputeFirst { get => PlayerPrefs.GetInt(P + "computeFirst", 0) == 1; set => PlayerPrefs.SetInt(P + "computeFirst", value ? 1 : 0); }
+        // Г116б–в: подсказки адъютанта (к приказу и разбор хода) — 0 все, 1 только важные, 2 выключены
+        public static int Adjutant { get => Mathf.Clamp(PlayerPrefs.GetInt(P + "adjutant", 0), 0, 2); set => PlayerPrefs.SetInt(P + "adjutant", value); }
         public static bool AutoPause { get => PlayerPrefs.GetInt(P + "autoPause", 0) == 1; set => PlayerPrefs.SetInt(P + "autoPause", value ? 1 : 0); }
         // звук боя (BattleAudio): общая громкость 0…100 и «жестокие звуки» (крики павших)
         public static int Volume { get => PlayerPrefs.GetInt(P + "volume", 80); set { PlayerPrefs.SetInt(P + "volume", value); Journal.Viewer.BattleAudio.Volume = value / 100f; } }

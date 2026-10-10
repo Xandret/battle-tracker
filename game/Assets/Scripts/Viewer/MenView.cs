@@ -92,7 +92,7 @@ namespace Journal.Viewer
         // по отряду: доля «древки к бою» по кадрам (В13) и была ли рядом вражья линия в последнем проверенном кадре
         List<float>[] lowL; bool[] lowNear;
         // стрелы отряда по времени вылета — номера в rec.Arrows (дописываются по мере записи)
-        List<int>[] arrowsOf; int arrowsSeen;
+        List<int>[] arrowsOf; int arrowsSeen, rewindsSeen;
 
         static Mesh NewMesh() { var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; m.MarkDynamic(); return m; }
 
@@ -388,8 +388,9 @@ namespace Journal.Viewer
         // стрелы отряда — по времени вылета (в живой записи дописываются почти по порядку)
         void IndexArrows()
         {
-            // запись укоротили (откат хода, Г112) — указатель стрел заново
-            if (arrowsSeen > rec.Arrows.Count) { foreach (var l0 in arrowsOf) l0.Clear(); arrowsSeen = 0; }
+            // запись укоротили (откат хода, приказы посреди хода — Г112) — указатель стрел заново: после отката стрел может
+            // набраться больше прежнего, и старые номера указали бы на чужие стрелы или за край
+            if (arrowsSeen > rec.Arrows.Count || rewindsSeen != rec.Rewinds) { foreach (var l0 in arrowsOf) l0.Clear(); arrowsSeen = 0; rewindsSeen = rec.Rewinds; }
             for (; arrowsSeen < rec.Arrows.Count; arrowsSeen++)
             {
                 var ar = rec.Arrows[arrowsSeen]; if (ar.Unit < 0 || ar.Unit >= arrowsOf.Length) continue;

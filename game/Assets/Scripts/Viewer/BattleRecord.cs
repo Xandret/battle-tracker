@@ -74,6 +74,7 @@ namespace Journal.Viewer
         public readonly List<ArrowRec> Arrows = new List<ArrowRec>();
         public readonly List<List<string>> Logs = new List<List<string>>();
         public double Seconds => (Frames.Count - 1) * Dt;
+        public int Rewinds;                                                                          // сколько раз запись укорачивали (откат, приказы посреди хода) — кэшам смотрелки начать заново
         public bool Done;                                                                            // досчитана; иначе дописывается по ходу счёта
         public bool MenMelee;                                                                        // рукопашная по бойцам (Б2): удары — из движка
 
@@ -233,7 +234,7 @@ namespace Journal.Viewer
             var rec = Rec; int keep = frame + 1; float tF = frame * (float)rec.Dt;
             void Cut<T>(List<T> L) { if (L.Count > keep) L.RemoveRange(keep, L.Count - keep); }
             Cut(rec.Frames); Cut(rec.Heads); Cut(rec.Soldiers); Cut(rec.Men); Cut(rec.Fights); Cut(rec.Seen);
-            rec.Done = false;
+            rec.Done = false; rec.Rewinds++;
             int D = battle.Deaths.Count; if (rec.Dead.Count > D) rec.Dead.RemoveRange(D, rec.Dead.Count - D); seenDead = Math.Min(D, rec.Dead.Count);
             var log = battle.ArrowLog; int L = log?.Count ?? 0;
             if (rec.Arrows.Count > L) rec.Arrows.RemoveRange(L, rec.Arrows.Count - L);

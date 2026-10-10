@@ -98,6 +98,7 @@ namespace Journal.Play
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
             Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false; GmPlacing = null; turnSnaps.Clear(); MidTurn = false;
+            AiPicking = null; Reviews.Clear(); Advice.Clear(); adviceNew.Clear(); adviceSeen.Clear(); DragAdvice.Clear();
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
@@ -521,6 +522,136 @@ namespace Journal.Play
             }, new[] { $"добавлен «{name}» ({men:0}) за {Session.Name(side)}" });
         }
 
+        // ── Г113: поручения ИИ (вид ГМа, между ходами) — отряду, группе или всей стороне: держать, наступать, прикрыть, фланговый
+        // манёвр. Приказы по ним раздаёт движок в «Ход!» (BattleSession.Go → Battle.AiOrders), глазами стороны (туман);
+        // отряд, которому на этот ход отдан приказ, ИИ не трогает. Цель — щелчком после кнопки; отмена — как у прочих правок ГМа ──
+        public static readonly (AiKind kind, string name, string tip)[] AiKinds =
+        {
+            (AiKind.Hold, "Держать", "Стоять, где стоит, лицом к угрозе; отнесло — вернуться. Бегущих — сплотить"),
+            (AiKind.Advance, "Наступать", "Идти на врага (щелчок по отряду) или к точке (щелчок по земле); враг рядом — атаковать, конница — с натиском"),
+            (AiKind.Cover, "Прикрыть", "Встать перед своим отрядом (щелчок по нему) со стороны врага и перехватывать тех, кто к нему идёт. Всей стороне — рубящие прикрывают ближайших стрелков, стрелки держат"),
+            (AiKind.Flank, "Обход", "Фланговый манёвр на врага (щелчок по отряду): зайти сбоку и ударить. Всей стороне — конница в обход, остальные наступают на ту же цель"),
+        };
+        public (AiKind kind, List<int> ids, int side)? AiPicking { get; private set; }
+        public AiTask AiTaskOf(Mover m) => m == null ? null : Battle?.TaskOf(m);
+        public string AiText(AiTask t)
+        {
+            if (t == null) return "";
+            string Of(int id) { var u = Battle.ById(id); return u == null ? "?" : $"«{u.P.U.Name}»"; }
+            return t.Kind switch
+            {
+                AiKind.Hold => "держать позицию",
+                AiKind.Advance => t.TargetId != 0 ? $"наступать на {Of(t.TargetId)}" : "наступать к точке",
+                AiKind.Cover => $"прикрыть {Of(t.TargetId)}",
+                _ => $"обход {Of(t.TargetId)}",
+            };
+        }
+        public void AiStart(int kindIndex, IEnumerable<Mover> ms, int side)
+        {
+            if (!GmCanEdit) { Say("Поручения ИИ — между ходами"); return; }
+            var kind = AiKinds[Mathf.Clamp(kindIndex, 0, AiKinds.Length - 1)].kind;
+            var ids = (ms ?? Enumerable.Empty<Mover>()).Where(Present).Select(m => m.P.U.Id).ToList();
+            if (side == 0 && ids.Count == 0) return;
+            if (kind == AiKind.Hold || kind == AiKind.Cover && side > 0) { AiApply(kind, ids, side, 0, double.NaN, double.NaN); return; }
+            AiPicking = (kind, ids, side); GmPlacing = null;
+            Say(kind == AiKind.Cover ? "Щёлкни по своему отряду, которого прикрывать (Esc — отмена)"
+              : kind == AiKind.Advance ? "Щёлкни по врагу или по земле — куда наступать (Esc — отмена)"
+              : "Щёлкни по врагу, которого обойти с фланга (Esc — отмена)");
+        }
+        void AiPick(Mover t, Vector2 at, bool ui)
+        {
+            var (kind, ids, side) = AiPicking.Value; AiPicking = null;
+            if (t == null && kind == AiKind.Advance && !ui) AiApply(kind, ids, side, 0, at.x, at.y);
+            else if (t == null) Say("Нужен отряд — поручение не дано");
+            else AiApply(kind, ids, side, t.P.U.Id, double.NaN, double.NaN);
+        }
+        static AiTask CopyTask(AiTask t) => t == null ? null : new AiTask { Kind = t.Kind, TargetId = t.TargetId, X = t.X, Y = t.Y, Facing = t.Facing, Side = t.Side, Engaging = t.Engaging, Why = t.Why };
+        void AiApply(AiKind kind, List<int> ids, int side, int target, double x, double y)
+        {
+            var scope = (side > 0 ? SideUnits(side) : ids.Select(id => Battle.Movers.FirstOrDefault(m => m.P.U.Id == id))).Where(m => m != null).ToList();
+            var was = scope.Select(m => (id: m.P.U.Id, t: CopyTask(Battle.TaskOf(m)))).ToList();
+            int n = 0;
+            if (side > 0) n = Battle.AssignSide(side, kind, target, x, y);
+            else foreach (var m in scope) if (Battle.Assign(m, kind, target, x, y) != null) n++;
+            string name = AiKinds.First(k => k.kind == kind).name.ToLowerInvariant();
+            string whom = side > 0 ? $"вся сторона «{Session.Name(side)}»" : scope.Count == 1 ? $"«{scope[0].P.U.Name}»" : $"{scope.Count} отр.";
+            string tgt = target != 0 ? $" → «{Battle.ById(target)?.P.U.Name}»" : !double.IsNaN(x) ? " → к точке" : "";
+            if (n == 0) { Say($"ИИ: поручение «{name}» не дано — {(kind == AiKind.Cover ? "прикрывать можно только своих" : kind == AiKind.Flank ? "обходить можно только врага" : "нет отрядов на поле")}"); return; }
+            string what = $"ИИ: {whom} — {name}{tgt}" + (n < scope.Count ? $" ({n} из {scope.Count})" : "");
+            GmDone(what, () => AiRestore(was), new[] { what });
+            Say(what + " — приказы раздаст по «Ход!»");
+        }
+        void AiRestore(List<(int id, AiTask t)> was)
+        {
+            foreach (var (id, t) in was)
+            {
+                var m = Battle.Movers.FirstOrDefault(x => x.P.U.Id == id); if (m == null) continue;
+                Battle.Unassign(m);
+                if (t == null) continue;
+                var nt = Battle.Assign(m, t.Kind, t.TargetId, t.X, t.Y, t.Facing);
+                if (nt != null) { nt.Side = t.Side; nt.Engaging = t.Engaging; nt.Why = t.Why; }
+            }
+        }
+        public void AiClear(IEnumerable<Mover> ms, int side)
+        {
+            if (!GmCanEdit) { Say("Поручения ИИ — между ходами"); return; }
+            var scope = (side > 0 ? SideUnits(side) : ms).Where(m => Battle.TaskOf(m) != null).ToList();
+            if (scope.Count == 0) { Say("Поручений ИИ нет"); return; }
+            var was = scope.Select(m => (id: m.P.U.Id, t: CopyTask(Battle.TaskOf(m)))).ToList();
+            foreach (var m in scope) Battle.Unassign(m);
+            string what = $"ИИ: снято поручение — " + (side > 0 ? $"вся сторона «{Session.Name(side)}»" : scope.Count == 1 ? $"«{scope[0].P.U.Name}»" : $"{scope.Count} отр.");
+            GmDone(what, () => AiRestore(was), new[] { what });
+            Say(what);
+        }
+
+        // ── Г116б: подсказки адъютанта к приказу — движком (Battle.Advise), глазами стороны отряда. Пока тянешь ПКМ — живые
+        // (у главного отряда, в панели отряда); отдал приказ — всплывают один раз: та же фраза тому же отряду за ход не повторяется.
+        // Настройка: все / только важные / выключены ──
+        public List<string> DragAdvice { get; private set; } = new List<string>();
+        float adviseAt;
+        public readonly List<(Mover m, string text)> Advice = new List<(Mover, string)>();   // всплывшие по последним приказам
+        public float AdviceUntil;
+        readonly List<(Mover m, MoveOrder o)> adviceNew = new List<(Mover, MoveOrder)>();
+        readonly HashSet<string> adviceSeen = new HashSet<string>();
+        static readonly string[] ImportantAdvice = { "обходят", "без прикрытия", "дрогнет", "сильнее числом", "врагов больше", "проигрывает", "натиск не успеет", "не достаёт" };
+        public static bool IsImportant(string s) => ImportantAdvice.Any(s.Contains);
+        public static List<string> AdviceFilter(List<string> L) =>
+            GameSettings.Adjutant == 2 || L == null ? new List<string>() : GameSettings.Adjutant == 1 ? L.Where(IsImportant).ToList() : L;
+        void FlushAdvice()
+        {
+            if (adviceNew.Count == 0) return;
+            var batch = adviceNew.ToList(); adviceNew.Clear();
+            if (GameSettings.Adjutant == 2) return;
+            var fresh = new List<(Mover, string)>();
+            foreach (var (m, o) in batch)
+            {
+                if (o == null || !Present(m)) continue;
+                foreach (var h in AdviceFilter(Battle.Advise(m, o)))
+                    if (adviceSeen.Add($"{Session.Turn}|{m.P.U.Id}|{h}")) fresh.Add((m, h));
+            }
+            if (fresh.Count == 0) return;
+            Advice.Clear(); Advice.AddRange(fresh.Take(5));
+            AdviceUntil = Time.time + 8; Changed?.Invoke();
+        }
+
+        // ── Г116в: разбор после хода — движком (Battle.Review), для каждой стороны её глазами; показ — в журнале хода ──
+        public readonly Dictionary<int, List<string>> Reviews = new Dictionary<int, List<string>>();
+        public int ReviewTurn { get; private set; }
+        void MakeReviews()
+        {
+            Reviews.Clear();
+            foreach (var sd in Session.Sides) Reviews[sd] = Battle.Review(sd);
+            ReviewTurn = Session.Turn;
+        }
+        // отряд по первому «имени» в строке разбора (щелчок по строке — камера к нему)
+        public Mover UnitNamed(string line, int side)
+        {
+            int a = line.IndexOf('«'), b = a < 0 ? -1 : line.IndexOf('»', a + 1);
+            if (b < 0) return null;
+            string n = line.Substring(a + 1, b - a - 1);
+            return Battle.Movers.Where(m => m.P.U.Name == n && Present(m)).OrderBy(m => SideOf(m) == side ? 0 : 1).FirstOrDefault();
+        }
+
         // ── Г112 п.1: пауза посреди хода и приказы, что действуют сразу (вид ГМа). Счёт идёт впереди показа — поэтому бой
         // возвращается снимком к началу хода и тихо досчитывается до кадра паузы (бой детерминирован: тот же, что показан, —
         // с теми же приказами, в том числе прежними приказами посреди этого хода); запись обрезается по этот кадр. Приказы —
@@ -604,7 +735,7 @@ namespace Journal.Play
             Session.Turn = ts.Turn; Session.Phase = BattleCore.Phase.Orders; Session.Outcome = null; Session.Winner = -1;
             while (Session.Logs.Count > ts.Logs) Session.Logs.RemoveAt(Session.Logs.Count - 1);
             while (Summaries.Count > ts.Summaries) Summaries.RemoveAt(Summaries.Count - 1);
-            current = null; EndedByPlayer = false; MidTurn = false;
+            current = null; EndedByPlayer = false; MidTurn = false; Reviews.Clear(); ReviewTurn = 0;
             recorder.Rewind(ts.Frame);
             LoadRefs(ts.Refs);
             ShowTime = TurnStartTime = ts.Show; Phase = PlayPhase.Orders;
@@ -654,7 +785,7 @@ namespace Journal.Play
         {
             if (Game == null) return;
             if (Phase == PlayPhase.Showing) AdvanceTurn();
-            else if (Phase == PlayPhase.Orders) DrainPreviews();
+            else if (Phase == PlayPhase.Orders) { DrainPreviews(); FlushAdvice(); }
             HandleInput();
             if (viewer != null) viewer.T = ShowTime;
         }
@@ -709,6 +840,7 @@ namespace Journal.Play
                 if (current != null) { current.End(Battle); Summaries.Add(current); current = null; }
                 if (Session.Phase == BattleCore.Phase.Over) { Phase = PlayPhase.Over; recorder.Rec.Done = true; }
                 else Phase = PlayPhase.Orders;
+                MakeReviews();
                 Selection.RemoveAll(m => !Present(m)); AfterSelect();
                 RefreshPreviews();
                 Changed?.Invoke();
@@ -755,6 +887,7 @@ namespace Journal.Play
             string why = Session.SetOrder(m, o);
             if (why != null) { if (!quiet) Say(Selection.Count > 1 ? $"«{m.P.U.Name}»: {why}" : why); return false; }
             QueuePreview(m);
+            if (!quiet && adviceNew.Count < 8) adviceNew.Add((m, o));
             Changed?.Invoke();
             return true;
         }
@@ -774,7 +907,7 @@ namespace Journal.Play
             foreach (var m in Selection.ToList())
             {
                 var why = Phase == PlayPhase.Orders ? Session.SetOrder(m, make(m)) : "приказы — между ходами";
-                if (why == null) { QueuePreview(m); ok++; } else last = $"«{m.P.U.Name}»: {why}";
+                if (why == null) { QueuePreview(m); ok++; if (adviceNew.Count < 8) adviceNew.Add((m, Session.OrderOf(m))); } else last = $"«{m.P.U.Name}»: {why}";
             }
             if (last != null) Say(Selection.Count > 1 && ok > 0 ? $"{last} (остальные — приняли)" : last);
             Changed?.Invoke();
@@ -864,7 +997,7 @@ namespace Journal.Play
             {
                 if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) Go();
                 if (kb.spaceKey.wasPressedThisFrame && Phase == PlayPhase.Showing) Paused = !Paused;
-                if (kb.escapeKey.wasPressedThisFrame && GmPlacing == null) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
+                if (kb.escapeKey.wasPressedThisFrame && GmPlacing == null && AiPicking == null) { if (Dragging) CancelDrag(); else if (Selection.Count > 0) Select(null); else MenuRequested?.Invoke(); }
                 if (ctrl && kb.aKey.wasPressedThisFrame) SelectMany(Battle.Movers.Where(m => SideOf(m) == ActiveSide));
                 if (Selection.Count > 0 && Phase == PlayPhase.Orders && !ctrl)
                 {
@@ -895,6 +1028,12 @@ namespace Journal.Play
             {
                 if (kb != null && kb.escapeKey.wasPressedThisFrame) { GmPlacing = null; Say("Отменено"); }
                 else if (mouse.leftButton.wasPressedThisFrame && !ui) { GmPlace(mp); return; }
+            }
+            // ГМ даёт поручение ИИ: щелчок — цель (отряд или, для «наступать», точка на земле) (Г113)
+            if (AiPicking != null)
+            {
+                if (kb != null && kb.escapeKey.wasPressedThisFrame) { AiPicking = null; Say("Отменено"); }
+                else if (mouse.leftButton.wasPressedThisFrame && (!ui || UiHover != null)) { AiPick(ui ? UiHover : Hover, mp, ui); return; }
             }
             // ЛКМ: по отряду — выбрать (Ctrl — добавить); по земле — рамка; отпустил без рамки — снять выбор
             if (mouse.leftButton.wasPressedThisFrame && !ui)
@@ -957,6 +1096,7 @@ namespace Journal.Play
             DragOrdersFor(alt);
             DragOrder = Selected != null && DragOrders.TryGetValue(Selected, out var mo) ? mo : null;
             if (Time.unscaledTime >= previewAt && DragOrder != null) { DragPreview = Battle.Preview(Selected, DragOrder); previewAt = Time.unscaledTime + 0.12f; }
+            if (Time.unscaledTime >= adviseAt && DragOrder != null) { DragAdvice = AdviceFilter(Battle.Advise(Selected, DragOrder)); adviseAt = Time.unscaledTime + 0.3f; }
             // прочие в группе: мышь стоит 0,15 с — путь движком одному из тех, чей предпросмотр устарел
             if ((DragTo - dragSeen).sqrMagnitude > 0.25f) { dragSeen = DragTo; dragStillAt = Time.unscaledTime; }
             else if (Time.unscaledTime - dragStillAt > 0.15f)
@@ -973,7 +1113,7 @@ namespace Journal.Play
                 foreach (var kv in orders) Order(kv.Key, kv.Value);
             }
         }
-        void CancelDrag() { Dragging = false; DragPreview = null; DragOrder = null; DragOrders.Clear(); DragPreviews.Clear(); }
+        void CancelDrag() { Dragging = false; DragPreview = null; DragOrder = null; DragOrders.Clear(); DragPreviews.Clear(); DragAdvice.Clear(); adviseAt = 0; }
 
         // для проверки из CLI: протянуть ПКМ от точки до точки карты (как мышью) и отпустить
         public void DragFor(Vector2 from, Vector2 to, bool alt = false)

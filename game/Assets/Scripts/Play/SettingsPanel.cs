@@ -57,6 +57,9 @@ namespace Journal.Play
             var first = new Toggle("Досчитать ход, потом показать") { value = GameSettings.ComputeFirst }; first.AddToClassList("set-field"); box.Add(first);
             first.tooltip = "Выключено — показ идёт сразу, следом за счётом, и плавно замедляется, если счёт не успевает. Включено — сначала весь ход считается, потом показ без задержек";
             first.RegisterValueChangedCallback(e => GameSettings.ComputeFirst = e.newValue);
+            var adj = new DropdownField("Подсказки адъютанта", new List<string> { "все", "только важные", "выключены" }, GameSettings.Adjutant); adj.AddToClassList("set-field"); box.Add(adj);
+            adj.tooltip = "Замечания к приказу до его отдачи (не дойдёт, обходят, откроет стрелков…) и разбор после хода в журнале. «Только важные» — угрозы: обход, стрелки без прикрытия, дрогнет, враг сильнее, проигранная схватка";
+            adj.RegisterValueChangedCallback(e => { GameSettings.Adjutant = System.Math.Max(0, adj.index); Changed?.Invoke(); });
             var keys = new Label("Клавиши: Enter — «Ход!», пробел — пауза, 1/2/3 — скорость, Tab — другая сторона, Ctrl+A — все отряды, Д/О/С — держать, отступить, сплотить, ⌫ — отменить приказ, F — вся карта, Esc — меню.");
             keys.AddToClassList("set-note"); box.Add(keys);
 
