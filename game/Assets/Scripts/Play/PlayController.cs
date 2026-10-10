@@ -97,7 +97,7 @@ namespace Journal.Play
             Game = lastMake();
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
-            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0;
+            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false;
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
@@ -355,6 +355,55 @@ namespace Journal.Play
             return null;
         }
         public void LookAtDuel(DuelRec d) { if (d != null && viewer != null) viewer.LookAt(d.X, d.Y, 14); }
+
+        // ── Г112: инструменты ГМа (Алекс 10.10.2026) — правки между ходами: БД, усталость, модификаторы БД по таблице этапа 3
+        // (SPEC, Q5; числа — пока здесь, уйдут в Rules), всё с журналом и отменой. Численность, убрать и добавить отряд —
+        // с API движка (SetSoldiers, Remove, Add на ходу) ──
+        public static readonly (string Key, string Name, double Value)[] MoraleMods =
+        {
+            ("speech", "Речь командира", 20), ("tradition", "Традиции", 20), ("motivation", "Мотивация", 50), ("allies", "Союзники рядом", 5),
+            ("legitimacy", "Легитимность", 10), ("popular", "Популярность полководца", 30), ("divided", "Разделённость", -20),
+            ("famousFoe", "Именитый враг", -20), ("outnumbered", "Врагов больше", -40), ("foeRep", "Репутация врага", -40),
+            ("hunger", "Голод", -70), ("supplies", "Нехватка припасов", -30), ("cmdrDied", "Гибель полководца", -30),
+        };
+        public readonly List<string> GmLog = new List<string>();
+        readonly Stack<List<(Mover m, double morale, double fatigue)>> gmUndo = new Stack<List<(Mover, double, double)>>();
+        public bool GmCanEdit => Phase == PlayPhase.Orders && Battle != null;
+        public int GmUndoCount => gmUndo.Count;
+        void GmEdit(IEnumerable<Mover> ms, Action<Unit> change, Func<Mover, string> note)
+        {
+            if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
+            var undo = new List<(Mover, double, double)>(); var lines = new List<string>();
+            foreach (var m in ms.Where(Present).ToList())
+            {
+                var u = m.P.U; undo.Add((m, u.Morale, u.Fatigue));
+                double mo = u.Morale, fa = u.Fatigue; change(u);
+                u.Morale = Math.Max(0, Math.Round(u.Morale)); u.Fatigue = Math.Max(0, Math.Min(100, Math.Round(u.Fatigue)));
+                lines.Add($"«{u.Name}» {note(m)}: БД {mo:0} → {u.Morale:0}" + (Math.Abs(fa - u.Fatigue) > 0.5 ? $", усталость {fa:0} → {u.Fatigue:0}" : ""));
+            }
+            if (undo.Count == 0) return;
+            gmUndo.Push(undo);
+            foreach (var l in lines) GmLog.Add($"ход {Session.Turn}: {l}");
+            Say(lines.Count == 1 ? "ГМ: " + lines[0] : $"ГМ: {lines.Count} отр. — {note(undo[0].Item1)}");
+            RefreshPreviews(); Changed?.Invoke();
+        }
+        public void GmMorale(IEnumerable<Mover> ms, double delta) => GmEdit(ms, u => u.Morale += delta, _ => $"БД {(delta >= 0 ? "+" : "")}{delta:0}");
+        public void GmFatigue(IEnumerable<Mover> ms, double delta) => GmEdit(ms, u => u.Fatigue += delta, _ => $"усталость {(delta >= 0 ? "+" : "")}{delta:0}");
+        public void GmMod(IEnumerable<Mover> ms, int mod)
+        {
+            var (_, name, v) = MoraleMods[mod];
+            GmEdit(ms, u => u.Morale += v, _ => $"{name} {(v >= 0 ? "+" : "")}{v:0}");
+        }
+        public IEnumerable<Mover> SideUnits(int side) => Battle.Movers.Where(m => SideOf(m) == side);
+        public void GmUndo()
+        {
+            if (!GmCanEdit || gmUndo.Count == 0) return;
+            var undo = gmUndo.Pop();
+            foreach (var (m, mo, fa) in undo) { m.P.U.Morale = mo; m.P.U.Fatigue = fa; }
+            GmLog.Add($"ход {Session.Turn}: отменена правка ({undo.Count} отр.)");
+            Say("Правка ГМа отменена"); RefreshPreviews(); Changed?.Invoke();
+        }
+        public bool CardsAll { get; set; }   // ГМ: карточки обеих сторон разом — приказы за любую сторону без переключения
 
         // вернуть смотрелке эту битву (после редактора карт, который показывал свою карту)
         public void ReShow() { if (viewer != null && recorder != null) { viewer.SetLive(recorder.Rec); viewer.T = ShowTime; } }

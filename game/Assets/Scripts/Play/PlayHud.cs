@@ -513,32 +513,37 @@ namespace Journal.Play
             return false;
         }
 
-        Label viewTab;
+        Label viewTab, allTab;
         void SideTabs(BattleSession s)
         {
-            if (sideTabs.childCount != s.Sides.Count() + 1)   // + «Вид»
+            if (sideTabs.childCount != s.Sides.Count() + 2)   // + «Все» и «Вид»
             {
                 sideTabs.Clear();
                 foreach (var side in s.Sides)
                 {
                     var t = new Label(s.Name(side)); t.AddToClassList("side-tab"); t.AddToClassList("side-" + side);
-                    int sd = side; t.RegisterCallback<ClickEvent>(_ => { pc.ActiveSide = sd; pc.Select(null); if (pc.ViewSide > 0) pc.ViewSide = sd; });
+                    int sd = side; t.RegisterCallback<ClickEvent>(_ => { pc.CardsAll = false; pc.ActiveSide = sd; pc.Select(null); if (pc.ViewSide > 0) pc.ViewSide = sd; });
                     t.userData = side; sideTabs.Add(t);
                 }
+                // ГМ (Г112): «Все» — карточки обеих сторон, приказы за любую без переключения
+                allTab = new Label("Все"); allTab.AddToClassList("side-tab"); allTab.userData = 0; allTab.tooltip = "Карточки обеих сторон разом: выбирай любой отряд и отдавай приказ без переключения стороны (вид ГМа)";
+                allTab.RegisterCallback<ClickEvent>(_ => pc.CardsAll = true); sideTabs.Add(allTab);
                 // чьими глазами (Г18): ГМ — видно всё; сторона — туман войны для чужих
                 viewTab = new Label(); viewTab.AddToClassList("side-tab"); viewTab.AddToClassList("view-tab");
                 viewTab.tooltip = "Чьими глазами смотреть (М): ГМ видит всё, сторона — только тех чужих, кого видит";
                 viewTab.RegisterCallback<ClickEvent>(_ => pc.CycleView()); viewTab.userData = -1; sideTabs.Add(viewTab);
             }
-            foreach (var t in sideTabs.Children()) t.EnableInClassList("is-on", (int)t.userData == pc.ActiveSide);
+            foreach (var t in sideTabs.Children()) t.EnableInClassList("is-on", (int)t.userData == pc.ActiveSide && !(pc.CardsAll && pc.ViewSide == 0) || (int)t.userData == 0 && pc.CardsAll && pc.ViewSide == 0);
+            if (allTab != null) allTab.EnableInClassList("hidden", pc.ViewSide != 0);
             if (viewTab != null) viewTab.text = pc.ViewSide == 0 ? "Вид: ГМ" : $"Вид: {s.Name(pc.ViewSide)}";
         }
 
         // ── карточки отрядов активной стороны ──
         void Cards(BattleSession s)
         {
-            var units = s.UnitsOf(pc.ActiveSide).ToList();
-            if (cardsSide != pc.ActiveSide || cardsCount != units.Count) BuildCards(units);
+            bool all = pc.CardsAll && pc.ViewSide == 0;
+            var units = (all ? s.Battle.Movers.OrderBy(PlayController.SideOf).ToList() : s.UnitsOf(pc.ActiveSide).ToList());
+            if (cardsSide != (all ? 0 : pc.ActiveSide) || cardsCount != units.Count) BuildCards(units);
             foreach (var kv in cards)
             {
                 var m = kv.Key; var c = kv.Value; var u = m.P.U;
@@ -568,7 +573,7 @@ namespace Journal.Play
             cardsRow.Clear(); cards.Clear();
             bool compact = units.Count > 10;   // много отрядов — мини-карточки в несколько рядов
             cardsRow.EnableInClassList("is-compact", compact); bottomDock.EnableInClassList("is-wide", compact);
-            cardsSide = pc.ActiveSide; cardsCount = units.Count;
+            cardsSide = pc.CardsAll && pc.ViewSide == 0 ? 0 : pc.ActiveSide; cardsCount = units.Count;
             foreach (var m in units)
             {
                 var c = new Card { Root = new VisualElement() };
@@ -619,12 +624,59 @@ namespace Journal.Play
                  ("Норма хода", $"{BattleMap.UnitSpeed(u, pc.Battle.R):0} м"));
             var o = pc.Session.OrderOf(m);
             detailOrder.text = "Приказ: " + OrderText(o) + (pc.Session.Pending.ContainsKey(m) ? " (новый)" : "");
+            GmBox();
             var p = pc.Dragging ? pc.DragPreview : pc.PreviewOf(m);
             detailPlan.RemoveFromClassList("is-bad"); detailPlan.RemoveFromClassList("is-good");
             detailPlan.text = p == null ? "" : PlanText(p);
             if (p?.ChargeOk == false || p?.Note != null && p.Note.Contains("нет")) detailPlan.AddToClassList("is-bad");
             else if (p?.ChargeOk == true || p?.InRange == true) detailPlan.AddToClassList("is-good");
         }
+        // ── Г112: раздел ГМа под панелью отряда — «ГМ ▸» раскрывает: БД и усталость выбранных ±, модификаторы БД по таблице этапа 3
+        // (отряду или всей его стороне), отмена правки, последние правки. Только в виде ГМа и между ходами ──
+        VisualElement gmBox, gmBody; Label gmHead, gmFatigue, gmMorale, gmLogLabel; DropdownField gmMod; bool gmOpen; string gmKey;
+        void GmBox()
+        {
+            if (gmBox == null)
+            {
+                gmBox = new VisualElement(); gmBox.AddToClassList("gm-box"); detail.Add(gmBox);
+                gmHead = new Label("ГМ ▸"); gmHead.AddToClassList("gm-head"); gmHead.tooltip = "Инструменты ГМа: правка боевого духа и усталости, модификаторы БД по таблице, отмена";
+                gmHead.RegisterCallback<ClickEvent>(_ => { gmOpen = !gmOpen; gmKey = null; }); gmBox.Add(gmHead);
+                gmBody = new VisualElement(); gmBox.Add(gmBody);
+                VisualElement Line2(string label, out Label val, System.Action<double> step, string tipText)
+                {
+                    var r = new VisualElement(); r.AddToClassList("gm-row");
+                    var k = new Label(label); k.AddToClassList("gm-key"); r.Add(k);
+                    foreach (var d in new[] { -10.0, -5.0 }) { var dd = d; var b = new Button(() => step(dd)) { text = $"{d:0}" }; b.AddToClassList("gm-btn"); r.Add(b); }
+                    val = new Label(); val.AddToClassList("gm-val"); r.Add(val);
+                    foreach (var d in new[] { 5.0, 10.0 }) { var dd = d; var b = new Button(() => step(dd)) { text = $"+{d:0}" }; b.AddToClassList("gm-btn"); r.Add(b); }
+                    r.tooltip = tipText; gmBody.Add(r); return r;
+                }
+                Line2("БД", out gmMorale, d => pc.GmMorale(pc.Selection, d), "Боевой дух выбранных отрядов — правка ГМа, с журналом и отменой");
+                Line2("Усталость", out gmFatigue, d => pc.GmFatigue(pc.Selection, d), "Усталость выбранных, % — правка ГМа");
+                gmMod = new DropdownField("Модификатор БД", PlayController.MoraleMods.Select(x => $"{x.Name} {(x.Value >= 0 ? "+" : "")}{x.Value:0}").ToList(), 0); gmMod.AddToClassList("gm-mod"); gmBody.Add(gmMod);
+                var mr = new VisualElement(); mr.AddToClassList("gm-row");
+                var toUnit = new Button(() => pc.GmMod(pc.Selection, gmMod.index)) { text = "Выбранным" }; toUnit.AddToClassList("army-btn"); toUnit.AddToClassList("small"); mr.Add(toUnit);
+                var toSide = new Button(() => { if (pc.Selected != null) pc.GmMod(pc.SideUnits(PlayController.SideOf(pc.Selected)), gmMod.index); }) { text = "Всей стороне" }; toSide.AddToClassList("army-btn"); toSide.AddToClassList("small"); mr.Add(toSide);
+                var undo = new Button(() => pc.GmUndo()) { text = "Отменить" }; undo.AddToClassList("army-btn"); undo.AddToClassList("small"); mr.Add(undo);
+                gmBody.Add(mr);
+                gmLogLabel = new Label(); gmLogLabel.AddToClassList("gm-log"); gmBody.Add(gmLogLabel);
+            }
+            bool can = pc.ViewSide == 0;
+            gmBox.EnableInClassList("hidden", !can);
+            if (!can) return;
+            var m = pc.Selected; bool edit = pc.GmCanEdit;
+            string key = $"{gmOpen}|{edit}|{m?.P.U.Morale}|{m?.P.U.Fatigue}|{pc.GmLog.Count}|{pc.GmUndoCount}|{pc.Selection.Count}";
+            if (key == gmKey) return;
+            gmKey = key;
+            gmHead.text = gmOpen ? "ГМ ▾" : "ГМ ▸";
+            gmBody.EnableInClassList("hidden", !gmOpen);
+            gmBody.SetEnabled(edit);
+            if (m == null) return;
+            string more = pc.Selection.Count > 1 ? $" (и ещё {pc.Selection.Count - 1})" : "";
+            gmMorale.text = $"{m.P.U.Morale:0}{more}"; gmFatigue.text = $"{m.P.U.Fatigue:0}%";
+            gmLogLabel.text = (edit ? "" : "Правки — между ходами.\n") + string.Join("\n", pc.GmLog.Skip(System.Math.Max(0, pc.GmLog.Count - 4)));
+        }
+
         void Rows(params (string k, string v)[] rows)
         {
             while (detailRows.childCount < rows.Length)
