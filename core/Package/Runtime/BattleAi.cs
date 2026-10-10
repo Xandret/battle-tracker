@@ -395,7 +395,9 @@ namespace BattleCore
             {
                 string e = s.Threat.P.U.Name, where = Units.SectorRu[s.ThreatSector];
                 bool coming = Coming(s.Threat, m);
-                s.Hints.Add($"«{name}» под угрозой: «{e}» {where} в {Js.Num(Js.Round(s.ThreatM))} м{(coming ? $", дойдёт за {Js.Num(Js.R1(s.ThreatTurns))} ход." : "")}");
+                bool fighting = FightOf(m, s.Threat) != null;
+                string tail = fighting ? ", уже в схватке" : s.ThreatM <= A.HoldOffM ? ", вплотную" : coming ? $", дойдёт за {Js.Num(Js.R1(Math.Max(0.1, s.ThreatTurns)))} ход." : "";
+                s.Hints.Add($"«{name}» под угрозой: «{e}» {where} в {Js.Num(Js.Round(s.ThreatM))} м{tail}");
                 if (s.Flanked)
                 {
                     var fl = Foes(m).Where(e2 => !Shooter(e2) && (Gap(m, e2) <= A.ThreatM || FightOf(m, e2) != null || Coming(e2, m)) && SectorFrom(m, e2) != "front").OrderBy(e2 => Gap(m, e2)).FirstOrDefault();
@@ -457,7 +459,7 @@ namespace BattleCore
                 if (mine == null) continue;
                 var other = f.Other(mine);
                 double my = mine == f.A ? f.LossA : f.LossB, his = mine == f.A ? f.LossB : f.LossA;
-                if (my > 0 && my > his * R.Ai.LoseK) L.Add($"«{mine.P.U.Name}» проигрывает схватку с «{other.P.U.Name}»: −{Js.Num(Js.Round(my))} против −{Js.Num(Js.Round(his))} за ход");
+                if (Js.Round(my) >= R.Ai.LoseMinMen && my > his * R.Ai.LoseK) L.Add($"«{mine.P.U.Name}» проигрывает схватку с «{other.P.U.Name}»: −{Js.Num(Js.Round(my))} против −{Js.Num(Js.Round(his))} за ход");
             }
             return L;
         }

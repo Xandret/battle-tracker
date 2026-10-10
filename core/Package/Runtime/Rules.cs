@@ -365,7 +365,7 @@ namespace BattleCore
             public double CoverReactM = 120;   // «прикрыть»: враг ближе этого к прикрываемому — перехват
             public double OutnumberK = 1.5;    // врагов рядом во столько раз больше своих — «врагов больше»
             public double LowMorale = 40;      // БД ниже — «дрогнет» (как Morale.CheckAt)
-            public double LoseK = 1.5;         // разбор: потери за ход во столько раз больше, чем у врага, — «проигрывает схватку»
+            public double LoseK = 1.5, LoseMinMen = 1;   // разбор: потери за ход во столько раз больше, чем у врага, и не меньше LoseMinMen бойцов — «проигрывает схватку»
             public bool Journal = true;        // решения ИИ — строкой в журнал хода
         }
         public AiR Ai = new AiR();
