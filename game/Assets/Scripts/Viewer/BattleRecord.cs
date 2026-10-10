@@ -352,7 +352,8 @@ namespace Journal.Viewer
                 {
                     if (!man.Alive || man.Id >= n) continue;
                     int id = man.Id;
-                    mf.Xyh[3 * id] = (float)man.X; mf.Xyh[3 * id + 1] = (float)man.Y; mf.Xyh[3 * id + 2] = (float)man.Facing;
+                    mf.Xyh[3 * id] = (float)man.X; mf.Xyh[3 * id + 1] = (float)man.Y;
+                    mf.Xyh[3 * id + 2] = (float)(horse && rec.Frames.Count > 1 ? man.BodyFacing : man.Facing);   // конь — по курсу своей капсулы (Г111 п.2): рисунок не въезжает в чужой строй
                     mf.Fig[id] = (short)(man.Fig?.Id ?? 0); mf.Row[id] = (byte)Math.Min(255, man.Row);
                     float px = g.xy[2 * id], py = g.xy[2 * id + 1];
                     if (float.IsNaN(px)) g.ph[id] = (float)Journal.Art.Kits.Hash(m.P.U.Id * 7919 + id, 5);
