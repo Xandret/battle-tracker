@@ -142,6 +142,7 @@ namespace Journal.Play
                 row.RegisterCallback<ClickEvent>(_ => Confirm("open:" + pp, "Есть несохранённые правки — нажми на файл ещё раз, чтобы открыть без них", () => TryOpen(pp)));
             }
             filePopup.RemoveFromClassList("hidden");
+            filePopup.BringToFront();   // поверх колонок фракций и отрядов (создан раньше них — иначе под ними)
         }
         void Save()
         {

@@ -90,9 +90,11 @@ namespace Journal.Viewer
             {
                 if (L.Mat == FortMap.Trench) continue;   // вал и окоп — земля (клетки)
                 bool wall = L.Mat == FortMap.Wall;
-                if (wall) Ribbon(shadows, L, 5.2f, 0, 0, Sun * WallH, 1.3f, dark, 0.38f, du, dv);
-                else Ribbon(shadows, L, 1.2f, 0, 0, Sun * 3.5f, 0.6f, dark, 0.3f, du, dv);
-                Ribbon(wall ? walls : pals, L, wall ? WallW : PalW, wall ? WallTile : PalTile, 1, Vector2.zero, 0, white, 1, 0, 0);
+                // толстая кисть (FortMap.Line.Thick) — лента шире и кусок рисунка длиннее в той же мере: кладка не сплющена
+                float k = Mathf.Max(1, L.Thick);
+                if (wall) Ribbon(shadows, L, 5.2f * k, 0, 0, Sun * WallH, 1.3f, dark, 0.38f, du, dv);
+                else Ribbon(shadows, L, 1.2f * k, 0, 0, Sun * 3.5f, 0.6f, dark, 0.3f, du, dv);
+                Ribbon(wall ? walls : pals, L, (wall ? WallW : PalW) * k, (wall ? WallTile : PalTile) * k, 1, Vector2.zero, 0, white, 1, 0, 0);
             }
             // торцы стен у пролома и у края: тёмная кромка поперёк ленты (у башен и ворот её закроют они)
             var ink = new Color32(34, 24, 15, 255);
@@ -102,7 +104,7 @@ namespace Journal.Viewer
                 foreach (var (p, q) in new[] { (L.P[0], L.P[1]), (L.P[L.P.Count - 1], L.P[L.P.Count - 2]) })
                 {
                     var t = new Vector2(p.x - q.x, p.y - q.y); if (t.sqrMagnitude < 1e-6f) continue; t.Normalize();
-                    var nn = new Vector2(-t.y, t.x) * (WallW / 2 - 0.25f);
+                    var nn = new Vector2(-t.y, t.x) * (WallW * Mathf.Max(1, L.Thick) / 2 - 0.25f);   // торец — во всю ширину ленты
                     int b0 = top.Vert(p.x + nn.x, p.y + nn.y, du, dv, ink, shadowP), b1 = top.Vert(p.x - nn.x, p.y - nn.y, du, dv, ink, shadowP);
                     int b2 = top.Vert(p.x - nn.x + t.x * 0.16f, p.y - nn.y + t.y * 0.16f, du, dv, ink, shadowP), b3 = top.Vert(p.x + nn.x + t.x * 0.16f, p.y + nn.y + t.y * 0.16f, du, dv, ink, shadowP);
                     top.Tri(b0, b1, b2); top.Tri(b0, b2, b3);

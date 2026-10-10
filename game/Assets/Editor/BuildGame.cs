@@ -13,7 +13,7 @@ namespace Journal.EditorTools
 {
     public static class BuildGame
     {
-        public const string Version = "0.3.4";
+        public const string Version = "0.3.5";
         static readonly string[] Scenes = { "Assets/Scenes/Play.unity" };
         static readonly string[] FoundByName = { "Journal/Men", "Journal/Ground", "Journal/MapImage", "Universal Render Pipeline/2D/Sprite-Unlit-Default",
             // пост-обработка 2D-рендерера (свечение «миниатюры», MiniatureLook): без них в сборке Bloom молча не работает

@@ -14,7 +14,7 @@ namespace Journal.Art
     public sealed class FortMap
     {
         public const int Wall = 1, Palisade = 2, Trench = 3;            // материал линии (как mat в полигоне)
-        public sealed class Line { public int Mat; public List<(float x, float y)> P = new List<(float, float)>(); public bool Closed; public List<int> Out = new List<int>(); }   // Out — наружа по точкам: +1 слева по ходу, −1 справа, 0 — не понять
+        public sealed class Line { public int Mat; public List<(float x, float y)> P = new List<(float, float)>(); public bool Closed; public List<int> Out = new List<int>(); public float Thick = 1; }   // Thick — толщина в клетках (кисть шире 1 — лента шире)   // Out — наружа по точкам: +1 слева по ходу, −1 справа, 0 — не понять
         public struct Gate { public float X, Y, W, Ax, Ay; public bool Horiz; public int Mat, Out; }   // W — ширина проёма вдоль стены (клеток × клетку); (Ax, Ay) — ось прохода (поперёк стены); Out: наружа по этой оси (+1 — по ней, −1 — против)
         public struct Tower { public float X, Y, R; public int Mat; public int Seed; }
         public struct Rubble { public float X, Y; public int Seed; }
@@ -53,6 +53,11 @@ namespace Journal.Art
                     }
                 }
             int MatAt(int x, int y) => x < 0 || y < 0 || x >= cols || y >= rows ? 0 : mat[y * cols + x];
+            // толстые линии (кисть редактора шире клетки, Алекс 10.10.2026: «текстура стены по пизде идёт, особенно по диагонали») —
+            // до осевой в одну клетку (утоньшение Чжана — Суня): иначе параллельные ряды клеток давали лесенку коротких кусков стены
+            // под разными углами внахлёст. Ворота и башни не утоньшаются, но держат связность. Толщина куска — клеток укрепления на
+            // клетку оси — ширина ленты (Line.Thick)
+            var thick = Thin(mat, m, cols, rows);
             // середины клеток, дважды сглаженные по соседям того же материала
             var px = new float[n]; var py = new float[n];
             for (int i = 0; i < n; i++) { px[i] = (i % cols + 0.5f) * c; py[i] = (i / cols + 0.5f) * c; }
@@ -117,7 +122,7 @@ namespace Journal.Art
             int Deg(int i) => adj[i]?.Count ?? 0;
             void Walk(int s, int nb)
             {
-                var L = new Line { Mat = mat[s] }; L.P.Add((px[s], py[s]));
+                var L = new Line { Mat = mat[s], Thick = Math.Max(thick[s], thick[nb]) }; L.P.Add((px[s], py[s]));
                 int prev = s, cur = nb; used.Add(Key(s, nb));
                 while (true)
                 {
@@ -134,7 +139,7 @@ namespace Journal.Art
             for (int i = 0; i < n; i++) if (adj[i] != null) foreach (int j in adj[i]) if (!used.Contains(Key(i, j))) Walk(i, j);
             for (int i = 0; i < n; i++) if (mat[i] != 0 && adj[i] == null && m.T[i] != KTower && m.T[i] != KGate)   // одиночная клетка — коротыш
                 {
-                    var L = new Line { Mat = mat[i] }; L.P.Add((px[i] - c * 0.3f, py[i])); L.P.Add((px[i] + c * 0.3f, py[i])); f.Lines.Add(L);
+                    var L = new Line { Mat = mat[i], Thick = thick[i] }; L.P.Add((px[i] - c * 0.3f, py[i])); L.P.Add((px[i] + c * 0.3f, py[i])); f.Lines.Add(L);
                 }
             foreach (var L in f.Lines)
             {
@@ -254,6 +259,71 @@ namespace Journal.Art
             }
             for (int i = 0; i < n && !f.Rustic; i++) if (m.T[i] == KPal) f.Rustic = true;
             return f;
+        }
+        // утоньшение по материалу: убранные клетки — mat 0 (их закроет широкая лента); возвращает толщину у клеток оси
+        static float[] Thin(byte[] mat, TerrainMap m, int cols, int rows)
+        {
+            int n = cols * rows; var thick = new float[n];
+            for (int i = 0; i < n; i++) thick[i] = 1;
+            foreach (byte mm in new byte[] { Wall, Palisade, Trench })
+            {
+                var fg = new bool[n]; bool any = false;
+                for (int i = 0; i < n; i++) if (mat[i] == mm) { fg[i] = true; any = true; }
+                if (!any) continue;
+                var orig = (bool[])fg.Clone();
+                bool Fixed(int i) => m.T[i] == KGate || m.T[i] == KTower;
+                bool F(int x, int y) => x >= 0 && y >= 0 && x < cols && y < rows && fg[y * cols + x];
+                var del = new List<int>();
+                for (int guard = 0; guard < 64; guard++)
+                {
+                    bool changed = false;
+                    for (int pass = 0; pass < 2; pass++)
+                    {
+                        del.Clear();
+                        for (int i = 0; i < n; i++)
+                        {
+                            if (!fg[i] || Fixed(i)) continue;
+                            int x = i % cols, y = i / cols;
+                            // соседи по кругу: P2 (север), P3, … P9 (северо-запад)
+                            bool p2 = F(x, y - 1), p3 = F(x + 1, y - 1), p4 = F(x + 1, y), p5 = F(x + 1, y + 1), p6 = F(x, y + 1), p7 = F(x - 1, y + 1), p8 = F(x - 1, y), p9 = F(x - 1, y - 1);
+                            var ring = new[] { p2, p3, p4, p5, p6, p7, p8, p9, p2 };
+                            int B = 0, A = 0;
+                            for (int k = 0; k < 8; k++) { if (ring[k]) B++; if (!ring[k] && ring[k + 1]) A++; }
+                            if (B < 2 || B > 6 || A != 1) continue;
+                            if (pass == 0 ? (p2 && p4 && p6) || (p4 && p6 && p8) : (p2 && p4 && p8) || (p2 && p6 && p8)) continue;
+                            del.Add(i);
+                        }
+                        foreach (int i in del) fg[i] = false;
+                        if (del.Count > 0) changed = true;
+                    }
+                    if (!changed) break;
+                }
+                // толщина: куски исходных клеток (8 соседей) — клеток всего / клеток оси
+                var comp = new int[n]; for (int i = 0; i < n; i++) comp[i] = -1;
+                var st = new Stack<int>(); int nc = 0; var all = new List<int>(); var axis = new List<int>();
+                for (int s = 0; s < n; s++)
+                {
+                    if (!orig[s] || comp[s] >= 0) continue;
+                    int cnt = 0, ax = 0; comp[s] = nc; st.Push(s);
+                    while (st.Count > 0)
+                    {
+                        int i = st.Pop(), x = i % cols, y = i / cols; cnt++; if (fg[i]) ax++;
+                        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++)
+                            {
+                                int xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) continue;
+                                int j = yy * cols + xx; if (orig[j] && comp[j] < 0) { comp[j] = nc; st.Push(j); }
+                            }
+                    }
+                    all.Add(cnt); axis.Add(ax); nc++;
+                }
+                for (int i = 0; i < n; i++)
+                {
+                    if (!orig[i]) continue;
+                    if (!fg[i]) { mat[i] = 0; continue; }
+                    thick[i] = Math.Max(1, Math.Min(4, (float)all[comp[i]] / Math.Max(1, axis[comp[i]])));
+                }
+            }
+            return thick;
         }
         static float Dist((float x, float y) a, (float x, float y) b) => (float)Math.Sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
     }
