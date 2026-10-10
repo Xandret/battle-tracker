@@ -38,6 +38,11 @@ namespace Journal.Play
 
         void LateUpdate()
         {
+            var lk = pc?.ViewRec;
+            if (lk == null) LateBody(); else lock (lk) LateBody();
+        }
+        void LateBody()
+        {
             V.Clear(); C.Clear(); I.Clear();
             if (pc?.Battle == null) { mesh.Clear(); return; }
             var cam = Camera.main;
@@ -61,8 +66,13 @@ namespace Journal.Play
                 if (!orders) continue;
                 if (pc.Dragging && !main)
                 {
-                    // прочие в группе, пока тянут: путь движком не считаем (дорого) — линия к месту и призрак строя
-                    if (pc.DragOrders.TryGetValue(s, out var o)) GroupGhost(s, o);
+                    // прочие в группе, пока тянут (Г111 п.1): путь движком, если досчитан для этого приказа; иначе — место на конец
+                    // хода по прямой на норму хода (как у главного — конец хода, а не точка приказа)
+                    if (pc.DragOrders.TryGetValue(s, out var o))
+                    {
+                        if (pc.DragPreviews.TryGetValue(s, out var dp) && PlayController.SameOrder(dp.o, o) && dp.p != null) Plan(s, dp.p, Gold, 2f, true);
+                        else GroupGhost(s, o);
+                    }
                 }
                 else
                 {
@@ -122,7 +132,7 @@ namespace Journal.Play
                     }
             }
             // туман (Г107): чужой отряд, которого сейчас не видно, — пунктирный круг там, где его видели в последний раз
-            if (pc.ViewSide > 0)
+            if (pc.ViewSide > 0 && orders)   // в ходе LastSeen пишет поток счёта
                 foreach (var m in pc.Battle.Movers)
                 {
                     if (PlayController.SideOf(m) == pc.ViewSide || !PlayController.Present(m) || pc.SeenNow(m)) continue;
@@ -170,9 +180,14 @@ namespace Journal.Play
                 if (t != null) Line(m.P.X, m.P.Y, t.P.X, t.P.Y, o.Charge ? Ok : Gold, 1.5f, dashed: true);
                 return;
             }
-            Line(m.P.X, m.P.Y, o.X, o.Y, Gold, 1.5f, dashed: true);
-            Footprint(o.X, o.Y, o.Facing, m.P.Fp.Front, m.P.Fp.Depth, Ghost, 1, fill: true);
-            Arrow(o.X, o.Y, o.Facing, m.P.Fp.Depth / 2 + 6, Gold, 1.5f);
+            // конец хода по прямой: не дальше нормы хода; дальше — пунктир до точки приказа
+            double dx = o.X - m.P.X, dy = o.Y - m.P.Y, len = Math.Sqrt(dx * dx + dy * dy), norm = BattleMap.UnitSpeed(m.P.U, pc.Battle.R);
+            double k = len > norm && len > 1e-6 ? norm / len : 1, ex = m.P.X + dx * k, ey = m.P.Y + dy * k;
+            Line(m.P.X, m.P.Y, ex, ey, Gold, 1.5f);
+            if (k < 1) Line(ex, ey, o.X, o.Y, Gold, 1.5f, dashed: true);
+            double face = k < 1 ? MoveSim.HeadingOf(dx, dy) : o.Facing;
+            Footprint(ex, ey, face, m.P.Fp.Front, m.P.Fp.Depth, Ghost, 1, fill: true);
+            Arrow(ex, ey, face, m.P.Fp.Depth / 2 + 6, Gold, 1.5f);
         }
 
         // ── примитивы: мир Unity — (x, −y); толщина — в пикселях экрана ──

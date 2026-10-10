@@ -57,6 +57,8 @@ namespace Journal.Viewer
         public List<int>[] States;                                                                   // отряд → [кадр, код, кадр, код, …]
         public readonly List<GateRec> Gates = new List<GateRec>();                                   // ворота карты (Г104)
         public readonly List<DuelRec> Duels = new List<DuelRec>();                                   // поединки полководцев (Г108)
+        public readonly Dictionary<long, int> Charges = new Dictionary<long, int>();                 // пара отрядов (меньший << 32 | больший) → кто бил натиском
+        public readonly Dictionary<int, bool[]> FogCells = new Dictionary<int, bool[]>();            // туман (Г107): сторона → видимые клетки, последние снятые
         // туман войны (Г18, Алекс 10.10.2026: «переключатель вида»): кадр → отряд → какие стороны его видят (бит 1 << сторона);
         // пусто — видимости в записи нет, видно всем
         public readonly List<byte[]> Seen = new List<byte[]>();
@@ -385,6 +387,16 @@ namespace Journal.Viewer
             if (battle == null) { rec.Fights.Add(Array.Empty<int>()); return; }
             if (gateOpen != null) { if (fr % 25 == 0) GateFlags(); GateSnap(fr); }
             rec.Fights.Add(battle.Fights.Where(f => !f.Over && f.Touching).SelectMany(f => new[] { idx[f.A.P.U.Id], idx[f.B.P.U.Id] }).ToArray());
+            // натиск в схватке — для подписи «Натиск «A» на «B»!» (панели не лезут в бой, пока его считает другой поток)
+            foreach (var f in battle.Fights)
+                if (!f.Over && f.Touching && idx.TryGetValue(f.A.P.U.Id, out var fa) && idx.TryGetValue(f.B.P.U.Id, out var fb))
+                {
+                    long key = (long)Math.Min(fa, fb) << 32 | (uint)Math.Max(fa, fb);
+                    if (!rec.Charges.ContainsKey(key) && f.Notes.Any(x => x.StartsWith("натиск «"))) rec.Charges[key] = fa;
+                }
+            // туман на карте (Г107): видимые клетки сторон — раз в секунду
+            if (Sees != null && fr % 5 == 0)
+                foreach (int sd in sides) { var c = battle.SeenCells(sd); if (c != null) rec.FogCells[sd] = (bool[])c.Clone(); }
             for (; seenDead < battle.Deaths.Count; seenDead++)
             {
                 var d = battle.Deaths[seenDead];

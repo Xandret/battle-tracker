@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using BattleCore;
 using Journal.Viewer;
 using UnityEngine;
@@ -64,6 +65,12 @@ namespace Journal.Play
         public OrderPreview DragPreview { get; private set; }
         public MoveOrder DragOrder { get; private set; }
         public readonly Dictionary<Mover, MoveOrder> DragOrders = new Dictionary<Mover, MoveOrder>();
+        // Г111 п.1: прочим в группе, пока тянут, — тоже место на конец хода: путь движком, когда мышь остановилась (по одному
+        // отряду за кадр: предпросмотр — 25–50 мс), а пока тянут — по прямой на норму хода (OrderOverlay)
+        public readonly Dictionary<Mover, (MoveOrder o, OrderPreview p)> DragPreviews = new Dictionary<Mover, (MoveOrder, OrderPreview)>();
+        Vector2 dragSeen; float dragStillAt;
+        public static bool SameOrder(MoveOrder a, MoveOrder b) => a != null && b != null && a.Kind == b.Kind && a.TargetId == b.TargetId && a.Charge == b.Charge
+            && Math.Abs(a.X - b.X) < 1 && Math.Abs(a.Y - b.Y) < 1 && Math.Abs(MoveSim.AngleDiff(a.Facing, b.Facing)) < 2;
         float previewAt;
         // рамка выбора ЛКМ по земле (экранные точки)
         public bool BoxSelecting { get; private set; }
@@ -86,6 +93,7 @@ namespace Journal.Play
         public void NewBattle(Func<PlayBattle> make = null)
         {
             if (make != null) { lastMake = make; Chosen = true; }
+            StopCompute();   // ход прежней битвы ещё считается — остановить
             Game = lastMake();
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
@@ -359,7 +367,8 @@ namespace Journal.Play
             current = TurnSummary.Begin(Battle, Session.Turn);
             Session.Go();
             Phase = PlayPhase.Showing; Paused = false;
-            TurnStartTime = ShowTime; stepInTurn = 0;
+            TurnStartTime = ShowTime; stepInTurn = 0; showRate = GameSettings.ComputeFirst ? 1 : 0.3f;
+            StartCompute();
             previews.Clear(); previewQueue.Clear();
             Changed?.Invoke();
         }
@@ -373,7 +382,13 @@ namespace Journal.Play
             Changed?.Invoke();
         }
 
+        void OnDestroy() => StopCompute();
         void Update()
+        {
+            var lk = recorder?.Rec;
+            if (lk == null) UpdateBody(); else lock (lk) UpdateBody();
+        }
+        void UpdateBody()
         {
             if (Game == null) return;
             if (Phase == PlayPhase.Showing) AdvanceTurn();
@@ -383,14 +398,50 @@ namespace Journal.Play
         }
 
         // Счёт идёт впереди показа на ~0,6 с, не дольше 12 мс за кадр; показ не обгоняет досчитанное (Г43)
+        // ── Г111 п.7: ход считается в отдельном потоке (Session.Step до конца хода), показ идёт следом. Запас счёта меньше
+        // секунды — показ плавно замедляется, а не прыгает; «досчитать ход, потом показать» — показ ждёт конца счёта.
+        // Кадры записи пишутся под lock(запись), смотрелка и панели читают её под тем же замком; к самому бою во время
+        // счёта экран почти не обращается (StepLock — для редких чтений: схватки, туман) ──
+        public readonly object StepLock = new object();
+        Task computeTask; volatile bool computeDone = true, computeCancel; Exception computeError;
+        public bool Computing => !computeDone;
+        public double ComputeProgress { get { double ts = Battle.R.Move.TurnSec; return ts <= 0 ? 1 : Math.Max(0, Math.Min(1, (ComputedTime - TurnStartTime) / ts)); } }
+        float showRate = 1;
+        void StartCompute()
+        {
+            computeDone = false; computeCancel = false; computeError = null;
+            var sess = Session; var rcd = recorder; var rec = rcd.Rec;
+            computeTask = Task.Run(() =>
+            {
+                try
+                {
+                    while (!computeCancel)
+                    {
+                        bool more;
+                        lock (StepLock) more = sess.Step(_ => { if (++stepInTurn % 4 == 0) lock (rec) rcd.Snap(); });
+                        if (!more) break;
+                    }
+                }
+                catch (Exception e) { computeError = e; }
+                finally { computeDone = true; }
+            });
+        }
+        public void StopCompute() { computeCancel = true; try { computeTask?.Wait(2000); } catch { } }
+
         void AdvanceTurn()
         {
             double turnEnd = TurnStartTime + Battle.R.Move.TurnSec;
-            float budget = Time.realtimeSinceStartup + 0.012f;
-            while (Session.Phase == BattleCore.Phase.Playing && ComputedTime < Math.Min(turnEnd, ShowTime + 0.6) && Time.realtimeSinceStartup < budget)
-                Session.Step(_ => { if (++stepInTurn % 4 == 0) recorder.Snap(); });
-            if (!Paused) ShowTime = Math.Min(ShowTime + Time.deltaTime * Speed, Math.Min(ComputedTime, turnEnd));
-            if (Session.Phase != BattleCore.Phase.Playing && ShowTime >= turnEnd - 1e-6)
+            if (computeError != null) { Debug.LogException(computeError); Say("Ошибка в счёте хода — подробности в журнале Unity"); computeError = null; }
+            bool done = computeDone;
+            double avail = done ? turnEnd : Math.Min(turnEnd, ComputedTime);
+            if (!Paused && (done || !GameSettings.ComputeFirst))
+            {
+                // запас счёта ≥ 1 с — полная скорость, меньше — медленнее, у края — стоп; скорость показа меняется плавно
+                float want = done ? 1 : Mathf.Clamp01((float)((avail - ShowTime) / 1.0));
+                showRate = Mathf.MoveTowards(showRate, want, Time.deltaTime * 2.5f);
+                ShowTime = Math.Min(ShowTime + Time.deltaTime * Speed * Math.Max(showRate, want < 0.05f ? 0 : 0.05f), avail);
+            }
+            if (done && ShowTime >= turnEnd - 1e-6)
             {
                 ShowTime = turnEnd;
                 if (current != null) { current.End(Battle); Summaries.Add(current); current = null; }
@@ -638,6 +689,15 @@ namespace Journal.Play
             DragOrdersFor(alt);
             DragOrder = Selected != null && DragOrders.TryGetValue(Selected, out var mo) ? mo : null;
             if (Time.unscaledTime >= previewAt && DragOrder != null) { DragPreview = Battle.Preview(Selected, DragOrder); previewAt = Time.unscaledTime + 0.12f; }
+            // прочие в группе: мышь стоит 0,15 с — путь движком одному из тех, чей предпросмотр устарел
+            if ((DragTo - dragSeen).sqrMagnitude > 0.25f) { dragSeen = DragTo; dragStillAt = Time.unscaledTime; }
+            else if (Time.unscaledTime - dragStillAt > 0.15f)
+                foreach (var kv in DragOrders)
+                {
+                    if (kv.Key == Selected || DragPreviews.TryGetValue(kv.Key, out var dp) && SameOrder(dp.o, kv.Value)) continue;
+                    DragPreviews[kv.Key] = (kv.Value, Battle.Preview(kv.Key, kv.Value));
+                    break;
+                }
             if (mouse.rightButton.wasReleasedThisFrame)
             {
                 var orders = DragOrders.ToList();
@@ -645,7 +705,7 @@ namespace Journal.Play
                 foreach (var kv in orders) Order(kv.Key, kv.Value);
             }
         }
-        void CancelDrag() { Dragging = false; DragPreview = null; DragOrder = null; DragOrders.Clear(); }
+        void CancelDrag() { Dragging = false; DragPreview = null; DragOrder = null; DragOrders.Clear(); DragPreviews.Clear(); }
 
         // для проверки из CLI: протянуть ПКМ от точки до точки карты (как мышью) и отпустить
         public void DragFor(Vector2 from, Vector2 to, bool alt = false)

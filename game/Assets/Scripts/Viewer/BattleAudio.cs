@@ -86,6 +86,11 @@ namespace Journal.Viewer
 
         void Update()
         {
+            var lk = viewer?.Rec;
+            if (lk == null) UpdateBody(); else lock (lk) UpdateBody();
+        }
+        void UpdateBody()
+        {
             if (viewer == null) return;
             // обрезка длинных: последние 0,3 с — на нет, потом стоп
             for (int i = fading.Count - 1; i >= 0; i--)

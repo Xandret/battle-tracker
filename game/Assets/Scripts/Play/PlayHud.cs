@@ -354,6 +354,11 @@ namespace Journal.Play
 
         void LateUpdate()
         {
+            var lk = pc?.ViewRec;
+            if (lk == null) LateBody(); else lock (lk) LateBody();
+        }
+        void LateBody()
+        {
             if (pc?.Session == null || turnNumber == null) return;
             pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
             mapEditor.Tick();
@@ -377,7 +382,7 @@ namespace Journal.Play
             turnNumber.text = Mathf.Max(1, turn).ToString();
             double tin = pc.ShowTime - pc.TurnStartTime;
             phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
-            phaseSub.text = orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ (можно на стену), Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза" : s.Outcome ?? "";
+            phaseSub.text = orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ (можно на стену), Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
             progressFill.style.width = Length.Percent(showing ? (float)(100 * tin / bt.R.Move.TurnSec) : orders ? 0 : 100);
             goButton.EnableInClassList("hidden", !orders);
             speedGroup.EnableInClassList("hidden", !showing);
@@ -831,9 +836,10 @@ namespace Journal.Play
                         pairShown[key] = (float)viewer.T;
                         if (a >= movers.Count || b >= movers.Count) continue;
                         var A = movers[a]; var B = movers[b];
-                        var fight = pc.Battle.Fights.FirstOrDefault(x => x.A == A && x.B == B || x.A == B && x.B == A);
-                        bool charge = fight != null && fight.Notes.Any(x => x.StartsWith("натиск «"));
-                        Toast(charge ? "charge" : "fight", charge ? $"Натиск «{fight.A.P.U.Name}» на «{fight.B.P.U.Name}»!" : $"«{A.P.U.Name}» и «{B.P.U.Name}» сошлись", fight?.A ?? A);
+                        // натиск — из записи (бой в это время считает другой поток)
+                        bool charge = rec.Charges.TryGetValue(key, out var by);
+                        var C = charge ? movers[by] : A; var D = charge ? (by == a ? B : A) : B;
+                        Toast(charge ? "charge" : "fight", charge ? $"Натиск «{C.P.U.Name}» на «{D.P.U.Name}»!" : $"«{A.P.U.Name}» и «{B.P.U.Name}» сошлись", C);
                     }
                 }
             }

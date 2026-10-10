@@ -54,6 +54,9 @@ namespace Journal.Play
             int si = Array.FindIndex(Speeds, s => Mathf.Approximately(s.V, GameSettings.Speed));
             var speed = new DropdownField("Скорость показа хода", Speeds.Select(s => s.Name).ToList(), Math.Max(0, si)); speed.AddToClassList("set-field"); box.Add(speed);
             speed.RegisterValueChangedCallback(e => { GameSettings.Speed = Speeds[Math.Max(0, speed.index)].V; Changed?.Invoke(); });
+            var first = new Toggle("Досчитать ход, потом показать") { value = GameSettings.ComputeFirst }; first.AddToClassList("set-field"); box.Add(first);
+            first.tooltip = "Выключено — показ идёт сразу, следом за счётом, и плавно замедляется, если счёт не успевает. Включено — сначала весь ход считается, потом показ без задержек";
+            first.RegisterValueChangedCallback(e => GameSettings.ComputeFirst = e.newValue);
             var keys = new Label("Клавиши: Enter — «Ход!», пробел — пауза, 1/2/3 — скорость, Tab — другая сторона, Ctrl+A — все отряды, Д/О/С — держать, отступить, сплотить, ⌫ — отменить приказ, F — вся карта, Esc — меню.");
             keys.AddToClassList("set-note"); box.Add(keys);
 

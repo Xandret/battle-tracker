@@ -135,7 +135,13 @@ namespace Journal.Viewer
             job = Task.Run(() => BattleRecord.Run(make(), s => jobNote = s));
         }
 
+        // запись дописывается в другом потоке (ход игры, Г111 п.7) — читать её под lock(запись)
         void Update()
+        {
+            var lk = rec;
+            if (lk == null) UpdateBody(); else lock (lk) UpdateBody();
+        }
+        void UpdateBody()
         {
             if (job != null && job.IsCompleted)
             {

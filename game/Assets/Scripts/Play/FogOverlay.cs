@@ -35,7 +35,10 @@ namespace Journal.Play
             if (map != shownMap) Build(map, pc.Game.Geo);
             if (Time.unscaledTime < nextAt && go.activeSelf) return;
             nextAt = Time.unscaledTime + 0.5f;
-            var cells = bt.SeenCells(pc.ViewSide);
+            // туман пересчитывает поток счёта хода — берём снятое в запись (Recorder, раз в секунду), под её замком
+            bool[] cells = null; var rec = pc.ViewRec;
+            if (rec != null) lock (rec) rec.FogCells.TryGetValue(pc.ViewSide, out cells);
+            if (cells == null && !pc.Computing) cells = bt.SeenCells(pc.ViewSide);
             if (cells == null || cells.Length != px.Length) { go.SetActive(false); return; }
             var dark = new Color32(14, 16, 22, 150); var clear = new Color32(14, 16, 22, 0);
             for (int i = 0; i < px.Length; i++) px[i] = cells[i] ? clear : dark;
