@@ -382,7 +382,7 @@ namespace Journal.Play
             turnNumber.text = Mathf.Max(1, turn).ToString();
             double tin = pc.ShowTime - pc.TurnStartTime;
             phaseText.text = pc.Phase == PlayPhase.Over ? "Битва окончена" : orders ? "Приказы" : pc.Paused ? "Пауза" : "Идёт ход";
-            phaseSub.text = orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ (можно на стену), Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
+            phaseSub.text = orders && pc.MidTurn ? $"Пауза посреди хода ({tin:0.0} с): приказы подействуют с этого мига · Enter — продолжить ход" : orders ? (pc.DeployWall ? "Отпусти — отряд встанет на стену фронтом наружу" : pc.GateHover >= 0 ? "Щелчок по воротам — открыть или закрыть" : pc.CanDeploy ? $"Расстановка: тяни свой отряд ЛКМ (можно на стену), Q/E — повернуть · приказов {s.Pending.Count} · Enter — «Ход!»" : $"Новых приказов: {s.Pending.Count} · Enter — «Ход!»") : showing ? (pc.Computing && GameSettings.ComputeFirst ? $"Считаю ход… {pc.ComputeProgress * 100:0}%" : $"{tin:0.0} с из {bt.R.Move.TurnSec:0} · пробел — пауза") : s.Outcome ?? "";
             progressFill.style.width = Length.Percent(showing ? (float)(100 * tin / bt.R.Move.TurnSec) : orders ? 0 : 100);
             goButton.EnableInClassList("hidden", !orders);
             speedGroup.EnableInClassList("hidden", !showing);
@@ -634,7 +634,7 @@ namespace Journal.Play
         // ── Г112: раздел ГМа под панелью отряда — «ГМ ▸» раскрывает: БД и усталость выбранных ±, модификаторы БД по таблице этапа 3
         // (отряду или всей его стороне), отмена правки, последние правки. Только в виде ГМа и между ходами ──
         VisualElement gmBox, gmBody, gmMenRow; Label gmHead, gmFatigue, gmMorale, gmMen, gmLogLabel; DropdownField gmMod, gmTpl, gmSide; bool gmOpen; string gmKey;
-        Button gmRemove, gmAdd, gmSub, gmRollback; IntegerField gmAddMen; TextField gmAddName;
+        Button gmRemove, gmAdd, gmSub, gmRollback, gmMid; IntegerField gmAddMen; TextField gmAddName;
         void GmBox()
         {
             if (gmBox == null)
@@ -666,6 +666,9 @@ namespace Journal.Play
                 // состав (до первого хода): убрать выбранный, добавить новый — шаблон, сторона, бойцов, имя, потом щелчок по карте
                 var rr = new VisualElement(); rr.AddToClassList("gm-row");
                 gmRemove = new Button(() => pc.GmRemove(pc.Selected)) { text = "Убрать с поля" }; gmRemove.AddToClassList("army-btn"); gmRemove.AddToClassList("small"); rr.Add(gmRemove);
+                gmMid = new Button(() => pc.EnterMidOrders()) { text = "Приказы сейчас" }; gmMid.AddToClassList("army-btn"); gmMid.AddToClassList("small");
+                gmMid.tooltip = "Посреди хода, на паузе: отдать приказы, которые подействуют с этого мига (бой пересчитывается до паузы — тот же, что показан)";
+                rr.Add(gmMid);
                 gmRollback = new Button(() => pc.RollbackTurn()) { text = "Откатить ход" }; gmRollback.AddToClassList("army-btn"); gmRollback.AddToClassList("small");
                 gmRollback.tooltip = "Вернуть бой к началу прошлого хода: бойцы, потери, БД, журнал — как были; приказы — отдать заново (до 5 ходов назад)";
                 rr.Add(gmRollback);
@@ -682,12 +685,13 @@ namespace Journal.Play
             gmBox.EnableInClassList("hidden", !can);
             if (!can) return;
             var m = pc.Selected; bool edit = pc.GmCanEdit;
-            string key = $"{gmOpen}|{edit}|{m?.P.U.Morale}|{m?.P.U.Fatigue}|{m?.P.U.Soldiers}|{pc.GmLog.Count}|{pc.GmUndoCount}|{pc.Selection.Count}|{pc.GmRosterWhy}|{pc.Session.SideNames.Count}|{pc.TurnSnapCount}";
+            string key = $"{gmOpen}|{edit}|{m?.P.U.Morale}|{m?.P.U.Fatigue}|{m?.P.U.Soldiers}|{pc.GmLog.Count}|{pc.GmUndoCount}|{pc.Selection.Count}|{pc.GmRosterWhy}|{pc.Session.SideNames.Count}|{pc.TurnSnapCount}|{pc.CanMidOrders}|{pc.MidTurn}";
             if (key == gmKey) return;
             gmKey = key;
             gmHead.text = gmOpen ? "ГМ ▾" : "ГМ ▸";
             gmBody.EnableInClassList("hidden", !gmOpen);
-            gmBody.SetEnabled(edit);
+            gmBody.SetEnabled(edit || pc.CanMidOrders);
+            if (gmMid != null) gmMid.SetEnabled(pc.CanMidOrders);
             if (m == null) return;
             string more = pc.Selection.Count > 1 ? $" (и ещё {pc.Selection.Count - 1})" : "";
             gmMorale.text = $"{m.P.U.Morale:0}{more}"; gmFatigue.text = $"{m.P.U.Fatigue:0}%"; gmMen.text = $"{m.P.U.Soldiers:0}";

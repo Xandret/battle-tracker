@@ -97,7 +97,7 @@ namespace Journal.Play
             Game = lastMake();
             Rerecord();
             Phase = PlayPhase.Orders; Selection.Clear(); Selected = null; Hover = null; ChargeMode = false; Paused = false; Speed = GameSettings.Speed;
-            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false; GmPlacing = null; turnSnaps.Clear();
+            Summaries.Clear(); current = null; EndedByPlayer = false; BattleViewer.ViewSide = 0; GmLog.Clear(); gmUndo.Clear(); CardsAll = false; GmPlacing = null; turnSnaps.Clear(); MidTurn = false;
             AtStart.Clear(); foreach (var m in Game.Battle.Movers) AtStart[m] = (m.P.U.Soldiers, m.P.U.TotKilled, m.P.U.TotWounded);
             ShowTime = TurnStartTime = 0; stepInTurn = 0;
             previews.Clear(); previewQueue.Clear();
@@ -364,7 +364,7 @@ namespace Journal.Play
         public readonly List<string> GmLog = new List<string>();
         // отмена правок ГМа, по шагу назад: БД и усталость — поля отрядов (по номеру отряда), состав — снимок боя (Battle.Snapshot)
         readonly Stack<(string what, Action undo)> gmUndo = new Stack<(string, Action)>();
-        public bool GmCanEdit => Phase == PlayPhase.Orders && Battle != null;
+        public bool GmCanEdit => Phase == PlayPhase.Orders && Battle != null && !MidTurn;
         public int GmUndoCount => gmUndo.Count;
         void GmDone(string what, Action undo, IEnumerable<string> lines)
         {
@@ -513,14 +513,78 @@ namespace Journal.Play
             }, new[] { $"добавлен «{name}» ({men:0}) за {Session.Name(side)}" });
         }
 
+        // ── Г112 п.1: пауза посреди хода и приказы, что действуют сразу (вид ГМа). Счёт идёт впереди показа — поэтому бой
+        // возвращается снимком к началу хода и тихо досчитывается до кадра паузы (бой детерминирован: тот же, что показан, —
+        // с теми же приказами, в том числе прежними приказами посреди этого хода); запись обрезается по этот кадр. Приказы —
+        // сразу отрядам; «Ход!» — досчитать ход с этого мига. Правки ГМа посреди хода — нельзя (их не повторить при пересчёте) ──
+        public bool MidTurn { get; private set; }
+        int midStep;
+        public bool CanMidOrders => Phase == PlayPhase.Showing && Paused && ViewSide == 0 && turnSnaps.Count > 0 && !MidTurn && Battle != null;
+        void ApplyNow(List<(int id, MoveOrder o)> ords)
+        {
+            foreach (var (id, o0) in ords)
+            {
+                var m = Battle.Movers.FirstOrDefault(x => x.P.U.Id == id); if (m == null || !Present(m)) continue;
+                var o = CopyOrder(o0);
+                if (o.Kind == OrderKind.Retreat && (double.IsNaN(o.X) || double.IsNaN(o.Y))) (o.X, o.Y) = Battle.RetreatPoint(m);
+                Battle.Order(m, o);
+            }
+        }
+        public void EnterMidOrders()
+        {
+            if (!CanMidOrders) return;
+            var ts = turnSnaps[turnSnaps.Count - 1]; var rec = recorder.Rec;
+            int f = Mathf.Clamp((int)Math.Floor(ShowTime / rec.Dt + 1e-6), ts.Frame, rec.Frames.Count - 1), steps = (f - ts.Frame) * 4;
+            StopCompute();
+            float t0 = Time.realtimeSinceStartup;
+            Battle.Restore(ts.Snap); LoadRefs(ts.Refs);
+            Session.Turn = ts.Turn; Session.Phase = BattleCore.Phase.Orders;
+            foreach (var (id, o) in ts.Orders) { var m = Battle.Movers.FirstOrDefault(x => x.P.U.Id == id); if (m != null) Session.Pending[m] = CopyOrder(o); }
+            Session.Go();
+            for (int k = 0; k < steps; k++)
+            {
+                foreach (var (st, ords) in ts.Mid) if (st == k) ApplyNow(ords);
+                if (!Session.Step()) break;
+            }
+            recorder.Rewind(f); recorder.Rebind(Battle.Movers);
+            stepInTurn = steps; midStep = steps;
+            ShowTime = f * rec.Dt; if (viewer != null) viewer.T = ShowTime;
+            Session.Phase = BattleCore.Phase.Orders;   // приказы — через сессию, как между ходами
+            MidTurn = true; Phase = PlayPhase.Orders; Paused = false;
+            RefreshPreviews();
+            Say($"Пауза на {ShowTime - TurnStartTime:0.0} с хода: приказы подействуют с этого мига — «Ход!», чтобы продолжить (пересчёт {Time.realtimeSinceStartup - t0:0.0} с)");
+            Changed?.Invoke();
+        }
+        // «Ход!» посреди хода: приказы — сразу отрядам (запомнены для будущих пересчётов этого хода), счёт — дальше с этого шага
+        void ResumeMid()
+        {
+            var ts = turnSnaps[turnSnaps.Count - 1];
+            var ords = PendingCopy();
+            if (ords.Count > 0) ts.Mid.Add((midStep, ords));
+            ApplyNow(ords);
+            Session.Pending.Clear(); Session.Phase = BattleCore.Phase.Playing;
+            MidTurn = false; Phase = PlayPhase.Showing; Paused = false;
+            previews.Clear(); previewQueue.Clear();
+            StartCompute();
+            Changed?.Invoke();
+        }
+
         // ── Г112 п.2: откат хода — снимок боя перед каждым «Ход!» (последние 5); откат возвращает бой, запись, журнал, сводки
         // и время показа к началу прошлого хода; приказы того хода снимаются — отдать заново ──
-        sealed class TurnSnap { public object Snap; public GameRefs Refs; public int Turn, Frame, Summaries, Logs; public double Show; }
+        // Orders — приказы, ушедшие по «Ход!»; Mid — приказы ГМа посреди хода: (шаг хода, приказы) — для пересчёта до паузы
+        sealed class TurnSnap
+        {
+            public object Snap; public GameRefs Refs; public int Turn, Frame, Summaries, Logs; public double Show;
+            public List<(int id, MoveOrder o)> Orders = new List<(int, MoveOrder)>();
+            public List<(int step, List<(int id, MoveOrder o)> orders)> Mid = new List<(int, List<(int, MoveOrder)>)>();
+        }
+        static MoveOrder CopyOrder(MoveOrder o) => (MoveOrder)typeof(object).GetMethod("MemberwiseClone", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(o, null);
+        List<(int id, MoveOrder o)> PendingCopy() => Session.Pending.Select(kv => (kv.Key.P.U.Id, CopyOrder(kv.Value))).ToList();
         readonly List<TurnSnap> turnSnaps = new List<TurnSnap>();
         public int TurnSnapCount => turnSnaps.Count;
         void SaveTurn()
         {
-            turnSnaps.Add(new TurnSnap { Snap = Battle.Snapshot(), Refs = SaveRefs(), Turn = Session.Turn, Frame = recorder.Rec.Frames.Count - 1, Summaries = Summaries.Count, Logs = Session.Logs.Count, Show = ShowTime });
+            turnSnaps.Add(new TurnSnap { Snap = Battle.Snapshot(), Refs = SaveRefs(), Turn = Session.Turn, Frame = recorder.Rec.Frames.Count - 1, Summaries = Summaries.Count, Logs = Session.Logs.Count, Show = ShowTime, Orders = PendingCopy() });
             if (turnSnaps.Count > 5) turnSnaps.RemoveAt(0);
         }
         public void RollbackTurn()
@@ -532,7 +596,7 @@ namespace Journal.Play
             Session.Turn = ts.Turn; Session.Phase = BattleCore.Phase.Orders; Session.Outcome = null; Session.Winner = -1;
             while (Session.Logs.Count > ts.Logs) Session.Logs.RemoveAt(Session.Logs.Count - 1);
             while (Summaries.Count > ts.Summaries) Summaries.RemoveAt(Summaries.Count - 1);
-            current = null; EndedByPlayer = false;
+            current = null; EndedByPlayer = false; MidTurn = false;
             recorder.Rewind(ts.Frame);
             LoadRefs(ts.Refs);
             ShowTime = TurnStartTime = ts.Show; Phase = PlayPhase.Orders;
@@ -552,6 +616,7 @@ namespace Journal.Play
         {
             if (Phase != PlayPhase.Orders) return;
             CancelDrag();
+            if (MidTurn) { ResumeMid(); return; }
             SaveTurn();   // снимок для отката хода (Г112 п.2)
             current = TurnSummary.Begin(Battle, Session.Turn);
             Session.Go();
