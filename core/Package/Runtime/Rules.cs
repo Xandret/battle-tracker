@@ -297,6 +297,7 @@ namespace BattleCore
             // билась меньше WrapRetargetSec назад, нового врага не ищет (иначе цель прыгает между бойцами врага и колонна мечется);
             // конь не выпадает всем телом — выпад коня HorseLungeK от пешего
             public double WrapFightHorseMps = 3, WrapFightFootMps = 2, WrapRetargetSec = 1.0, HorseLungeK = 0.3;
+            public double WrapSpeedK = 1.0, WrapMenSpeedK = 1.0;   // …и бойцы колонны в охвате — не быстрее якоря × WrapMenSpeedK (вместо SpeedK: иначе люди обгоняли якорь вскачь)   // Г111 п.7 (остаток): колонна в охвате вне схватки идёт не быстрее WrapSpeedK × нормы отряда (было FigureCatchUp 1,3 × норма ÷ местность — конница 27 м/с, сдвиги до 7 м за 0,2 с)
             public bool WrapNoOppositeEdge = true;   // Г111 п.4: колонна в охвате берёт место только на своей или соседней стороне врага, за его спиной на другой край не уходит — иначе второй линией
             public bool WrapSeekSticky = true, LagMajorityHold = false;   // колонна держится за выбранного бойца врага; якорь не быстрее отставшего большинства (выключено: −3…5 % потерь в контакте; застрявших держит рамка, FrameWaitM)
             public double LagCrawlMps = 0.5;   // …но не медленнее этого (ждать-то надо, а стоять намертво — нет); прыжок якоря назад к бойцам пробовали — хуже
@@ -349,6 +350,15 @@ namespace BattleCore
         public GarrisonR Garrison = new GarrisonR();
         public FogR Fog = new FogR();
         public DuelR Duel = new DuelR();
+        // Г112 п.4 (панель ГМа, таблица этапа 3 — Q5): готовые модификаторы БД; ключ, название, значение. Применяет ГМ (Battle.ApplyMorale),
+        // сам — только «гибель полководца» (поединок, Г108)
+        public (string key, string name, double value)[] MoraleMods =
+        {
+            ("speech", "Речь командира", 20), ("traditions", "Традиции", 20), ("motivation", "Мотивация", 50), ("allies", "Союзники", 5),
+            ("legitimacy", "Легитимность", 10), ("popularity", "Популярность полководца", 30), ("divided", "Разделённость", -20),
+            ("famousEnemy", "Именитый враг", -20), ("outnumbered", "Врагов больше", -40), ("enemyReputation", "Репутация врага", -40),
+            ("hunger", "Голод", -70), ("supplies", "Нехватка припасов", -30), ("commanderDead", "Гибель полководца", -30),
+        };
         // Г108 (Алекс 10.10.2026 через чат облика: поединки командиров как в Three Kingdoms): вызов по кнопке, ответ в фазу приказов,
         // отказ — своему войску −RefuseMorale. Командиры выходят на середину между отрядами, бойцы держат круг CircleR; раунд
         // в RoundSec: d20 + доблесть у каждого, кто выше — ранит; WoundsToLose ран — проигравший ранен или убит (KillPct).

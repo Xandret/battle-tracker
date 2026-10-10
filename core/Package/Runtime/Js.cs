@@ -127,6 +127,7 @@ namespace BattleCore
     public sealed class Mulberry32
     {
         uint a;
+        public uint State { get => a; set => a = value; }   // Г112 п.2: снимок и откат — состояние генератора
         public Mulberry32(uint seed) { a = seed; }
         public Mulberry32(double seed) { a = unchecked((uint)(long)seed); }
 

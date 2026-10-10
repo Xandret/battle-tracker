@@ -271,6 +271,7 @@ namespace BattleCore
             // стену или воду, сходит с них — якоря колонн к ближайшей проходимой клетке, тела в непроходимое не ступают
             if (MenMode && m.Field == null && Geo?.Map != null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), x, y, 0, null, pass);
             foreach (var man in m.Men) man.Z = StandZ(man.X, man.Y);
+            if (started) chargesLeft[m] = (int)Units.AttackLimit(u, R);   // Г112 п.3: подкрепление посреди битвы — как все, с лимитом натисков хода
             return m;
         }
         // Г104: переставить отряд до первого хода — строй, колонны и бойцы заново на новом месте; на непроходимом — сдвиг, как в Add.

@@ -561,6 +561,7 @@ namespace BattleCore
                     dvx = (gx - px) / M.SlotTau; dvy = (gy - py) / M.SlotTau;
                     // планка — у цели: далеко от места идёт как шла, за метр до места — не быстрее планки плюс метр в секунду на метр пути
                     if (m.InMelee) vmax = Math.Min(vmax, (BattleMap.IsHorse(u) ? r.Men.WrapFightHorseMps : r.Men.WrapFightFootMps) + JsMath.Hypot(gx - px, gy - py) * r.Men.WrapFightSlope);
+                    if (mb) vmax = Math.Min(vmax, TopSpeed(u, r) * r.Men.WrapSpeedK);   // Г111 п.7: в охват — не вскачь быстрее нормы (и в схватке: планка с наклоном вдали от места давала 25 м/с)
                 }
                 else
                 {

@@ -326,7 +326,7 @@ namespace BattleCore
                         else { lx = man.RLx; ly = man.RLy; cx = 0; cy = 0; }
                     }
                     man.WasRigid = rigid;
-                    double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * MR.SpeedK, v = JsMath.Hypot(vx, vy);
+                    double vx = s.AVx + cx, vy = s.AVy + cy, vmax = Math.Max(s.Vmax, MR.WalkMin) * (s.Wrap && !s.Fighting ? MR.WrapMenSpeedK : MR.SpeedK), v = JsMath.Hypot(vx, vy);   // Г111 п.7: в охват бойцы не обгоняют якорь
                     if (v > vmax) { vx *= vmax / v; vy *= vmax / v; v = vmax; }
                     if (waiting) { vx = 0; vy = 0; v = 0; }
                     // Г94: курс тела — к нужному не быстрее turn за шаг; вбок и назад относительно курса — медленно. Колонна стоит, боец

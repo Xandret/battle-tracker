@@ -171,6 +171,7 @@ namespace BattleCore
             if (d.LoserKilled)
             {
                 cl.Dead = true; loser.P.U.CommanderId = null;
+                ApplyMorale(new[] { loser }, "commanderDead", t);   // Г112 п.4: гибель полководца — единственный модификатор таблицы, что ставится сам
                 var lm = loser == d.A ? d.ManA : d.ManB; var wm = winner == d.A ? d.ManA : d.ManB;
                 if (lm != null && lm.Alive) { double ux = wm != null ? lm.X - wm.X : 0, uy = wm != null ? lm.Y - wm.Y : 1, ul = Math.Max(1e-9, JsMath.Hypot(ux, uy)); Fell(loser, lm, t, ux / ul, uy / ul); loser.CommanderMan = null; }
             }
@@ -181,11 +182,11 @@ namespace BattleCore
                 if (!OnField(m)) continue;
                 var u = m.P.U;
                 if (m == winner) u.Morale = Math.Min(R.Morale.Max, u.Morale + DR.WinMorale);
-                else if (m == loser) u.Morale = Math.Max(0, u.Morale - DR.LoseMorale);
+                else if (m == loser) { if (!d.LoserKilled) u.Morale = Math.Max(0, u.Morale - DR.LoseMorale); }   // убит — таблица «гибель полководца» (Г112 п.4), а не −LoseMorale
                 else if (!Enemies(u, winner.P.U)) u.Morale = Math.Min(R.Morale.Max, u.Morale + DR.WinSideMorale);
                 else if (!Enemies(u, loser.P.U)) u.Morale = Math.Max(0, u.Morale - DR.LoseSideMorale);
             }
-            events.Add($"{At(t)} с · ⚔ поединок: «{cw.Name}» ({cw.Valor:0}) одолел «{cl.Name}» ({cl.Valor:0}) — {(d.LoserKilled ? "убит" : "ранен")}; «{winner.P.U.Name}» БД +{Js.Num(DR.WinMorale)}, сторона +{Js.Num(DR.WinSideMorale)}; «{loser.P.U.Name}» БД −{Js.Num(DR.LoseMorale)}, сторона −{Js.Num(DR.LoseSideMorale)}");
+            events.Add($"{At(t)} с · ⚔ поединок: «{cw.Name}» ({cw.Valor:0}) одолел «{cl.Name}» ({cl.Valor:0}) — {(d.LoserKilled ? "убит" : "ранен")}; «{winner.P.U.Name}» БД +{Js.Num(DR.WinMorale)}, сторона +{Js.Num(DR.WinSideMorale)}; «{loser.P.U.Name}» БД {(d.LoserKilled ? "по таблице (гибель полководца)" : "−" + Js.Num(DR.LoseMorale))}, сторона −{Js.Num(DR.LoseSideMorale)}");
             // отряд проигравшего дрогнул — проверка на побег сразу
             var lu = loser.P.U;
             Check(t, MoraleRules.FleeCheck(lu, Ctx), lu);
