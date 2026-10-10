@@ -462,12 +462,15 @@ namespace BattleCore
         {
             var d = hasCodes.GetValue(m, _ => new Dictionary<int, bool>());
             int key = a << 8 | b;
-            if (!d.TryGetValue(key, out var any))
+            lock (d)   // два боя на одной карте в разных потоках (Г111 п.7)
             {
-                any = false; foreach (var t in m.T) if (t == a || t == b) { any = true; break; }
-                d[key] = any;
+                if (!d.TryGetValue(key, out var any))
+                {
+                    any = false; foreach (var t in m.T) if (t == a || t == b) { any = true; break; }
+                    d[key] = any;
+                }
+                return any;
             }
-            return any;
         }
         public static void Touched(TerrainMap m) { hasCodes.Remove(m); towerCircles.Remove(m); }
         // Г105 (Алекс 10.10.2026: стрелы втыкались в башню «по квадрату»): связная группа клеток башни — круг: центр — середина клеток,
@@ -480,7 +483,9 @@ namespace BattleCore
             byte tower = Id("tower");
             if (cell < 0 || cell >= m.T.Length || m.T[cell] != tower) return false;
             var d = towerCircles.GetValue(m, _ => new Dictionary<int, double[]>());
-            if (!d.TryGetValue(cell, out var c))
+            double[] c;
+            lock (d) d.TryGetValue(cell, out c);
+            if (c == null)
             {
                 var cells = new List<int> { cell }; var q = new Queue<int>(); q.Enqueue(cell); var seen = new HashSet<int> { cell };
                 while (q.Count > 0)
@@ -497,7 +502,7 @@ namespace BattleCore
                 double sx = 0, sy = 0;
                 foreach (int i in cells) { sx += (i % m.W + 0.5) * CellM; sy += (i / m.W + 0.5) * CellM; }
                 c = new[] { sx / cells.Count, sy / cells.Count, Math.Sqrt(cells.Count * CellM * CellM / Math.PI) };
-                foreach (int i in cells) d[i] = c;
+                lock (d) foreach (int i in cells) d[i] = c;
             }
             cx = c[0]; cy = c[1]; r = c[2]; return true;
         }

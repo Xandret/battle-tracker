@@ -74,6 +74,8 @@ namespace BattleCore
         public FlowField Field;
         public BattleMap.PassRules Pass;        // Г104: чем этому отряду можно пройти сверх местности (стены хозяина, открытые ворота); null — как всем
         public double LastActT = double.NaN;     // Г107: когда последний раз стрелял или касался врага (часы боя) — виден всем RevealSec
+        public double DisorderUntil = double.NegativeInfinity;   // Г111 п.2: в беспорядке до этого шага (Steps; свои проходят сквозь строй) — для рисунка и удара
+        public bool Disordered => Steps < DisorderUntil;
         public double AmbushFrom = double.NaN;   // Г107: приказ «атаковать» отдан, пока отряд был невидим цели (часы боя) — удар в Fog.AmbushSec — засада
         public Man CommanderMan;                 // Г108: тело полководца — ближайший к знамени (центр, на 1/5 глубины к фронту); пал — ближайший из стражи
         public List<Man> Guard = new List<Man>();   // Г108: стража — ближайшие к полководцу (в поединке держат кольцо)
@@ -609,14 +611,14 @@ namespace BattleCore
         // центра — пока хвост строя в узости, строй не разворачивается. Шире — только если по всему окну хватает
         // места: между двумя близкими узостями колонна так и идёт, не разворачиваясь.
         // стоящие свои рядом — для узости между ними (Б5): не бегут, не в схватке, не мы
-        static readonly List<Mover> friendsNear = new List<Mover>();
+        [ThreadStatic] static List<Mover> friendsNear;   // по потокам (Г111 п.7)
         static void Narrow(Mover m, IList<Mover> ms, Rules r)
         {
             var F = m.Field; var T = m.Track; var M = r.Move; var P = m.P;
             if (F == null || T == null || T.Pieces.Count == 0 || P.Figs.Count == 0 || Formation.IsRing(m.P.U)) return;   // каре и круг рядов не сужают (Г106)
             int n = P.Figs.Count;
             double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
-            friendsNear.Clear();
+            friendsNear ??= new List<Mover>(); friendsNear.Clear();
             if (M.MenBodies)
             {
                 double near = m.NominalFp.Front + M.NarrowAheadM + 60;
@@ -687,6 +689,7 @@ namespace BattleCore
             if (m.HeldSameSec < M.DetourWaitSec || m.DetourCooldown > 0 || m.Field == null || m.Order == null) return;
             var b = ms.FirstOrDefault(x => x.P.U.Id == m.LastBlocker);
             if (b == null) return;
+            if (M.MenBodies && M.FriendSoft && !b.Fleeing && b.Vs < 0.1 && (b.Order == null || b.Done || b.Order.Kind == OrderKind.Hold)) { m.HeldSameSec = 0; return; }   // Г111 п.2: сквозь стоящего своего проходят, не обходят
             // проходит поперёк или уходит — пропускаем дальше, он сейчас освободит путь («вдруг пройдёт»);
             // обходим стоящего (без приказа, на месте или сам в пробке) и идущего навстречу
             if (b.Order != null && !b.Done && !b.Held && b.Vs > 0.1 && b.Track != null && b.Track.Pieces.Count > 0)

@@ -29,11 +29,14 @@ namespace BattleCore
         [ThreadStatic] static double[] tX, tY;       // где боец сейчас — плотным массивом (сетка и расталкивание)
         [ThreadStatic] static double[] tLx, tLy;     // сдвиг места бойца от якоря на этом шаге (с растяжкой бегущей толпы) — для RefX, RefY
         [ThreadStatic] static List<int> gUsed;       // занятые клетки сетки
-        static readonly List<int> leaving = new List<int>();   // Г81: враги, от которых отряд уходит из схватки (на шаг, по отряду)
+        [ThreadStatic] static List<int> leaving;   // Г81: враги, от которых отряд уходит из схватки (на шаг, по отряду); по потокам (Г111 п.7)
         [ThreadStatic] static byte[] tFlag;          // 1 — стрелок, 2 — сквозь своих (медленнее), 4 — сдвинут расталкиванием, 8 — сквозь свой строй (Through),
                                                      // 16 — конь в натиске (Г90), 32 — лежит (сбит с ног), 64 — конь, 128 — ждёт своей очереди (старт волной, Г84)
         [ThreadStatic] static Rules.MenR tMR;
         [ThreadStatic] static double tStepM;   // Г104: больше этого перепада высот — тела не толкаются
+        [ThreadStatic] static bool[] unitStill;   // Г111 п.2: отряд стоит (нет приказа, дошёл, «держать») — свои сквозь него проходят, он прогибается
+        [ThreadStatic] static bool tFriendSoft; [ThreadStatic] static double tDisorderSec;
+        static bool StillUnit(Mover m) => !m.Fleeing && m.Vs < 0.1 && (m.Order == null || m.Done || m.Order.Kind == OrderKind.Hold);
         static readonly byte idWall = Terrain.Id("wall"), idTower = Terrain.Id("tower");
         [ThreadStatic] static bool[] tRigid;         // Г86: боец на жёстком месте — в сетку, взгляд вперёд и толкотню не входит
         public static int RigidMen, RigidUnits;      // Г86: сколько бойцов на жёстких местах и отрядов «вдали» на последнем шаге (для тестов и замеров)
@@ -65,10 +68,13 @@ namespace BattleCore
 
         [ThreadStatic] static HashSet<int> treeCells; [ThreadStatic] static double[] treeXs, treeYs;
         // Г108: круги, которые бойцы обходят и из которых их выталкивает (поединок командиров): (x, y, r); ставит бой перед шагом
-        public static readonly List<(double x, double y, double r)> Obstacles = new List<(double x, double y, double r)>();
+        [ThreadStatic] static List<(double x, double y, double r)> obstacles;
+        public static List<(double x, double y, double r)> Obstacles => obstacles ??= new List<(double x, double y, double r)>();   // по потокам (Г111 п.7: два боя могут шагать параллельно)
         public static void Step(IList<Mover> ms, double dt, Rules r, Geo geo = null)
         {
-            var M = r.Move; var MR = r.Men; tMR = MR; tStepM = r.Garrison.StepM;
+            var M = r.Move; var MR = r.Men; tMR = MR; tStepM = r.Garrison.StepM; tFriendSoft = M.FriendSoft; tDisorderSec = M.DisorderSec;
+            if (unitStill == null || unitStill.Length < ms.Count) unitStill = new bool[Math.Max(16, ms.Count * 2)];
+            for (int q = 0; q < ms.Count; q++) unitStill[q] = StillUnit(ms[q]);
             // Б5: клетки леса рядом с бойцами — их деревья войдут в тела этого шага
             var map = geo?.Map; int forestId = Terrain.Id("forest"); int nt = 0;
             if (map != null && MR.TreesPerCell > 0)
@@ -454,6 +460,12 @@ namespace BattleCore
                                 if (d0 < MR.PikeTipM + M.MenYieldM && ap < 0) { hm.Vx -= ap * qx; hm.Vy -= ap * qy; }
                             }
                             if (d >= yieldM) continue;
+                            if (!enemy && tFriendSoft && unitStill[tMi[j]] && !unitStill[tMi[i]])
+                            {
+                                // Г111 п.2: идущий сквозь стоящий свой строй не уступает — просачивается на половине хода (как сквозь свой, Г56)
+                                tFlag[i] |= 2;
+                                continue;
+                            }
                             if (enemy || !First(ms, i, j, ax, ay, bx, by, dt, M)) Yield(i, nx, ny, j, enemy);
                         }
                     }
@@ -581,7 +593,7 @@ namespace BattleCore
                 // с которым бьётся, не держится ни схваткой, ни упором в этого врага (тот теснит его, а не стоит на пути) —
                 // как фигурки (Г58), его держат лишь тела на пути: свои и другой враг
                 double wx = 0, wy = 0; bool wantKnown = active && MoveSim.WantDir(m, out wx, out wy);
-                leaving.Clear();
+                leaving ??= new List<int>(); leaving.Clear();
                 if (wantKnown) foreach (var s in m.Figs) if (s.Fighting && s.FightX * wx + s.FightY * wy < -0.3 && !leaving.Contains(s.FoeId)) leaving.Add(s.FoeId);
                 foreach (var s in m.Figs)
                 {
@@ -701,6 +713,23 @@ namespace BattleCore
             if (rel == Rel.Same) wa = tBlockedEnemy[i] == tBlockedEnemy[j] ? 0.5 : tBlockedEnemy[i] ? 0 : 1;
             // свой чужой отряд: уступающий сдвигается на FriendYieldShare, идущий первым — на остаток: сквозь плотный строй
             // своих не продавливаются насквозь, а пробираются, замедляясь
+            else if (rel == Rel.Friend && tFriendSoft && unitStill[tMi[i]] != unitStill[tMi[j]])
+            {
+                // Г111 п.2: стоящий уступает идущему целиком — строй прогибается и потом возвращается на места; оба в беспорядке
+                wa = unitStill[tMi[i]] ? 1 : 0;
+                double until = tM[i].Steps + tDisorderSec / dt;
+                if (until > tM[i].DisorderUntil) tM[i].DisorderUntil = until;
+                if (until > tM[j].DisorderUntil) tM[j].DisorderUntil = until;
+                // стоящий расступается вбок от хода идущего, а не катится перед ним: толчок — поперёк хода идущего (в ту сторону, куда
+                // стоящий и так смещён от его оси), иначе его несло бы перед строем до самой цели
+                var mv = tMan[unitStill[tMi[i]] ? j : i]; double vl = JsMath.Hypot(mv.Vx, mv.Vy);
+                if (vl > 0.1)
+                {
+                    double ux = mv.Vx / vl, uy = mv.Vy / vl, along = nx * ux + ny * uy, px = nx - along * ux, py = ny - along * uy, pl = JsMath.Hypot(px, py);
+                    if (pl < 0.2) { double sgn = (tMan[i].Id + tMan[j].Id) % 2 == 0 ? 1 : -1; px = -uy * sgn; py = ux * sgn; pl = 1; }
+                    nx = px / pl; ny = py / pl;
+                }
+            }
             else if (rel == Rel.Friend) wa = First(ms, i, j, tX[i], tY[i], tX[j], tY[j], dt, M) ? 1 - M.FriendYieldShare : M.FriendYieldShare;
             else if ((tFlag[i] & 16) != 0 && (tFlag[j] & 64) == 0) { Knock(j, i); wa = 0; }   // натиск (Г90): пеший отброшен и сбит
             else if ((tFlag[j] & 16) != 0 && (tFlag[i] & 64) == 0) { Knock(i, j); wa = 1; }
