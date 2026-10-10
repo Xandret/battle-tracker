@@ -55,6 +55,7 @@ namespace BattleCore
         public bool MoraleChecks = true;     // БД4: проверки БД и на побег в ходу; сверка обмена ударами со столом — без них
         public bool PanicMoraleLoss;         // переключатель трекера «−100 БД вместе с проверкой» (по умолчанию выключен)
         readonly List<string> events = new List<string>();   // проверки, бегство, паника, «сплотить» — в журнал хода
+        int eventsReported;                  // сколько из них уже ушло в журнал прошлого хода (остальные — из приказной фазы: ГМ, ИИ — в журнал этого)
         readonly Dictionary<Mover, int> chargesLeft = new Dictionary<Mover, int>();
         readonly Dictionary<Mover, (double x, double y)> aimed = new Dictionary<Mover, (double x, double y)>();
 
@@ -272,6 +273,7 @@ namespace BattleCore
             if (MenMode && m.Field == null && Geo?.Map != null) m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), x, y, 0, null, pass);
             foreach (var man in m.Men) man.Z = StandZ(man.X, man.Y);
             if (started) chargesLeft[m] = (int)Units.AttackLimit(u, R);   // Г112 п.3: подкрепление посреди битвы — как все, с лимитом натисков хода
+            seenBy.Clear();   // Г113: кого видит сторона — заново при первом вопросе (новый отряд до хода иначе невидим)
             return m;
         }
         // Г104: переставить отряд до первого хода — строй, колонны и бойцы заново на новом месте; на непроходимом — сдвиг, как в Add.
@@ -458,7 +460,7 @@ namespace BattleCore
             stepsInTurn = MoveSim.StepsPerTurn(R);
             turnStart = Clock;
             MoveSim.BeginTurn(Movers);
-            Details.Clear(); events.Clear();
+            Details.Clear(); events.RemoveRange(0, Math.Min(eventsReported, events.Count)); eventsReported = 0;
             foreach (var f in Fights) { f.LossA = f.LossB = 0; f.Notes.Clear(); }
             foreach (var v in Volleys) { v.LossA = v.LossB = v.Friendly = 0; v.Arrows = 0; }
             Shots = new ShotStats();
@@ -521,7 +523,7 @@ namespace BattleCore
                 if (v.Friendly > 0) parts.Add($"по своим −{Js.Num(v.Friendly)}");
                 L.Add($"Стрельба «{v.A.P.U.Name}» по «{v.B.P.U.Name}»: {string.Join("; ", parts)}");
             }
-            L.AddRange(events);
+            L.AddRange(events); eventsReported = events.Count;
             foreach (var m in Movers)
                 if (m.Fleeing && OnField(m)) L.Add($"«{m.P.U.Name}» бежит: прошёл {Js.Num(Js.R1(m.Moved))} м{(m.RallyPending ? ", ждёт, чтобы сплотиться (враг ближе " + Js.Num(R.Rally.FreeM) + " м)" : "")}");
             Fights.RemoveAll(f => f.Over);

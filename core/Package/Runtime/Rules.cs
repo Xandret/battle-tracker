@@ -350,6 +350,25 @@ namespace BattleCore
         public GarrisonR Garrison = new GarrisonR();
         public FogR Fog = new FogR();
         public DuelR Duel = new DuelR();
+        // Г113 — ИИ-помощник ГМа и оценка обстановки (Г116). Все числа — черновик до ГМа
+        public sealed class AiR
+        {
+            public double ThreatM = 150;       // враг ближе этого (край до края) — «под угрозой»; он же «рядом» для «врагов больше»
+            public double ThreatTurns = 1;     // или идущий на отряд, что дойдёт за столько ходов
+            public double FlankDeg = 60;       // враг дальше этого от курса — заходит сбоку («обходят»); за Sectors.RearMin — в тыл
+            public double HoldFaceDeg = 30;    // «держать»: угроза дальше этого от курса — довернуться на месте
+            public double HoldOffM = 5;        // «держать»: отнесло дальше — вернуться на позицию
+            public double EngageM = 100;       // «наступать» к точке: враг ближе — рубящий атакует его
+            public double ChargeFromM = 120;   // конница: дистанция, с которой идёт в натиск (больше разбега ChargeRunUp), и место захода с фланга
+            public double FlankGapM = 40;      // пешие: заход с фланга — на столько от строя врага
+            public double CoverGapM = 30;      // «прикрыть»: встать на столько перед прикрываемым со стороны врага; и полоса, в которой свой считается прикрытием
+            public double CoverReactM = 120;   // «прикрыть»: враг ближе этого к прикрываемому — перехват
+            public double OutnumberK = 1.5;    // врагов рядом во столько раз больше своих — «врагов больше»
+            public double LowMorale = 40;      // БД ниже — «дрогнет» (как Morale.CheckAt)
+            public double LoseK = 1.5;         // разбор: потери за ход во столько раз больше, чем у врага, — «проигрывает схватку»
+            public bool Journal = true;        // решения ИИ — строкой в журнал хода
+        }
+        public AiR Ai = new AiR();
         // Г112 п.4 (панель ГМа, таблица этапа 3 — Q5): готовые модификаторы БД; ключ, название, значение. Применяет ГМ (Battle.ApplyMorale),
         // сам — только «гибель полководца» (поединок, Г108)
         public (string key, string name, double value)[] MoraleMods =

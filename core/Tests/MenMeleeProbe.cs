@@ -1493,3 +1493,69 @@ static class FordProbe
         RB.Move.NarrowCentered = false; RB.Move.CorridorSlowK = 0;
     }
 }
+
+// Г113: ИИ-помощник по ходам и секундам (dotnet run --project Tests -- ai [hold|advance|cover|flank])
+static class AiProbe
+{
+    public static void Run(string[] opts)
+    {
+        string what = opts.Length > 0 ? opts[0] : "hold";
+        var R = Rules.Base;
+        var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(71).Next });
+        Unit U(string tpl, int id, string name, double n, int f) => Templates.Get(tpl).Make(id, name, n, f);
+        Mover a, k;
+        if (what == "flank")
+        {
+            k = bt.Add(U("infantry", 2, "Пехота", 1000, 2), 500, 500, 0);
+            a = bt.Add(U("knights", 1, "Рыцари", 500, 1), 500, 150, 180);
+            bt.Order(k, new MoveOrder { Kind = OrderKind.Hold }); bt.Assign(a, AiKind.Flank, 2);
+        }
+        else
+        {
+            a = bt.Add(U("infantry", 1, "Пехота", 1000, 1), 500, 500, 0);
+            k = bt.Add(U("knights", 2, "Рыцари", 500, 2), 850, 500, 270);
+            bt.Assign(a, AiKind.Hold); bt.Order(k, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1, Charge = true });
+        }
+        for (int t = 0; t < 4; t++)
+        {
+            foreach (var s in bt.AiOrders()) Console.WriteLine($"ход {t + 1}: {s}");
+            double next = 0;
+            bt.Turn(tt =>
+            {
+                if (tt < next) return; next += 1;
+                k.P.ToLocal(a.P.X, a.P.Y, out var lx, out var ly);
+                var f = bt.Fights.FirstOrDefault(x => !x.Over);
+                Console.WriteLine($"  {tt,5:0.0} с  a ({a.P.X:0},{a.P.Y:0}) курс {a.P.Facing:0}° v {a.Vs:0.0} {a.Order?.Kind} spot={a.OnSpot} done={a.Done} held={a.Held} about={a.AboutLeft:0.0} melee={a.InMelee} | k ({k.P.X:0},{k.P.Y:0}) курс {k.P.Facing:0}° | в осях k: ({lx:0},{ly:0}) | до k {Math.Abs(MoveSim.AngleDiff(a.P.Facing, MoveSim.HeadingOf(k.P.X - a.P.X, k.P.Y - a.P.Y))):0}°{(f != null ? $" | схватка фронт {f.Of(a).Front:0} фланг {f.Of(a).Flank:0} тыл {f.Of(a).Rear:0}" : "")}");
+            });
+            Console.WriteLine($"  потери: a {1000 - a.P.U.Soldiers:0}… k {k.P.U.Soldiers:0}");
+        }
+    }
+}
+
+// Г112: сколько стоит снимок и откат на большой битве (dotnet run --project Tests -- snap-bench [отрядов] [людей в отряде])
+static class SnapBenchProbe
+{
+    public static void Run(string[] opts)
+    {
+        int units = opts.Length > 0 ? int.Parse(opts[0]) : 150, men = opts.Length > 1 ? int.Parse(opts[1]) : 1000;
+        var R = Rules.Base;
+        var bt = new Battle(MoveTests.Open(3000, 3000), R, new EngineContext { Rng = new Mulberry32(5).Next });
+        int perRow = 20; double step = 140;
+        for (int i = 0; i < units; i++)
+        {
+            int f = i % 2 == 0 ? 1 : 2; string tpl = i % 5 == 0 ? "knights" : i % 7 == 0 ? "archers" : "infantry";
+            double x = 100 + (i / 2 % perRow) * step, y = f == 1 ? 1200 - (i / 2 / perRow) * 40 : 1800 + (i / 2 / perRow) * 40;
+            var m = bt.Add(Templates.Get(tpl).Make(i + 1, $"{tpl} {i + 1}", men, f), x, y, f == 1 ? 180 : 0);
+            bt.Order(m, new MoveOrder { Kind = OrderKind.Attack, TargetId = f == 1 ? i + 2 : i });
+        }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        bt.Turn(); Console.WriteLine($"ход 1: {sw.Elapsed.TotalSeconds:0.00} с; отрядов {bt.Movers.Count}, бойцов {bt.Movers.Sum(m => m.Men.Count)}");
+        for (int k = 0; k < 3; k++)
+        {
+            sw.Restart(); var snap = bt.Snapshot(); double ts = sw.Elapsed.TotalMilliseconds;
+            sw.Restart(); bt.Restore(snap); double tr = sw.Elapsed.TotalMilliseconds;
+            Console.WriteLine($"снимок {ts:0} мс, откат {tr:0} мс");
+        }
+        sw.Restart(); bt.Turn(); Console.WriteLine($"ход 2: {sw.Elapsed.TotalSeconds:0.00} с");
+    }
+}

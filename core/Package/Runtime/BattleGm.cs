@@ -57,21 +57,30 @@ namespace BattleCore
             return true;
         }
 
-        // Модификатор БД из таблицы (Rules.MoraleMods) на отряды: БД += значение (0…Morale.Max), строка в журнал. Возвращает значение;
-        // NaN — ключа нет. t — часы боя для строки (NaN — приказная фаза)
+        // Модификатор БД из таблицы (Rules.MoraleMods) на отряды: БД += значение (0…Morale.Max), строка в журнал. БД упал до нуля — сразу
+        // проверка на побег, как после удара (Г74); провал — отряд бежит. Возвращает значение; NaN — ключа нет. t — часы боя для строки
+        // (NaN — приказная фаза, часы — текущие)
         public double ApplyMorale(IEnumerable<Mover> units, string key, double t = double.NaN)
         {
             var mod = R.MoraleMods.FirstOrDefault(x => x.key == key);
             if (mod.key == null) return double.NaN;
-            var names = new List<string>();
+            var names = new List<string>(); var zero = new List<Mover>();
             foreach (var m in units)
             {
                 if (m == null || !OnField(m)) continue;
                 var u = m.P.U; double was = u.Morale;
                 u.Morale = Math.Max(0, Math.Min(R.Morale.Max, u.Morale + mod.value));
                 names.Add($"«{u.Name}» {Js.Num(was)} → {Js.Num(u.Morale)}");
+                if (u.Morale <= 0 && was > 0 && u.Status == "active" && !m.Fleeing) zero.Add(m);
             }
             if (names.Count > 0) events.Add($"{(double.IsNaN(t) ? "" : At(t) + " с · ")}{mod.name} ({(mod.value >= 0 ? "+" : "")}{Js.Num(mod.value)} БД): {string.Join(", ", names)}");
+            double tc = double.IsNaN(t) ? Clock : t;
+            foreach (var m in zero)
+            {
+                var u = m.P.U;
+                Check(tc, MoraleRules.FleeCheck(u, Ctx), u);
+                if (u.Status == "fled") { Flee(m, tc, "БД упал до нуля — провалил проверку на побег"); PanicFrom(m, tc); }
+            }
             return mod.value;
         }
     }

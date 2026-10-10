@@ -304,6 +304,8 @@ if (args.Length > 0 && args[0] == "walls") { ArrowWallProbe.Run(args.Skip(1).ToA
 if (args.Length > 0 && args[0] == "garrison") { GarrisonProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "gate") { GateProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "duel") { DuelProbe.Run(); return 0; }
+if (args.Length > 0 && args[0] == "ai") { AiProbe.Run(args.Skip(1).ToArray()); return 0; }
+if (args.Length > 0 && args[0] == "snap-bench") { SnapBenchProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "penet") { PenetrationProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "jerk-big") { MenJerkBigProbe.Run(args.Skip(1).ToArray()); return 0; }
 if (args.Length > 0 && args[0] == "ford") { FordProbe.Run(args.Skip(1).ToArray()); return 0; }
@@ -333,6 +335,7 @@ foreach (var (name, run) in MoveTests.All()) Test(name, run);
 
 // ── И1: бой в движении (БД1; Г62–Г64), см. BattleTests.cs ──
 foreach (var (name, run) in BattleTests.All()) Test(name, run);
+foreach (var (name, run) in AiTests.All()) Test(name, run);   // Г113: ИИ-помощник, Г116: оценка обстановки
 // ── данные для рисунка (В6), см. LookTests.cs ──
 foreach (var (name, run) in LookTests.All()) Test(name, run);
 // ── живые бойцы (Г75–Г78), см. MenTests.cs ──
