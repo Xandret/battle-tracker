@@ -1451,9 +1451,37 @@
     flex-wrap: wrap;
 }
 
+.army-card-thumb {
+    height: 46px;
+    margin: -4px -4px 4px -4px;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    background-color: #20190f;
+}
+
+.army-preview {
+    margin-bottom: 8px;
+    border-width: 1px;
+    border-color: var(--edge);
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: #20190f;
+}
+
+.army-preview-img {
+    height: 200px;
+}
+
+.army-preview-note {
+    font-size: 11px;
+    color: var(--ink-dim);
+    padding: 4px 6px;
+    white-space: normal;
+}
+
 .army-card {
     width: 132px;
-    height: 128px;
+    height: 170px;
     margin: 4px;
     padding: 5px 6px 6px 6px;
     background-color: #2b241a;

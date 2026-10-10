@@ -36,7 +36,8 @@ namespace Journal.Play
         readonly HashSet<JObject> stylePicked = new HashSet<JObject>(), kitPicked = new HashSet<JObject>(), typePicked = new HashSet<JObject>(), numsPicked = new HashSet<JObject>(), menPicked = new HashSet<JObject>();
         string pendingConfirm; float confirmUntil;    // «нажми ещё раз» для опасных действий
 
-        readonly Label fileLabel, status, unitsTitle;
+        readonly Label fileLabel, status, unitsTitle, previewNote;
+        readonly Image previewImg; ArmyPreview preview;   // вид отряда: бойцы в его снаряжении и стиле, полководец со стягом
         readonly VisualElement factionList, factionBox, cmdrList, cards, form, filePopup;
         readonly TextField saveAsName;
 
@@ -77,6 +78,9 @@ namespace Journal.Play
             var scroll = new ScrollView(ScrollViewMode.Vertical); scroll.AddToClassList("army-scroll"); mid.Add(scroll);
             cards = Div("army-cards", scroll.contentContainer);
             var right = Div("army-col army-right", body);
+            var pv = Div("army-preview", right);
+            previewImg = new Image { scaleMode = ScaleMode.ScaleAndCrop }; previewImg.AddToClassList("army-preview-img"); pv.Add(previewImg);
+            previewNote = Lbl(pv, "", "army-preview-note");
             var fs = new ScrollView(ScrollViewMode.Vertical); fs.AddToClassList("army-scroll"); right.Add(fs);
             form = Div("army-form", fs.contentContainer);
             status = new Label(); status.AddToClassList("army-status"); Root.Add(status);
@@ -86,17 +90,19 @@ namespace Journal.Play
         public void Show(string path = null)
         {
             Root.RemoveFromClassList("hidden");
+            if (preview == null) { preview = new ArmyPreview(640, 360); previewImg.image = preview.Tex; }
+            preview.Active = true;
             if (path != null) TryOpen(path);
             else if (file == null) SetFile(ArmyFile.New());
             Rebuild();
         }
-        public void Hide() { FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); Closed?.Invoke(); }
+        public void Hide() { FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); if (preview != null) preview.Active = false; Closed?.Invoke(); }
         // в бой этой армией: сначала на диск (бой читает файл), потом выбор противника и карты
         void ToBattle()
         {
             if (file.Path == null) { Say("Сначала «Сохранить как» — бой берёт армию из файла", true); return; }
             if (file.Dirty) { try { file.Save(); } catch (Exception e) { Say("Не сохранилось: " + e.Message, true); return; } }
-            FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden");
+            FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); if (preview != null) preview.Active = false;
             PlayFile?.Invoke(file.Path);
         }
 
@@ -241,15 +247,39 @@ namespace Journal.Play
             return parts.Count > 0 ? string.Join(" · ", parts) : "без бонусов";
         }
 
+        readonly List<(Image img, string tpl, string style, string color)> thumbQueue = new List<(Image, string, string, string)>();
+        bool thumbsRunning;
+        void Thumbs()
+        {
+            if (thumbsRunning || preview == null) return;
+            thumbsRunning = true;
+            Root.schedule.Execute(() =>
+            {
+                if (!Visible) return;
+                float until = Time.realtimeSinceStartup + 0.02f; bool made = false;
+                while (thumbQueue.Count > 0 && Time.realtimeSinceStartup < until)
+                {
+                    var (img, tpl, style, color) = thumbQueue[0]; thumbQueue.RemoveAt(0);
+                    if (img.panel == null) continue;   // карточку уже перестроили
+                    img.image = preview.Thumb(tpl, style, color); made = true;
+                }
+                if (made && thumbQueue.Count == 0) Preview();   // большой вид — снова свой
+            }).Every(30).Until(() => { bool done = thumbQueue.Count == 0 || !Visible; if (done) thumbsRunning = false; return done; });
+        }
         void Cards()
         {
-            cards.Clear();
+            cards.Clear(); thumbQueue.Clear();
             unitsTitle.text = $"Отряды · {file.FactionName(factionId)}";
             foreach (var u in file.UnitsOf(factionId))
             {
                 var card = Div("army-card", cards);
                 card.style.borderTopColor = Hex((string)file.Faction(factionId)?["color"] ?? "#6e6a62");   // кромка — цвет фракции
                 string kit = ArmyFile.KitOf(u), style = ArmyFile.StyleOf(u);
+                // картинка отряда — его бойцы в снаряжении, стиле и цвете фракции (снимки — по очереди, одинаковые — один раз)
+                var th = new Image { scaleMode = ScaleMode.ScaleAndCrop }; th.AddToClassList("army-card-thumb"); card.Add(th);
+                string tpl0 = KitSets.TplOf(kit) ?? "infantry", col0 = (string)file.Faction(ArmyFile.Id(u["factionId"]))?["color"] ?? "#6e6a62";
+                var have = preview?.Cached(tpl0, style, col0);
+                if (have != null) th.image = have; else thumbQueue.Add((th, tpl0, style, col0));
                 var ic = new Icon(Icon.OfType(KitSets.TplOf(kit), (string)u["type"])); ic.AddToClassList("army-card-icon"); card.Add(ic);
                 Lbl(card, (string)u["name"], "army-card-name");
                 Lbl(card, $"{(double?)u["soldiers"] ?? 0:0}", "army-card-men");
@@ -261,6 +291,7 @@ namespace Journal.Play
                 var uu = u; card.RegisterCallback<ClickEvent>(_ => { FlushUnitLog(); unit = uu; cmdr = null; Rebuild(); });
             }
             if (!file.UnitsOf(factionId).Any()) Lbl(cards, "Отрядов нет — «+ Отряд» создаст по шаблону", "army-note");
+            Thumbs();
         }
 
         // ── справа: отряд или полководец ──
@@ -270,6 +301,26 @@ namespace Journal.Play
             if (unit != null) UnitForm(unit);
             else if (cmdr != null) CommanderForm(cmdr);
             else Lbl(form, "Выбери отряд или полководца. Новый отряд: «+ Отряд» — по шаблону, облик выбирается тут же.", "army-note");
+            Preview();
+        }
+        // вид справа сверху: отряд — его бойцы в снаряжении и стиле, цвет фракции, его полководец со свитой и стягом;
+        // полководец — с первым отрядом под его началом (нет таких — с пехотой фракции)
+        void Preview()
+        {
+            if (preview == null) return;
+            JObject u = unit, c = cmdr;
+            if (u == null && c != null) u = file.Units.OfType<JObject>().FirstOrDefault(x => ArmyFile.Id(x["commanderId"]) == (int)c["id"]);
+            if (u != null && c == null && ArmyFile.Id(u["commanderId"]) is int cid) c = file.CommandersOf(ArmyFile.Id(u["factionId"])).FirstOrDefault(x => (int)x["id"] == cid);
+            previewImg.parent.EnableInClassList("hidden", u == null && c == null);
+            if (u == null && c == null) return;
+            var fid = u != null ? ArmyFile.Id(u["factionId"]) : ArmyFile.Id(c["factionId"]);
+            string kit = u != null ? ArmyFile.KitOf(u) : "sword", style = u != null ? ArmyFile.StyleOf(u) : file.DefaultStyle(fid, (string)c["name"]);
+            string color = (string)file.Faction(fid)?["color"] ?? "#6e6a62";
+            float w = previewImg.resolvedStyle.width, h = previewImg.resolvedStyle.height;
+            preview.Show(KitSets.TplOf(kit) ?? "infantry", style, color, (string)c?["name"], (double?)c?["valor"] ?? 10, float.IsNaN(w) || h <= 0 ? 0 : w / h);
+            if (float.IsNaN(w)) previewImg.schedule.Execute(Preview);   // раскладка ещё не готова — кадр по окну чуть позже
+            previewNote.text = (u != null ? $"«{(string)u["name"]}» · {KitSets.NameOf(kit)} · {Styles.NameOf(style)}" : $"{Styles.NameOf(style)}")
+                + (c != null ? $" · полководец «{(string)c["name"]}» (доблесть {(double?)c["valor"] ?? 10:0})" : " · без полководца");
         }
         void UnitForm(JObject u)
         {
