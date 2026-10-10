@@ -373,7 +373,7 @@ namespace Journal.Play
             RefreshPreviews(); Changed?.Invoke();
         }
         Unit UnitById(int id) => Battle.Movers.FirstOrDefault(x => x.P.U.Id == id)?.P.U;
-        // БД — по правилам стола (MoraleRules.ApplyMoraleChange: ноль — слом и проверка на побег, выше нуля — снова в руках)
+        // БД: ±правка ГМа — значение без бросков; модификатор по таблице — движком (Battle.ApplyMorale: при нуле — проверка на побег)
         void GmUnits(IEnumerable<Mover> ms, Action<List<Mover>, List<string>> change, string note)
         {
             if (!GmCanEdit) { Say("Правки ГМа — между ходами"); return; }
@@ -397,10 +397,9 @@ namespace Journal.Play
                 }
             }, lines);
         }
-        void Broken(Unit u, List<string> lines) => MoraleRules.ApplyMoraleChange(u, u.Morale, lines, Battle.R).ApplyTo(u);
         public void GmMorale(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (L, x) =>
         {
-            foreach (var m in L) MoraleRules.ApplyMoraleChange(m.P.U, Math.Round(m.P.U.Morale + delta), x, Battle.R).ApplyTo(m.P.U);
+            foreach (var m in L) m.P.U.Morale = Math.Max(0, Math.Min(Battle.R.Morale.Max, Math.Round(m.P.U.Morale + delta)));   // правка ГМа — без бросков
         }, $"БД {(delta >= 0 ? "+" : "")}{delta:0}");
         public void GmFatigue(IEnumerable<Mover> ms, double delta) => GmUnits(ms, (L, x) =>
         {
@@ -410,7 +409,7 @@ namespace Journal.Play
         public void GmMod(IEnumerable<Mover> ms, int mod)
         {
             var (key, name, v) = MoraleMods[mod];
-            GmUnits(ms, (L, x) => { Battle.ApplyMorale(L, key); foreach (var m in L) Broken(m.P.U, x); }, $"{name} {(v >= 0 ? "+" : "")}{v:0}");
+            GmUnits(ms, (L, x) => Battle.ApplyMorale(L, key), $"{name} {(v >= 0 ? "+" : "")}{v:0}");   // упал до нуля — проверку на побег делает движок
         }
         public IEnumerable<Mover> SideUnits(int side) => Battle.Movers.Where(m => SideOf(m) == side);
         public void GmUndo()
