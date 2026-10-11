@@ -29,6 +29,7 @@ namespace BattleCore
         public OrderKind Kind = OrderKind.Move;
         public int TargetId; public bool Charge;
         public bool Deploy;                       // Г120: путь к цели идёт через точку разворота перед её строем (ViaX, ViaY) — там строй доворачивается в линию
+        public double NormCap = double.NaN;       // Алекс 11.10.2026: общий темп группы — норма хода не больше этой (м за ход; NaN — своя), конница не убегает от пехоты
         public double ViaX = double.NaN, ViaY = double.NaN;
     }
 
@@ -74,6 +75,7 @@ namespace BattleCore
         public Placed P;                 // центр строя, курс (Facing), фигурки (их X, Y — места в строю)
         public List<FigState> Figs = new List<FigState>();
         public MoveOrder Order;
+        public double NormCap = double.NaN;      // Алекс 11.10.2026: темп группы — норма этого приказа не больше (м за ход), NaN — своя
         public FlowField Field;
         public BattleMap.PassRules Pass;        // Г104: чем этому отряду можно пройти сверх местности (стены хозяина, открытые ворота); null — как всем
         public double LastActT = double.NaN;     // Г107: когда последний раз стрелял или касался врага (часы боя) — виден всем RevealSec
@@ -165,6 +167,9 @@ namespace BattleCore
         }
         // Наибольшая скорость, м нормы в секунду (Г53): с места, с разгоном и торможением — ровно норма за ход
         public static double TopSpeed(Unit u, Rules r) => BattleMap.UnitSpeed(u, r) / (r.Move.TurnSec - AccelSec(u, r));
+        // норма хода отряда с учётом темпа группы (NormCap приказа): конница в одной группе с пехотой идёт её нормой
+        public static double NormOf(Mover m, Rules r) { double n = BattleMap.UnitSpeed(m.P.U, r); return double.IsNaN(m.NormCap) || m.NormCap <= 0 ? n : Math.Min(n, m.NormCap); }
+        public static double TopSpeedOf(Mover m, Rules r) => NormOf(m, r) / (r.Move.TurnSec - AccelSec(m.P.U, r));
         // Поворот колесом (Г52), °/с: фланг (полфронта от центра) идёт в WheelK раз быстрее марша по полю
         public static double WheelRate(Mover m, Rules r)
         {
@@ -179,6 +184,7 @@ namespace BattleCore
         public static void Give(Mover m, MoveOrder o, Geo geo, Rules r)
         {
             m.Order = o; m.OnSpot = m.Done = false; m.Along = 0; m.Note = null; m.Track = null; m.Field = null; m.RouteField = null;
+            m.NormCap = o.NormCap;
             double tx = o.X, ty = o.Y;
             if (geo != null) { tx = Math.Max(0, Math.Min(geo.W - 1e-6, tx)); ty = Math.Max(0, Math.Min(geo.H - 1e-6, ty)); }
             m.TargetX = tx; m.TargetY = ty;
@@ -239,7 +245,7 @@ namespace BattleCore
         // (больше AboutFaceDeg) быстрый — считается за AboutFaceSec
         public static bool PreferSide(Mover m, Track track, MoveOrder o, Rules r)
         {
-            var M = r.Move; double norm = BattleMap.UnitSpeed(m.P.U, r);
+            var M = r.Move; double norm = NormOf(m, r);
             if (track == null || track.Pieces.Count == 0) return false;
             if (track.Cost <= M.CloseShare * norm) return true;
             double WheelSec(double deg) { deg = Math.Abs(deg); return deg > M.AboutFaceDeg ? M.AboutFaceSec : deg / Math.Max(1e-6, WheelRate(m, r)); }
@@ -334,7 +340,7 @@ namespace BattleCore
                 if (m.Order == null) continue;
                 string name = $"«{m.P.U.Name}»";
                 if (m.Track == null) { if (!string.IsNullOrEmpty(m.Note)) L.Add($"{name}: {m.Note}"); continue; }
-                double norm = BattleMap.UnitSpeed(m.P.U, r);
+                double norm = NormOf(m, r);   // темп группы — в журнале норма приказа
                 var parts = new List<string> { $"прошёл {Js.Num(Js.R1(m.Moved))} м по земле, нормы {Js.Num(Js.R1(m.Spent))} из {Js.Num(norm)}" };
                 if (m.WheelSec > 0) parts.Add($"поворот колесом {Js.Num(Js.R1(m.WheelSec))} с");
                 if (m.AboutSec > 0) parts.Add($"кругом {Js.Num(Js.R1(m.AboutSec))} с");
@@ -372,7 +378,7 @@ namespace BattleCore
             var M = r.Move; var P = m.P; var u = P.U;
             // строй упёрся (шаг 2): центр стоит и не поворачивается, пока фигурки не пройдут; время — в журнал
             if (m.Held) { m.Vs = 0; m.HeldSec += dt; return; }
-            double norm = BattleMap.UnitSpeed(u, r), ta = AccelSec(u, r);
+            double norm = NormOf(m, r), ta = AccelSec(u, r);
             double top = norm / (M.TurnSec - ta), acc = top / ta;
             double budget = norm - m.Spent, tau = M.TurnSec - t;   // осталось нормы и времени в этом ходу
             double left = m.Track.Cost - m.Along;                  // осталось нормы до цели

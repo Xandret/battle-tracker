@@ -59,6 +59,22 @@ static class OrdersTests
             True(!ses.BeginDeploy(), "после первого хода расстановка открылась");
         });
 
+        yield return ("темп группы (Алекс 11.10.2026): рыцари с NormCap по пехоте (100 м) за ход проходят 100 м, а не 250, предпросмотр говорит то же; GroupNorm группы — норма самого медленного; без NormCap — своя норма", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(9).Next });
+            var k = bt.Add(Templates.Get("knights").Make(1, "Рыцари", 500, 1), 300, 900, 0); var i = bt.Add(Templates.Get("infantry").Make(2, "Пехота", 1000, 1), 500, 900, 0);
+            bt.Add(Templates.Get("infantry").Make(3, "Враг", 1000, 2), 800, 50, 180);   // иначе сессия кончает битву: сторона одна
+            var ses = new BattleSession(bt);
+            double cap = ses.GroupNorm(new[] { k, i });
+            True(Math.Abs(cap - BattleMap.UnitSpeed(i.P.U, R)) < 1e-9, $"темп группы {cap:0}");
+            var ok = new MoveOrder { X = 300, Y = 100, Facing = 0, NormCap = cap }; var oi = new MoveOrder { X = 500, Y = 100, Facing = 0, NormCap = cap };
+            var pk = bt.Preview(k, ok); True(Math.Abs(pk.ThisTurn - cap) < 1e-6, $"предпросмотр рыцарей за ход {pk.ThisTurn:0} при темпе {cap:0}");
+            ses.SetOrder(k, ok); ses.SetOrder(i, oi); ses.Go(); while (ses.Step()) { }
+            True(Math.Abs((900 - k.P.Y) - cap) < 3 && Math.Abs((900 - i.P.Y) - cap) < 3, $"за ход: рыцари {900 - k.P.Y:0} м, пехота {900 - i.P.Y:0} м при темпе {cap:0}");
+            ses.SetOrder(k, new MoveOrder { X = 300, Y = 100, Facing = 0 }); ses.Go(); while (ses.Step()) { }
+            True(900 - k.P.Y > cap + 200, $"без темпа рыцари прошли всего {900 - k.P.Y:0} м за два хода");
+        });
+
         yield return ("отступить (Г81): пятится лицом к врагу на половине нормы и выходит из схватки", () =>
         {
             var (bt, a, b) = Duel("infantry", "infantry", 0.5, 4);
