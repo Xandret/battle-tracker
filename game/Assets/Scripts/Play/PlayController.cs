@@ -1339,7 +1339,17 @@ namespace Journal.Play
         // фронт, тянешь от левого фланга к правому — лицом «вперёд» от линии; справа налево — кругом; группа — по порядку
         // слева направо, каждому — доля линии по ширине его строя). Q/E при зажатой ПКМ — доворот курса по 15° (Алекс
         // 10.10.2026: встать «в наблюдение на юг», когда точка севернее, — раньше курс брался от пути и назад не ставился)
+        // групповой приказ — общим темпом, по самому медленному (Алекс 11.10: «чтобы отряд не растягивался на всю карту»;
+        // движок — dev 4f45d16: MoveOrder.NormCap, BattleSession.GroupNorm). Натиск — своим ходом: конница на то и конница
         void DragOrdersFor(bool alt)
+        {
+            DragOrdersBuild(alt);
+            if (DragOrders.Count < 2 || Deploying || Session == null) return;
+            double cap = Session.GroupNorm(DragOrders.Keys);
+            if (double.IsNaN(cap)) return;
+            foreach (var o in DragOrders.Values) if (o.Kind == OrderKind.Move || o.Kind == OrderKind.Attack && !o.Charge) o.NormCap = cap;
+        }
+        void DragOrdersBuild(bool alt)
         {
             DragOrders.Clear();
             var group = Selection.Where(Present).ToList();

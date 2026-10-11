@@ -16,6 +16,13 @@ namespace Journal.Play
         public readonly RenderTexture Tex;
         readonly GameObject stage; readonly Camera cam; readonly MenView men; readonly Banners banners;
         string key;
+        // большой вид — своя текстура 1600 × 900 и приближение (1 — как в малом, больше — дальше: виден весь отряд)
+        RenderTexture big; bool bigOn; float zoom = 1;
+        public RenderTexture Big => big ??= MakeBig();
+        static RenderTexture MakeBig() { var t = new RenderTexture(1600, 900, 16) { name = "Вид отряда крупно" }; t.Create(); return t; }
+        RenderTexture Target => bigOn ? Big : Tex;
+        public void SetBig(bool on) { bigOn = on; cam.targetTexture = Target; key = null; if (!on) zoom = 1; }
+        public float Zoom { get => zoom; set { zoom = Mathf.Clamp(value, 0.45f, 4f); key = null; } }
         const float Ox = -60000, Oy = 60000;   // где сцена в мире
 
         public ArmyPreview(int w, int h)
@@ -34,7 +41,7 @@ namespace Journal.Play
         // отряд: шаблон (вид бойцов), род войск, стиль, цвет фракции "#rrggbb", полководец (null — без него)
         public void Show(string tpl, string style, string color, string cmdName, double valor = 10, float shown = 0, bool card = false)
         {
-            string k = $"{tpl}|{style}|{color}|{cmdName}|{shown:0.00}|{card}";
+            string k = $"{tpl}|{style}|{color}|{cmdName}|{shown:0.00}|{card}|{bigOn}|{zoom:0.00}";
             if (k == key || !men.Ok) return;
             key = k;
             var R = Rules.Base;
@@ -55,12 +62,12 @@ namespace Journal.Play
             var raw = new[] { Hex(color) }; var lin = new[] { Lin(raw[0]) };
             // кадр — крупно передние ряды и полководец (он у знамени, на пятую глубины к фронту), сверху — место знамени;
             // shown — соотношение сторон окна в интерфейсе: картинка обрезается по нему
-            float depth = (float)m.P.Fp.Depth, aspect = shown > 0.2f ? shown : (float)Tex.width / Tex.height;
+            float depth = (float)m.P.Fp.Depth, aspect = shown > 0.2f ? shown : (float)Target.width / Target.height;
             bool small = card;   // карточка — ещё ближе
-            float size = (horse ? (small ? 5.2f : 7.5f) : (small ? 3.0f : 4.6f)) * Mathf.Clamp(1.9f / aspect, 0.8f, 1.6f);
+            float size = (horse ? (small ? 5.2f : 7.5f) : (small ? 3.0f : 4.6f)) * Mathf.Clamp(1.9f / aspect, 0.8f, 1.6f) * (card ? 1 : zoom);
             cam.orthographicSize = size;
             cg(cam).localPosition = new Vector3((float)m.P.X, -((float)m.P.Y + depth * 0.2f) + size * 0.22f, -10);
-            float ppm = Tex.height / (2 * size);
+            float ppm = (card ? 96 : Target.height) / (2 * size);
             var view = new Rect(-1e4f, -1e4f, 2e4f, 2e4f);
             // подсветка выбранного в бою и туман — не отсюда
             var lit = MenView.Lit; int side = BattleViewer.ViewSide; MenView.Lit = null; BattleViewer.ViewSide = 0;
@@ -77,7 +84,7 @@ namespace Journal.Play
             const int W = 192, H = 96;
             Show(tpl, style, color, null, 10, (float)W / H, true);
             var rt = RenderTexture.GetTemporary(W, H, 16);
-            cam.targetTexture = rt; cam.Render(); cam.targetTexture = Tex;
+            cam.targetTexture = rt; cam.Render(); cam.targetTexture = Target;
             var was = RenderTexture.active; RenderTexture.active = rt;
             var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { name = "карточка " + k };
             tex.ReadPixels(new Rect(0, 0, W, H), 0, 0); tex.Apply();

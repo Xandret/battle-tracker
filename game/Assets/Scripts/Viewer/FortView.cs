@@ -80,7 +80,7 @@ namespace Journal.Viewer
             made.Clear(); Map = null; gates.Clear(); leafMesh = null; gatesFor = null;
             if (!Ok || m == null) return;
             var f = FortMap.Build(m); Map = f;
-            if (f.Lines.Count == 0 && f.Towers.Count == 0 && f.Gates.Count == 0 && f.Rubbles.Count == 0 && f.Houses.Count == 0) return;
+            if (f.Lines.Count == 0 && f.Towers.Count == 0 && f.Gates.Count == 0 && f.Rubbles.Count == 0 && f.Houses.Count == 0 && f.Landmarks.Count == 0) return;
             Geo shadows = new Geo(), walls = new Geo(), pals = new Geo(), top = new Geo(), roofTop = new Geo();
             var roofs = new Geo[4]; for (int k = 0; k < 4; k++) roofs[k] = new Geo();
             var plain = Vector4.zero; var white = new Color32(255, 255, 255, 255);
@@ -160,11 +160,15 @@ namespace Journal.Viewer
                 SoftRect(shadows, x0, y0, x1, y1, Sun * 6, 1.0f, dark, 0.34f, du, dv);
                 Roof(roofs[kind], x0, y0, x1, y1, Hex(RoofCol[kind]), RoofTile[kind], Hs.Seed);
             }
+            var roofsUp = new Geo[4]; for (int k = 0; k < 4; k++) roofsUp[k] = new Geo(); var topUp = new Geo();
+            foreach (var L in f.Landmarks) DrawLandmark(L, shadows, roofs, roofsUp, top, topUp, du, dv, shadowP, dark, disc);
             Layer("Тени построек", shadows, buildMat, 1);
             for (int k = 0; k < 4; k++) if (roofMat[k] != null) Layer("Кровли: " + RoofKinds[k], roofs[k], roofMat[k], 3);
             Layer("Стены", walls, wallMat, 2);
             Layer("Частокол", pals, palMat, 2);
             Layer("Башни и ворота", top, buildMat, 3);
+            for (int k = 0; k < 4; k++) if (roofMat[k] != null) Layer("Кровли башен ориентиров: " + RoofKinds[k], roofsUp[k], roofMat[k], 4);
+            Layer("Ориентиры: поверх кровель", topUp, buildMat, 5);
             Layer("Шатры башен", roofTop, buildMat, 11);   // выше бойцов (10): кто в башне — под крышей
             if (gates.Count > 0)
             {
@@ -304,6 +308,143 @@ namespace Journal.Viewer
         }
 
         static Color32 Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+        // ── ориентиры (Алекс 11.10): церковь, собор, ратуша, усадьба, амбар, мельница, торговые ряды, колодец, шатры ──
+        // Длинная ось — по длинной стороне прямоугольника; «перед» (колокольня, вход) — у меньшего x или y. Кровли — те же
+        // фактуры, что у домов; навесы, кладка колодца, крылья мельницы — заливкой (solid)
+        void DrawLandmark(FortMap.Landmark L, Geo shadows, Geo[] roofs, Geo[] roofsUp, Geo top, Geo topUp, float du, float dv, Vector4 solid, Color32 dark, Part disc)
+        {
+            float x0 = L.X0 + 0.4f, y0 = L.Y0 + 0.4f, x1 = L.X1 - 0.4f, y1 = L.Y1 - 0.4f, w = x1 - x0, h = y1 - y0;
+            bool alongX = w >= h; float len = alongX ? w : h, wid = alongX ? h : w;
+            // прямоугольник в осях постройки: a — вдоль длинной оси от «переда», b — поперёк от середины
+            (float, float, float, float) Box(float a0, float a1, float b0, float b1)
+            {
+                float cb = alongX ? (y0 + y1) / 2 : (x0 + x1) / 2, fa = alongX ? x0 : y0;
+                return alongX ? (fa + a0, cb + b0, fa + a1, cb + b1) : (cb + b0, fa + a0, cb + b1, fa + a1);
+            }
+            // башни (колокольни, часовая) — слоем выше кровель зала: не тонут под ними
+            void RoofBox(int kind, (float, float, float, float) r, int seed, string col = null, bool up = false)
+            {
+                var (ax, ay, bx, by) = r;
+                SoftRect(shadows, ax, ay, bx, by, Sun * (up ? 14 : 8), 1.2f, dark, 0.34f, du, dv);
+                Roof((up ? roofsUp : roofs)[kind], ax, ay, bx, by, Hex(col ?? RoofCol[kind]), RoofTile[kind], seed);
+            }
+            void FillG(Geo g, float ax, float ay, float bx, float by, Color32 col)
+            {
+                int i = g.Vert(ax, ay, du, dv, col, solid); g.Vert(bx, ay, du, dv, col, solid); g.Vert(bx, by, du, dv, col, solid); g.Vert(ax, by, du, dv, col, solid);
+                g.Tri(i, i + 1, i + 2); g.Tri(i, i + 2, i + 3);
+            }
+            void Fill(float ax, float ay, float bx, float by, Color32 col) => FillG(top, ax, ay, bx, by, col);
+            // чёткий круг — веером (мягкий круг атласа годится только для тени)
+            void DiscG(Geo g, float cx, float cy, float r, Color32 col)
+            {
+                int c0 = g.Vert(cx, cy, du, dv, col, solid);
+                for (int k = 0; k <= 20; k++) { float a = k * Mathf.PI * 2 / 20; g.Vert(cx + Mathf.Cos(a) * r, cy + Mathf.Sin(a) * r, du, dv, col, solid); if (k > 0) g.Tri(c0, c0 + k, c0 + k + 1); }
+            }
+            void Disc(float cx, float cy, float r, Color32 col) => DiscG(top, cx, cy, r, col);
+            var ink = new Color32(34, 24, 15, 255);
+            switch (L.Kind)
+            {
+                case "church":   // колокольня у переда, неф, апсида
+                {
+                    float tw = Mathf.Min(wid, 8.5f), nw = Mathf.Min(wid * 0.8f, 9.5f);
+                    RoofBox(1, Box(tw * 0.92f, len - 3.2f, -nw / 2, nw / 2), L.Seed);
+                    RoofBox(1, Box(len - 4.2f, len, -nw * 0.32f, nw * 0.32f), L.Seed + 1);
+                    RoofBox(1, Box(0, tw, -tw / 2, tw / 2), L.Seed + 2, "#56606b", up: true);   // колокольня — шатёр темнее
+                    var (cx0, cy0, cx1, cy1) = Box(tw / 2 - 0.15f, tw / 2 + 0.15f, -1.2f, 1.2f); FillG(topUp, cx0, cy0, cx1, cy1, ink);   // крест на шпиле
+                    var (dx0, dy0, dx1, dy1) = Box(tw / 2 - 0.9f, tw / 2 + 0.9f, -0.15f, 0.15f); FillG(topUp, dx0, dy0, dx1, dy1, ink);
+                    break;
+                }
+                case "cathedral":   // две башни фасада, неф, трансепт, башня над средокрестием, апсида
+                {
+                    float tw = wid * 0.34f, nw = wid * 0.52f;
+                    RoofBox(1, Box(tw * 0.8f, len - wid * 0.25f, -nw / 2, nw / 2), L.Seed);
+                    RoofBox(1, Box(len * 0.58f, len * 0.58f + nw * 0.95f, -wid / 2, wid / 2), L.Seed + 1);
+                    RoofBox(1, Box(len - wid * 0.32f, len, -nw * 0.38f, nw * 0.38f), L.Seed + 2);
+                    RoofBox(1, Box(0, tw, -wid / 2, -wid / 2 + tw), L.Seed + 3, "#56606b", up: true);
+                    RoofBox(1, Box(0, tw, wid / 2 - tw, wid / 2), L.Seed + 4, "#56606b", up: true);
+                    float cm = len * 0.58f + nw * 0.475f;
+                    RoofBox(1, Box(cm - nw * 0.3f, cm + nw * 0.3f, -nw * 0.3f, nw * 0.3f), L.Seed + 5, "#4d5661", up: true);
+                    break;
+                }
+                case "townhall":   // зал под черепицей, к площади — часовая башня (циферблат золотом)
+                {
+                    RoofBox(0, Box(0, len, -wid / 2, wid / 2), L.Seed);
+                    float tw = Mathf.Min(wid * 0.5f, 7);
+                    var tb = L.Rot ? Box(len / 2 - tw / 2, len / 2 + tw / 2, -wid / 2 - 0.6f, -wid / 2 + tw - 0.6f) : Box(-0.6f, tw - 0.6f, -tw / 2, tw / 2);
+                    RoofBox(1, tb, L.Seed + 1, "#56606b", up: true);
+                    var (ax, ay, bx, by) = tb; DiscG(topUp, (ax + bx) / 2, (ay + by) / 2, tw * 0.17f, ink); DiscG(topUp, (ax + bx) / 2, (ay + by) / 2, tw * 0.14f, Hex("#e0b84a"));
+                    break;
+                }
+                case "manor":   // господский дом с крылом (буквой Г)
+                    RoofBox(0, Box(0, len, -wid / 2, -wid / 2 + wid * 0.48f), L.Seed);
+                    RoofBox(0, Box(len - wid * 0.55f, len, -wid / 2 + wid * 0.4f, wid / 2), L.Seed + 1);
+                    break;
+                case "barn":   // длинный амбар под соломой
+                    RoofBox(3, Box(0, len, -wid / 2, wid / 2), L.Seed);
+                    break;
+                case "mill":   // мельница: кровля и четыре крыла
+                {
+                    RoofBox(2, Box(len * 0.15f, len * 0.85f, -wid * 0.35f, wid * 0.35f), L.Seed);
+                    float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, r = len * 0.75f, a0 = (float)Kits.Hash(L.Seed, 3) * 1.5f;
+                    var sail = Hex("#6b4a2a"); var cloth = Hex("#d8ccb0");
+                    for (int k = 0; k < 4; k++)
+                    {
+                        float a = a0 + k * Mathf.PI / 2; var d = new Vector2(Mathf.Cos(a), Mathf.Sin(a)); var n = new Vector2(-d.y, d.x);
+                        void Q(Vector2 c, float hl, float hw, Color32 col)
+                        {
+                            var p0 = c - d * hl - n * hw; var p1 = c + d * hl - n * hw; var p2 = c + d * hl + n * hw; var p3 = c - d * hl + n * hw;
+                            int i = top.Vert(p0.x, p0.y, du, dv, col, solid); top.Vert(p1.x, p1.y, du, dv, col, solid); top.Vert(p2.x, p2.y, du, dv, col, solid); top.Vert(p3.x, p3.y, du, dv, col, solid);
+                            top.Tri(i, i + 1, i + 2); top.Tri(i, i + 2, i + 3);
+                        }
+                        var c0 = new Vector2(cx, cy) + d * r * 0.55f;
+                        Q(c0 + n * 0.5f, r * 0.42f, 0.55f, cloth); Q(c0, r * 0.55f, 0.18f, sail);
+                    }
+                    Disc(cx, cy, 0.7f, sail);
+                    break;
+                }
+                case "market":   // ряды палаток под полосатыми навесами, проходы между ними
+                {
+                    string[][] cols = { new[] { "#b5372b", "#efe6d2" }, new[] { "#2f63a8", "#efe6d2" }, new[] { "#2f7d4a", "#d9c25a" }, new[] { "#c8662c", "#efe6d2" }, new[] { "#7b3b6b", "#d9c25a" } };
+                    float sw = 4.2f, sd = 3.2f, gap = 2.6f;
+                    int nx = Mathf.Max(1, (int)((w + 0.8f) / (sw + 0.8f))), rows = Mathf.Max(1, (int)((h + gap) / (sd * 2 + gap)));
+                    for (int r = 0; r < rows; r++)
+                        for (int side = 0; side < 2; side++)
+                            for (int k = 0; k < nx; k++)
+                            {
+                                if (Kits.Hash(L.Seed + r * 7 + side, k) < 0.15) continue;
+                                float ax = x0 + k * (sw + 0.8f), ay = y0 + r * (sd * 2 + gap) + side * sd, bx = ax + sw, by = ay + sd - 0.3f;
+                                if (bx > x1 + 0.1f || by > y1 + 0.1f) continue;
+                                var c = cols[(int)(Kits.Hash(L.Seed + r * 13 + side * 5, k + 17) * cols.Length)];
+                                SoftRect(shadows, ax, ay, bx, by, Sun * 2.5f, 0.6f, dark, 0.3f, du, dv);
+                                Fill(ax - 0.1f, ay - 0.1f, bx + 0.1f, by + 0.1f, ink);
+                                for (int st = 0; st < 4; st++) Fill(ax + sw * st / 4, ay, ax + sw * (st + 1) / 4, by, Hex(c[st % 2]));
+                            }
+                    break;
+                }
+                case "well":   // колодец: каменное кольцо, вода, ворот
+                {
+                    float cx = (L.X0 + L.X1) / 2, cy = (L.Y0 + L.Y1) / 2;
+                    top.Quad(disc, Aff.At(cx + Sun.x * 1.5f, cy + Sun.y * 1.5f).S(3.4f, 3.4f), new Color32(28, 22, 12, 90), solid);
+                    Disc(cx, cy, 1.7f, ink); Disc(cx, cy, 1.55f, Hex("#a9a294")); Disc(cx, cy, 0.95f, Hex("#2d4a5c"));
+                    Fill(cx - 1.9f, cy - 0.12f, cx + 1.9f, cy + 0.12f, Hex("#6b4a2a"));
+                    break;
+                }
+                case "tents":   // шатры: круглые, полосатые, с маковкой
+                {
+                    int n = 3 + (int)(Kits.Hash(L.Seed, 1) * 2);
+                    for (int k = 0; k < n; k++)
+                    {
+                        float cx = x0 + w * (0.25f + 0.5f * (float)Kits.Hash(L.Seed, 10 + k)), cy = y0 + h * (0.25f + 0.5f * (float)Kits.Hash(L.Seed, 20 + k)), r = 2.2f + 1.2f * (float)Kits.Hash(L.Seed, 30 + k);
+                        top.Quad(disc, Aff.At(cx + Sun.x * 3, cy + Sun.y * 3).S(r * 2.1f, r * 2.1f), new Color32(28, 22, 12, 80), solid);
+                        Disc(cx, cy, r + 0.12f, ink);
+                        Disc(cx, cy, r, Hex(k % 2 == 0 ? "#efe6d2" : "#b5372b"));
+                        Disc(cx, cy, r * 0.55f, Hex(k % 2 == 0 ? "#b5372b" : "#efe6d2"));
+                        Disc(cx, cy, 0.35f, Hex("#e0b84a"));
+                    }
+                    break;
+                }
+            }
+        }
         // скат светлее, если смотрит к солнцу (вправо вверх) — bFacet пробы
         static Color32 Facet(Color32 b, float nx, float ny)
         {

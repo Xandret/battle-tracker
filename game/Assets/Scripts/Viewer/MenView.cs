@@ -793,11 +793,11 @@ namespace Journal.Viewer
                 {
                     horseB.Quad(horses.Get(kit.HorseHead), bas.T(0, -0.5f), col, Vector4.zero);
                     horseB.Quad(horses.Get($"hbody/{kit.Coat}"), bas, col, Vector4.zero);
-                    horseB.Quad(horses.Get(kit.HorseCover), bas, col, Vector4.zero);
+                    horseB.Quad(horses.Get(kit.HorseCover), bas, col, Mt(kit.CoverTint, Vector4.zero));
                     fm = bas.T(0, 0.03f);
                 }
-                menB.Quad(men.Get(kit.Body), fm, Col(kit.BodyCol, col), Vector4.zero);
-                menB.Quad(men.Get(kit.Head), fm.T(0, -0.03f), kit.HeadTint ? Col(kit.HeadCol, col) : col, kit.HeadTint ? Tint1 : Vector4.zero);
+                menB.Quad(men.Get(kit.Body), fm, Col(kit.BodyCol, col), BodyP(kit, Vector4.zero));
+                menB.Quad(men.Get(kit.Head), fm.T(0, -0.03f), kit.HeadTint ? Col(kit.HeadCol, col) : col, kit.HeadTint ? Tint1 : Mt(kit.HelmTint, Vector4.zero));
                 bool pole = !flee && Thrust(kit.Base) && (horse ? walking || m.Atk : m.Rank < 2);
                 if (pole && PW != null) menB.Quad(men.Get("weapon/" + kit.Weapon), Pose(fm, horse ? new[] { 0.2f, 0.25f, -0.04f, 1, 1 } : PW), col, Vector4.zero);
                 return;
@@ -831,7 +831,7 @@ namespace Journal.Viewer
                 horseB.Quad(horses.Get($"htail/{kit.Coat}"), bas.T(0, 0.84f).R(tail), white, z);
                 horseB.Quad(horses.Get(kit.HorseHead), bas.T(0, -0.5f + nod), col, z);
                 horseB.Quad(horses.Get($"hbody/{kit.Coat}"), bas, white, z);
-                horseB.Quad(horses.Get(kit.HorseCover), bas, col, z);
+                horseB.Quad(horses.Get(kit.HorseCover), bas, col, Mt(kit.CoverTint, z));
                 if (ppm >= 30) for (int sd = -1; sd <= 1; sd += 2) Strip(menB, bas, sd * 0.1f, -1.19f + nod, sd * 0.07f, -0.13f, 0.9f / ppm, new Color32(74, 48, 32, 255));
                 var R0 = bas.T(0, 0.03f - bob * 0.5f); var Mr = R0.T(ox + 0.05f * sw, -0.18f * jolt).R(rot * 0.35f + 0.15f * sw);
                 // копьё — на сшибку: ломается щепками (через 0,15 с после удара — меч); без сшибки — меч после 0,5 с рубки на месте
@@ -1005,7 +1005,7 @@ namespace Journal.Viewer
             Vector2? hr, hl; bool showL;
             if (bowRest) { hr = null; hl = new Vector2(-0.36f, 0.02f); showL = true; }
             else (hr, hl, showL) = HandsOf(bw, W, raise ? RaiseSh : slung ? null : Sh, bowSt, xb);
-            if (k.Back != null) B.Quad(men.Get(k.Back), Mm, team, dim);
+            if (k.Back != null) B.Quad(men.Get(k.Back), Mm, Col(k.BackCol, team), dim);
             if (slung && k.ShieldFlat != null) B.Quad(men.Get(k.ShieldFlat), Mm.T(0, 0.15f).S(0.7f, 0.7f), Col(k.ShieldCol, team), dim);
             var arm = men.Get("arm"); var sleeve = Col(k.Sleeve, team);
             for (int side = 1; side >= -1; side -= 2)
@@ -1014,17 +1014,52 @@ namespace Journal.Viewer
                 float ex = side * ElbX, dx = h.Value.x - ex, dy = h.Value.y - ElbY, L = Mathf.Sqrt(dx * dx + dy * dy);
                 if (L >= 0.02f) B.Quad(arm, Mm.T(ex, ElbY).R(Mathf.Atan2(dx, -dy)).S(1, L / FaLen), sleeve, tint);
             }
-            B.Quad(men.Get(k.Body), Mm, Col(k.BodyCol, team), dim);
+            B.Quad(men.Get(k.Body), Mm, Col(k.BodyCol, team), BodyP(k, dim));
             if (Sh != null && !raise && !slung && k.ShieldTop != null) B.Quad(men.Get(k.ShieldTop), Pose(Mm, Sh), Col(k.ShieldCol, team), dim);
-            B.Quad(men.Get(k.Head), Mm.T(0, -0.03f).R(-0.4f * sway), k.HeadTint ? Col(k.HeadCol, team) : team, k.HeadTint ? tint : dim);
+            var hm = Mm.T(0, -0.03f).R(-0.4f * sway);
+            B.Quad(men.Get(k.Head), hm, k.HeadTint ? Col(k.HeadCol, team) : team, k.HeadTint ? tint : Mt(k.HelmTint, dim));
+            if (k.Plume != null) Plume(B, k, hm, dim);
             if (raise && k.ShieldFlat != null) B.Quad(men.Get(k.ShieldFlat), Mm.T(-0.03f, -0.05f).R(-0.1f).S(0.95f, 0.95f), Col(k.ShieldCol, team), dim);   // щит над головой
             if (bowRest && k.BowPart != null) B.Quad(men.Get(k.BowPart + "0"), Mm.T(-0.08f, 0.02f).R(-Mathf.PI / 2).S(0.8f, 0.8f), team, dim);
             else if (bw == "bow" && k.BowPart != null) B.Quad(men.Get(k.BowPart + bowSt), Mm, team, dim);
             else if (wpn == "crossbow") B.Quad(men.Get("xbow/" + xb), Mm, team, dim);
-            else if (W != null && wpn != null) B.Quad(men.Get("weapon/" + wpn), Pose(Mm, W), team, dim);
+            else if (W != null && wpn != null)
+            {
+                var wm = Pose(Mm, W); var wp = men.Get("weapon/" + wpn);
+                B.Quad(wp, wm, team, dim);
+                if (k.Pennon != -1 && (wpn == "lance" || wpn == "spear" || wpn == "halberd")) Pennon(B, k, wm, wp, team, dim);
+            }
             var hand = men.Get(k.Hand);
             if (hr != null) B.Quad(hand, Mm.T(hr.Value.x, hr.Value.y), team, dim);
             if (hl != null && showL) B.Quad(hand, Mm.T(hl.Value.x, hl.Value.y), team, dim);
+        }
+        // приметы стиля (Kits.Flavor): металл в цвет — четвёртый режим шейдера (w = 2, цвет в x числом 0xRRGGBB)
+        static Vector4 Mt(int rgb, Vector4 dim) => rgb < 0 ? dim : new Vector4(rgb, dim.y, 0, 2);
+        static Vector4 BodyP(Kit k, Vector4 dim) => k.ArmTint >= 0 && k.Layout != "cloth" && k.Layout != "dou" ? Mt(k.ArmTint, dim) : dim;
+        static Color32 Rgb(int c) => new Color32((byte)(c >> 16), (byte)(c >> 8 & 255), (byte)(c & 255), 255);
+        // плюмаж на шлеме (вид сверху): кисть — комок на макушке, перо — лежит назад, конский хвост — длинный и узкий
+        void Plume(Batch B, Kit k, Aff h, Vector4 dim)
+        {
+            var disc = men.Get("util/disc"); var solid = new Vector4(0, dim.y, 1, 0);
+            var c = Rgb(k.PlumeRgb); var d = Color32.Lerp(c, new Color32(0, 0, 0, 255), 0.35f);
+            switch (k.Plume)
+            {
+                case "tassel": B.Quad(disc, h.T(0, 0.04f).S(0.15f, 0.15f), d, solid); B.Quad(disc, h.T(0, 0.03f).S(0.11f, 0.11f), c, solid); break;
+                case "plume": B.Quad(disc, h.T(0, 0.2f).S(0.17f, 0.4f), d, solid); B.Quad(disc, h.T(0.01f, 0.18f).S(0.12f, 0.34f), c, solid); break;
+                case "horsetail": B.Quad(disc, h.T(0, 0.3f).S(0.1f, 0.5f), d, solid); B.Quad(disc, h.T(0, 0.26f).S(0.07f, 0.42f), c, solid); B.Quad(disc, h.T(0, 0.02f).S(0.08f, 0.08f), c, solid); break;
+            }
+        }
+        // флажок у острия копья: полотнище вбок от древка и раздвоенный конец
+        void Pennon(Batch B, Kit k, Aff wm, Part wp, Color32 team, Vector4 dim)
+        {
+            if (!wp.Ok) return;
+            var px = men.Get("util/px"); var solid = new Vector4(0, dim.y, 1, 0);
+            var c = k.Pennon == -2 ? team : Rgb(k.Pennon); var d = Color32.Lerp(c, new Color32(0, 0, 0, 255), 0.4f);
+            float y = wp.Y0 + 0.32f;
+            B.Quad(px, wm.T(0.15f, y + 0.02f).S(2.9f, 2.6f), d, solid);
+            B.Quad(px, wm.T(0.14f, y).S(2.5f, 2.2f), c, solid);
+            B.Quad(px, wm.T(0.33f, y - 0.06f).S(1.3f, 0.9f), c, solid);
+            B.Quad(px, wm.T(0.33f, y + 0.07f).S(1.3f, 0.9f), c, solid);
         }
         // тонкая полоска (поводья) из белого квадрата: от (x0, y0) к (x1, y1) в осях m, ширина w метров
         void Strip(Batch B, Aff m, float x0, float y0, float x1, float y1, float w, Color32 c)

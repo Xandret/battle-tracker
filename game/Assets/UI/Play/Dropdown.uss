@@ -15,3 +15,8 @@
 .unity-base-dropdown__item:checked {
     background-color: #4a3a22;
 }
+
+/* без горизонтальной полосы (Алекс 11.10): длинный пункт переносится на вторую строку */
+.unity-base-dropdown__container-inner .unity-scroller--horizontal { display: none; }
+.unity-base-dropdown__label { white-space: normal; }
+.unity-base-dropdown__item { height: auto; min-height: 22px; padding-top: 2px; padding-bottom: 2px; }

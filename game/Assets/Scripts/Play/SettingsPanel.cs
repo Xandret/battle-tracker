@@ -71,7 +71,7 @@ namespace Journal.Play
         }
 
         static void Head(VisualElement box, string text) { var h = new Label(text); h.AddToClassList("set-head"); box.Add(h); }
-        public void Show() => root.RemoveFromClassList("hidden");
+        public void Show() { root.RemoveFromClassList("hidden"); root.BringToFront(); }   // и поверх редакторов (меню редактора карт)
         public void Hide() => root.AddToClassList("hidden");
     }
 }

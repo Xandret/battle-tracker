@@ -30,6 +30,12 @@ namespace Journal.Art
         public Tint Cloth, BodyCol, Sleeve, HeadCol, ShieldCol;
         public bool HeadTint;
         public float Tone;                           // сдвиг тона цвета стороны у одежды (−0,1…0,1)
+        // приметы стиля (Алекс 11.10: «в чём разница вида этих отрядов?»): металл в цвет (−1 — как есть; 0xRRGGBB — множитель
+        // стали: лак, кожа, позолота), плюмаж или кисть на шлеме, флажок на копье, плащ своего цвета
+        public int ArmTint = -1, HelmTint = -1, CoverTint = -1;
+        public string Plume; public int PlumeRgb;   // "tassel" — кисть на макушке, "plume" — перо назад, "horsetail" — конский хвост
+        public int Pennon = -1;                      // флажок у острия копья: −1 — нет, −2 — цвет стороны, иначе 0xRRGGBB
+        public Tint BackCol = Tint.Team();           // плащ, колчан, павеза — цвет
     }
 
     public static class Kits
@@ -136,7 +142,7 @@ namespace Journal.Art
                 ["crossbow"] = new K { Helm = W(("kettle", 50), ("sallet", 50)), Armour = W(("leather", 50), ("mail", 30), ("cloth", 20)) },
                 ["lance"] = new K { Helm = W(("sallet", 50), ("barbute", 30), ("bascinet", 20)), Shield = W(("heater", 100)), Armour = W(("plate", 60), ("leather", 40)),
                     Bard = W(("cloth", 80), ("none", 20)) },
-                ["barded"] = new K { Helm = W(("sallet", 100)) },
+                ["barded"] = new K { Helm = W(("sallet", 70), ("barbute", 30)), Paint = W(("halves", 35), ("quarters", 35), ("stripe", 30)) },
             },
             ["fareast"] = new Dictionary<string, K> // Япония: о-ёрой, кабуто, нагината, юми, сасимоно; щитов в руке нет
             {
@@ -180,6 +186,7 @@ namespace Journal.Art
                 ["bow"] = new K { Helm = W(("kettle", 50), ("cap", 50)) },
                 ["crossbow"] = new K { Helm = W(("kettle", 50), ("sallet", 50)), Armour = W(("mail", 40), ("leather", 30), ("cloth", 30)) },
                 ["lance"] = new K { Helm = W(("sallet", 50), ("great", 30), ("bascinet", 20)), Armour = W(("plate", 80), ("mail", 20)), Bard = W(("cloth", 50), ("full", 20), ("none", 30)) },
+                ["barded"] = new K { Helm = W(("great", 50), ("sallet", 50)), Paint = W(("stripe", 50), ("quarters", 50)) },
             },
             ["north-rus"] = new Dictionary<string, K>   // Русь: шишаки, каплевидные щиты, чешуя, топоры и сабли, сложные луки
             {
@@ -200,6 +207,9 @@ namespace Journal.Art
                 ["bow"] = new K { Helm = W(("cap", 50), ("pointed", 50)), Side = W(("sabre", 70), ("none", 30)), Armour = W(("leather", 50), ("cloth", 30), ("lamellar", 20)) },
                 ["lance"] = new K { Helm = W(("pointed", 60), ("cap", 40)), Weapon = W(("recurve", 50), ("sabre", 30), ("lance", 20)), Shield = W(("round", 40), ("none", 60)),
                     Armour = W(("lamellar", 40), ("leather", 40), ("cloth", 20)), Bard = W(("none", 90), ("lamellar", 10)) },
+                // тяжёлая конница степи — не латы: ламелляр из кожи, попона из войлока или без, лук и сабля наравне с копьём
+                ["barded"] = new K { Helm = W(("pointed", 70), ("cap", 30)), Weapon = W(("lance", 45), ("sabre", 30), ("recurve", 25)), Shield = W(("round", 60), ("none", 40)),
+                    Armour = W(("lamellar", 100)), Bard = W(("lamellar", 45), ("cloth", 35), ("none", 20)), Paint = W(("boss", 60), ("plain", 40)) },
             },
             ["east-china"] = new Dictionary<string, K>   // Китай: ламелляр и чешуя, гуаньдао и цзи, арбалеты
             {
@@ -211,6 +221,9 @@ namespace Journal.Art
                 ["bow"] = new K { Helm = W(("cap", 50), ("pointed", 50)), Side = W(("sabre", 60), ("none", 40)) },
                 ["crossbow"] = new K { Helm = W(("pointed", 50), ("cap", 50)), Back = W(("quiver", 100)), Armour = W(("lamellar", 40), ("cloth", 60)) },
                 ["lance"] = new K { Weapon = W(("lance", 60), ("sabre", 40)), Shield = W(("round", 50), ("none", 50)), Armour = W(("lamellar", 60), ("scale", 40)), Bard = W(("none", 60), ("cloth", 40)) },
+                // китайская латная конница: гуаньдао и копья, без щитов, лакированный ламелляр на всаднике и коне
+                ["barded"] = new K { Helm = W(("pointed", 100)), Weapon = W(("halberd", 50), ("lance", 50)), Shield = W(("none", 100)), Armour = W(("lamellar", 100)), Bard = W(("lamellar", 70), ("full", 30)),
+                    Paint = W(("plain", 100)) },
             },
             ["south-byzantium"] = new Dictionary<string, K>   // Византия: ламелляр, каплевидные щиты, катафракты
             {
@@ -236,6 +249,9 @@ namespace Journal.Art
                 ["crossbow"] = new K { Helm = W(("kettle", 60), ("sallet", 40)) },
                 ["lance"] = new K { Helm = W(("turban", 30), ("sallet", 40), ("barbute", 30)), Weapon = W(("javelin", 40), ("lance", 40), ("sword", 20)), Shield = W(("adarga", 70), ("heater", 30)),
                     Armour = W(("leather", 60), ("mail", 40)), Bard = W(("none", 50), ("cloth", 50)) },
+                // кастильские рыцари с маврской примесью: адарги и дротики, попоны тканые, тюрбаны поверх шлемов
+                ["barded"] = new K { Helm = W(("sallet", 40), ("turban", 35), ("barbute", 25)), Weapon = W(("lance", 65), ("javelin", 35)), Shield = W(("adarga", 70), ("heater", 30)),
+                    Armour = W(("mail", 60), ("plate", 40)), Bard = W(("cloth", 75), ("full", 25)), Paint = W(("stripe", 40), ("halves", 30), ("plain", 30)) },
             },
         };
         static readonly Dictionary<string, int[]> SubCloths = new Dictionary<string, int[]>
@@ -260,6 +276,8 @@ namespace Journal.Art
         };
         static readonly Dictionary<string, int[]> Coats = new Dictionary<string, int[]>
         { ["west"] = new[] { 0, 1, 2, 3, 4, 5, 6 }, ["north"] = new[] { 1, 2, 4, 5, 6 }, ["east"] = new[] { 0, 2, 3, 4, 5 }, ["south"] = new[] { 0, 1, 2, 3, 6 }, ["fareast"] = new[] { 1, 2, 5, 6 } };
+        static readonly Dictionary<string, int[]> SubCoats = new Dictionary<string, int[]>
+        { ["east-steppe"] = new[] { 1, 2, 4, 4, 5 }, ["south-iberia"] = new[] { 0, 3, 3, 6 }, ["east-china"] = new[] { 1, 2, 2, 5 }, ["north-rus"] = new[] { 1, 2, 5, 6 } };
         static readonly int[] Hairs = { 0x2e241c, 0x4b3a2a, 0x6b4a2f, 0x8a6a45, 0xb08a50, 0x8c8c86, 0x7a3a20 };
         static readonly int[] HairsFarEast = { 0x1b1816, 0x231d19, 0x2b231d };
         static readonly (string, int)[] Marks = W(("none", 50), ("star", 15), ("blaze", 25), ("snip", 10));
@@ -278,6 +296,86 @@ namespace Journal.Art
         // раскладка цвета стороны (fLayout в пробе)
         public static string LayoutOf(string armour, string style) =>
             armour == "cloth" || armour == "leather" ? "cloth" : armour == "oyoroi" ? "lacing" : armour == "dou" ? "dou" : style == "north" ? "cloak" : armour == "lamellar" ? "kaftan" : "tabard";
+
+        // ── приметы культур и подвидов (Алекс 11.10.2026: «друг, ну что это за халтура? в чём разница этих отрядов?») ──
+        // Атлас один на всех, поэтому различие — сверх него: металл в цвет (лак, кожа, позолота, воронение), плюмажи и кисти,
+        // флажки на копьях, червлёные щиты, плащи своего цвета. R — случайность бойца, u — отряда (у всех бойцов одна)
+        static int Mul(int a, int b) => ((a >> 16 & 255) * (b >> 16 & 255) / 255 << 16) | ((a >> 8 & 255) * (b >> 8 & 255) / 255 << 8) | ((a & 255) * (b & 255) / 255);
+        static void Flavor(Kit k, string sub, string look, System.Func<int, double> R, int unitId, int[] cloths)
+        {
+            bool horse = k.Horse, elite = look == "barded" || look == "sword" || look == "lance";
+            bool metalHead = k.Helm != "hair" && k.Helm != "cap" && k.Helm != "hood" && k.Helm != "turban" && k.Helm != "hachimaki";
+            double u = Hash(unitId * 977 + 13, 1);                            // одна на отряд: какой лак, какой плюмаж
+            bool lance = k.Weapon == "lance";
+            void Arm(int rgb) { k.ArmTint = rgb; if (k.Layout != "cloth" && k.Layout != "dou") k.Sleeve = Tint.Of(Mul(ArmourRgb.TryGetValue(k.Armour, out var ar) ? ar : 0xa2a7aa, rgb)); }
+            switch (sub)
+            {
+                case "west":
+                    if (lance && R(1) < 0.55) k.Pennon = -2;
+                    if (look == "barded" && R(2) < 0.3) { k.Plume = "plume"; k.PlumeRgb = R(3) < 0.5 ? 0xf2efe6 : 0xb03a2e; }
+                    break;
+                case "west-england":   // ливрея: белый с цветом стороны пополам, флажки с крестом святого Георгия — белые
+                    if (lance) k.Pennon = R(1) < 0.6 ? 0xf2efe6 : -2;
+                    if (elite && R(2) < 0.35) { k.Plume = "plume"; k.PlumeRgb = 0xf2efe6; }
+                    if (k.ShieldShape != "none" && R(3) < 0.35) k.ShieldCol = Tint.Of(0xe8e2d4);
+                    break;
+                case "west-central":   // «белые» латы, жёлто-чёрное, перья на саладах
+                    if (k.ShieldShape != "none" && R(1) < 0.45) k.ShieldCol = Tint.Of(R(2) < 0.5 ? 0xd0a838 : 0x2a2622);
+                    if (lance) k.Pennon = u < 0.5 ? 0xd0a838 : -2;
+                    if ((k.Helm == "sallet" || k.Helm == "great") && R(3) < 0.5) { k.Plume = "plume"; k.PlumeRgb = R(4) < 0.5 ? 0xd0a838 : 0x2a2622; }
+                    break;
+                case "north":          // вороненое железо, плащи
+                    if (metalHead) k.HelmTint = 0x9a9890;
+                    if (k.Layout == "cloak") Arm(0xb0aca0);
+                    break;
+                case "north-rus":      // червлёные щиты, золочёные шишаки с еловцом у знати, корзно — красный плащ
+                    if (k.ShieldShape != "none" && k.ShieldShape != "buckler" && R(1) < 0.75) k.ShieldCol = Tint.Of(0xa82a20);
+                    if (k.Helm == "shishak" && elite) { k.HelmTint = 0xf0d08a; if (R(2) < 0.6) { k.Plume = "tassel"; k.PlumeRgb = 0xb02a20; } }
+                    if (k.BackKind == "cape") k.BackCol = Tint.Of(0x9a2a22);
+                    if (horse && lance && R(3) < 0.4) k.Pennon = 0xa82a20;
+                    break;
+                case "east":           // Персия и арабы: светлая сталь, белые тюрбаны поверх шлемов, зелёные и белые флажки (позолота — у Византии)
+                    if (horse && R(4) < 0.4) { k.Helm = "turban"; k.Head = "head/turban"; k.HeadTint = true; k.HeadCol = Tint.Of(R(5) < 0.7 ? 0xf2ede0 : 0x2f7a4a); }
+                    else if (metalHead) { k.HelmTint = 0xdfe6ee; if (R(3) < 0.4) { k.Plume = "tassel"; k.PlumeRgb = 0xf2efe6; } }
+                    if (elite) Arm(0xe6ecf2);
+                    if (lance && R(1) < 0.6) k.Pennon = R(2) < 0.5 ? 0x2f7a4a : 0xf2efe6;
+                    if (k.ShieldShape != "none" && R(6) < 0.4) k.ShieldCol = Tint.Of(0x2f7a4a);
+                    break;
+                case "east-steppe":    // кожаный ламелляр, войлок, конские хвосты на шлемах, бунчуки
+                    Arm(0xa07850);
+                    if (metalHead) { k.HelmTint = 0x8a8a84; k.Plume = "horsetail"; k.PlumeRgb = R(1) < 0.6 ? 0x2a2420 : 0x8a3a2a; }
+                    if (k.Bard == "lamellar") k.CoverTint = 0xa07850;
+                    if (k.Bard == "cloth") k.CoverTint = 0x9a7a4a;
+                    if (lance && R(2) < 0.5) k.Pennon = 0x2a2420;
+                    break;
+                case "east-china":     // лакированный ламелляр — красный или чёрный на весь отряд, золочёные шлемы с красной кистью
+                {
+                    int lac = u < 0.6 ? 0xd04a38 : 0x4a4644;
+                    Arm(lac);
+                    if (metalHead) { k.HelmTint = 0xf0c870; k.Plume = "tassel"; k.PlumeRgb = 0xc42a20; }
+                    if (k.Bard == "lamellar" || k.Bard == "full") k.CoverTint = lac;
+                    if (lance || k.Weapon == "halberd" || k.Weapon == "spear") k.Pennon = R(1) < 0.5 ? 0xc42a20 : 0xe0b040;
+                    break;
+                }
+                case "south":          // Италия: пышные перья на саладах и барбютах, флажки
+                    if ((k.Helm == "sallet" || k.Helm == "barbute") && R(1) < 0.55) { k.Plume = "plume"; k.PlumeRgb = R(2) < 0.5 ? 0xf2efe6 : cloths[(int)(R(3) * cloths.Length)]; }
+                    if (lance) k.Pennon = -2;
+                    break;
+                case "south-byzantium":   // катафракты: золочёный ламелляр, пурпур, красные плюмажи
+                    if (elite) Arm(0xf4d48a);
+                    if (metalHead) { k.HelmTint = 0xf4d890; if (R(1) < 0.5) { k.Plume = "plume"; k.PlumeRgb = 0xa82a2a; } }
+                    if (k.Bard == "lamellar") k.CoverTint = 0xf4d48a;
+                    if (lance) k.Pennon = R(2) < 0.5 ? 0x5a2a5a : -2;
+                    break;
+                case "south-iberia":   // хинеты: тюрбаны, адарги, полосатые тканые попоны, без флажков
+                    if (k.Bard == "cloth" || k.Bard == "full") k.CoverTint = cloths[(int)(R(1) * cloths.Length)] | 0x202020;
+                    if (k.ShieldShape == "adarga") k.ShieldCol = R(2) < 0.5 ? Tint.Of(0xd8ccb0) : k.ShieldCol;
+                    break;
+                case "fareast":        // кисти на кабуто, лак
+                    if (k.Helm == "kabuto") { k.HelmTint = 0x5a5050; k.Plume = "tassel"; k.PlumeRgb = 0xe0b040; }
+                    break;
+            }
+        }
 
         // полководец и стража (Алекс 10.10.2026: «должны выделяться на фоне всего отряда», снаряжение — по культуре): лучший
         // комплект культуры и подвида — пешим мечники, конным тяжёлые рыцари; у всех плащ; у полководца на топфхелме гребень
@@ -309,7 +407,7 @@ namespace Journal.Art
             var T = Over(Over(T0, S), U);
             int seed = unitId * 1013 + 7, N = T.Uniform ? 6 : 12;
             bool horse = look == "lance" || look == "barded";
-            var cloths = SubCloths.TryGetValue(sub, out var sc) ? sc : Cloths[style]; var coats = Coats[style]; var hairs = style == "fareast" || sub == "east-china" ? HairsFarEast : Hairs;
+            var cloths = SubCloths.TryGetValue(sub, out var sc) ? sc : Cloths[style]; var coats = SubCoats.TryGetValue(sub, out var sco) ? sco : Coats[style]; var hairs = style == "fareast" || sub == "east-china" ? HairsFarEast : Hairs;
             int c2 = (int)(Hash(seed, 2) * 3);
             string oneHelm = Pick(T.Helm, Hash(seed, 3)), onePaint = Pick(T.Paint ?? W(("plain", 1)), Hash(seed, 4));
             var kits = new Kit[N];
@@ -368,6 +466,7 @@ namespace Journal.Art
                 k.HorseHead = k.Bard == "full" ? $"hhead/{k.Coat}/full/{c2}" : k.Bard == "lamellar" ? $"hhead/{k.Coat}/lamellar" : $"hhead/{k.Coat}/{k.Mark}";
                 k.HorseCover = k.Bard == "full" ? $"hcover/full/{k.TabPaint}/{c2}" : k.Bard == "cloth" ? $"hcover/cloth/{c2}" : k.Bard == "lamellar" ? "hcover/lamellar" : "hcover/none";
                 k.DeadHorse = k.Bard == "full" ? $"deadhorse/{k.Coat}/full/{c2}" : $"deadhorse/{k.Coat}/{k.Bard}";
+                Flavor(k, sub, look, j => R(40 + j), unitId, cloths);
                 kits[i] = k;
             }
             return kits;

@@ -19,12 +19,16 @@ namespace Journal.Art
         public struct Tower { public float X, Y, R; public int Mat; public int Seed; }
         public struct Rubble { public float X, Y; public int Seed; }
         public struct House { public float X0, Y0, X1, Y1; public int Seed; }   // прямоугольник клеток «здание», метры
+        // ориентир (Алекс 11.10: «ни ратуши, ни церкви, ни торговых рядов»): что за постройка в этом прямоугольнике — из
+        // Meta["landmarks"] карты редактора (MapDoc.Mark); дома в нём не рисуются, рисуется он
+        public struct Landmark { public string Kind; public float X0, Y0, X1, Y1; public bool Rot; public int Seed; }
 
         public readonly List<Line> Lines = new List<Line>();
         public readonly List<Gate> Gates = new List<Gate>();
         public readonly List<Tower> Towers = new List<Tower>();
         public readonly List<Rubble> Rubbles = new List<Rubble>();
         public readonly List<House> Houses = new List<House>();
+        public readonly List<Landmark> Landmarks = new List<Landmark>();
         public bool Rustic;                                              // есть частокол — острог: кровли из соломы и тёса
         public bool[] Inside;                                            // клетка во дворе (не дошла заливка снаружи)
         public int Cols, Rows; public float C;
@@ -258,6 +262,21 @@ namespace Journal.Art
                 }
             }
             for (int i = 0; i < n && !f.Rustic; i++) if (m.T[i] == KPal) f.Rustic = true;
+            // ориентиры: «вид[/r] x0 y0 x1 y1 зерно; …»; дома, что лежат в постройке-ориентире, — её часть
+            if (m.Meta != null && m.Meta.TryGetValue("landmarks", out var lmo) && lmo is string lms)
+            {
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                foreach (var part in lms.Split(';'))
+                {
+                    var a = part.Split(' '); if (a.Length < 6) continue;
+                    if (!float.TryParse(a[1], System.Globalization.NumberStyles.Float, inv, out var x0) || !float.TryParse(a[2], System.Globalization.NumberStyles.Float, inv, out var y0)
+                        || !float.TryParse(a[3], System.Globalization.NumberStyles.Float, inv, out var x1) || !float.TryParse(a[4], System.Globalization.NumberStyles.Float, inv, out var y1)) continue;
+                    int.TryParse(a[5], System.Globalization.NumberStyles.Integer, inv, out var sd);
+                    f.Landmarks.Add(new Landmark { Kind = a[0].Replace("/r", ""), Rot = a[0].EndsWith("/r"), X0 = x0, Y0 = y0, X1 = x1, Y1 = y1, Seed = sd });
+                }
+                f.Houses.RemoveAll(h => f.Landmarks.Exists(l => l.Kind != "market" && l.Kind != "well" && l.Kind != "tents"
+                    && h.X0 >= l.X0 - 0.1f && h.X1 <= l.X1 + 0.1f && h.Y0 >= l.Y0 - 0.1f && h.Y1 <= l.Y1 + 0.1f));
+            }
             return f;
         }
         // утоньшение по материалу: убранные клетки — mat 0 (их закроет широкая лента); возвращает толщину у клеток оси

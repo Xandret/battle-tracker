@@ -53,7 +53,16 @@ Shader "Journal/Men"
                 else
                 {
                     float3 rgb = c.rgb;
-                    if (i.p.w > 0.5) o = rgb * i.color.rgb;   // нейтральная часть × цвет: ткань, кожа, масть (В17)
+                    if (i.p.w > 1.5)
+                    {
+                        // металл в цвет стиля (11.10.2026): пурпурная доля — цвет стороны, остальное (сталь, кольчуга, ламелляр) ×
+                        // цвет из x — 0xRRGGBB одним числом (лак у китайцев, кожа у степняков, позолота у византийцев)
+                        float pk = i.p.x + 0.5;
+                        float3 tc = float3(floor(pk / 65536.0), fmod(floor(pk / 256.0), 256.0), fmod(floor(pk), 256.0)) / 255.0;
+                        float m = saturate(min(rgb.r, rgb.b) - rgb.g);
+                        o = (rgb - float3(1, 0, 1) * m) * tc + i.color.rgb * m;
+                    }
+                    else if (i.p.w > 0.5) o = rgb * i.color.rgb;   // нейтральная часть × цвет: ткань, кожа, масть (В17)
                     else
                     {
                         float m = saturate(min(rgb.r, rgb.b) - rgb.g);

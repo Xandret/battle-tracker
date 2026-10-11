@@ -1280,10 +1280,26 @@
     font-size: 11px;
 }
 
-.army-saveas {
-    width: 150px;
-    margin: 0 3px;
-}
+.army-btn.is-green { color: #eaf5df; background-color: #3f7a3a; border-color: #7fbf6a; }
+.army-btn.is-green:hover { background-color: #4d9446; color: #ffffff; }
+.army-btn.is-red { color: #f6ddd5; background-color: #7a2a20; border-color: #c4553f; }
+.army-btn.is-red:hover { background-color: #94352a; color: #ffffff; }
+/* облик карточками */
+.army-picks { flex-direction: row; flex-wrap: wrap; margin: 2px 0 4px 0; }
+.army-pick { width: 31%; margin: 2px 1%; padding: 2px; border-width: 2px; border-color: var(--edge-dark); border-radius: 4px; background-color: #20190f; }
+.army-pick:hover { border-color: var(--gold-deep); }
+.army-pick.is-on { border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
+.army-pick-img { height: 44px; border-radius: 2px; }
+.army-pick-name { font-size: 10px; color: var(--ink); -unity-text-align: middle-center; white-space: normal; margin-top: 2px; min-height: 26px; }
+.army-pick.is-on .army-pick-name { color: var(--gold-bright); }
+/* крупный вид отряда */
+.army-preview-zoom { position: absolute; right: 6px; top: 4px; font-size: 18px; color: var(--gold-bright); }
+.army-preview-img { cursor: link; }
+.army-big { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: rgba(6, 5, 3, 0.82); align-items: center; justify-content: center; }
+.army-big-box { width: 92%; height: 90%; padding: 10px; background-color: var(--panel); border-width: 2px; border-color: var(--edge); border-radius: 6px; }
+.army-big-head { flex-direction: row; align-items: center; margin-bottom: 8px; }
+.army-big-note { flex-grow: 1; flex-shrink: 1; font-size: 13px; color: var(--ink); white-space: normal; }
+.army-big-img { flex-grow: 1; background-color: #20190f; border-radius: 4px; }
 
 .army-files {
     position: absolute;
@@ -1981,47 +1997,97 @@
 .unity-base-slider__dragger { background-color: var(--gold); border-color: var(--gold-deep); }
 .unity-base-slider__tracker { background-color: #2b241a; border-color: var(--edge-dark); }
 
-/* ── редактор карт (Г100): панель слева, карта — в смотрелке ── */
+/* ── редактор карт (Г100; раскладка как в Cities: Skylines — Алекс 11.10): слева карта и генератор, внизу инструменты ── */
 .me-root { position: absolute; left: 0; top: 0; bottom: 0; right: 0; }
-.me-panel { position: absolute; left: 10px; top: 10px; bottom: 10px; width: 340px; padding: 10px 8px 10px 12px; }
+.me-panel { position: absolute; left: 10px; top: 10px; bottom: 10px; width: 330px; padding: 10px 8px 10px 12px; }
 .me-title { font-size: 20px; -unity-font-style: bold; color: var(--gold-bright); margin-bottom: 6px; }
 .me-row { flex-direction: row; align-items: center; flex-wrap: wrap; margin: 2px 0; }
-.me-wrap { flex-wrap: wrap; }
 .me-btn { margin: 2px 4px 2px 0; }
-.me-tool { min-width: 98px; height: 26px; }
-.me-tool.is-on, .me-btn.is-on { color: var(--gold-bright); border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
+.me-btn.is-on { color: var(--gold-bright); border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
 .me-field { margin: 3px 0; color: var(--ink); }
 .me-field Label { color: var(--ink-dim); min-width: 120px; }
 .me-num { width: 190px; color: var(--ink); }
 .me-num Label { color: var(--ink-dim); min-width: 90px; }
 .me-num-short { width: 110px; }
 .me-num-short Label { min-width: 14px; }
-.me-opts { margin: 6px 0; padding: 6px; background-color: rgba(0, 0, 0, 0.18); border-radius: 4px; }
 .me-note { color: var(--ink-faint); font-size: 12px; white-space: normal; margin: 4px 0; }
-.me-palette { flex-direction: row; flex-wrap: wrap; }
-.me-swatch-btn { flex-direction: row; align-items: center; width: 138px; height: 24px; margin: 2px; padding: 0 6px; background-color: var(--panel-2); border-color: var(--edge-dark); border-width: 1px; border-radius: 3px; }
-.me-swatch-btn:hover { border-color: var(--gold-deep); }
-.me-swatch-btn.is-on { border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
-.me-swatch { width: 16px; height: 16px; border-radius: 2px; border-width: 1px; border-color: rgba(0, 0, 0, 0.5); margin-right: 6px; }
-.me-swatch-name { color: var(--ink); font-size: 12px; }
-.me-sel { color: var(--gold-bright); -unity-font-style: bold; margin: 2px 0 4px 0; }
-.me-danger { color: #e08a72; }
+.me-fold { margin-top: 8px; }
+.me-fold > Toggle { margin-left: 0; }
+.me-fold > Toggle Label { font-size: 15px; -unity-font-style: bold; color: var(--gold); }
+.me-fold > .unity-foldout__content { margin-left: 0; }
+.me-gen { margin: 2px 0; }
 .me-files { padding: 4px; margin: 2px 0 6px 0; background-color: rgba(0, 0, 0, 0.25); border-radius: 4px; }
 .me-file { -unity-text-align: middle-left; }
-.me-gen { margin: 2px 0; }
-.me-make, .me-test { height: 32px; margin: 6px 4px 6px 0; font-size: 15px; }
+.me-make { height: 32px; margin: 6px 0; font-size: 15px; -unity-font-style: bold; color: #2a1d0a; background-color: var(--gold); border-color: var(--gold-bright); }
+.me-make:hover { background-color: var(--gold-bright); color: #2a1d0a; }
+/* «Испытать в бою» — зелёная, «Выйти» — красная (Алекс 11.10) */
+.me-test { height: 36px; margin: 10px 0 4px 0; font-size: 15px; -unity-font-style: bold; color: #eaf5df; background-color: #3f7a3a; border-color: #7fbf6a; border-width: 1px; white-space: nowrap; }
+.me-test:hover { background-color: #4d9446; color: #ffffff; border-color: #a3d98d; }
+.me-exit { height: 30px; margin: 4px 0; font-size: 13px; color: #f6ddd5; background-color: #7a2a20; border-color: #c4553f; border-width: 1px; }
+.me-exit:hover { background-color: #94352a; color: #ffffff; border-color: #e07a62; }
 .me-toast { color: var(--gold-bright); white-space: normal; margin-top: 6px; }
 .me-status { color: var(--ink-dim); font-size: 12px; white-space: normal; margin-top: 6px; }
 
-.me-panel .unity-base-field__label { min-width: 130px; font-size: 12px; color: var(--ink-dim); }
-.me-panel .unity-base-text-field__input,
-.me-panel .unity-base-popup-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }
+/* низ: карточка инструмента над полосой значков */
+.me-bottom { position: absolute; left: 350px; right: 10px; bottom: 10px; align-items: center; justify-content: flex-end; }
+.me-optcard { max-width: 920px; padding: 8px 12px; margin-bottom: 8px; }
+.me-opt-title { font-size: 14px; -unity-font-style: bold; color: var(--gold-bright); margin-bottom: 4px; }
+.me-opts > .me-field { max-width: 420px; }
+.me-toolbar { flex-direction: row; align-items: stretch; padding: 6px 8px; }
+.me-tbtn { width: 78px; height: 70px; margin: 0 3px; padding: 6px 2px 4px 2px; align-items: center; justify-content: flex-start; background-color: var(--panel-2); border-width: 1px; border-color: var(--edge-dark); border-radius: 5px; color: var(--ink-dim); }
+.me-tbtn:hover { border-color: var(--gold-deep); color: var(--ink); background-color: #3a2f20; }
+.me-tbtn.is-on { border-color: var(--gold); color: var(--gold-bright); background-color: rgba(217, 173, 85, 0.22); }
+.me-tbtn.is-small { width: 70px; }
+.me-tbtn-icon { width: 30px; height: 30px; }
+.me-tbtn-name { font-size: 11px; -unity-text-align: middle-center; white-space: normal; margin-top: 3px; }
+.me-tbtn-key { position: absolute; right: 4px; top: 2px; font-size: 10px; color: var(--ink-faint); }
+.me-tsep { width: 1px; margin: 4px 6px; background-color: var(--edge); }
+.me-keys { flex-direction: row; flex-wrap: wrap; margin-top: 6px; }
+.me-key-item { flex-direction: row; align-items: center; margin: 2px 14px 2px 0; }
+.me-key { font-size: 11px; color: var(--ink); background-color: #15110b; border-width: 1px; border-color: var(--edge); border-radius: 3px; padding: 1px 5px; margin-right: 5px; -unity-font-style: bold; }
+.me-key-what { font-size: 12px; color: var(--ink-dim); }
+.me-check { margin: 2px 14px 2px 0; }
+.me-check Label { min-width: 0; margin-left: 4px; color: var(--ink); font-size: 12px; }
+.me-props > .me-btn { min-width: 84px; }
+.me-palette { flex-direction: row; flex-wrap: wrap; }
+.me-swatch-btn { width: 32px; height: 32px; margin: 2px; padding: 3px; background-color: var(--panel-2); border-color: var(--edge-dark); border-width: 2px; border-radius: 4px; }
+.me-swatch-btn:hover { border-color: var(--gold-deep); }
+.me-swatch-btn.is-on { border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
+.me-swatch { flex-grow: 1; border-radius: 2px; border-width: 1px; border-color: rgba(0, 0, 0, 0.5); }
+.me-swatch-name { color: var(--ink); font-size: 12px; }
+
+/* справа: выбранный объект */
+.me-objcard { position: absolute; right: 10px; top: 10px; width: 300px; padding: 10px 12px; }
+.me-sel { color: var(--gold-bright); -unity-font-style: bold; font-size: 15px; margin: 0 0 6px 0; }
+.me-danger { color: #e08a72; }
+.me-objcard .me-btn { margin: 3px 0; height: 26px; }
+
+/* меню по ПКМ */
+.me-ctx { position: absolute; min-width: 210px; padding: 6px; }
+.me-ctx-title { color: var(--gold-bright); -unity-font-style: bold; margin: 0 4px 4px 4px; }
+.me-ctx-btn { height: 26px; margin: 1px 0; -unity-text-align: middle-left; padding-left: 10px; color: var(--ink); background-color: rgba(0, 0, 0, 0); border-width: 0; border-radius: 3px; }
+.me-ctx-btn:hover { background-color: rgba(217, 173, 85, 0.2); color: var(--gold-bright); }
+
+/* меню редактора (Esc) */
+.me-menu-veil { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: rgba(8, 6, 3, 0.55); align-items: center; justify-content: center; }
+.me-menu { width: 340px; padding: 16px 18px; }
+.me-menu-title { font-size: 20px; -unity-font-style: bold; color: var(--gold-bright); margin-bottom: 8px; -unity-text-align: middle-center; }
+.me-menu-btn { height: 36px; margin: 4px 0; font-size: 15px; color: var(--ink); background-color: var(--panel-2); border-width: 1px; border-color: var(--edge); border-radius: 4px; }
+.me-menu-btn:hover { border-color: var(--gold); color: var(--gold-bright); }
+.me-menu-btn.is-test { color: #eaf5df; background-color: #3f7a3a; border-color: #7fbf6a; }
+.me-menu-btn.is-exit { color: #f6ddd5; background-color: #7a2a20; border-color: #c4553f; }
+
+.me-panel .unity-base-field__label, .me-optcard .unity-base-field__label, .me-objcard .unity-base-field__label { min-width: 130px; font-size: 12px; color: var(--ink-dim); }
+.me-panel .unity-base-text-field__input, .me-optcard .unity-base-text-field__input, .me-objcard .unity-base-text-field__input,
+.me-panel .unity-base-popup-field__input, .me-objcard .unity-base-popup-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }
 .me-panel .unity-base-text-field__input:focus,
 .me-panel .unity-base-popup-field__input:focus { border-color: var(--gold); }
-.me-panel .unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--gold); }
-.me-panel .unity-toggle__checkmark { background-color: #15110b; border-color: var(--edge); }
+.me-panel .unity-base-popup-field__arrow, .me-objcard .unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--gold); }
+.me-panel .unity-toggle__checkmark, .me-optcard .unity-toggle__checkmark, .me-objcard .unity-toggle__checkmark { background-color: #15110b; border-color: var(--edge); }
 .me-num .unity-base-field__label { min-width: 70px; }
 .me-num-short .unity-base-field__label { min-width: 12px; }
+/* выбранное в выпадающем поле не влезает — обрезать с многоточием (полный текст — подсказкой) */
+.unity-base-popup-field__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* поля раздела ГМа — тёмные, как в редакторе карт */
 .gm-box .unity-base-text-field__input, .gm-box .unity-base-popup-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }

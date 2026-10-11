@@ -38,8 +38,8 @@ namespace Journal.Play
 
         readonly Label fileLabel, status, unitsTitle, previewNote;
         readonly Image previewImg; ArmyPreview preview;   // вид отряда: бойцы в его снаряжении и стиле, полководец со стягом
-        readonly VisualElement factionList, factionBox, cmdrList, cards, form, filePopup;
-        readonly TextField saveAsName;
+        readonly VisualElement factionList, factionBox, cmdrList, cards, form, filePopup, bigVeil;
+        readonly Image bigImg; readonly Label bigNote;
 
         static readonly (string Id, string Name)[] Types = { ("infantry", "Пехота"), ("cavalry", "Конница"), ("archer", "Стрелки"), ("pike", "Пикинёры") };
         static readonly (string Id, string Name)[] Weapons = { ("melee", "Ближний бой"), ("ranged", "Стрелковое") };
@@ -56,12 +56,12 @@ namespace Journal.Play
             fileLabel = new Label(); fileLabel.AddToClassList("army-file"); top.Add(fileLabel);
             Btn(top, "Открыть ▾", ToggleFiles);
             Btn(top, "Новый файл", () => Confirm("new", "Есть несохранённые правки — нажми «Новый файл» ещё раз, чтобы начать без них", () => SetFile(ArmyFile.New())));
-            Btn(top, "Сохранить", Save, "is-gold");
-            saveAsName = new TextField { isDelayed = false }; saveAsName.AddToClassList("army-saveas"); saveAsName.tooltip = "Имя файла в " + SavesName; top.Add(saveAsName);
-            Btn(top, "Сохранить как", SaveAs);
-            Btn(top, "В бой ⚔", ToBattle, "is-gold");
+            // сохранение — всегда в папку игры, имя — по фракциям (Алекс 11.10: «не спрашивать каждый раз, куда сохранить»)
+            Btn(top, "Сохранить", Save, "is-gold").tooltip = "В папку игры " + SavesName + "; новый файл назовётся по фракциям";
+            Btn(top, "Копия", SaveCopy).tooltip = "Сохранить ещё одним файлом рядом";
+            Btn(top, "⚔  В бой", ToBattle, "is-green").tooltip = "Сохранить и выбрать противника и карту";
             var sp = new VisualElement(); sp.style.flexGrow = 1; top.Add(sp);
-            Btn(top, "Закрыть ✕", () => Confirm("close", "Есть несохранённые правки — «Сохранить» или нажми «Закрыть» ещё раз, чтобы выйти без них", Hide));
+            Btn(top, "Закрыть ✕", () => Confirm("close", "Есть несохранённые правки — «Сохранить» или нажми «Закрыть» ещё раз, чтобы выйти без них", Hide), "is-red");
             filePopup = Div("army-files hidden", Root);
             // тело: три колонки
             var body = Div("army-body", Root);
@@ -80,10 +80,42 @@ namespace Journal.Play
             var right = Div("army-col army-right", body);
             var pv = Div("army-preview", right);
             previewImg = new Image { scaleMode = ScaleMode.ScaleAndCrop }; previewImg.AddToClassList("army-preview-img"); pv.Add(previewImg);
+            previewImg.tooltip = "Щёлкни — крупно, во весь экран";
+            previewImg.RegisterCallback<ClickEvent>(_ => OpenBig());
+            var zoomHint = Lbl(pv, "⤢", "army-preview-zoom"); zoomHint.pickingMode = PickingMode.Ignore;
             previewNote = Lbl(pv, "", "army-preview-note");
             var fs = new ScrollView(ScrollViewMode.Vertical); fs.AddToClassList("army-scroll"); right.Add(fs);
             form = Div("army-form", fs.contentContainer);
             status = new Label(); status.AddToClassList("army-status"); Root.Add(status);
+            // крупный вид отряда: во весь экран, колесо — ближе / дальше
+            bigVeil = Div("army-big hidden", Root);
+            var bb = Div("army-big-box", bigVeil);
+            var bh = Div("army-big-head", bb); bigNote = Lbl(bh, "", "army-big-note");
+            Btn(bh, "−", () => { if (preview != null) { preview.Zoom *= 1.25f; Preview(); } }, "small").tooltip = "Дальше (колесо)";
+            Btn(bh, "+", () => { if (preview != null) { preview.Zoom /= 1.25f; Preview(); } }, "small").tooltip = "Ближе (колесо)";
+            Btn(bh, "Весь отряд", () => { if (preview != null) { preview.Zoom = 2.6f; Preview(); } }, "small");
+            Btn(bh, "Закрыть ✕", CloseBig, "small is-red");
+            bigImg = new Image { scaleMode = ScaleMode.ScaleToFit }; bigImg.AddToClassList("army-big-img"); bb.Add(bigImg);
+            bigImg.RegisterCallback<WheelEvent>(e => { if (preview == null) return; preview.Zoom *= e.delta.y > 0 ? 1.15f : 1 / 1.15f; Preview(); e.StopPropagation(); });
+            bigVeil.RegisterCallback<ClickEvent>(e => { if (e.target == bigVeil) CloseBig(); });
+        }
+        bool BigOpen => !bigVeil.ClassListContains("hidden");
+        void OpenBig()
+        {
+            if (preview == null || unit == null && cmdr == null) return;
+            preview.SetBig(true); bigImg.image = preview.Big; bigVeil.RemoveFromClassList("hidden"); bigVeil.BringToFront(); Preview();
+        }
+        void CloseBig()
+        {
+            if (!BigOpen) return;
+            bigVeil.AddToClassList("hidden"); preview?.SetBig(false); Preview();
+        }
+        // Esc в окне армий: сперва закрыть крупный вид и список файлов; правда ли что-то закрыли
+        public bool Escape()
+        {
+            if (BigOpen) { CloseBig(); return true; }
+            if (!filePopup.ClassListContains("hidden")) { filePopup.AddToClassList("hidden"); return true; }
+            return false;
         }
 
         // ── открыть / закрыть ──
@@ -96,12 +128,11 @@ namespace Journal.Play
             else if (file == null) SetFile(ArmyFile.New());
             Rebuild();
         }
-        public void Hide() { FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); if (preview != null) preview.Active = false; Closed?.Invoke(); }
+        public void Hide() { FlushUnitLog(); CloseBig(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); if (preview != null) preview.Active = false; Closed?.Invoke(); }
         // в бой этой армией: сначала на диск (бой читает файл), потом выбор противника и карты
         void ToBattle()
         {
-            if (file.Path == null) { Say("Сначала «Сохранить как» — бой берёт армию из файла", true); return; }
-            if (file.Dirty) { try { file.Save(); } catch (Exception e) { Say("Не сохранилось: " + e.Message, true); return; } }
+            if (file.Path == null || file.Dirty) { Save(); if (file.Path == null || file.Dirty) return; }   // бой берёт армию из файла — сохраняем сами
             FlushUnitLog(); Root.AddToClassList("hidden"); filePopup.AddToClassList("hidden"); if (preview != null) preview.Active = false;
             PlayFile?.Invoke(file.Path);
         }
@@ -111,7 +142,6 @@ namespace Journal.Play
             file = f; unit = null; cmdr = null; factionChosen = false; unitChanged = false;
             var first = file.Factions.OfType<JObject>().FirstOrDefault();
             factionId = first != null ? (int?)(int)first["id"] : null;
-            saveAsName.SetValueWithoutNotify(file.Path != null ? Path.GetFileNameWithoutExtension(file.Path) : "армия");
             filePopup.AddToClassList("hidden");
             Rebuild();
             Say(file.Path != null ? $"Открыт «{Path.GetFileName(file.Path)}»: фракций {file.Factions.Count}, отрядов {file.Units.Count}" : "Новый файл армий");
@@ -146,20 +176,26 @@ namespace Journal.Play
         }
         void Save()
         {
-            if (file.Path == null) { SaveAs(); return; }
+            if (file.Path == null) { SaveCopy(); return; }
             FlushUnitLog();
             try { file.Save(); Say($"Сохранено: {Path.GetFileName(file.Path)} (прежний — рядом, .bak)"); }
             catch (Exception e) { Say("Не сохранилось: " + e.Message, true); }
             Rebuild();
         }
-        void SaveAs()
+        // новый файл в папке игры: имя — по фракциям («Армия — Север и Юг»), занято — с номером
+        void SaveCopy()
         {
-            var name = (saveAsName.value ?? "").Trim();
-            foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            if (name == "") { Say("Впиши имя файла", true); return; }
-            if (!name.EndsWith(".txt")) name += ".txt";
+            var names = file.Factions.OfType<JObject>().Select(f => (string)f["name"]).Where(n => !string.IsNullOrWhiteSpace(n)).Take(3).ToList();
+            string stem = names.Count > 0 ? "Армия — " + string.Join(" и ", names) : "Армия";
+            foreach (var c in Path.GetInvalidFileNameChars()) stem = stem.Replace(c, '_');
             FlushUnitLog();
-            try { file.Save(Path.Combine(ArmyFile.SavesDir, name)); Say($"Сохранено: {SavesName}/{name}"); }
+            try
+            {
+                Directory.CreateDirectory(ArmyFile.SavesDir);
+                string path = Path.Combine(ArmyFile.SavesDir, stem + ".txt");
+                for (int k = 2; File.Exists(path); k++) path = Path.Combine(ArmyFile.SavesDir, $"{stem} {k}.txt");
+                file.Save(path); Say($"Сохранено: {SavesName}/{Path.GetFileName(path)}");
+            }
             catch (Exception e) { Say("Не сохранилось: " + e.Message, true); }
             Rebuild();
         }
@@ -317,11 +353,12 @@ namespace Journal.Play
             var fid = u != null ? ArmyFile.Id(u["factionId"]) : ArmyFile.Id(c["factionId"]);
             string kit = u != null ? ArmyFile.KitOf(u) : "sword", style = u != null ? ArmyFile.StyleOf(u) : file.DefaultStyle(fid, (string)c["name"]);
             string color = (string)file.Faction(fid)?["color"] ?? "#6e6a62";
-            float w = previewImg.resolvedStyle.width, h = previewImg.resolvedStyle.height;
+            float w = BigOpen ? 16 : previewImg.resolvedStyle.width, h = BigOpen ? 9 : previewImg.resolvedStyle.height;
             preview.Show(KitSets.TplOf(kit) ?? "infantry", style, color, (string)c?["name"], (double?)c?["valor"] ?? 10, float.IsNaN(w) || h <= 0 ? 0 : w / h);
             if (float.IsNaN(w)) previewImg.schedule.Execute(Preview);   // раскладка ещё не готова — кадр по окну чуть позже
             previewNote.text = (u != null ? $"«{(string)u["name"]}» · {KitSets.NameOf(kit)} · {Styles.NameOf(style)}" : $"{Styles.NameOf(style)}")
                 + (c != null ? $" · полководец «{(string)c["name"]}» (доблесть {(double?)c["valor"] ?? 10:0})" : " · без полководца");
+            bigNote.text = previewNote.text + " — " + Styles.All.First(s => s.Id == style).Note;
         }
         void UnitForm(JObject u)
         {
@@ -341,12 +378,17 @@ namespace Journal.Play
             form.Add(tdd);
             Choice("Род войск", Types, (string)u["type"], v => { u["type"] = v; typePicked.Add(u); Changed(); });
             Choice("Оружие", Weapons, (string)u["weapon"], v => { u["weapon"] = v; typePicked.Add(u); Changed(); });
-            Lbl(form, "Облик", "army-h2");
-            Choice("Снаряжение", KitSets.All.Select(k => (k.Id, k.Name)).ToArray(), ArmyFile.KitOf(u), v => { u["kit"] = v; kitPicked.Add(u); Changed(); });
-            Choice("Стиль", Styles.All.Select(s => (s.Id, s.Name)).ToArray(), ArmyFile.StyleOf(u), v => { u["style"] = v; stylePicked.Add(u); Changed(); });
-            Lbl(form, Styles.All.First(s => s.Id == ArmyFile.StyleOf(u)).Note, "army-note");
+            // облик — карточками с картинкой (Алекс 11.10: «редактор армий сделать более френдли»): видно, что выбираешь
+            Lbl(form, "Облик · снаряжение", "army-h2");
+            string ucol = (string)file.Faction(ArmyFile.Id(u["factionId"]))?["color"] ?? "#6e6a62", ustyle = ArmyFile.StyleOf(u), ukit = ArmyFile.KitOf(u);
+            Picks(KitSets.All.Select(k => (k.Id, k.Name, KitSets.TplOf(k.Id) ?? "infantry", ustyle)).ToArray(), ukit, ucol, v => { u["kit"] = v; kitPicked.Add(u); Changed(); });
+            Lbl(form, "Облик · стиль", "army-h2");
+            string utpl = KitSets.TplOf(ukit) ?? "infantry";
+            Picks(Styles.All.Select(s => (s.Id, s.Name, utpl, s.Id)).ToArray(), ustyle, ucol, v => { u["style"] = v; stylePicked.Add(u); Changed(); });
+            Lbl(form, Styles.All.First(s => s.Id == ustyle).Note, "army-note");
             if (u["style"] == null || u["kit"] == null) Lbl(form, "В файле облика нет — показан угаданный по имени; выбери, чтобы записать", "army-note warn");
             Lbl(form, "Числа", "army-h2");
+            Lbl(form, "Подставляются по шаблону и названию; меняй, если ГМ дал отряду свои.", "army-note");
             Number("Бойцов", u, "soldiers", 1, 1e6);
             Number("Дисциплина", u, "discipline", 1, 100);
             Number("Боевой дух", u, "morale", 0, 150);
@@ -391,9 +433,18 @@ namespace Journal.Play
             f.RegisterValueChangedCallback(e => { var v = e.newValue.Trim(); if (v == "") { f.SetValueWithoutNotify(e.previousValue); return; } set(v); });
             form.Add(f);
         }
+        static readonly Dictionary<string, string> NumTips = new Dictionary<string, string>
+        {
+            ["soldiers"] = "Сколько бойцов в строю сейчас", ["discipline"] = "Держит строй и приказы: 1–100", ["morale"] = "Боевой дух: ниже — раньше бежит",
+            ["eqAtk"] = "Атака снаряжения: оружие", ["eqDef"] = "Защита снаряжения: доспех и щиты", ["exp"] = "Опыт, 0–100", ["mastery"] = "Мастерство владения оружием",
+            ["fatigue"] = "Усталость: 0 — свежие", ["range"] = "Дальность стрельбы, м (0 — по роду войск)", ["ladders"] = "Штурмовые лестницы для стен",
+            ["valor"] = "Личная сила полководца в поединке", ["buffMorale"] = "Прибавка к духу отрядов под его началом", ["buffDisc"] = "Прибавка к дисциплине",
+            ["buffDmg"] = "Урон отрядов, %", ["buffDef"] = "Защита отрядов, %",
+        };
         void Number(string label, JObject o, string key, double min, double max, bool unitField = true)
         {
             var f = new FloatField(label) { isDelayed = true, value = (float)((double?)o[key] ?? 0) };
+            if (NumTips.TryGetValue(key, out var tip)) f.tooltip = tip;
             f.RegisterValueChangedCallback(e =>
             {
                 double v = Math.Max(min, Math.Min(max, Math.Round(e.newValue, 2)));
@@ -406,11 +457,27 @@ namespace Journal.Play
             });
             form.Add(f);
         }
+        // выбор карточками: картинка (снимок вида отряда) и подпись; выбранная — в золотой рамке
+        void Picks((string Id, string Name, string Tpl, string Style)[] items, string current, string color, Action<string> set)
+        {
+            var grid = Div("army-picks", form);
+            foreach (var it in items)
+            {
+                var card = Div("army-pick", grid); card.EnableInClassList("is-on", it.Id == current);
+                var th = new Image { scaleMode = ScaleMode.ScaleAndCrop }; th.AddToClassList("army-pick-img"); card.Add(th);
+                var have = preview?.Cached(it.Tpl, it.Style, color);
+                if (have != null) th.image = have; else thumbQueue.Add((th, it.Tpl, it.Style, color));
+                Lbl(card, it.Name, "army-pick-name");
+                card.tooltip = it.Name;
+                var id = it.Id; card.RegisterCallback<ClickEvent>(_ => { if (id != current) set(id); });
+            }
+            Thumbs();
+        }
         void Choice(string label, (string Id, string Name)[] items, string current, Action<string> set)
         {
             var names = items.Select(i => i.Name).ToList();
             int idx = Math.Max(0, Array.FindIndex(items, i => i.Id == current));
-            var d = new DropdownField(label, names, idx);
+            var d = UiKit.Tip(new DropdownField(label, names, idx));
             d.RegisterValueChangedCallback(e => { var it = items.FirstOrDefault(i => i.Name == e.newValue); set(it.Id); });
             form.Add(d);
         }

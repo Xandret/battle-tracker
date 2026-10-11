@@ -82,11 +82,12 @@ namespace Journal.Play
             armies = new ArmyEditor(hud);
             lineup = new LineupPanel(hud, (path, ids) => { pc.NewBattle(() => PlayScenarios.FromSave(path, ids)); menu.AddToClassList("hidden"); }, ShowMenu);
             armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed)); menu.AddToClassList("hidden"); }, ShowMenu);
-            settings = new SettingsPanel(hud, ShowMain);
+            settings = new SettingsPanel(hud, () => { if (!mapEditor.Visible) ShowMain(); });   // из меню редактора карт — назад в редактор
             settings.Changed += ApplySettings;
             mapEditor = new MapEditor(hud, pc, FindAnyObjectByType<Journal.Viewer.BattleViewer>());
             mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit);
             mapEditor.Closed += ShowMain;
+            mapEditor.Settings = settings;   // «Настройки» в меню редактора (Алекс 11.10)
             mapEditor.Test += f => armyBattle.Show(null, f);
             armies.Closed += ShowMain;
             armies.PlayFile += path => armyBattle.Show(path);
@@ -170,7 +171,8 @@ namespace Journal.Play
         bool escHandled;
         void Back()
         {
-            if (armies.Visible || mapEditor.Visible) return;   // у редакторов свои правки и свой Esc — закрываются своей кнопкой
+            if (armies.Visible) { armies.Escape(); return; }   // крупный вид, список файлов; само окно — своей кнопкой (правки)
+            if (mapEditor.Visible) return;   // у редактора карт свой Esc — меню редактора
             if (mainMenu.Visible) { if (mainMenu.CanContinue) mainMenu.Hide(); return; }
             ShowMain();
         }
@@ -365,7 +367,7 @@ namespace Journal.Play
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb != null && kb.escapeKey.wasPressedThisFrame && pc.Blocked && !escHandled) Back();
             escHandled = false;
-            if (viewer != null) viewer.InputBlocked = pc.Blocked && !(mapEditor.Visible && !mapEditor.Typing);   // в редакторе карт камера своя   // набор текста в окнах не двигает камеру
+            if (viewer != null) viewer.InputBlocked = pc.Blocked && !(mapEditor.Visible && !mapEditor.Typing && !settings.Visible);   // в редакторе карт камера своя   // набор текста в окнах не двигает камеру
             var s = pc.Session; var bt = pc.Battle;
             if (shownGame != pc.Game)   // новая битва: таблички, вкладки, карточки, журнал — заново; кадр — когда низ устоится
             {

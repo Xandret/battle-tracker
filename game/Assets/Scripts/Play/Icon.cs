@@ -60,6 +60,32 @@ namespace Journal.Play
                     for (float t = 8.5f; t <= 15.5f; t += 3.5f) { Dot(5, t, 1.3f); Dot(19, t, 1.3f); } break;
                 case "f-circle":     // круг: кольцо точек
                     for (int i = 0; i < 10; i++) { float a = i * 36 * Mathf.Deg2Rad; Dot(12 + 8 * Mathf.Cos(a), 12 + 8 * Mathf.Sin(a), 1.3f); } break;
+                // ── инструменты редактора карт ──
+                case "t-brush":   // кисть: ручка и мазок
+                    Line(19, 3, 11, 13); p.BeginPath(); p.MoveTo(P(11, 13)); p.BezierCurveTo(P(7, 13), P(6, 17), P(4, 21)); p.BezierCurveTo(P(9, 21), P(13, 19), P(13, 15)); p.ClosePath(); p.Fill(); break;
+                case "t-eraser":  // ластик наискось и черта
+                    Line(9, 19, 3, 13, 12, 4, 20, 12, 13, 19, 9, 19); Line(7, 9, 15, 17); Line(13, 21, 21, 21); break;
+                case "t-height":  // две горы
+                    Line(2, 20, 9, 8, 13, 14, 16, 10, 22, 20, 2, 20); Line(7, 11.5f, 9, 13, 10.5f, 11); break;
+                case "t-fill":    // ведро с каплей
+                    Line(5, 11, 12, 4, 19, 11, 12, 18, 5, 11); Line(5, 11, 19, 11); Poly(20, 15, 18.5f, 18.5f, 20, 20, 21.5f, 18.5f); break;
+                case "t-path":    // ломаная стены с точками
+                    Line(3, 19, 9, 9, 15, 15, 21, 5); Dot(3, 19, 1.8f); Dot(9, 9, 1.8f); Dot(15, 15, 1.8f); Dot(21, 5, 1.8f); break;
+                case "t-plot":    // многоугольник обводки
+                    Line(5, 7, 15, 3, 21, 11, 16, 20, 6, 18, 5, 7); Dot(5, 7, 1.5f); Dot(15, 3, 1.5f); Dot(21, 11, 1.5f); Dot(16, 20, 1.5f); Dot(6, 18, 1.5f); break;
+                case "t-gate":    // арка ворот в стене
+                    Line(2, 21, 2, 8, 22, 8, 22, 21); p.BeginPath(); p.MoveTo(P(8, 21)); p.LineTo(P(8, 14)); p.BezierCurveTo(P(8, 10), P(16, 10), P(16, 14)); p.LineTo(P(16, 21)); p.Stroke();
+                    Line(2, 5, 2, 8); Line(7, 5, 7, 8); Line(12, 5, 12, 8); Line(17, 5, 17, 8); Line(22, 5, 22, 8); break;
+                case "t-prop":    // домик
+                    Line(4, 11, 12, 4, 20, 11); Line(6, 10, 6, 20, 18, 20, 18, 10); Line(10, 20, 10, 14, 14, 14, 14, 20); break;
+                case "t-edit":    // стрелка курсора
+                    p.BeginPath(); p.MoveTo(P(5, 3)); p.LineTo(P(5, 19)); p.LineTo(P(9.5f, 15)); p.LineTo(P(12.5f, 21)); p.LineTo(P(15, 20)); p.LineTo(P(12, 14)); p.LineTo(P(18, 14)); p.ClosePath(); p.Stroke(); break;
+                case "undo":
+                    p.BeginPath(); p.Arc(P(13, 13), 7 * s, Angle.Degrees(200), Angle.Degrees(450)); p.Stroke(); Poly(3, 9, 9, 7, 7, 13); break;
+                case "redo":
+                    p.BeginPath(); p.Arc(P(11, 13), 7 * s, Angle.Degrees(90), Angle.Degrees(340)); p.Stroke(); Poly(21, 9, 15, 7, 17, 13); break;
+                case "menu":
+                    Line(4, 7, 20, 7); Line(4, 12, 20, 12); Line(4, 17, 20, 17); break;
                 case "duel":      // два бойца, клинки скрещены
                     Ring(6, 6, 2.4f); Ring(18, 6, 2.4f); Line(6, 10, 6, 21); Line(18, 10, 18, 21); Line(8, 15, 15, 8); Line(16, 15, 9, 8); break;
                 case "move":      // стрелка вперёд со следом
