@@ -1,0 +1,569 @@
+// ═══════════ BattleShoot.cs — стрельба в бою (И1, БД2; Г65, Г66, Г36, Г40, Г62, Г67) — ЧЕРНОВИК ДО ГМа ═══════════
+// Та же баллистика, что в RangedSim (Г33, Г37–Г41): стрел за окно — урон удара стола без защиты цели × VolleyK лука,
+// каждая летит сама, попадание — в того, кого встретит (врага или своего, Г40), выбыл — с шансом брони стола.
+// Отличие — бойцы привязаны к фигуркам и идут вместе с ними: каждый шаг тела переезжают за своей фигуркой.
+// Перестрелка (Volley) — пара «стрелок → цель» по приказу (Г65): обмены по кругу в 15 с от первого выстрела (Г62),
+// цель отвечает, если сама стрелок и достаёт. Пешие стреляют только стоя и лицом к цели, конные — и на ходу, хуже
+// (Г36). В схватке (Г28) и по сцепившимся с нашими (Г40) не стреляют. Упреждение (Г66): целят туда, где цель будет
+// к прилёту стрелы, с ошибкой тем больше, чем быстрее цель. Каждый павший записывается — место, направление удара,
+// часть тела (Г67, только для рисунка).
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace BattleCore
+{
+    public sealed class Volley
+    {
+        public Mover A, B;                  // A стреляет по B (приказ, Г65); B отвечает, если сам стрелок
+        public double T0, CycleEnd, LastOk;
+        public bool Over;
+        public double LossA, LossB, Friendly; public long Arrows;   // за этот ход — для журнала
+        internal List<VWin> Wins = new List<VWin>();
+    }
+    internal sealed class VWin
+    {
+        public Volley V; public Mover Att, Def; public bool Counter;
+        public double T0, T1, U, N0, LRoll; public int Planned, Launched, Landed;
+        public bool Open, Closed, Skipped; public string Bow;
+        public Dictionary<Mover, (int cas, int killed)> Victims = new Dictionary<Mover, (int cas, int killed)>();
+    }
+    internal sealed class Shot
+    {
+        public VWin W; public int Index; public double LaunchT;
+        public double X, Y, Z, VX, VY, VZ, CanopyLeft, LX, LY;
+        public Body Shooter; public bool Flying, Done;
+        public int Log = -1;   // номер записи в ArrowLog
+    }
+    // Полёт стрелы — для рисунка (полигон, игра), на правила не влияет: вылет (часы боя, точка, скорость) и конец полёта.
+    // End: 0 — в землю, 1 — в тело, человек выбыл, 2 — в тело, броня и щит удержали, 3 — в ветвях, 4 — за край карты
+    public struct ArrowTrace
+    {
+        public double T0, X0, Y0, Z0, VX, VY, VZ, T1, X1, Y1, Z1;
+        public int UnitId; public byte End;   // End: 0 земля, 1 выбил, 2 удержали броня/щит, 3 ветви, 4 за край карты, 5 постройка или вал (Г103)
+    }
+    // Павший (Г67): где упал, когда (часы боя), чей, куда смотрел, откуда пришёл удар, во что попало
+    public struct Death { public double X, Y, T, Facing, Dir; public int UnitId, ManId; public string Part; public bool Killed; }   // ManId — номер бойца (Г75), 0 — неизвестен
+
+    public sealed partial class Battle
+    {
+        public List<Volley> Volleys = new List<Volley>();
+        public ShotStats Shots = new ShotStats();            // стрелы за этот ход
+        public List<Death> Deaths = new List<Death>();       // павшие с начала боя — для рисунка (Г67)
+        public List<ArrowTrace> ArrowLog;                    // полёты стрел — для рисунка; null — не пишем
+        public double LeadErrK = 0.35, MovingShotSigmaK = 1.5, FaceTolDeg = 30, ShootStopShare = 0.85;
+
+        readonly List<Shot> queue = new List<Shot>(), flying = new List<Shot>();
+        int nextShot;
+        readonly Dictionary<Mover, Troop> troops = new Dictionary<Mover, Troop>();
+        readonly BodyGrid grid = new BodyGrid();
+        readonly HashSet<Mover> hot = new HashSet<Mover>();   // отряды в досягаемости стреляющих на этом шаге
+        readonly Dictionary<(Rules.BowR, int, int, int), double> flightCache = new Dictionary<(Rules.BowR, int, int, int), double>();
+        readonly Func<double> look = new Mulberry32(20261001u).Next;   // случайность только для рисунка (Г67)
+
+        // Бойцы отряда поимённо: тело, номер фигурки, место в фигурке (её система координат)
+        sealed class Troop
+        {
+            public int Version = -1;
+            public List<Body> Bodies = new List<Body>();
+        }
+
+        static bool Shooter(Mover m) => m.P.U.Weapon == "ranged";
+        static double Speed(FigState s) => JsMath.Hypot(s.Vx, s.Vy);
+        bool InMelee(Mover m) => Fights.Any(f => !f.Over && f.Touching && (f.A == m || f.B == m));
+        // Г40: по врагу, сцепившемуся с нашими, не стреляют
+        bool TangledWithFriends(Mover target, Mover shooter) =>
+            Fights.Any(f => !f.Over && f.Touching && (f.A == target && !Enemies(f.B.P.U, shooter.P.U) || f.B == target && !Enemies(f.A.P.U, shooter.P.U)));
+
+        // Края строя в мире и расстояние между ними — как BattleMap.UnitGap, только по живым координатам
+        static double[][] Corners(Placed p)
+        {
+            double f = p.Fp.Front / 2, d = p.Fp.Depth / 2;
+            var res = new double[4][];
+            var loc = new[] { (-f, -d), (f, -d), (f, d), (-f, d) };
+            for (int i = 0; i < 4; i++) { p.ToWorld(loc[i].Item1, loc[i].Item2, out var x, out var y); res[i] = new[] { x, y }; }
+            return res;
+        }
+        double Gap(Mover a, Mover b) => BattleMap.PolyGap(Corners(a.P), Corners(b.P));
+        // Дальность стрелка (К23): своя или по типу; с высоты — дальше (К16)
+        double RangeVs(Mover s, Mover t)
+        {
+            double max = BattleMap.RangeOf(s.P.U, R);
+            double dz = LevelOf(s) - LevelOf(t);
+            return dz > 0 ? Js.Round(max * (1 + R.Map.Height.RangePerLevel * dz)) : max;
+        }
+        bool Standing(Mover m) => m.Vs < 0.05 && m.AboutLeft <= 1e-9;
+        // Г104: стрелок гарнизона без приказа «атаковать» (стоит или «держать») открывает огонь сам
+        bool AutoShooter(Mover s) => R.Garrison.AutoShoot && s.Garrisoned && Shooter(s) && (s.Order == null || s.Order.Kind == OrderKind.Hold);
+        // гарнизон (Г104) не разворачивается — бьёт по всему, что перед стеной (±90°)
+        bool Facing(Mover s, Mover t) => Math.Abs(MoveSim.AngleDiff(s.P.Facing, MoveSim.HeadingOf(t.P.X - s.P.X, t.P.Y - s.P.Y))) <= (s.Garrisoned ? 90 : FaceTolDeg);
+        // Может ли s сейчас стрелять по t
+        bool CanShoot(Mover s, Mover t) =>
+            Alive(s) && OnField(t) && Shooter(s) && Enemies(s.P.U, t.P.U) && !InMelee(s) && !TangledWithFriends(t, s)
+            && (Units.IsCav(s.P.U) || Standing(s) && Facing(s, t)) && Gap(s, t) <= RangeVs(s, t);
+
+        // ── приказ «стрелять по цели» (Г65): вне дальности — подойти на долю дальности и встать лицом к цели ──
+        void AimShoot(Mover m, MoveOrder o, Mover t)
+        {
+            double gap = Gap(m, t), range = RangeVs(m, t);
+            double hx = t.P.X - m.P.X, hy = t.P.Y - m.P.Y, hl = Math.Max(1e-9, JsMath.Hypot(hx, hy));
+            if (gap <= range)
+            {
+                o.X = m.P.X; o.Y = m.P.Y;   // уже достаёт — стоит и разворачивается к цели
+            }
+            else
+            {
+                double stand = range * ShootStopShare + (t.P.Fp.Depth + m.P.Fp.Depth) / 2;
+                o.X = t.P.X - hx / hl * stand; o.Y = t.P.Y - hy / hl * stand;
+            }
+            o.Facing = MoveSim.HeadingOf(hx, hy);
+            if (gap <= range && m.Garrisoned) { o.Facing = m.P.Facing; MoveSim.TurnInPlace(m, o); }   // Г104: гарнизон стоит как стоял
+            else if (gap <= range) MoveSim.TurnInPlace(m, o);
+            else { m.Garrisoned = false; MoveSim.Give(m, o, Geo, R); }
+            aimed[m] = (t.P.X, t.P.Y);
+        }
+        void ReplanShoot(Mover m, Mover t)
+        {
+            bool inRange = Gap(m, t) <= RangeVs(m, t);
+            bool moved = !aimed.TryGetValue(m, out var a) || JsMath.Hypot(a.x - t.P.X, a.y - t.P.Y) >= ReplanMoveM;
+            // достаёт и смотрит на цель — стоим; ушла из дальности или сильно сдвинулась — заново
+            if (inRange && Facing(m, t) && (m.Done || m.Track == null)) return;
+            if (inRange && !moved && m.Order != null && !m.Done) return;
+            if (!inRange && !moved && m.Order != null && !m.Done) return;
+            AimShoot(m, m.Order, t);
+        }
+
+        // ── тела бойцов (Г33) — живые бойцы отряда (Г75): мишень там, где боец стоит; список — заново при раскладке ──
+        Troop TroopOf(Mover m)
+        {
+            if (!troops.TryGetValue(m, out var tr)) troops[m] = tr = new Troop();
+            if (tr.Version == m.MenVersion) return tr;
+            var P = m.P; var f = R.Map.Formation.TryGetValue(P.U.Type, out var ff) ? ff : R.Map.Formation["infantry"];
+            bool horse = Units.IsCav(P.U);
+            var idx = new Dictionary<FigState, int>();
+            for (int k = 0; k < m.Figs.Count; k++) idx[m.Figs[k]] = k;
+            tr.Bodies.Clear();
+            foreach (var man in m.Men)
+            {
+                if (!man.Alive || man.Fig == null || !idx.TryGetValue(man.Fig, out int k) || k >= P.Figs.Count) continue;
+                var fg = P.Figs[k];
+                int rows = Math.Max(1, (int)Math.Round(fg.Depth / f.RankDepth));
+                var b = man.Body ??= new Body { Man = man };
+                b.Owner = P; b.Horse = horse; b.Alive = true;
+                b.Sub = man.Men; b.SubStep = f.RankDepth;   // Г87: тело из k человек — k мишеней по его рядам
+                b.File = fg.File; b.Rank = fg.Rank * rows + man.Row; b.FrontDist = fg.Y + man.Ly + P.Fp.Depth / 2;
+                tr.Bodies.Add(b);
+            }
+            tr.Version = m.MenVersion;
+            return tr;
+        }
+        void PlaceBodies(Mover m, Troop tr)
+        {
+            foreach (var b in tr.Bodies)
+            {
+                var man = b.Man;
+                b.X = man.X; b.Y = man.Y; b.Facing = man.Facing;
+                b.Ground = GroundZ(b.X, b.Y) + man.Z;   // Г104: на стене — с её верха
+            }
+        }
+        double GroundZ(double x, double y) => Geo?.Map == null ? 0 : Terrain.CellAt(Geo.Map, x / Geo.W, y / Geo.H).Z * R.Ranged.MetersPerLevel;
+        bool Forest(double x, double y) => Geo?.Map != null && Terrain.CellAt(Geo.Map, x / Geo.W, y / Geo.H).T == Terrain.Id("forest");
+
+        // Г103: верх постройки над землёй клетки по коду местности (0 — стрелу не держит); окоп/вал — бруствер по краю клетки
+        double[] buildTop; byte trenchId, wallId, towerId; double standMax;   // standMax — Г104: выше земли на столько могут стоять бойцы (верх стен), 0 — стен нет
+        void BuildTops()
+        {
+            buildTop = new double[256]; trenchId = Terrain.Id("trench"); wallId = Terrain.Id("wall"); towerId = Terrain.Id("tower");
+            foreach (var kv in R.Ranged.BuildingHeightM) if (Terrain.ByKey.TryGetValue(kv.Key, out var tt)) buildTop[tt.Id] = kv.Value;
+            buildTop[trenchId] = R.Ranged.ParapetHeightM;
+            standMax = Geo?.Map != null && Terrain.HasAny(Geo.Map, Terrain.Id("wall"), Terrain.Id("tower")) ? Math.Max(buildTop[Terrain.Id("wall")], buildTop[Terrain.Id("tower")]) : 0;
+        }
+        // стрела прошла отрезок (x0,y0,z0)→(x1,y1,z1): воткнулась ли в постройку клетки, где кончила шаг; f — доля отрезка до удара.
+        // Клетка вылета (lx, ly) стрелу не держит: стрелок на стене бьёт вниз через свой парапет (Г104)
+        bool HitsBuilding(double x0, double y0, double z0, double x1, double y1, double z1, double g1, double lx, double ly, out double f)
+        {
+            f = 1;
+            var map = Geo.Map; if (buildTop == null) BuildTops();
+            int cx1 = (int)Math.Min(map.W - 1, Math.Max(0, x1 / Terrain.CellM)), cy1 = (int)Math.Min(map.H - 1, Math.Max(0, y1 / Terrain.CellM));
+            byte t1 = map.T[cy1 * map.W + cx1]; double top = buildTop[t1];
+            if (top <= 0) return false;
+            if (cx1 == (int)Math.Min(map.W - 1, Math.Max(0, lx / Terrain.CellM)) && cy1 == (int)Math.Min(map.H - 1, Math.Max(0, ly / Terrain.CellM))) return false;
+            int cx0 = (int)Math.Min(map.W - 1, Math.Max(0, x0 / Terrain.CellM)), cy0 = (int)Math.Min(map.H - 1, Math.Max(0, y0 / Terrain.CellM));
+            byte t0 = map.T[cy0 * map.W + cx0];
+            bool entered = cx0 != cx1 || cy0 != cy1;
+            double fIn = 0;   // доля шага, на которой стрела вошла в клетку по xy (вошла — когда пересекла последнюю из границ)
+            if (entered)
+            {
+                double fx = 0, fy = 0;
+                if (cx0 != cx1 && Math.Abs(x1 - x0) > 1e-9) fx = ((x1 > x0 ? cx1 : cx1 + 1) * Terrain.CellM - x0) / (x1 - x0);
+                if (cy0 != cy1 && Math.Abs(y1 - y0) > 1e-9) fy = ((y1 > y0 ? cy1 : cy1 + 1) * Terrain.CellM - y0) / (y1 - y0);
+                fIn = Math.Max(0, Math.Min(1, Math.Max(fx, fy)));
+            }
+            // Г104: у стен и башен над боевым ходом бруствер ParapetHeightM — стрела сбоку (не вдоль стены) бьёт в зубцы; сверху — свободно
+            bool parapet = false;
+            if (t1 == towerId && Terrain.TowerCircle(map, cy1 * map.W + cx1, out var tcx, out var tcy, out var tr))
+            {
+                // Г105: башня круглая — вне круга стрела летит дальше (над углом квадрата клеток); вход в круг — точка на окружности
+                double ex1 = x1 - tcx, ey1 = y1 - tcy;
+                if (ex1 * ex1 + ey1 * ey1 > tr * tr) return false;
+                double ex0 = x0 - tcx, ey0 = y0 - tcy;
+                if (ex0 * ex0 + ey0 * ey0 > tr * tr)
+                {
+                    double dx = x1 - x0, dy = y1 - y0, qa = dx * dx + dy * dy, qb = 2 * (ex0 * dx + ey0 * dy), qc = ex0 * ex0 + ey0 * ey0 - tr * tr, disc = qb * qb - 4 * qa * qc;
+                    fIn = qa > 1e-12 && disc >= 0 ? Math.Max(0, Math.Min(1, (-qb - Math.Sqrt(disc)) / (2 * qa))) : 0;
+                    entered = true; parapet = true;
+                }
+                else { entered = false; fIn = 0; }   // уже в круге — только крыша
+            }
+            else if (entered && (t1 == wallId || t1 == towerId) && t0 != wallId && t0 != towerId) parapet = true;
+            double zTop = g1 + top, zIn = z0 + (z1 - z0) * fIn;
+            if (t1 == trenchId)
+            {
+                // бруствер: держит только вход сбоку ниже верха вала, и не из такого же окопа; сверху — открыто
+                if (!entered || t0 == trenchId || zIn >= zTop) return false;
+                f = fIn; return true;
+            }
+            if (zIn <= zTop + (parapet ? R.Ranged.ParapetHeightM : 0)) { f = fIn; return true; }   // вошла ниже верха — в стену или бруствер
+            if (parapet && Ctx.Rng() < R.Garrison.MerlonShare) { f = fIn; return true; }   // над бруствером — в зубец (доля зубцов в длине стены)
+            if (z1 >= zTop || z1 >= z0) return false;              // летит над постройкой
+            f = Math.Max(fIn, (z0 - zTop) / (z0 - z1)); return true;   // снижаясь, встретила крышу (боевой ход)
+        }
+
+        // ── шаг стрельбы: перестрелки, окна, выстрелы, полёт ──
+        void Shoot(double t, double dt)
+        {
+            var RR = R.Ranged;
+            // приказ «стрелять» — перестрелка с целью, пока может стрелять (Г65)
+            foreach (var s in Movers)
+            {
+                if (!Shooter(s)) continue;
+                Mover tgt = null;
+                if (s.Order != null && s.Order.Kind == OrderKind.Attack) tgt = ById(s.Order.TargetId);
+                else if (AutoShooter(s))
+                {
+                    // Г104: гарнизон без приказа сам бьёт по ближайшему врагу, которого может достать; начатую перестрелку держит
+                    var cur = Volleys.FirstOrDefault(x => !x.Over && x.A == s);
+                    if (cur != null && CanShoot(s, cur.B)) tgt = cur.B;
+                    else { double bd = double.MaxValue; foreach (var e in Movers) { if (!CanShoot(s, e)) continue; double d = JsMath.Hypot(e.P.X - s.P.X, e.P.Y - s.P.Y); if (d < bd) { bd = d; tgt = e; } } }
+                }
+                if (tgt == null) continue;
+                var v = Volleys.FirstOrDefault(x => !x.Over && x.A == s && x.B == tgt);
+                if (CanShoot(s, tgt))
+                {
+                    if (v == null) Volleys.Add(v = StartVolley(s, tgt, t));
+                    v.LastOk = t;
+                }
+            }
+            foreach (var v in Volleys)
+            {
+                if (v.Over) continue;
+                bool ordered = v.A.Order != null && v.A.Order.Kind == OrderKind.Attack && v.A.Order.TargetId == v.B.P.U.Id || AutoShooter(v.A) && t - v.LastOk < 1e-9;
+                if (!ordered || t - v.LastOk > FightEndSec) { v.Over = true; continue; }
+                if (t + dt > v.CycleEnd + 1e-9) ScheduleVolley(v, v.CycleEnd);
+                foreach (var w in v.Wins.ToList())
+                {
+                    if (w.Open || w.Skipped || w.T0 >= t + dt - 1e-9) continue;
+                    if (!Alive(w.Att) || !OnField(w.Def)) { w.Skipped = true; continue; }
+                    if (w.Counter && (w.Att.P.U.Morale < R.Morale.ShakenBelow || !CanShoot(w.Att, w.Def))) { w.Skipped = true; continue; }
+                    OpenVolleyWin(w);
+                }
+            }
+            // тела — за фигурками; сетка — только пока что-то летит или вылетает
+            bool busy = flying.Count > 0 || nextShot < queue.Count && queue[nextShot].LaunchT < t + dt;
+            long ps = Prof.Now();
+            if (busy)
+            {
+                // в сетку — только тела отрядов, которых стрела может достать: в физическом пределе дальности лука от стреляющего
+                // (с запасом в полдиагонали обоих строёв); остальные 50 тысяч на большой карте расставлять незачем
+                hot.Clear();
+                foreach (var v in Volleys)
+                    foreach (var w in v.Wins)
+                    {
+                        if (!w.Open || w.Closed) continue;
+                        var s = w.Att;
+                        double reach = Ballistics.MaxRange(RR.Bows[w.Bow], RR, RR.LaunchHeight) + JsMath.Hypot(s.P.Fp.Front, s.P.Fp.Depth) / 2 + 20;
+                        foreach (var m in Movers)
+                            if (!hot.Contains(m) && OnField(m) && JsMath.Hypot(m.P.X - s.P.X, m.P.Y - s.P.Y) <= reach + JsMath.Hypot(m.P.Fp.Front, m.P.Fp.Depth) / 2) hot.Add(m);
+                    }
+                grid.Clear();
+                foreach (var m in hot)   // бегущих стрела тоже находит (Г70) — OnField
+                {
+                    var tr = TroopOf(m);
+                    PlaceBodies(m, tr);
+                    foreach (var b in tr.Bodies) if (b.Alive) { grid.Add(b); Prof.N[4]++; }
+                }
+            }
+            Prof.Add(16, ref ps);
+            int sub = Math.Max(1, (int)Math.Ceiling(dt / RR.Dt - 1e-9));
+            double subDt = dt / sub;
+            for (int k = 0; k < sub; k++)
+            {
+                double ts = t + k * subDt;
+                curT = ts;
+                while (nextShot < queue.Count && queue[nextShot].LaunchT < ts + subDt)
+                {
+                    var sh = queue[nextShot++];
+                    sh.W.Launched++;
+                    Launch(sh);
+                    if (sh.Flying) flying.Add(sh);
+                }
+                foreach (var sh in flying) if (!sh.Done) Fly(sh, subDt);
+                flying.RemoveAll(x => x.Done);
+            }
+            if (nextShot > 4096) { queue.RemoveRange(0, nextShot); nextShot = 0; }
+            Prof.Add(17, ref ps);
+            foreach (var v in Volleys)
+                foreach (var w in v.Wins)
+                    if (w.Open && !w.Closed && w.T1 <= t + dt + 1e-9 && w.Launched >= w.Planned && w.Landed >= w.Planned) CloseVolleyWin(w, t + dt);
+            foreach (var v in Volleys) v.Wins.RemoveAll(w => w.Closed || w.Skipped);
+            Volleys.RemoveAll(v => v.Over && v.Wins.Count == 0);
+        }
+
+        Volley StartVolley(Mover a, Mover b, double t)
+        {
+            Ambush(a, b, t, "выстрелил"); a.LastActT = t;   // Г107: стреляющий виден всем; из невидимости — засада
+            var v = new Volley { A = a, B = b, T0 = t, LastOk = t };
+            ScheduleVolley(v, t);
+            return v;
+        }
+        // Круг (Г62): атаки стрелка за 15 с; на каждую — ответ цели, если она стрелок (решается в момент окна)
+        void ScheduleVolley(Volley v, double start)
+        {
+            int n = (int)Units.AttackLimit(v.A.P.U, R);
+            double len = R.Move.TurnSec / Math.Max(1, n);
+            Budget(v.B, start);   // ответы — общий запас отряда (Г69)
+            for (int j = 0; j < n; j++)
+            {
+                double t0 = start + j * len, t1 = start + (j + 1) * len;
+                v.Wins.Add(new VWin { V = v, Att = v.A, Def = v.B, T0 = t0, T1 = t1 });
+                if (Shooter(v.B) && TakeCounter(v.B))
+                {
+                    v.Wins.Add(new VWin { V = v, Att = v.B, Def = v.A, Counter = true, T0 = t0, T1 = t1 });
+                }
+            }
+            v.CycleEnd = start + R.Move.TurnSec;
+        }
+
+        void OpenVolleyWin(VWin w)
+        {
+            var RR = R.Ranged;
+            const string mode = Modes.RangedForm;   // местность — физикой (Г38), а не режимом стола
+            w.Open = true; w.Att.P.U.Acted = true;   // «походил» — для усталости в конце хода (стол)
+            w.U = MeleeSim.Fortune(w.Att.P.U, mode, Ctx);
+            w.N0 = w.Att.P.U.Soldiers;
+            w.LRoll = Dice.Roll(Ctx.Rng, R.Lethality.Die);
+            w.Bow = Ballistics.BowKeyFor(w.Att.P.U);
+            var A = Combat.Eff(w.Att.P.U, mode, null, Ctx);
+            var opts = new BattleRequest { Mode = mode, FatigueMode = "percent" };
+            double dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, A, new EffStats(), opts, null, Ctx, false, 1, "", "front", null, w.U * w.N0);
+            w.Planned = (int)Js.Round(Math.Max(0, dmg) * RR.Bows[w.Bow].VolleyK * RR.LiveRanksK);
+            w.Def.UnderFireUntil = Math.Max(w.Def.UnderFireUntil, w.T1 + R.Men.UnderFireSec);   // Г86: под стрелами — колонны поштучно
+            var fresh = new List<Shot>();
+            for (int i = 0; i < w.Planned; i++)
+                fresh.Add(new Shot { W = w, Index = i, LaunchT = w.T0 + (i + 0.5) / w.Planned * (w.T1 - w.T0) });
+            // очередь по времени выстрела; при равенстве — порядок добавления (сортировка устойчивая)
+            var rest = queue.GetRange(nextShot, queue.Count - nextShot);
+            rest.AddRange(fresh);
+            queue.RemoveRange(nextShot, queue.Count - nextShot);
+            queue.AddRange(rest.OrderBy(x => x.LaunchT));
+        }
+
+        void Launch(Shot ar)
+        {
+            var w = ar.W; var RR = R.Ranged;
+            ar.Done = true;
+            bool ok = w.Counter ? CanShoot(w.Att, w.Def) : CanShoot(w.Att, w.Def) && (w.V.A.Order != null && w.V.A.Order.Kind == OrderKind.Attack || AutoShooter(w.V.A));
+            if (!ok || !Alive(w.Att) || !OnField(w.Def)) { w.Landed++; return; }
+            // стрелы — по всему строю поровну; стрелу павшего выпускает живой сосед
+            var shooters = TroopOf(w.Att).Bodies;
+            PlaceBodies(w.Att, troops[w.Att]);
+            Body sh = null;
+            for (int step = 0; step < shooters.Count && sh == null; step++)
+            {
+                var c = shooters[(int)(((long)ar.Index * shooters.Count / Math.Max(1, w.Planned) + step) % shooters.Count)];
+                if (c.Alive) sh = c;
+            }
+            if (sh == null) { w.Landed++; return; }
+            // цель — живой враг перед стрелком (до TargetSideM вбок); нет таких — ближайший вбок из попробованных
+            var tt = TroopOf(w.Def); PlaceBodies(w.Def, tt);
+            var targets = tt.Bodies;
+            if (targets.Count == 0) { w.Landed++; return; }
+            double srx = Math.Cos(sh.Facing * Math.PI / 180), sry = Math.Sin(sh.Facing * Math.PI / 180);
+            Body tgt = null, fallback = null; int tgtIdx = -1, fbIdx = -1; double fbSide = double.MaxValue;
+            int kk = w.Def.BodyK;
+            for (int tries = 0; tries < 40 && tgt == null; tries++)
+            {
+                int ci = (int)Math.Floor(Ctx.Rng() * targets.Count);
+                var c = targets[ci];
+                if (!c.Alive) continue;
+                if (kk > 1 && Ctx.Rng() * kk >= c.Sub) continue;   // Г87: мишень — человек, не тело: тело из k человек выбирается в k раз чаще остатка
+                double side = Math.Abs((c.X - sh.X) * srx + (c.Y - sh.Y) * sry);
+                if (side <= RR.TargetSideM) { tgt = c; tgtIdx = ci; }
+                else if (side < fbSide) { fbSide = side; fallback = c; fbIdx = ci; }
+            }
+            if (tgt == null) { tgt = fallback; tgtIdx = fbIdx; }
+            if (tgt == null) { w.Landed++; return; }
+            var bow = RR.Bows[w.Bow];
+            double sx = sh.X, sy = sh.Y, sz = sh.Ground + (sh.Horse ? RR.HorseHeight + 0.7 : RR.LaunchHeight);
+            double rankDepth = R.Map.Formation.TryGetValue(w.Att.P.U.Type, out var ff) ? ff.RankDepth : 1;
+            // упреждение (Г66): куда цель придёт к прилёту стрелы; ошибка — от скорости цели
+            // упреждение — по ходу фигурки цели, а не по переминанию бойца в ней (Г75): строй, что смыкается под обстрелом,
+            // сбивает прицел — на этом стоит сверка стрельбы со столом
+            var tf = tgt.Man?.Fig;
+            double vx = tf?.Vx ?? 0, vy = tf?.Vy ?? 0, px = tgt.X, py = tgt.Y;
+            if (tgt.Sub > 1)   // Г87: целит в одного из людей тела (ряды вдоль его курса), а не в середину тела
+            {
+                double off = (Math.Floor(Ctx.Rng() * tgt.Sub) - (tgt.Sub - 1) / 2.0) * tgt.SubStep, tth = tgt.Facing * Math.PI / 180;
+                px -= Math.Sin(tth) * off; py += Math.Cos(tth) * off;
+            }
+            (double theta, double speed, bool high)? aim = null;
+            double tof = 0;
+            for (int it = 0; it < 3; it++)
+            {
+                double ddx = px - sx, ddy = py - sy, dd = Math.Sqrt(ddx * ddx + ddy * ddy);
+                aim = Ballistics.AimCached(bow, RR, dd, tgt.Ground + RR.AimHeight - sz, sh.FrontDist, rankDepth, sz - sh.Ground);
+                if (aim == null) break;
+                tof = Flight(bow, dd, aim.Value);
+                px = tgt.X + vx * tof; py = tgt.Y + vy * tof;
+                if (vx == 0 && vy == 0) break;
+            }
+            if (aim == null) { Shots.Unreachable++; w.Landed++; return; }
+            double tv = Math.Sqrt(vx * vx + vy * vy);
+            if (tv > 0.1)
+            {
+                double e = LeadErrK * tv * tof;   // разброс точки упреждения, м
+                px += Ballistics.Gauss(Ctx.Rng) * e; py += Ballistics.Gauss(Ctx.Rng) * e;
+            }
+            double dx = px - sx, dy = py - sy, d = Math.Sqrt(dx * dx + dy * dy);
+            var aim2 = Ballistics.AimCached(bow, RR, d, tgt.Ground + RR.AimHeight - sz, sh.FrontDist, rankDepth, sz - sh.Ground) ?? aim;
+            if (aim2.Value.high) Shots.HighShots++; else Shots.LowShots++;
+            // конный стрелок на ходу — разброс шире (Г36)
+            double sk = Units.IsCav(w.Att.P.U) && w.Att.Figs.Count > 0 && Speed(w.Att.Figs[0]) > 1 ? MovingShotSigmaK : 1;
+            double th = aim2.Value.theta + Ballistics.Gauss(Ctx.Rng) * bow.SigmaElevDeg * sk * Math.PI / 180;
+            double az = Math.Atan2(dy, dx) + Ballistics.Gauss(Ctx.Rng) * bow.SigmaAzDeg * sk * Math.PI / 180;
+            double v = Ballistics.V0(bow) * aim2.Value.speed * (1 + Ballistics.Gauss(Ctx.Rng) * bow.SigmaSpeed);
+            ar.Shooter = sh;
+            ar.X = sx; ar.Y = sy; ar.Z = sz; ar.LX = sx; ar.LY = sy;
+            ar.VX = v * Math.Cos(th) * Math.Cos(az); ar.VY = v * Math.Cos(th) * Math.Sin(az); ar.VZ = v * Math.Sin(th);
+            ar.CanopyLeft = -Math.Log(1 - Ctx.Rng()) / RR.TreeBlockPerM;
+            ar.Flying = true; ar.Done = false;
+            if (ArrowLog != null) { ar.Log = ArrowLog.Count; ArrowLog.Add(new ArrowTrace { T0 = curT, X0 = sx, Y0 = sy, Z0 = sz, VX = ar.VX, VY = ar.VY, VZ = ar.VZ, UnitId = w.Att.P.U.Id }); }
+            Shots.Arrows++; w.V.Arrows++;
+        }
+        double Flight(Rules.BowR bow, double d, (double theta, double speed, bool high) aim)
+        {
+            var key = (bow, (int)Math.Round(d), (int)Math.Round(aim.speed * 100), (int)Math.Round(aim.theta * 1000));
+            if (!flightCache.TryGetValue(key, out var t))
+                flightCache[key] = t = Ballistics.FlightTime(Ballistics.V0(bow) * aim.speed, aim.theta, Ballistics.DragK(bow, R.Ranged), R.Ranged.Gravity, d, R.Ranged.Dt);
+            return t;
+        }
+
+        void Fly(Shot ar, double subDt)
+        {
+            var RR = R.Ranged; Prof.N[0]++;
+            double x0 = ar.X, y0 = ar.Y, z0 = ar.Z;
+            var bow = RR.Bows[ar.W.Bow];
+            Ballistics.Step(ref ar.X, ref ar.Y, ref ar.Z, ref ar.VX, ref ar.VY, ref ar.VZ, Ballistics.DragK(bow, RR), RR.Gravity, subDt);
+            double x1 = ar.X, y1 = ar.Y, z1 = ar.Z;
+            double g1 = GroundZ(x1, y1), tEnd = 1;
+            bool ground = false;
+            if (z1 <= g1)
+            {
+                double g0 = GroundZ(x0, y0);
+                tEnd = z0 - g0 > 1e-9 ? Math.Min(1, Math.Max(0, (z0 - g0) / ((z0 - g0) - (z1 - g1)))) : 0;
+                ground = true;
+            }
+            if (Geo != null && (x1 < 0 || y1 < 0 || x1 > Geo.W || y1 > Geo.H)) { Shots.Ground++; EndShot(ar, x0, y0, z0, x1, y1, z1, 1, subDt, 4); return; }   // улетела с карты
+            // постройки и валы (Г103): стена, башня, ворота, частокол, дом — тела своей высоты; окоп — бруствер по краю
+            if (Geo?.Map != null && HitsBuilding(x0, y0, z0, x1, y1, z1, g1, ar.LX, ar.LY, out var fb) && fb <= tEnd)
+            { Shots.Building++; EndShot(ar, x0, y0, z0, x1, y1, z1, fb, subDt, 5); return; }
+            // ветви под кронами (Г38)
+            if (z1 < g1 + RR.CanopyHeight && Forest(x1, y1))
+            {
+                double seg = Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0)) * tEnd;
+                ar.CanopyLeft -= seg;
+                if (ar.CanopyLeft <= 0) { Shots.Blocked++; EndShot(ar, x0, y0, z0, x1, y1, z1, tEnd, subDt, 3); return; }
+            }
+            if (buildTop == null) BuildTops();
+            if (Math.Min(z0, z1) <= Math.Max(GroundZ(x0, y0), g1) + RR.RiderTop + 0.1 + standMax)
+            {
+                var near = new List<Body>();
+                grid.Near(x0, y0, x1, y1, RR.HorseLength / 2 + grid.MaxHalf + 0.2, near);
+                Prof.N[1]++; Prof.N[2] += near.Count;
+                Body best = null; string bestPart = null; double bestT = tEnd + 1e-9;
+                foreach (var body in near)
+                {
+                    if (!body.Alive || body == ar.Shooter) continue;
+                    // первые 2 м полёта свои не задеваются (как в RangedSim): путь над своими проверен прицелом (Г40)
+                    if (body.Owner == ar.W.Att.P && (x0 - ar.LX) * (x0 - ar.LX) + (y0 - ar.LY) * (y0 - ar.LY) < 4) continue;
+                    if (Ballistics.Hit(body, RR, x0, y0, z0, x1, y1, z1, out var tt, out var part) && tt < bestT)
+                    { bestT = tt; best = body; bestPart = part; }
+                }
+                if (best != null) { bool fell = Struck(ar, best, bestPart); EndShot(ar, x0, y0, z0, x1, y1, z1, bestT, subDt, (byte)(fell ? 1 : 2)); return; }
+            }
+            if (ground) { Shots.Ground++; EndShot(ar, x0, y0, z0, x1, y1, z1, tEnd, subDt, 0); }
+        }
+        void EndShot(Shot ar, double x0, double y0, double z0, double x1, double y1, double z1, double f, double subDt, byte end)
+        {
+            ar.Flying = false; ar.Done = true; ar.W.Landed++;
+            if (ArrowLog == null || ar.Log < 0) return;
+            var a = ArrowLog[ar.Log];   // где кончился полёт: доля шага f — точка встречи с землёй, ветвями, постройкой или телом
+            a.T1 = curT + f * subDt; a.X1 = x0 + (x1 - x0) * f; a.Y1 = y0 + (y1 - y0) * f; a.Z1 = z0 + (z1 - z0) * f; a.End = end;
+            ArrowLog[ar.Log] = a;
+        }
+
+        // Стрела задела тело: выбыл ли человек (броня стола), убит ли (часть тела, Г39); павший — в Deaths (Г67). true — выбыл
+        bool Struck(Shot ar, Body body, string part)
+        {
+            var w = ar.W; var RR = R.Ranged;
+            var victim = Movers.First(m => m.P == body.Owner);
+            Shots.Hits++; Shots.Parts[part]++;
+            if (victim != w.Def) Shots.HitsFriendly++;
+            var D = Combat.Eff(victim.P.U, Modes.RangedForm, null, Ctx);
+            double eq = D.EqDef;
+            double th = body.Facing * Math.PI / 180, fx = Math.Sin(th), fy = -Math.Cos(th);
+            double hv = Math.Sqrt(ar.VX * ar.VX + ar.VY * ar.VY);
+            if (hv > 1e-9 && (-ar.VX * fx - ar.VY * fy) / hv <= Math.Cos(R.Sectors.RearMin * Math.PI / 180)) eq *= R.Defense.RearEqMult;
+            double pOut = 1 / Math.Max(R.Defense.MinDivisor, eq / R.Defense.RangedEqDiv);
+            if (D.Cmdr != null && D.Cmdr.BuffDef != 0) pOut *= Math.Max(0, 1 - D.Cmdr.BuffDef / 100);
+            if (Ctx.Rng() >= pOut) return false;
+            if (body.Man != null) body.Man.Wound(); else body.Alive = false;   // падает тот самый боец (Г75); Г87 — один из k
+            victim.P.U.Soldiers -= 1;
+            victim.ShotDown++;
+            double wPart = RR.PartLethality[part];
+            Shots.Out++; Shots.OutPartWeight += wPart;
+            var Lt = R.Lethality;
+            double pct = Js.Clamp(Lt.Base + w.LRoll / (Math.Max(1, victim.P.U.Exp) / Lt.ExpDiv), 0, 100);
+            bool killed = Ctx.Rng() * 100 < Math.Min(100, pct * wPart * RR.PartNorm);
+            if (killed) Shots.Killed++;
+            w.Victims.TryGetValue(victim, out var vv);
+            w.Victims[victim] = (vv.cas + 1, vv.killed + (killed ? 1 : 0));
+            if (victim == w.V.A) w.V.LossA++; else if (victim == w.V.B) w.V.LossB++;
+            if (victim != w.Def) w.V.Friendly++;
+            Deaths.Add(new Death
+            {
+                X = body.X, Y = body.Y, T = curT, Facing = body.Facing + (look() - 0.5) * 40, Dir = Math.Atan2(ar.VY, ar.VX) * 180 / Math.PI,
+                UnitId = victim.P.U.Id, ManId = body.Man?.Id ?? 0, Part = part, Killed = killed,
+            });
+            return true;
+        }
+        double curT;
+
+        // Конец окна: БД по потерям — как после удара за столом
+        void CloseVolleyWin(VWin w, double t)
+        {
+            w.Closed = true;
+            int total = 0;
+            foreach (var kv in w.Victims)
+            {
+                var def = kv.Key.P.U;
+                int cas = kv.Value.cas; total += cas;
+                var clone = def.Clone(); clone.Soldiers = def.Soldiers + cas;
+                var res = new StrikeResult { Casualties = cas, Killed = kv.Value.killed, Wounded = cas - kv.Value.killed };
+                Combat.CasualtyPatch(clone, res, new List<string>(), Ctx, out _).ApplyTo(def);
+            }
+            foreach (var kv in w.Victims) if (kv.Value.cas > 0) AfterLoss(kv.Key, t);   // Г74: проверки после удара
+            Details.Add($"{Js.Num(Js.R1(t - Clock))} с · {w.Att.P.U.Name} → {w.Def.P.U.Name}{(w.Counter ? " (ответ)" : "")}: стрел {w.Planned}, −{total}");
+        }
+    }
+}

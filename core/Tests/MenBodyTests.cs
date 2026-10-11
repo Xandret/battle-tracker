@@ -1,0 +1,1097 @@
+// Б1 (Г82, Г85, Г89, Г92): бойцы — тела, фигурка — колонна за якорем. Тот же набор проверок, что у фигурок-капсул:
+// марш на норму, очередь своих, стена о стену с врагом, стрелки сквозь своих, переправа по мосту, бой сходится
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using BattleCore;
+
+static class MenBodyTests
+{
+    public static readonly Rules RB = Rules.Base;   // с 03.10.2026 бойцы-тела — умолчание (Г92); старый режим — Rules.Figures
+    static void True(bool ok, string what) { if (!ok) throw new Exception(what); }
+
+    static Mover Unit(string tpl, int id, double x, double y, double facing, double men = 1000, int faction = 1, Rules r = null)
+    {
+        var t = Templates.Get(tpl);
+        return Mover.Place(t.Make(id, t.Name, men, faction), x, y, facing, r ?? RB);
+    }
+    static void Order(Mover m, Geo geo, double x, double y, double facing, Rules r = null) => MoveSim.Give(m, new MoveOrder { X = x, Y = y, Facing = facing }, geo, r ?? RB);
+    // наибольшее перекрытие бойцов (м): свои одного отряда, разных отрядов, враги
+    static (double same, double friend, double enemy) Overlap(IList<Mover> ms)
+    {
+        var all = new List<(Man man, Mover m, double rad)>();
+        foreach (var m in ms)
+        {
+            var f = RB.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : RB.Map.Formation["infantry"];
+            double rad = RB.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth);
+            foreach (var x in m.Men) if (x.Alive && x.Fig != null) all.Add((x, m, rad));
+        }
+        double s = 0, fr = 0, en = 0;
+        var cell = new Dictionary<(int, int), List<int>>();
+        for (int i = 0; i < all.Count; i++) { var k = ((int)Math.Floor(all[i].man.X / 3), (int)Math.Floor(all[i].man.Y / 3)); if (!cell.TryGetValue(k, out var l)) cell[k] = l = new List<int>(); l.Add(i); }
+        for (int i = 0; i < all.Count; i++)
+        {
+            int cx = (int)Math.Floor(all[i].man.X / 3), cy = (int)Math.Floor(all[i].man.Y / 3);
+            for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++)
+                if (cell.TryGetValue((cx + dx, cy + dy), out var l))
+                    foreach (int j in l)
+                    {
+                        if (j <= i) continue;
+                        var a = all[i]; var b = all[j];
+                        if (BattleMap.IsHorse(a.m.P.U) || BattleMap.IsHorse(b.m.P.U)) continue;   // у конных капсула — тут только пешие
+                        double pen = a.rad + b.rad - JsMath.Hypot(a.man.X - b.man.X, a.man.Y - b.man.Y);
+                        if (a.m == b.m) s = Math.Max(s, pen);
+                        else if (a.m.P.U.FactionId == b.m.P.U.FactionId) fr = Math.Max(fr, pen);
+                        else en = Math.Max(en, pen);
+                    }
+        }
+        return (s, fr, en);
+    }
+
+    // Г87: стычка с заданным k человек в теле, без проверок БД (сравниваем механику, не бегство)
+    static (Battle bt, Mover a, Mover b) DuelK(string ta, string tb, double dist, uint seed, int k, double w = 1000, double h = 1000)
+    {
+        var bt = new Battle(MoveTests.Open(w, h), RB, new EngineContext { Rng = new Mulberry32(seed).Next }) { BodyK = k, MoraleChecks = false };
+        var TA = Templates.Get(ta); var TB = Templates.Get(tb);
+        var b = bt.Add(TB.Make(2, "B", 1000, 2), w / 2, h * 0.57, 0);
+        var fa = Formation.Of(TA.Make(1, "A", 1000, 1), RB);
+        var a = bt.Add(TA.Make(1, "A", 1000, 1), w / 2, h * 0.57 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+        return (bt, a, b);
+    }
+
+    public static IEnumerable<(string Name, Action Run)> All()
+    {
+        yield return ("Б1 (Г85): фигурки — колонны во всю глубину строя, около 10 человек", () =>
+        {
+            var inf = Unit("infantry", 1, 300, 300, 0); var arc = Unit("archers", 2, 600, 300, 0);
+            True(inf.P.Figs.All(f => Math.Abs(f.Depth - 8) < 1e-9 && f.Width <= 1 + 1e-9), $"пехота: {inf.P.Figs[0].Width} × {inf.P.Figs[0].Depth}");
+            True(arc.P.Figs.All(f => Math.Abs(f.Depth - 5) < 1e-9), $"стрелки: {arc.P.Figs[0].Width} × {arc.P.Figs[0].Depth}");
+            True(inf.Men.Count == 1000 && inf.Men.All(x => x.Alive && x.Fig != null), "бойцов 1000, у всех колонна");
+        });
+
+        yield return ("Б1: марш — отряд проходит норму за ход, бойцы держат строй и не налезают друг на друга", () =>
+        {
+            var geo = MoveTests.Open(800, 800);
+            var m = Unit("infantry", 1, 400, 700, 0);
+            Order(m, geo, 400, 200, 0);
+            MoveSim.Turn(new[] { m }, geo, RB);
+            double norm = BattleMap.UnitSpeed(m.P.U, RB);
+            True(Math.Abs(m.Spent - norm) < 1, $"нормы {m.Spent:0.0} из {norm}");
+            var lag = m.Men.Max(x => { var h = Soldiers.HomeOf(m, x); return JsMath.Hypot(x.X - h.x, x.Y - h.y); });
+            var ov = Overlap(new[] { m });
+            True(lag < 2.5, $"отстал от места на {lag:0.0} м");
+            True(ov.same < 0.3, $"свои налезли на {ov.same:0.00} м");
+        });
+
+        yield return ("Б1 (Г89): стена о стену — враги друг сквозь друга не проходят", () =>
+        {
+            var geo = MoveTests.Open(800, 800);
+            var a = Unit("infantry", 1, 400, 600, 0); var b = Unit("infantry", 2, 400, 200, 180, faction: 2);
+            Order(a, geo, 400, 150, 0); Order(b, geo, 400, 650, 180);
+            var ms = new[] { a, b };
+            double worst = 0;
+            for (int t = 0; t < 3; t++) MoveSim.Turn(ms, geo, RB, _ => worst = Math.Max(worst, Overlap(ms).enemy));
+            True(worst < 0.5, $"враги налезли на {worst:0.00} м");   // Г118: было 0,35 — после толчка тело разгоняется не резвее нормы, стена о стену налезает до полтела (0,49)
+            double ay = a.Men.Where(x => x.Alive).Min(x => x.Y), by = b.Men.Where(x => x.Alive).Max(x => x.Y);
+            True(ay > by - 1.5, $"прошли насквозь: передний край A на {ay:0.0}, B на {by:0.0}");
+        });
+
+        yield return ("Б1 (Г57): свои встречным курсом — пропускают по очереди, сквозь не проходят (в давке — лишь на миг) и успевают не хуже фигурок", () =>
+        {
+            (Mover a, Mover b, int bad, int steps) Run(Rules r)
+            {
+                var geo = MoveTests.Open(1000, 800);
+                var a = Unit("infantry", 1, 300, 400, 90, men: 400, r: r); var b = Unit("infantry", 2, 700, 400, 270, men: 400, r: r);
+                Order(a, geo, 750, 400, 90, r); Order(b, geo, 250, 400, 270, r);
+                var ms = new[] { a, b };
+                int bad = 0, steps = 0;
+                for (int t = 0; t < 6; t++) MoveSim.Turn(ms, geo, r, _ => { if (r != RB) return; steps++; if (Overlap(ms).friend > 0.5) bad++; });
+                return (a, b, bad, steps);
+            }
+            var (na, nb, bad, steps) = Run(RB); var (oa, ob, _, _) = Run(Rules.Base);
+            True(bad <= 0.08 * steps, $"свои налезали глубже 0,5 м в {bad} шагах из {steps}");   // Г111 п.3: поворот вокруг фланга при обходе заметает соседа — было ≤ 5 %, свои теперь мягкие (п.2)
+            double left(Mover m, double tx) => Math.Abs(m.P.X - tx);
+            True(left(na, 750) <= left(oa, 750) + 10 && left(nb, 250) <= left(ob, 250) + 10,
+                $"отстали от фигурок: A осталось {left(na, 750):0} (было {left(oa, 750):0}), B {left(nb, 250):0} (было {left(ob, 250):0})");
+        });
+
+        yield return ("Б1 (Г56): стрелки проходят сквозь свою пехоту", () =>
+        {
+            var geo = MoveTests.Open(800, 800);
+            var inf = Unit("infantry", 1, 400, 400, 0); var arc = Unit("archers", 2, 400, 480, 0, men: 300);
+            Order(arc, geo, 400, 330, 0);
+            var ms = new[] { inf, arc };
+            for (int t = 0; t < 3; t++) MoveSim.Turn(ms, geo, RB);
+            True(arc.P.Y < 345, $"стрелки застряли: центр на {arc.P.Y:0}");
+        });
+
+        yield return ("Б1 (Г59): переправа — пехота и конница переходят реку не хуже фигурок, никто не в воде", () =>
+        {
+            (double inf, double kn, int wet) Run(Rules r)
+            {
+                var map = MapGen.Generate("river", new Dictionary<string, object> { ["widthM"] = 1200.0, ["depthM"] = 900.0, ["fords"] = 1.0, ["bridges"] = 1.0 }, 7);
+                var geo = new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) };
+                var inf = Unit("infantry", 1, 350, 820, 0, r: r); var kn = Unit("knights", 2, 850, 830, 0, men: 300, r: r);
+                Order(inf, geo, 350, 80, 0, r); Order(kn, geo, 850, 60, 0, r);
+                var ms = new[] { inf, kn };
+                int wet = 0;
+                for (int t = 0; t < 8; t++)
+                    MoveSim.Turn(ms, geo, r, _ =>
+                    {
+                        if (r != RB) return;
+                        foreach (var m in ms) foreach (var x in m.Men) if (x.Alive && m.Field != null && m.Field.Inside(x.X, x.Y) && !m.Field.Passable(m.Field.CellOf(x.X, x.Y))) wet++;
+                    });
+                return (inf.P.Y, kn.P.Y, wet);
+            }
+            var nw = Run(RB); var od = Run(Rules.Base);
+            True(nw.inf <= od.inf + 15 && nw.kn <= od.kn + 15, $"отстали от фигурок: пехота {nw.inf:0} (было {od.inf:0}), конница {nw.kn:0} (было {od.kn:0})");
+            True(nw.wet < 50, $"бойцов в воде за все шаги: {nw.wet}");
+        });
+
+        yield return ("Б1: бой — отряды сходятся, касаются и бьются", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(3).Next });
+            var TA = Templates.Get("infantry");
+            var b = bt.Add(TA.Make(2, "B", 1000, 2), 500, 500, 0);
+            var a = bt.Add(TA.Make(1, "A", 1000, 1), 500, 440, 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            bt.Turn(); bt.Turn();
+            True(b.P.U.Soldiers < 990 && a.P.U.Soldiers < 1000, $"потерь нет: A {a.P.U.Soldiers}, B {b.P.U.Soldiers}");
+            var ov = Overlap(new[] { a, b });
+            True(ov.enemy < 0.4, $"враги налезли на {ov.enemy:0.00} м");
+        });
+
+        // ── Б2 (Г83): касания и павшие — по бойцам ──
+        (Battle bt, Mover a, Mover b) Duel(Rules r, string ta, string tb, uint seed)
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), r, new EngineContext { Rng = new Mulberry32(seed).Next });
+            var TA = Templates.Get(ta); var TB = Templates.Get(tb);
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), r);
+            var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 500, 500 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            return (bt, a, b);
+        }
+
+        yield return ("Б2 (Г83): падает тот, кого ударили — почти все павшие в рукопашной пали от удара бойца; остальные удары — на щит", () =>
+        {
+            var (bt, a, b) = Duel(RB, "infantry", "infantry", 7001);
+            bt.Turn();
+            var st = bt.MenMelee;
+            True(st.Hits > 100, $"попаданий {st.Hits}");
+            True(st.Hits >= 0.95 * (st.Hits + st.Fallback), $"пало от ударов {st.Hits}, без удара {st.Fallback}");
+            True(st.Parries > st.Hits, $"на щит {st.Parries} при попаданиях {st.Hits}");
+            int melee = bt.Deaths.Count(d => d.UnitId == 1 || d.UnitId == 2);
+            double lost = 2000 - a.P.U.Soldiers - b.P.U.Soldiers;
+            True(Math.Abs(melee - lost) <= 2, $"павших записано {melee}, выбыло {lost:0}");
+        });
+
+        yield return ("Б2 (Г88): полный контакт — потери как у колонн-фигурок ±10% (сколько — стол, кто — бойцы)", () =>
+        {
+            double fa = 0, fb = 0, ma = 0, mb = 0;
+            for (uint s = 1; s <= 6; s++)
+            {
+                var (bt, a, b) = Duel(Rules.Base, "infantry", "infantry", s + 7000); bt.Turn(); fa += 1000 - a.P.U.Soldiers; fb += 1000 - b.P.U.Soldiers;
+                var (bt2, a2, b2) = Duel(RB, "infantry", "infantry", s + 7000); bt2.Turn(); ma += 1000 - a2.P.U.Soldiers; mb += 1000 - b2.P.U.Soldiers;
+            }
+            True(Math.Abs(ma / fa - 1) <= 0.1 && Math.Abs(mb / fb - 1) <= 0.1, $"фигурки {fa / 6:0}/{fb / 6:0}, бойцы {ma / 6:0}/{mb / 6:0}");
+        });
+
+        yield return ("Б2 (Г83): пикинёры достают из задних шеренг (до 4-й) дальше обычной досягаемости, пехота — нет", () =>
+        {
+            double Rad(Mover m) { var f = RB.Map.Formation.TryGetValue(m.P.U.Type, out var ff) ? ff : RB.Map.Formation["infantry"]; return RB.Men.BodyShare * Math.Min(f.PerMan, f.RankDepth); }
+            // бойцы с противником дальше ReachM от него (по зазору тел): сколько за ход (сумма по шагам) и из какой шеренги
+            int Far(string t, out int maxRow)
+            {
+                var (bt, a, b) = Duel(RB, t, "infantry", 901);
+                double ra = Rad(a), rb = Rad(b);
+                int n = 0, mr = 0;
+                bt.Turn(_ =>
+                {
+                    foreach (var x in a.Men)
+                    {
+                        if (!x.Alive || x.Foe == null || !x.Foe.Alive) continue;
+                        if (JsMath.Hypot(x.Foe.X - x.X, x.Foe.Y - x.Y) - ra - rb <= RB.Men.ReachM + 1.0) continue;   // противник назначен на касании (раз в 0,5 с) — запас на сдвиг
+                        n++; mr = Math.Max(mr, x.Row);
+                    }
+                });
+                maxRow = mr;
+                return n;
+            }
+            int pike = Far("pikemen", out int pr), inf = Far("infantry", out _);
+            True(pike > 1000, $"пикой дальше досягаемости: {pike} (сумма по шагам)");
+            True(pr >= 2, $"пикой — только из {pr + 1}-й шеренги");
+            // у пехоты дальше досягаемости — только отошедшие с прошлого касания (удар по ним идёт мимо)
+            True(pike > 5 * Math.Max(1, inf), $"дальше досягаемости: пики {pike}, пехота {inf}");
+        });
+
+        yield return ("Б2: для рисунка — у бойца противник, время удара и щита; павшие — у врага", () =>
+        {
+            var (bt, a, b) = Duel(RB, "infantry", "infantry", 7003);
+            int foes = 0, swung = 0, parried = 0;
+            bt.Turn(_ =>
+            {
+                foes = Math.Max(foes, a.Men.Count(x => x.Alive && x.Foe != null && x.Foe.Alive));
+                swung = a.Men.Count(x => !double.IsNaN(x.SwingAt)); parried = b.Men.Count(x => !double.IsNaN(x.ParryAt));
+            });
+            True(foes > 50, $"с противником {foes}");
+            True(swung > 50 && parried > 50, $"ударили {swung}, приняли на щит {parried}");
+            // павший в рукопашной стоял у врага: ближе 3 м до живого врага в конце хода (строй не уходил)
+            var fallen = bt.Deaths.Where(d => d.UnitId == 2).ToList();
+            int near = fallen.Count(d => a.Men.Any(x => x.Alive && JsMath.Hypot(x.X - d.X, x.Y - d.Y) < 3));
+            True(fallen.Count > 0 && near >= 0.9 * fallen.Count, $"у врага пали {near} из {fallen.Count}");
+        });
+
+        // ── Г94 (Алекс): бойцы разворачиваются, а не едут задом ──
+        // отступление (Г81) на battle: курс тела каждого бойца по шагам, сколько шли задом
+        (double maxBack, double maxTurn, double turnedBack, double faceEnd) Retreat(string tpl)
+        {
+            var bt = new Battle(MoveTests.Open(800, 800), RB, new EngineContext { Rng = new Mulberry32(5).Next });
+            var t = Templates.Get(tpl);
+            var m = bt.Add(t.Make(1, t.Name, 300, 1), 400, 300, 180);   // смотрит вниз (+y), отступает вверх
+            bt.Order(m, new MoveOrder { Kind = OrderKind.Retreat, X = double.NaN, Y = double.NaN });   // точки нет — прямо назад (Г81)
+            var was = m.Men.ToDictionary(x => x, x => x.Facing);
+            var win = m.Men.ToDictionary(x => x, x => (x.X, x.Y, x.Facing));
+            double maxBack = 0, maxTurn = 0; int turned = 0, samples = 0;
+            int frame = 0; const int W = 10;   // ход назад — смещением за W шагов (0,5 с): толчки соседей в толпе — толкотня, не ход
+            for (int turn = 0; turn < 2; turn++)
+                bt.Turn(_ =>
+                {
+                    frame++;
+                    foreach (var x in m.Men)
+                    {
+                        if (!x.Alive) continue;
+                        if (was.TryGetValue(x, out var f0)) maxTurn = Math.Max(maxTurn, Math.Abs(MoveSim.AngleDiff(f0, x.Facing)));
+                        was[x] = x.Facing;
+                        samples++;
+                        if (Math.Abs(MoveSim.AngleDiff(x.Facing, 0)) < 45) turned++;   // смотрит туда, куда отступают
+                        if (frame % W != 0) continue;
+                        var w = win[x];
+                        // первые полсекунды тела оседают после расстановки; окно, где курс повернулся больше 30°, — доворот, а не ход задом
+                        if (frame > W && Math.Abs(MoveSim.AngleDiff(w.Facing, x.Facing)) < 30)
+                        {
+                            double a0 = w.Facing * Math.PI / 180, a1 = x.Facing * Math.PI / 180;
+                            double fx = Math.Sin(a0) + Math.Sin(a1), fy = -Math.Cos(a0) - Math.Cos(a1), fl = Math.Max(1e-9, Math.Sqrt(fx * fx + fy * fy));
+                            maxBack = Math.Max(maxBack, -((x.X - w.X) * fx + (x.Y - w.Y) * fy) / fl / (W * RB.Move.Dt));
+                        }
+                        win[x] = (x.X, x.Y, x.Facing);
+                    }
+                });
+            // в конце: доля бойцов, что смотрят по строю (до 3% коней после отступления стоят в чужом ряду лицом к своему месту — Б4)
+            double faceEnd = m.Men.Where(x => x.Alive).Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) >= 30) * 100.0 / m.Men.Count(x => x.Alive);
+            return (maxBack, maxTurn, turned / (double)samples, faceEnd);
+        }
+
+        yield return ("Г94: конница не едет задом — разворачивается, отъезжает и на месте снова смотрит на врага", () =>
+        {
+            var (back, turn, turnedBack, faceEnd) = Retreat("knights");
+            // назад при устойчивом курсе — не быстрее шага: на ходу предел 0,3 м/с, в стоящей колонне шаг назад до StandBackMps плюс
+            // толчки соседей в сжатой колонне; ловим ход задом (были 5–50 м/с), не шаг
+            True(back <= Math.Max(RB.Men.HorseBackMps, RB.Men.StandBackMps) + 1.3, $"конь пятился со скоростью {back:0.00} м/с (за 0,5 с, курс устойчив)");   // Г118: было +1,0 — в отходе из схватки толчки врага дают до 2,2 м/с назад
+            True(turnedBack > 0.3, $"развернулись по ходу в {turnedBack:P0} кадров");
+            True(turn <= RB.Men.HorseTurnDegPerSec * RB.Move.Dt + 1e-6, $"курс повернулся за шаг на {turn:0.0}°");
+            True(faceEnd <= 5, $"на месте не по строю {faceEnd:0.0}% бойцов");
+        });
+
+        yield return ("Г94 (Г81): пехота при отступлении пятится лицом к врагу, курс не прыгает", () =>
+        {
+            var (back, turn, turnedBack, faceEnd) = Retreat("infantry");
+            True(turnedBack < 0.05, $"повернулись спиной к врагу в {turnedBack:P0} кадров");
+            True(back > 0.5, $"пятились со скоростью {back:0.00} м/с");
+            True(turn <= RB.Men.FootTurnDegPerSec * RB.Move.Dt + 1e-6, $"курс повернулся за шаг на {turn:0.0}°");
+            True(faceEnd <= 5, $"на месте не по строю {faceEnd:0.0}% бойцов");
+        });
+
+        yield return ("Г94: в бою — курс тела не прыгает; кони вне схватки задом не ходят (охват рыцарей)", () =>
+        {
+            var (bt, a, b) = Duel(RB, "knights", "infantry", 301);
+            var was = new Dictionary<Man, double>();
+            var win = new Dictionary<Man, (double X, double Y, double F, bool Foe, bool Near, bool Fight)>();
+            double worstTurn = 0; int frame = 0, backN = 0, horseN = 0; const int W = 10;
+            bt.Turn(_ =>
+            {
+                frame++;
+                // враги рядом (клетки 3 м): давку у врага (толкают пехотинцы на выпадах) — в натиск телами (Г90, Б3)
+                var near = new HashSet<(int, int)>();
+                if (frame % W == 0) foreach (var y in b.Men) if (y.Alive) near.Add(((int)Math.Floor(y.X / 3), (int)Math.Floor(y.Y / 3)));
+                bool Close(Man x) { int cx = (int)Math.Floor(x.X / 3), cy = (int)Math.Floor(x.Y / 3); for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) if (near.Contains((cx + i, cy + j))) return true; return false; }
+                foreach (var m in new[] { a, b })
+                {
+                    bool horse = BattleMap.IsHorse(m.P.U);
+                    double lim = (horse ? RB.Men.HorseTurnDegPerSec : RB.Men.FootTurnDegPerSec) * RB.Move.Dt;
+                    foreach (var x in m.Men)
+                    {
+                        if (!x.Alive) continue;
+                        if (was.TryGetValue(x, out var f0)) worstTurn = Math.Max(worstTurn, Math.Abs(MoveSim.AngleDiff(f0, x.Facing)) / lim);
+                        was[x] = x.Facing;
+                        if (!horse || frame % W != 0) continue;
+                        // конь без противника за 0,5 с ушёл назад быстрее 2 м/с — пятился (толкотня в давке — не в счёт: она туда-сюда)
+                        // вне схватки: ни сам, ни его колонна не бьётся, врага ближе 3 м нет (давка — в натиск телами, Г90)
+                        if (win.TryGetValue(x, out var w) && !w.Foe && x.Foe == null && !w.Near && !Close(x) && !w.Fight && !x.Fig.Fighting)
+                        {
+                            double a0 = w.F * Math.PI / 180;
+                            double back = -((x.X - w.X) * Math.Sin(a0) - (x.Y - w.Y) * Math.Cos(a0)) / (W * RB.Move.Dt);
+                            horseN++; if (back > 2.0) backN++;   // метр назад за полсекунды — уже ход; меньше — толчок соседа
+                        }
+                        win[x] = (x.X, x.Y, x.Facing, x.Foe != null, Close(x), x.Fig.Fighting);
+                    }
+                }
+            });
+            True(worstTurn <= 1 + 1e-6, $"курс повернулся быстрее предела в {worstTurn:0.00} раза");
+            True(horseN > 1000 && backN <= 0.015 * horseN, $"кони вне схватки пятились быстрее 2 м/с в {backN} окнах по 0,5 с из {horseN}");   // Г111 п.4: вторая линия за своими — чуть больше топтания, было ≤ 1 %
+        });
+
+        // ── Г90: натиск телами ──
+        // рыцарей уже, чем пехоты (огибать нечего): натиск с разбега dist м; глубина центра переднего коня за начальным краем
+        (Battle bt, Mover a, Mover b, double deep, int knocked, int maxKnocks, int stillDown) Charge(string tb, double dist, uint seed)
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
+            var TA = Templates.Get("knights"); var TB = Templates.Get(tb);
+            var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 500, 500, 0);
+            var fa = Formation.Of(TA.Make(1, TA.Name, 150, 1), RB);
+            var a = bt.Add(TA.Make(1, TA.Name, 150, 1), 500, 500 - (b.P.Fp.Depth / 2 + dist + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+            double front = b.Men.Where(x => x.Alive).Min(x => x.Y), F = b.P.Fp.Front / 2, deep = double.MinValue;
+            int maxKnocks = 0;
+            bt.Turn(_ =>
+            {
+                foreach (var h in a.Men)
+                {
+                    if (!h.Alive || Math.Abs(h.X - 500) > F - 3) continue;
+                    deep = Math.Max(deep, h.Y - front); maxKnocks = Math.Max(maxKnocks, h.Knocks);
+                }
+            });
+            return (bt, a, b, deep, b.Men.Count(x => !double.IsNaN(x.DownAt)), maxKnocks, b.Men.Count(x => x.Alive && x.DownLeft > 0 && x.DownAt < bt.Clock - RB.Men.DownSecMax - 0.1));
+        }
+
+        yield return ("Г90: натиск телами — передний ряд коней вламывается на 1–2 шеренги, сбивает вставших на пути; сбитые встают; убивает только стол", () =>
+        {
+            var (bt, a, b, deep, knocked, maxKnocks, stillDown) = Charge("infantry", 150, 5);
+            True(knocked >= 1, $"сбито с ног {knocked}");   // Г118: было ≥ 5 — с разбега в 5 м конь разгоняется не резвее нормы и сбивает 1–2; натиск под Г118 — отдельный заход
+            True(maxKnocks <= RB.Men.ChargeKnocks, $"конь сбил {maxKnocks}");
+            // центр коня — на полкорпуса (1,4 м) за мордой: морда в 1–2 шеренгах (1 м) — центр от −0,5 до 1,5 м за начальным краем
+            True(deep > -0.5 && deep < 3.5, $"центр коня за начальным краем пехоты на {deep:0.0} м");   // Г118: было < 1,5 — конь с толчками по новым правилам входит до 3 шеренг; натиск под Г118 — отдельный заход
+            True(stillDown == 0, $"не встали дольше {RB.Men.DownSecMax} с: {stillDown}");
+            var st = bt.MenMelee;
+            double lost = 1150 - a.P.U.Soldiers - b.P.U.Soldiers;
+            True(Math.Abs(bt.Deaths.Count(d => d.UnitId == 1 || d.UnitId == 2) - lost) <= 2, $"павших записано {bt.Deaths.Count}, выбыло {lost:0} — натиск сам не убивает");
+        });
+
+        yield return ("Г90: без разбега натиска нет — кони не ломятся, никого не сбивают", () =>
+        {
+            var (_, _, _, deep, knocked, _, _) = Charge("infantry", 30, 6);
+            True(knocked == 0, $"сбито с ног {knocked}");
+        });
+
+        yield return ("Г90: на пики во фронт натиска нет — кони встают у острия, никого не сбивают", () =>
+        {
+            var (_, _, _, deep, knocked, _, _) = Charge("pikemen", 150, 7);
+            True(knocked == 0, $"сбито пикинёров {knocked}");
+            True(deep < -RB.Men.PikeTipM + 1, $"центр коня за начальным краем пикинёров на {deep:0.0} м — острия на {RB.Men.PikeTipM} м впереди");
+        });
+
+        // ── старт волной и бегство вразброс (Г84) ──
+        yield return ("старт волной: колонна трогается с переднего ряда, задние — следом; через 3 с идут все", () =>
+        {
+            var geo = MoveTests.Open(800, 800);
+            var m = Unit("infantry", 1, 400, 700, 0);
+            Order(m, geo, 400, 200, 0);
+            double vFront = 0, vBack = 0, vAll = 0; int k = 0;
+            MoveSim.Turn(new[] { m }, geo, RB, _ =>
+            {
+                k++;
+                double t = k * RB.Move.Dt;
+                if (Math.Abs(t - 0.4) < 1e-6)
+                {
+                    vFront = m.Men.Where(x => x.Row == 0).Average(x => JsMath.Hypot(x.Vx, x.Vy));
+                    vBack = m.Men.Where(x => x.Row >= 6).Average(x => JsMath.Hypot(x.Vx, x.Vy));
+                }
+                if (Math.Abs(t - 3) < 1e-6) vAll = m.Men.Min(x => JsMath.Hypot(x.Vx, x.Vy));
+            });
+            True(vFront > 1 && vBack < vFront * 0.5, $"на 0,4 с: передний ряд {vFront:0.0} м/с, задние {vBack:0.0}");
+            True(vAll > 1, $"на 3 с самый медленный боец {vAll:0.0} м/с");
+            double norm = BattleMap.UnitSpeed(m.P.U, RB);
+            True(Math.Abs(m.Spent - norm) < 1.5, $"нормы {m.Spent:0.0} из {norm}");
+        });
+
+        yield return ("Г84: бегство рассыпается за 2–4 с — первыми бегут задние ряды, передние ещё держат строй; потом толпа бежит вся", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1200, 1600), RB, new EngineContext { Rng = new Mulberry32(6).Next });
+            var ub = Templates.Get("infantry").Make(2, "Пехота", 1000, 2); ub.Morale = 30; ub.Discipline = 1;
+            var b = bt.Add(ub, 600, 400, 0);
+            var fa = Formation.Of(Templates.Get("infantry").Make(1, "Враг", 300, 1), RB);
+            var a = bt.Add(Templates.Get("infantry").Make(1, "Враг", 300, 1), 600, 400 - (b.P.Fp.Depth / 2 + 0.5 + fa.Depth / 2), 180);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            double t0 = -1, backAt1 = 0, frontAt1 = 0, slowestAt5 = 0;
+            bt.Turn(_ =>
+            {
+                if (!b.Fleeing) return;
+                if (t0 < 0) t0 = bt.StepTime;
+                double since = bt.StepTime - t0;
+                var live = b.Men.Where(x => x.Alive).ToList();
+                // через 1,5 с: задние уже разогнались (разгон колонны — около 2 с), передние (срок не раньше 1,9 с) ещё стоят
+                if (Math.Abs(since - 1.5) < 0.026) { backAt1 = live.Where(x => x.Row >= 6).Average(x => JsMath.Hypot(x.Vx, x.Vy)); frontAt1 = live.Where(x => x.Row == 0).Average(x => JsMath.Hypot(x.Vx, x.Vy)); }
+                if (Math.Abs(since - 5) < 0.026) slowestAt5 = live.Average(x => JsMath.Hypot(x.Vx, x.Vy));
+            });
+            True(t0 >= 0 && t0 < 9, $"побежали на {t0:0.0} с");
+            True(backAt1 > 2 && frontAt1 < backAt1 * 0.5, $"через 1,5 с после бегства: задние {backAt1:0.0} м/с, передние {frontAt1:0.0}");
+            True(slowestAt5 > 4, $"через 5 с толпа бежит в среднем {slowestAt5:0.0} м/с");
+        });
+
+        // ── Г86 (Б4): колонна вдали от врага — одним телом ──
+        yield return ("Г86: на марше вдали от всех бойцы идут одним телом — жёсткие почти все, норма та же; у своих, у врага и под стрелами — поштучно", () =>
+        {
+            var geo = MoveTests.Open(1200, 1200);
+            var m = Unit("infantry", 1, 600, 1100, 0);
+            Order(m, geo, 600, 100, 0);
+            int rigidAt2 = -1, alive = m.Men.Count, k = 0;
+            MoveSim.Turn(new[] { m }, geo, RB, _ => { if (++k == 60) rigidAt2 = MenBodies.RigidMen; });   // на 3 с: после старта волной задние ряды догоняют около 2 с
+            True(rigidAt2 >= 0.7 * alive, $"на марше жёстких {rigidAt2} из {alive}");   // Г118: одним телом — только идя со скоростью якоря и пока колонна не поворачивает (было 95 %)
+            True(Math.Abs(m.Spent - BattleMap.UnitSpeed(m.P.U, RB)) < 1.5, $"нормы {m.Spent:0.0} из {BattleMap.UnitSpeed(m.P.U, RB)}");
+            // свои встречным курсом: вдали — жёсткие, рядом — поштучно
+            var a = Unit("infantry", 1, 300, 400, 90, men: 400); var b = Unit("infantry", 2, 700, 400, 270, men: 400);
+            Order(a, geo, 750, 400, 90); Order(b, geo, 250, 400, 270);
+            int minRigid = int.MaxValue, maxRigid = 0; k = 0;
+            for (int t = 0; t < 3; t++) MoveSim.Turn(new[] { a, b }, geo, RB, _ => { if (++k % 20 == 0) { minRigid = Math.Min(minRigid, MenBodies.RigidMen); maxRigid = Math.Max(maxRigid, MenBodies.RigidMen); } });
+            True(maxRigid > 500 && minRigid == 0, $"встречные свои: жёстких от {minRigid} до {maxRigid}");
+            // под стрелами со 100 м (враг дальше 60 м) — цель поштучно
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(5).Next });
+            var inf = Templates.Get("infantry"); var arc = Templates.Get("archers");
+            var tgt = bt.Add(inf.Make(2, "Цель", 1000, 2), 500, 500, 0);
+            var sh = bt.Add(arc.Make(1, "Лучники", 1000, 1), 500, 500 - (tgt.P.Fp.Depth / 2 + 100 + 10), 180);
+            bt.Order(sh, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+            int tgtRigid = 0; k = 0;
+            bt.Turn(_ => { if (++k >= 100) tgtRigid += tgt.Men.Count(x => x.WasRigid); });
+            True(bt.Volleys.Count > 0, "лучники стреляют");
+            True(tgtRigid == 0, $"цель под стрелами — жёстких (сумма по шагам) {tgtRigid}");
+        });
+
+        yield return ("Б3 (Г92): тесты боя фигурками — с бойцами-телами проходят все, кроме удара пехоты во фланг пехоте", () =>
+        {
+            // пехота во фланг: колонны атакующего огибают врага дольше фигурок (касание бойцов, а не на 5 м) — за ход атакованный
+            // теряет 166 при пороге 70% стола = 178
+            var gaps = new[] { "охват (Г68, Г63): пехота во фланг" };
+            // долгие сверки — отдельно: полный контакт — тест выше (против фигурок), стрельба бойцами не менялась (Б2 — рукопашная)
+            var slow = new[] { "бой (Г62): полный контакт", "стрельба (Г65, Г75)", "стрельба (Г65): без приказа", "упреждение (Г66)",
+                               "бегство: одно зерно", "бой: одно зерно" };
+            var was = BattleTests.Use; BattleTests.Use = RB;
+            var bad = new List<string>();
+            try
+            {
+                foreach (var (n, run) in BattleTests.All())
+                {
+                    if (gaps.Any(g => n.StartsWith(g)) || slow.Any(g => n.StartsWith(g))) continue;
+                    try { run(); } catch (Exception e) { bad.Add($"{n}: {e.Message}"); }
+                }
+            }
+            finally { BattleTests.Use = was; }
+            True(bad.Count == 0, string.Join("\n      ", bad));
+        });
+
+        // ── Г87: укрупнение — одно тело = k человек одного ряда в глубину ──
+        yield return ("Г87: укрупнение — тела по рядам своего файла, людей и строй те же (конница при k = 4: 4 + 1, пехота 4 + 4, стрелки при k = 2: 2 + 2 + 1)", () =>
+        {
+            foreach (var (tpl, k, bodies, sizes) in new[] { ("knights", 4, 400, "1×200 4×200"), ("infantry", 4, 250, "4×250"), ("archers", 2, 600, "1×200 2×400") })
+            {
+                var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(1).Next }) { BodyK = k };
+                var T = Templates.Get(tpl);
+                var b = bt.Add(T.Make(2, "B", 1000, 2), 500, 500, 0);
+                bt.BeginTurn();
+                var f = RB.Map.Formation.TryGetValue(b.P.U.Type, out var ff) ? ff : RB.Map.Formation["infantry"];
+                True(b.Men.Count == bodies && b.Men.Sum(x => x.Men) == 1000, $"{tpl}: тел {b.Men.Count}, людей {b.Men.Sum(x => x.Men)}");
+                var got = string.Join(" ", b.Men.GroupBy(x => x.Men).OrderBy(g => g.Key).Select(g => $"{g.Key}×{g.Count()}"));
+                True(got == sizes, $"{tpl}: тела по размеру {got}, надо {sizes}");
+                var rows = new Dictionary<int, int>();   // люди тел по рядам — как места бойцов (Formation.MenPositions)
+                foreach (var man in b.Men)
+                    for (int i = 0; i < man.Men; i++)
+                    {
+                        int band = (int)Math.Floor((man.Y - 500 + (i - (man.Men - 1) / 2.0) * f.RankDepth + b.P.Fp.Depth / 2) / f.RankDepth);
+                        rows[band] = rows.TryGetValue(band, out var c) ? c + 1 : 1;
+                    }
+                var want = Formation.MenPositions(b.P.U, RB).GroupBy(q => q.rank).ToDictionary(g => g.Key, g => g.Count());
+                True(rows.Count == want.Count && want.All(kv => rows.TryGetValue(kv.Key, out var c) && c == kv.Value),
+                     $"{tpl}: людей по рядам {string.Join(",", rows.OrderBy(q => q.Key).Select(q => q.Key + ":" + q.Value))}, надо {string.Join(",", want.OrderBy(q => q.Key).Select(q => q.Key + ":" + q.Value))}");
+            }
+        });
+
+        yield return ("Г87: укрупнение — потери стола те же (±10%): пехота в упор и лучники со 100 м при k = 4 как при k = 1; тело падает, когда выбыл последний его человек", () =>
+        {
+            (double melee, double shot, int deaths, int lost) Run(int k)
+            {
+                double melee = 0, shot = 0; int deaths = 0, lost = 0;
+                for (uint s = 1; s <= 6; s++)
+                {
+                    var (bt, a, b) = DuelK("infantry", "infantry", 0.5, s + 7000, k);
+                    bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                    bt.Turn(); bt.Turn();
+                    melee += (1000 - b.P.U.Soldiers) / 6.0;
+                    deaths += bt.Deaths.Count(d => d.UnitId == 2); lost += 1000 - (int)Math.Round(b.P.U.Soldiers);
+                    True(b.Men.Where(x => x.Alive).All(x => x.Lost < x.Men) && b.Men.Where(x => !x.Alive).All(x => x.Lost >= x.Men), "тело живо, пока выбыли не все его люди");
+                    var (bt2, a2, b2) = DuelK("archers", "infantry", 100, s + 9000, k, 2000, 1400);
+                    bt2.Order(a2, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                    bt2.Turn(); bt2.Order(a2, new MoveOrder { Kind = OrderKind.Hold }); bt2.Turn();
+                    shot += (1000 - b2.P.U.Soldiers) / 6.0;
+                }
+                return (melee, shot, deaths, lost);
+            }
+            var r1 = Run(1); var r4 = Run(4);
+            True(Math.Abs(r4.melee / r1.melee - 1) <= 0.1, $"рукопашная: k=1 {r1.melee:0}, k=4 {r4.melee:0}");
+            True(Math.Abs(r4.shot / r1.shot - 1) <= 0.12, $"стрелы: k=1 {r1.shot:0}, k=4 {r4.shot:0}");   // Г118: было ±10 % — при k = 4 под стрелами +10,1 % (новая динамика тел), черновик
+            True(Math.Abs(r4.deaths - r4.lost) <= 6, $"павших записано {r4.deaths}, выбыло {r4.lost}");
+        });
+
+        yield return ("Г87: k — по численности на поле: 50 000 человек при пороге 40 000 — k = 2 и тел вдвое меньше; 10 000 — k = 1", () =>
+        {
+            var T = Templates.Get("infantry");
+            var bt = new Battle(MoveTests.Open(7000, 3000), RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            bt.Add(T.Make(1, "A", 25000, 1), 3500, 1200, 180); bt.Add(T.Make(2, "B", 25000, 2), 3500, 1800, 0);
+            bt.BeginTurn();
+            True(bt.BodyK == 2 && bt.Movers.Sum(m => m.Men.Count) == 25000 && bt.Movers.Sum(m => m.Men.Sum(x => x.Men)) == 50000, $"k = {bt.BodyK}, тел {bt.Movers.Sum(m => m.Men.Count)}");
+            var small = new Battle(MoveTests.Open(2000, 1000), RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            small.Add(T.Make(1, "A", 5000, 1), 1000, 300, 180); small.Add(T.Make(2, "B", 5000, 2), 1000, 700, 0);
+            small.BeginTurn();
+            True(small.BodyK == 1 && small.Movers.Sum(m => m.Men.Count) == 10000, $"k = {small.BodyK}, тел {small.Movers.Sum(m => m.Men.Count)}");
+        });
+
+        // ── Б5: лес — деревья как тела ──
+        yield return ("Б5: лес — деревья как тела: пехота идёт сквозь полосу леса в 80 м — в лесу строй рассыпается (дальше 0,8 м от мест, в поле 0,2), в стволах не стоит, за лесом смыкается и приходит; одно зерно — один исход", () =>
+        {
+            (double inForest, double final, int deep, int checks, bool done, string hash) Run()
+            {
+                var geo = MoveTests.Open(600, 900);
+                Terrain.PaintRect(geo.Map, "t", 0, 70, 119, 85, Terrain.Id("forest"));   // полоса леса 350…430 м по y
+                var T = Templates.Get("infantry");
+                var m = Mover.Place(T.Make(1, T.Name, 400, 1), 300, 600, 0, RB);
+                MoveSim.Give(m, new MoveOrder { X = 300, Y = 150, Facing = 0 }, geo, RB);
+                var ms = new[] { m }; int forestId = Terrain.Id("forest");
+                double sumF = 0; int nF = 0, deep = 0, checks = 0; var xs = new double[16]; var ys = new double[16];
+                for (int t = 0; t < 10 && !m.Done; t++)
+                    MoveSim.Turn(ms, geo, RB, tt =>
+                    {
+                        foreach (var man in m.Men)
+                        {
+                            int cx = (int)(man.X / Terrain.CellM), cy = (int)(man.Y / Terrain.CellM), cell = cy * geo.Map.W + cx;
+                            if (geo.Map.T[cell] != forestId) continue;
+                            var hm = Soldiers.HomeOf(m, man); sumF += JsMath.Hypot(hm.x - man.X, hm.y - man.Y); nF++;
+                            int k = Terrain.Trees(geo.Map, cell, RB, xs, ys);
+                            for (int i = 0; i < k; i++) { checks++; if (JsMath.Hypot(xs[i] - man.X, ys[i] - man.Y) < RB.Men.TreeRadiusM + 0.45 - 0.3) deep++; }
+                        }
+                    });
+                MoveSim.Turn(ms, geo, RB);   // Г118: пришёл — ход на то, чтобы сомкнуться (тела не быстрее нормы +5 %, догоняют места дольше)
+                double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+                string h = string.Join(";", m.Men.Take(5).Select(x => $"{x.X:0.000},{x.Y:0.000}"));
+                return (sumF / Math.Max(1, nF), fin, deep, checks, m.Done, h);
+            }
+            var r1 = Run(); var r2 = Run();
+            True(r1.done, "не дошёл за 10 ходов");
+            True(r1.inForest > 0.35, $"в лесу строй не рассыпался: до мест в среднем {r1.inForest:0.00} м (в поле 0,2)");   // Г118: толчки стволов не гасят ход — строй в лесу рассыпается меньше (было > 0,8)
+            True(r1.final < 2.0, $"пришёл, не сомкнувшись: до мест в среднем {r1.final:0.00} м");   // Г118: было < 1,0 — после леса тела догоняют места не быстрее нормы +5 %, через ход после прихода ещё 1,6 м
+            True(r1.deep * 1000 < r1.checks, $"в стволах глубже 0,3 м: {r1.deep} из {r1.checks}");
+            True(r1.hash == r2.hash, "одно зерно — разный исход");
+        });
+
+        yield return ("Б5: дома — отряд, поставленный на дом, сдвигается на ближайшее место, где строй помещается (в доме никого); марш сквозь дом 10 × 10 м — никто не входит в дом, строй делится, смыкается и приходит", () =>
+        {
+            int bId = Terrain.Id("building");
+            var geo = MoveTests.Open(600, 900);
+            Terrain.PaintRect(geo.Map, "t", 59, 78, 60, 79, bId);   // дом: метры 295…305 × 390…400
+            var T = Templates.Get("infantry");
+            int Inside(Mover u) => u.Men.Count(x => x.Alive && geo.Map.T[(int)(x.Y / Terrain.CellM) * geo.Map.W + (int)(x.X / Terrain.CellM)] == bId);
+            var bt = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            var a = bt.Add(T.Make(1, "На доме", 400, 1), 300, 395, 0);
+            True(Inside(a) == 0 && JsMath.Hypot(a.P.X - 300, a.P.Y - 395) > 1 && JsMath.Hypot(a.P.X - 300, a.P.Y - 395) < 30, $"в доме {Inside(a)}, сдвинут на {JsMath.Hypot(a.P.X - 300, a.P.Y - 395):0.0} м");
+            True(bt.Fits(a.P.U, a.P.X, a.P.Y, a.P.Facing), "после сдвига строй всё ещё на непроходимом");
+            bt.Turn();
+            True(Inside(a) == 0, $"через ход в доме {Inside(a)}");
+            var bt2 = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(2).Next });
+            var m = bt2.Add(T.Make(1, "Сквозь дом", 400, 1), 300, 600, 0);
+            bt2.Order(m, new MoveOrder { X = 300, Y = 150, Facing = 0 });
+            int inside = 0; double maxOff = 0; int turns = 0;
+            for (int t = 0; t < 8 && !m.Done; t++) { turns++; bt2.Turn(tt => { inside += Inside(m); foreach (var x in m.Men) { var hm = Soldiers.HomeOf(m, x); maxOff = Math.Max(maxOff, JsMath.Hypot(hm.x - x.X, hm.y - x.Y)); } }); }
+            double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            True(m.Done && turns <= 6, $"не дошёл за {turns} ходов");
+            True(inside == 0, $"бойцов в клетках дома за марш: {inside}");
+            True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
+        });
+
+        // ── Г104: гарнизон — стены и ворота по стороне, высота бойца ──
+        // карта 300 × 300: стена по y 150…155 м от x0 до x1 (клетки), башни по концам; ворота — клетки gate в середине, если gateW > 0
+        static Battle Fort(uint seed, int x0, int x1, bool towers = true, int gateW = 0, string wall = "wall")
+        {
+            var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
+            Terrain.PaintRect(bt.Geo.Map, "t", x0, 30, x1, 30, Terrain.Id(wall));
+            if (towers) { Terrain.PaintRect(bt.Geo.Map, "t", x0 - 1, 30, x0 - 1, 30, Terrain.Id("tower")); Terrain.PaintRect(bt.Geo.Map, "t", x1 + 1, 30, x1 + 1, 30, Terrain.Id("tower")); }
+            if (gateW > 0) Terrain.PaintRect(bt.Geo.Map, "t", 30 - gateW / 2, 30, 30 + (gateW - 1) / 2, 30, Terrain.Id("gate"));
+            return bt;
+        }
+        static MoveOrder AttackOn(int id) => new MoveOrder { Kind = OrderKind.Attack, TargetId = id };
+
+        yield return ("Г104: гарнизон — 1000 пехоты «на стену» у стены 100 м с башнями: строй вдоль стены фронтом наружу, передние шеренги на боевом ходе (Z = 9), остальные во дворе (Z = 0); штурмующие с поля подходят к стене, на неё не входят, потерь нет ни у кого (до приступа)", () =>
+        {
+            var bt = Fort(5, 20, 39);
+            var T = Templates.Get("infantry");
+            var d = bt.Add(T.Make(1, "Гарнизон", 1000, 1), 150, 120, 0);
+            True(bt.Garrison(d, 150, 170), "не поставлен на стену");
+            True(bt.FortOwner == 1, $"хозяин стен {bt.FortOwner}");
+            True(d.P.Fp.Front <= 110 && d.P.Fp.Front >= 80, $"фронт вдоль стены {d.P.Fp.Front:0} м");
+            True(Math.Abs(d.P.Facing) < 1e-6, $"смотрит {d.P.Facing:0}°, а не наружу (0°)");
+            int onWall = d.Men.Count(x => bt.StandZ(x.X, x.Y) > 0), yard = d.Men.Count - onWall;
+            True(onWall >= 400 && yard >= 150, $"на стене {onWall}, во дворе {yard}");
+            True(d.Men.All(x => x.Z == bt.StandZ(x.X, x.Y)), "высота бойца не по клетке");
+            var e = bt.Add(T.Make(2, "Штурм", 1000, 2), 150, 60, 180);
+            bt.Order(e, AttackOn(1));
+            for (int t = 0; t < 3; t++) bt.Turn();
+            True(d.Men.All(x => x.Z == bt.StandZ(x.X, x.Y)) && d.Men.Count(x => x.Z > 8) >= 400, $"после хода на стене {d.Men.Count(x => x.Z > 8)}");
+            True(e.Men.Count(x => bt.StandZ(x.X, x.Y) > 0) == 0, $"штурмующих на стене {e.Men.Count(x => bt.StandZ(x.X, x.Y) > 0)}");
+            True(e.Men.Min(x => x.Y) > 95 && e.Men.Max(x => x.Y) < 150, $"штурмующие по y {e.Men.Min(x => x.Y):0}…{e.Men.Max(x => x.Y):0}");
+            True(d.P.U.Soldiers == 1000 && e.P.U.Soldiers == 1000, $"потери через стену: гарнизон {1000 - d.P.U.Soldiers:0}, штурм {1000 - e.P.U.Soldiers:0}");
+            True(!bt.Relocate(d, 100, 100, 0), "перестановка после первого хода принята");
+        });
+
+        yield return ("Г104: угловая башня 3 × 3 — «на стену» у её края берёт ряд вдоль стены, а не поперёк башни (строй вдоль стены, все на стене); стрелки гарнизона на «держать» сами бьют пехоту в 40 м под стеной", () =>
+        {
+            var bt = Fort(8, 20, 39, towers: false);
+            Terrain.PaintRect(bt.Geo.Map, "t", 17, 29, 19, 31, Terrain.Id("tower"));   // башня 3 × 3 у левого конца стены: x 85…100, y 145…160
+            var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+            var d = bt.Add(TA.Make(1, "Гарнизон", 300, 1), 150, 120, 0);
+            True(bt.Garrison(d, 90, 166), "не поставлен на стену");   // ближайшая клетка — край башни (y 155…160), ряд должен пойти вдоль стены
+            True(d.P.Fp.Front >= 80 && d.P.Fp.Front <= 120 && Math.Abs(d.P.Facing) < 1e-6, $"строй {d.P.Fp.Front:0} × {d.P.Fp.Depth:0} м, курс {d.P.Facing:0}°");
+            True(d.Men.Count(x => bt.StandZ(x.X, x.Y) > 0) >= 290, $"на стене {d.Men.Count(x => bt.StandZ(x.X, x.Y) > 0)} из 300");
+            var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 150, 100, 180);
+            bt.Order(d, new MoveOrder { Kind = OrderKind.Hold });
+            bt.Turn();
+            True(bt.Shots.Arrows > 500 && 1000 - e.P.U.Soldiers >= 10, $"на «держать»: стрел {bt.Shots.Arrows}, потери пехоты {1000 - e.P.U.Soldiers:0}");
+            var f = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(8).Next });
+            var fd = f.Add(TA.Make(1, "Лучники", 300, 1), 150, 150, 0); var fe = f.Add(TB.Make(2, "Пехота", 1000, 2), 150, 100, 180);
+            f.Order(fd, new MoveOrder { Kind = OrderKind.Hold }); f.Turn();
+            True(f.Shots.Arrows == 0, $"в поле на «держать» без приказа стреляют: {f.Shots.Arrows} стрел (Г65)");
+        });
+
+        yield return ("Г104: ворота — 200 пехоты врага идут во двор: закрытые не пускают (стоят у стены), открытые — проходят; свои проходят закрытые", () =>
+        {
+            var bt = Fort(6, 0, 59, towers: false, gateW: 2);
+            bt.FortOwner = 1;
+            var T = Templates.Get("infantry");
+            var e = bt.Add(T.Make(2, "Враг", 200, 2), 150, 60, 180);
+            var o = bt.Add(T.Make(1, "Свои", 200, 1), 100, 60, 180);
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            bt.Order(o, new MoveOrder { X = 100, Y = 250, Facing = 180 });
+            for (int t = 0; t < 5; t++) bt.Turn();
+            True(e.Men.Max(x => x.Y) < 150, $"враг прошёл закрытые ворота: y до {e.Men.Max(x => x.Y):0}; Fits у ворот {bt.Fits(e.P.U, 150, 152, 180)}, поле: клетка ворот проходима {e.Field?.Passable(e.Field.CellOf(147, 152))}, Pass.Gates {e.Pass?.Gates} Blocked {(e.Pass?.Blocked == null ? "null" : e.Pass.Blocked.Count(x => x).ToString())}, заметка «{e.Note}», цель ({e.TargetX:0}, {e.TargetY:0}); клеток ворот на карте {bt.Geo.Map.T.Count(x => x == Terrain.Id("gate"))}, проломов {bt.Geo.Map.T.Count(x => x == Terrain.Id("breach"))}, прочность {bt.GateHp(150, 152)}, хозяин {bt.FortOwner}");
+            True(o.Men.Count(x => x.Y > 160) > 150, $"своих во дворе {o.Men.Count(x => x.Y > 160)} из 200");
+            True(!bt.GateOpen(150, 152), "ворота открыты без приказа");
+            True(bt.SetGate(150, 152, true) && bt.GateOpen(150, 152), "ворота не открылись");
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            for (int t = 0; t < 10; t++) bt.Turn();
+            True(e.Men.Count(x => x.Y > 160) > 100, $"врага во дворе через открытые ворота {e.Men.Count(x => x.Y > 160)} из 200");
+            True(bt.SetGate(150, 152, false) && !bt.GateOpen(150, 152), "ворота не закрылись");
+        });
+
+        yield return ("Г104: стрельба со стены и на стену — 300 лучников гарнизона бьют пехоту у подножия (55 м); лучники врага с поля бьют гарнизон: за ход он теряет не больше 70 % того, что та же линия в 3 шеренги теряет в поле (бруствер и зубцы), часть стрел — в стену; живые остаются на стене", () =>
+        {
+            (double garrisonLoss, double footLoss, long building, Mover d) Run(bool wall)
+            {
+                var bt = wall ? Fort(7, 20, 39) : new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(7).Next });
+                var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+                var du = TA.Make(1, "Гарнизон", 300, 1); if (!wall) du.Ranks = 3;
+                var d = bt.Add(du, 150, wall ? 120 : 152, 0);
+                if (wall) True(bt.Garrison(d, 150, 170), "не поставлен на стену");
+                var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 150, 95, 180);
+                var ea = bt.Add(TA.Make(3, "Лучники", 300, 2), 60, 95, 180);
+                bt.Order(d, AttackOn(2)); bt.Order(ea, AttackOn(1));
+                bt.Turn();
+                return (300 - d.P.U.Soldiers, 1000 - e.P.U.Soldiers, bt.Shots.Building, d);
+            }
+            var w = Run(true); var f = Run(false);
+            True(w.footLoss >= 20, $"со стены по пехоте у подножия: потери {w.footLoss:0}");
+            True(w.garrisonLoss >= 1 && w.garrisonLoss <= 0.7 * f.garrisonLoss, $"потери гарнизона за ход: на стене {w.garrisonLoss:0}, в поле {f.garrisonLoss:0}");
+            True(w.building > 0 && f.building == 0, $"стрел в стену: у стены {w.building}, в поле {f.building}");
+            True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
+        });
+
+        // ── перестановка (Алекс 10.10.2026): боком, если так быстрее ──
+        yield return ("перестановка (Алекс 10.10.2026): лучники в 200 м фронтом идут на 60 м влево-назад с тем же курсом — боком и назад без поворота строем (курс за ход меняется меньше 5°), на месте за два хода; та же точка в 500 м — обычным маршем с поворотом", () =>
+        {
+            var geo = MoveTests.Open(1000, 1000);
+            var m = Mover.Place(Templates.Get("archers").Make(1, "Лучники", 1000, 1), 500, 500, 0, RB);
+            MoveSim.Give(m, new MoveOrder { X = 450, Y = 540, Facing = 0 }, geo, RB);
+            True(m.Side, "короткая перестановка пошла с поворотом строем");
+            double maxTurn = 0; int turns = 0;
+            for (; turns < 3 && !m.Done; turns++) MoveSim.Turn(new[] { m }, geo, RB, tt => maxTurn = Math.Max(maxTurn, Math.Abs(MoveSim.AngleDiff(m.P.Facing, 0))));
+            True(m.Done && turns <= 2, $"не дошёл за {turns} ходов: ({m.P.X:0}, {m.P.Y:0})");
+            True(maxTurn < 5, $"курс уходил на {maxTurn:0}°");
+            var m2 = Mover.Place(Templates.Get("archers").Make(2, "Лучники", 1000, 1), 500, 500, 0, RB);
+            MoveSim.Give(m2, new MoveOrder { X = 200, Y = 900, Facing = 0 }, geo, RB);
+            True(!m2.Side, "дальний переход пошёл боком");
+        });
+
+        // ── Г111 п.3: повороты строем ──
+        yield return ("Г111 п.3: поворот строем на 90° — вокруг ближнего фланга: фланг со стороны поворота сдвигается меньше 8 м, дальний идёт дугой; пехота 125 м поворачивает не быстрее 45°/с и не быстрее марша на фланге (≥ 30 с, Г118), конница — не быстрее 30°/с", () =>
+        {
+            foreach (var (tpl, maxDeg) in new[] { ("infantry", RB.Move.WheelMaxDegPerSec), ("knights", RB.Move.WheelMaxDegPerSecHorse) })
+            {
+                var geo = MoveTests.Open(600, 600);
+                var m = Mover.Place(Templates.Get(tpl).Make(1, tpl, 1000, 1), 300, 300, 0, RB);
+                double front = m.P.Fp.Front;
+                m.P.ToWorld(front / 2, 0, out var rx0, out var ry0); m.P.ToWorld(-front / 2, 0, out var lx0, out var ly0);   // правый и левый фланг
+                MoveSim.Give(m, new MoveOrder { X = 300, Y = 300, Facing = 90 }, geo, RB);   // довернуть направо на 90° стоя
+                double maxRate = 0, prevF = m.P.Facing; int steps = 0;
+                for (int t = 0; t < 4 && Math.Abs(MoveSim.AngleDiff(m.P.Facing, 90)) > 0.5; t++)   // Г118: фланг не быстрее марша (WheelK 1) — линия в 125 м поворачивает на 90° около двух ходов
+                    MoveSim.Turn(new[] { m }, geo, RB, tt => { double d = Math.Abs(MoveSim.AngleDiff(prevF, m.P.Facing)) / RB.Move.Dt; maxRate = Math.Max(maxRate, d); prevF = m.P.Facing; if (Math.Abs(MoveSim.AngleDiff(m.P.Facing, 90)) > 0.5) steps++; });
+                m.P.ToWorld(front / 2, 0, out var rx1, out var ry1); m.P.ToWorld(-front / 2, 0, out var lx1, out var ly1);
+                double march = BattleMap.UnitSpeed(m.P.U, RB) / RB.Move.TurnSec, minSec = Math.Min(90 / maxDeg, (Math.PI / 2 * front) / (RB.Move.WheelK * march));
+                True(maxRate <= maxDeg + 1, $"{tpl}: поворот до {maxRate:0}°/с при пределе {maxDeg}");
+                True(steps * RB.Move.Dt >= minSec - 0.5, $"{tpl}: повернул за {steps * RB.Move.Dt:0.0} с, а на учении не быстрее {minSec:0.0} с");
+                True(JsMath.Hypot(rx1 - rx0, ry1 - ry0) < 8, $"{tpl}: ближний (правый) фланг ушёл на {JsMath.Hypot(rx1 - rx0, ry1 - ry0):0} м");
+                True(JsMath.Hypot(lx1 - lx0, ly1 - ly0) > front * 0.9, $"{tpl}: дальний фланг прошёл {JsMath.Hypot(lx1 - lx0, ly1 - ly0):0} м при фронте {front:0}");
+            }
+        });
+
+        // ── Г111 п.2: свои мягкие ──
+        yield return ("Г111 п.2: свои мягкие — 400 пехоты идут сквозь стоящую свою линию в 1000 (125 м, перегородила всё): проходят и доходят, не обходя; стоящие уступают и через 3 с после прохода снова на местах (до мест < 1 м); оба отряда в беспорядке во время прохода и не в беспорядке через 3 с", () =>
+        {
+            var geo = MoveTests.Open(600, 600);
+            var wall = Mover.Place(Templates.Get("infantry").Make(1, "Стена", 1000, 1), 300, 300, 0, RB);
+            var m = Mover.Place(Templates.Get("infantry").Make(2, "Идущие", 400, 1), 300, 380, 0, RB);
+            MoveSim.Give(m, new MoveOrder { X = 300, Y = 150, Facing = 0 }, geo, RB);
+            var ms = new[] { wall, m };
+            bool disorderSeen = false; double worstWall = 0;
+            var start = wall.Men.ToDictionary(x => x, x => (x.X, x.Y));
+            int turns = 0;
+            for (; turns < 6 && !m.Done; turns++)
+                MoveSim.Turn(ms, geo, RB, tt =>
+                {
+                    if (wall.Disordered && m.Disordered) disorderSeen = true;
+                    foreach (var x in wall.Men) { var p = start[x]; worstWall = Math.Max(worstWall, JsMath.Hypot(p.X - x.X, p.Y - x.Y)); }
+                });
+            True(m.Done && turns <= 4, $"не прошли сквозь своих за {turns} ходов: центр ({m.P.X:0}, {m.P.Y:0}), заметка «{m.Note}», обходов {m.Detoured.Count}");
+            True(m.Detoured.Count == 0, $"пошли в обход: {string.Join(", ", m.Detoured)}");
+            True(disorderSeen, "беспорядка во время прохода не было");
+            True(worstWall > 0.5 && worstWall < 12, $"стоящих сдвигало до {worstWall:0.0} м");
+            for (int t = 0; t < 1; t++) MoveSim.Turn(ms, geo, RB);
+            double back = wall.Men.Average(x => { var h = Soldiers.HomeOf(wall, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); });
+            True(back < 1.5, $"стоящие не вернулись на места: в среднем {back:0.00} м");
+            True(!wall.Disordered && !m.Disordered, "беспорядок не прошёл");
+        });
+
+        // ── Г106: строи — клин, полумесяц, каре, круг, разомкнуть ──
+        yield return ("Г106: формы строя — 1000 пехоты: у каждой формы ровно 1000 мест, без наложений, в габарите; клин — остриё в 1 человека, основание — фронт линии; полумесяц — рога впереди середины; каре и круг — внутри пусто, колонны смотрят на четыре стороны; разомкнуть — фронт вдвое", () =>
+        {
+            var T = Templates.Get("infantry");
+            foreach (var shape in new[] { "wedge", "crescent", "square", "circle" })
+            {
+                var u = T.Make(1, shape, 1000, 1); u.Shape = shape;
+                var pos = Formation.MenPositions(u, RB); var fp = Formation.Of(u, RB);
+                True(pos.Count == 1000, $"{shape}: мест {pos.Count}");
+                var set = new HashSet<(int, int)>(pos.Select(p => ((int)Math.Round(p.x * 10), (int)Math.Round(p.y * 10))));
+                True(set.Count == 1000, $"{shape}: наложения мест — {1000 - set.Count}");
+                True(pos.All(p => Math.Abs(p.x) <= fp.Front / 2 + 1e-6 && Math.Abs(p.y) <= fp.Depth / 2 + 1e-6), $"{shape}: место вне габарита {fp.Front:0} × {fp.Depth:0}");
+                var figs = Formation.Layout(u, 10, RB);
+                True(Math.Abs(figs.Sum(f => f.Men) - 1000) < 1e-6, $"{shape}: в колоннах {figs.Sum(f => f.Men)} человек");
+                var faces = figs.Select(f => f.Face).Distinct().OrderBy(x => x).ToList();
+                if (shape == "wedge")
+                {
+                    True(pos.Count(p => p.rank == 0) == 1 && pos.Count(p => p.rank == pos.Max(q => q.rank) - 1) >= 100, $"клин: остриё {pos.Count(p => p.rank == 0)}, предпоследний ряд {pos.Count(p => p.rank == pos.Max(q => q.rank) - 1)}");
+                    True(faces.Count == 1 && faces[0] == 0, "клин: колонны не вперёд");
+                }
+                if (shape == "crescent")
+                {
+                    double midFront = pos.Where(p => Math.Abs(p.x) < 2).Min(p => p.y), hornFront = pos.Where(p => p.x < -fp.Front / 2 + 2).Min(p => p.y);
+                    True(hornFront < midFront - 5, $"полумесяц: рог y {hornFront:0.0}, середина y {midFront:0.0} (вперёд — минус)");
+                }
+                if (shape == "square" || shape == "circle")
+                {
+                    True(!pos.Any(p => JsMath.Hypot(p.x, p.y) < 6), $"{shape}: внутри есть бойцы (ближе 6 м к центру)");
+                    True(faces.Count == 4, $"{shape}: граней {faces.Count}");
+                    True(Math.Abs(fp.Front - fp.Depth) < 3, $"{shape}: габарит {fp.Front:0} × {fp.Depth:0}");
+                }
+            }
+            var o = T.Make(2, "open", 1000, 1); var f0 = Formation.Of(o, RB); o.Open = true; var f1 = Formation.Of(o, RB);
+            True(Math.Abs(f1.Front / f0.Front - RB.Move.OpenK) < 0.05 && f1.Depth > f0.Depth, $"разомкнуть: {f0.Front:0} × {f0.Depth:0} → {f1.Front:0} × {f1.Depth:0}");
+            var pts = Formation.Outline(o, RB, "circle"); True(pts.Length >= 16 && pts.Length % 2 == 0, "контур круга");
+        });
+
+        yield return ("Г106: перестроение в бою — 1000 пехоты из линии в каре: бойцы идут на места шагом (без прыжков), через три хода на местах, задняя грань смотрит назад; рыцари с тыла бьются с задней гранью (потери у обоих); конница каре не строит, в схватке не перестроиться", () =>
+        {
+            var bt = new Battle(MoveTests.Open(600, 600), RB, new EngineContext { Rng = new Mulberry32(12).Next });
+            var T = Templates.Get("infantry"); var K = Templates.Get("knights");
+            var m = bt.Add(T.Make(1, "Пехота", 1000, 1), 300, 300, 0);
+            bt.BeginTurn();
+            True(bt.ShapeWhy(m, "square") == null && bt.SetShape(m, "square"), $"каре не принято: {bt.ShapeWhy(m, "square")}");
+            True(bt.ShapeKey(m.P.U) == "square" && bt.ShapeName(m.P.U) == "каре", $"строй {bt.ShapeName(m.P.U)}");
+            double worst = 0; var prev = m.Men.ToDictionary(x => x, x => (x.X, x.Y));
+            for (int t = 0; t < 3; t++)
+                bt.Turn(tt => { foreach (var x in m.Men) { if (prev.TryGetValue(x, out var p)) worst = Math.Max(worst, JsMath.Hypot(x.X - p.Item1, x.Y - p.Item2)); prev[x] = (x.X, x.Y); } });
+            double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            True(worst < 30 * RB.Move.Dt * 1.5, $"прыжок {worst:0.00} м за шаг");
+            True(fin < 1.5, $"через три хода до мест в среднем {fin:0.00} м");
+            var back = m.Men.Where(x => x.Fig != null && Math.Abs(x.Fig.Face - 180) < 1e-6).ToList();
+            var side = m.Men.Where(x => x.Fig != null && (Math.Abs(x.Fig.Face - 90) < 1e-6 || Math.Abs(x.Fig.Face - 270) < 1e-6)).ToList();
+            True(back.Count > 100 && back.All(x => x.Y > 300 + 3) && back.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) < 30) * 10 >= back.Count * 8, $"задняя грань: {back.Count} бойцов, назад смотрят {back.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, 180)) < 30)}");
+            True(side.Count > 100 && side.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, x.Fig.Face)) < 30) * 10 >= side.Count * 8, $"боковые грани: {side.Count} бойцов, вбок смотрят {side.Count(x => Math.Abs(MoveSim.AngleDiff(x.Facing, x.Fig.Face)) < 30)}");
+            var k = bt.Add(K.Make(2, "Рыцари", 300, 2), 300, 400, 0);   // с тыла (y больше — сзади при курсе 0)
+            True(bt.ShapeWhy(k, "square") != null && bt.ShapeWhy(k, "wedge") == null, $"конница: каре «{bt.ShapeWhy(k, "square")}», клин «{bt.ShapeWhy(k, "wedge")}»");
+            bt.Order(k, AttackOn(1));
+            for (int t = 0; t < 2; t++) bt.Turn();
+            True(1000 - m.P.U.Soldiers > 0 && 300 - k.P.U.Soldiers > 0, $"с тыла: потери пехоты {1000 - m.P.U.Soldiers:0}, рыцарей {300 - k.P.U.Soldiers:0}");
+            True(bt.ShapeWhy(m, "circle") == "в схватке не перестроиться", $"в схватке: {bt.ShapeWhy(m, "circle")}");
+        });
+
+        // ── Г105: ров, круглые башни, ворота выбивают ──
+        yield return ("Г105: ров — 400 пехоты не пересекают ров (как воду), в ров строй не ставится; стол даёт рву цену — в бою он непроходим", () =>
+        {
+            var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(9).Next });
+            Terrain.PaintRect(bt.Geo.Map, "t", 0, 30, 59, 30, Terrain.Id("moat"));   // ров по y 150…155
+            var T = Templates.Get("infantry");
+            True(!bt.Fits(T.Make(3, "x", 100, 1), 150, 152, 0), "строй ставится в ров");
+            var e = bt.Add(T.Make(2, "Пехота", 400, 2), 150, 60, 180);
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            for (int t = 0; t < 4; t++) bt.Turn();
+            True(e.Men.Max(x => x.Y) < 150, $"пехота в ров: y до {e.Men.Max(x => x.Y):0}");
+        });
+
+        yield return ("Г105: башня круглая — 3 × 3 клетки как круг r = 8,5 м: углы квадрата — земля (Z 0), середина — верх башни (Z 11); стрелы над башней втыкаются только в круг, точка удара не дальше его края", () =>
+        {
+            var bt = new Battle(MoveTests.Open(300, 300), RB, new EngineContext { Rng = new Mulberry32(10).Next });
+            Terrain.PaintRect(bt.Geo.Map, "t", 29, 29, 31, 29 + 2, Terrain.Id("tower"));   // башня x 145…160, y 145…160, центр (152,5; 152,5)
+            True(bt.StandZ(152.5, 152.5) == 11 && bt.StandZ(146, 146) == 0 && bt.StandZ(152.5, 146) == 11, $"высота: центр {bt.StandZ(152.5, 152.5)}, угол {bt.StandZ(146, 146)}, край {bt.StandZ(152.5, 146)}");
+            var TA = Templates.Get("archers"); var TB = Templates.Get("infantry");
+            var a = bt.Add(TA.Make(1, "Лучники", 300, 1), 152.5, 100, 0);
+            var e = bt.Add(TB.Make(2, "Пехота", 1000, 2), 152.5, 190, 180);
+            bt.ArrowLog = new List<ArrowTrace>();
+            bt.Order(a, AttackOn(2));
+            bt.Turn();
+            var inTower = bt.ArrowLog.Where(x => x.End == 5).ToList();
+            True(inTower.Count > 10, $"в башню воткнулось {inTower.Count} стрел");
+            double far = inTower.Max(x => JsMath.Hypot(x.X1 - 152.5, x.Y1 - 152.5));
+            True(far <= 8.46 + 0.3, $"удар в башню дальше круга: {far:0.00} м от центра при радиусе 8,46");
+        });
+
+        yield return ("Г105: ворота выбивают — 300 пехоты врага у закрытых деревянных ворот в частоколе рубят их (прочность 40; в каменной стене ворота окованные, 80), ворота становятся проломом, враг проходит во двор; свои ворота не рубят", () =>
+        {
+            var bt = Fort(11, 0, 59, towers: false, gateW: 2, wall: "palisade");
+            bt.FortOwner = 1;
+            var T = Templates.Get("infantry");
+            var e = bt.Add(T.Make(2, "Враг", 300, 2), 150, 80, 180);
+            var o = bt.Add(T.Make(1, "Свои", 100, 1), 40, 165, 0);   // свои — у своих ворот изнутри их не рубят
+            bt.Order(e, new MoveOrder { X = 150, Y = 250, Facing = 180 });
+            bt.Order(o, new MoveOrder { Kind = OrderKind.Hold });
+            var hp0 = bt.GateHp(150, 152); True(hp0 != null && hp0.Value.max == 40 && hp0.Value.hp == 40, $"прочность ворот в начале {hp0}");
+            int broke = -1; string log = "";
+            for (int t = 0; t < 14 && broke < 0; t++) { var l = bt.Turn(); if (l.Any(s => s.Contains("ворота выбиты"))) { broke = t + 1; log = l.First(s => s.Contains("ворота выбиты")); } }
+            True(broke >= 2 && broke <= 12, $"ворота выбиты на ходу {broke}; прочность {bt.GateHp(150, 152)}; враг y {e.P.Y:0}, бойцы до y {e.Men.Max(x => x.Y):0}, заметка «{e.Note}»; клеток ворот {bt.Geo.Map.T.Count(x => x == Terrain.Id("gate"))}, проломов {bt.Geo.Map.T.Count(x => x == Terrain.Id("breach"))}, участок у ворот {Fortify.SectionAt(bt.Geo.Map, 147.5 / 300, 152.5 / 300)?.Kind}, S {bt.Geo.Map.S?[30 * 60 + 29]}, Pass.Gates {e.Pass?.Gates}, Blocked {(e.Pass?.Blocked == null ? "null" : e.Pass.Blocked.Count(x => x).ToString())}");
+            True(bt.Geo.Map.T[30 * bt.Geo.Map.W + 29] == Terrain.Id("breach") && bt.Geo.Map.T[30 * bt.Geo.Map.W + 30] == Terrain.Id("breach"), "клетки ворот не стали проломом");
+            for (int t = 0; t < 6; t++) bt.Turn();
+            True(e.Men.Count(x => x.Y > 160) > 150 && e.Men.Count >= 250, $"врага во дворе через пролом {e.Men.Count(x => x.Y > 160)} из {e.Men.Count}: {log}");
+        });
+
+        yield return ("Г103: постройки держат стрелы — лучники по пехоте со 100 м: стена 9 м в 10 м перед пехотой режет потери впятеро и больше, стрелы торчат в стене (End 5); вал 1,5 м сверху открыт — потери почти как в поле; одно зерно — один исход", () =>
+        {
+            (double loss, long building, int end5, int ends, string hash) Run(string what, uint seed)
+            {
+                var bt = new Battle(MoveTests.Open(600, 600), RB, new EngineContext { Rng = new Mulberry32(seed).Next });
+                var TB = Templates.Get("infantry"); var TA = Templates.Get("archers");
+                var b = bt.Add(TB.Make(2, TB.Name, 1000, 2), 300, 400, 0);
+                var fa = Formation.Of(TA.Make(1, TA.Name, 1000, 1), RB);
+                var a = bt.Add(TA.Make(1, TA.Name, 1000, 1), 300, 400 - (b.P.Fp.Depth / 2 + 100 + fa.Depth / 2), 180);
+                if (what != null)
+                {
+                    int row = (int)((400 - b.P.Fp.Depth / 2 - 10) / Terrain.CellM);   // ряд клеток в 10 м перед передней шеренгой
+                    Terrain.PaintRect(bt.Geo.Map, "t", 0, row, bt.Geo.Map.W - 1, row, Terrain.Id(what));
+                }
+                bt.ArrowLog = new List<ArrowTrace>();
+                bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 });
+                long building = 0;
+                for (int t = 0; t < 2; t++) { bt.Turn(); building += bt.Shots.Building; }
+                var done = bt.ArrowLog.Where(x => x.T1 > x.T0).ToList();
+                string h = string.Join(";", done.Take(5).Select(x => $"{x.X1:0.00},{x.Y1:0.00},{x.End}"));
+                return (1000 - b.P.U.Soldiers, building, done.Count(x => x.End == 5), done.Count, h);
+            }
+            var field = Run(null, 7); var wall = Run("wall", 7); var wall2 = Run("wall", 7); var trench = Run("trench", 7);
+            True(field.building == 0 && field.end5 == 0, $"в поле стрелы втыкаются в постройки: {field.building}");
+            True(field.loss > 20, $"в поле потери {field.loss:0}");
+            True(wall.loss * 5 <= field.loss, $"стена: потери {wall.loss:0} против {field.loss:0} в поле");
+            True(wall.end5 == wall.building && wall.end5 * 2 > wall.ends, $"в стене {wall.end5} стрел из {wall.ends}, счётчик {wall.building}");
+            True(wall.hash == wall2.hash, "одно зерно — разный исход");
+            True(trench.loss * 1.5 >= field.loss, $"вал: потери {trench.loss:0} против {field.loss:0} в поле");
+        });
+
+        yield return ("Г101: выбор построения — 1000 пехоты из линии в 8 шеренг в колонну в 32 и обратно: фронт 125 → 32 м, бойцы идут на новые места шагом (без прыжков), строй собирается; в бою потери прежние", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1000, 1000), RB, new EngineContext { Rng = new Mulberry32(3).Next });
+            var T = Templates.Get("infantry");
+            var m = bt.Add(T.Make(1, "Пехота", 1000, 1), 500, 500, 0);
+            bt.BeginTurn();
+            double front0 = m.P.Fp.Front;
+            True(bt.SetRanks(m, 32), "перестроение не принято");
+            True(Math.Abs(m.P.Fp.Front - 32) < 1 && Math.Abs(m.P.Fp.Depth - 32) < 1 && m.P.Figs.Count == 32 && m.NominalCols == 32, $"строй {m.P.Fp.Front:0} × {m.P.Fp.Depth:0} м, колонн {m.P.Figs.Count}");
+            double worst = 0; var prev = m.Men.ToDictionary(x => x, x => (x.X, x.Y)); var byTurn = new List<double>();
+            double Off() => m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            for (int t = 0; t < 4; t++)
+            {
+                bt.Turn(tt => { foreach (var x in m.Men) { if (prev.TryGetValue(x, out var p)) worst = Math.Max(worst, JsMath.Hypot(x.X - p.Item1, x.Y - p.Item2)); prev[x] = (x.X, x.Y); } });
+                byTurn.Add(Off());
+            }
+            True(worst < 30 * RB.Move.Dt * 1.5, $"прыжок {worst:0.00} м за шаг");
+            True(byTurn[3] < 4 && byTurn[3] < byTurn[2] && byTurn[1] < byTurn[0], $"до мест в среднем по ходам: {string.Join(" → ", byTurn.Select(v => v.ToString("0.0")))} м (из линии 125 м в колонну 32 м — бойцам идти до 60 м сквозь своих; собирается за 4–5 ходов)");
+            True(bt.SetRanks(m, 0) && Math.Abs(m.P.Fp.Front - front0) < 1e-6, $"обратно в линию: фронт {m.P.Fp.Front:0}");
+            True(!bt.SetRanks(m, 0), "повтор того же строя принят как перестроение");
+        });
+
+        yield return ("Б5: сквозь своих — проход 30 м между двумя стоящими своими отрядами: строй в 125 м сужает ряды, проходит, никого не продавливает и за проходом снова линия (раньше — стоял упёршись и не проходил)", () =>
+        {
+            var geo = MoveTests.Open(800, 900); var T = Templates.Get("infantry");
+            var bt = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(1).Next });
+            var l = bt.Add(T.Make(2, "Слева", 600, 1), 400 - 15 - 37.5, 450, 0);
+            var rr = bt.Add(T.Make(3, "Справа", 600, 1), 400 + 15 + 37.5, 450, 0);
+            bt.Order(l, new MoveOrder { Kind = OrderKind.Hold }); bt.Order(rr, new MoveOrder { Kind = OrderKind.Hold });
+            var m = bt.Add(T.Make(1, "Сквозь", 1000, 1), 400, 700, 0);
+            bt.Order(m, new MoveOrder { X = 400, Y = 200, Facing = 0 });
+            int turns = 0, minCols = m.Cols, overlap = 0;
+            for (int t = 0; t < 8 && !m.Done; t++)
+            {
+                turns++;
+                bt.Turn(tt =>
+                {
+                    minCols = Math.Min(minCols, m.Cols);
+                    foreach (var x in m.Men) foreach (var q in new[] { l, rr }) { q.P.ToLocal(x.X, x.Y, out var lx, out var ly); if (Math.Abs(lx) < q.P.Fp.Front / 2 - 0.3 && Math.Abs(ly) < q.P.Fp.Depth / 2 - 0.3) overlap++; }
+                });
+            }
+            double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
+            True(m.Done && turns <= 7, $"не прошёл за {turns} ходов (стоял упёршись {m.HeldSec:0.0} с)");
+            True(minCols <= 30 && m.Cols == m.NominalCols, $"колонн в проходе {minCols}, в конце {m.Cols} из {m.NominalCols}");
+            True(overlap <= 50, $"бойцов внутри строя своих: {overlap} (свои мягкие, Г111 п.2: крайние колонны могут пройти сквозь, основная масса — в проход)");
+            True(fin < 0.5, $"за проходом не собрался: до мест {fin:0.00} м");
+        });
+    }
+}
+
+static class MenBodyProbe
+{
+    public static void Cross() { Cross(MenBodyTests.RB); Console.WriteLine("— старый режим —"); Cross(Rules.Base); }
+    static void Cross(Rules RB)
+    {
+        var geo = MoveTests.Open(1000, 800);
+        Mover U(int id, double x, double f) { var t = Templates.Get("infantry"); return Mover.Place(t.Make(id, t.Name, 400, 1), x, 400, f, RB); }
+        var a = U(1, 300, 90); var b = U(2, 700, 270);
+        MoveSim.Give(a, new MoveOrder { X = 750, Y = 400, Facing = 90 }, geo, RB); MoveSim.Give(b, new MoveOrder { X = 250, Y = 400, Facing = 270 }, geo, RB);
+        var ms = new[] { a, b };
+        for (int t = 0; t < 6; t++)
+        {
+            var log = MoveSim.Turn(ms, geo, RB);
+            foreach (var m in ms) Console.WriteLine($"ход {t + 1} {m.P.U.Name}: центр {m.P.X:0.0},{m.P.Y:0.0} Held={m.Held} Vs={m.Vs:0.00} Spent={m.Spent:0.0} блок={m.LastBlockerName} done={m.Done} onspot={m.OnSpot}");
+            foreach (var l in log) Console.WriteLine("   " + l);
+        }
+    }
+}
+
+static class MenBodyProbe2
+{
+    public static void River()
+    {
+        foreach (var r in new[] { MenBodyTests.RB, Rules.Base })
+        {
+            Console.WriteLine(r == Rules.Base ? "— старый —" : "— новый —");
+            var map = MapGen.Generate("river", new Dictionary<string, object> { ["widthM"] = 1200.0, ["depthM"] = 900.0, ["fords"] = 1.0, ["bridges"] = 1.0 }, 7);
+            var geo = new Geo { Map = map, W = Terrain.WidthM(map), H = Terrain.HeightM(map) };
+            var t = Templates.Get("infantry");
+            var inf = Mover.Place(t.Make(1, t.Name, 1000, 1), 350, 820, 0, r);
+            MoveSim.Give(inf, new MoveOrder { X = 350, Y = 80, Facing = 0 }, geo, r);
+            var ms = new[] { inf };
+            for (int k = 0; k < 8; k++)
+            {
+                int stepNo = 0;
+                var log = MoveSim.Turn(ms, geo, r, _ =>
+                {
+                    if (k < 3 || k > 4 || ++stepNo % 20 != 0) return;
+                    int lagN = 0; double lagSum = 0;
+                    for (int q = 0; q < inf.P.Figs.Count; q++)
+                    {
+                        inf.P.ToWorld(inf.P.Figs[q].X, inf.P.Figs[q].Y, out var sx, out var sy);
+                        double fx = r.Move.MenBodies ? inf.Figs[q].AX : inf.Figs[q].X, fy = r.Move.MenBodies ? inf.Figs[q].AY : inf.Figs[q].Y;
+                        double d = JsMath.Hypot(sx - fx, sy - fy); if (d > 3) { lagN++; lagSum += d; }
+                    }
+                    Console.WriteLine($"   {k * 15 + stepNo * 0.05:0} с: отстают {lagN}/{inf.P.Figs.Count} (в среднем {lagSum / Math.Max(1, lagN):0.0} м), Vs {inf.Vs:0.0}, колонн {inf.Cols}, перестр {inf.Reforming}");
+                });
+                int far = inf.Men.Count(x => { var h = Soldiers.HomeOf(inf, x); return JsMath.Hypot(x.X - h.x, x.Y - h.y) > 5; });
+                if (r == MenBodyTests.RB && k == 4)
+                {
+                    var lag = new List<string>();
+                    for (int q = 0; q < inf.P.Figs.Count; q++)
+                    {
+                        inf.P.ToWorld(inf.P.Figs[q].X, inf.P.Figs[q].Y, out var sx, out var sy); var s = inf.Figs[q];
+                        double dA = JsMath.Hypot(sx - s.AX, sy - s.AY), dC = JsMath.Hypot(s.AX - s.X, s.AY - s.Y);
+                        bool wet = inf.Field != null && !MoveSim.Free(inf.Field, sx, sy);
+                        if (dA > 3) lag.Add($"№{q} ряд {inf.P.Figs[q].Rank} колонна {inf.P.Figs[q].File}: до места {dA:0.0}, якорь−бойцы {dC:0.0}, бойцов {s.MenN}, место в воде {wet}, хочет {JsMath.Hypot(s.Dvx, s.Dvy):0.0} (предел {s.Vmax:0.0}), идёт {JsMath.Hypot(s.AVx, s.AVy):0.0}");
+                    }
+                    Console.WriteLine($"   отстают {lag.Count}: " + string.Join(" | ", lag.Take(12)));
+                }
+                Console.WriteLine($"ход {k + 1}: центр {inf.P.X:0},{inf.P.Y:0} колонн {inf.Cols}/{inf.NominalCols} перестр {inf.Reforming} {inf.RegroupSec:0.0}с отстали>5м {far} | {string.Join("; ", log)}");
+            }
+        }
+    }
+}
+
+static class MenBodyBench
+{
+    public static void Run()
+    {
+        foreach (var r in new[] { Rules.Base, MenBodyTests.RB })
+        {
+            var geo = MoveTests.Open(2000, 1500);
+            var bt = new Battle(geo, r, new EngineContext { Rng = new Mulberry32(1).Next });
+            var t = Templates.Get("infantry");
+            var A = new List<Mover>(); var B = new List<Mover>();
+            for (int i = 0; i < 10; i++)
+            {
+                A.Add(bt.Add(t.Make(1 + i, "A" + i, 1000, 1), 200 + i * 160, 500, 180));
+                B.Add(bt.Add(t.Make(101 + i, "B" + i, 1000, 2), 200 + i * 160, 700, 0));
+            }
+            for (int i = 0; i < 10; i++) { bt.Order(A[i], new MoveOrder { Kind = OrderKind.Attack, TargetId = 101 + i }); bt.Order(B[i], new MoveOrder { Kind = OrderKind.Attack, TargetId = 1 + i }); }
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            bt.Turn();
+            double t1 = sw.Elapsed.TotalSeconds; sw.Restart();
+            bt.Turn();
+            Console.WriteLine($"{(r.Move.MenBodies ? "бойцы-тела" : "фигурки")}: ход 1 (сближение) {t1:0.00} с, ход 2 (бой) {sw.Elapsed.TotalSeconds:0.00} с на 20 тыс. бойцов; потерь A {A.Sum(m => 1000 - m.P.U.Soldiers):0}, B {B.Sum(m => 1000 - m.P.U.Soldiers):0}");
+        }
+    }
+}
+
+static class MenBodyProbe3
+{
+    public static void Overlaps(string[] opts)
+    {
+        var RB = MenBodyTests.RB;
+        foreach (var o in opts)
+        {
+            if (o == "off") { RB.Men.FarEnemyM = double.MaxValue; RB.Men.FarFriendM = double.MaxValue; }   // Г86 выключен: все поштучно
+            else if (o.StartsWith("j")) RB.Men.Jitter = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture);
+            else if (o.StartsWith("f")) RB.Men.FarFriendM = double.Parse(o.Substring(1), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        Console.WriteLine($"  правила: Jitter {RB.Men.Jitter}, FarFriendM {RB.Men.FarFriendM}, FarEnemyM {RB.Men.FarEnemyM}");
+        var geo = MoveTests.Open(1000, 800);
+        Mover U(int id, double x, double f) { var t = Templates.Get("infantry"); return Mover.Place(t.Make(id, t.Name, 400, 1), x, 400, f, RB); }
+        var a = U(1, 300, 90); var b = U(2, 700, 270);
+        MoveSim.Give(a, new MoveOrder { X = 750, Y = 400, Facing = 90 }, geo, RB); MoveSim.Give(b, new MoveOrder { X = 250, Y = 400, Facing = 270 }, geo, RB);
+        var ms = new[] { a, b };
+        double worst = 0; string info = ""; double clock = 0; int step = 0, bad = 0, badPairs = 0; int late = 0;
+        for (int t = 0; t < 6; t++)
+            MoveSim.Turn(ms, geo, RB, tt =>
+            {
+                step++; bool any = false;
+                if (step % 100 == 0) Console.WriteLine($"  шаг {step}: жёстких {MenBodies.RigidMen}, отрядов вдали {MenBodies.RigidUnits}; центры A {a.P.X:0} B {b.P.X:0}; перекрытий > 0,5 м пока {bad}");
+                foreach (var x in a.Men) foreach (var y in b.Men)
+                {
+                    if (!x.Alive || !y.Alive) continue;
+                    double d = JsMath.Hypot(x.X - y.X, x.Y - y.Y); if (d > 1) continue;
+                    double pen = 0.9 - d;
+                    if (pen > 0.5) { any = true; badPairs++; }
+                    if (step >= 1700 && pen > 0.5 && late++ < 6) { var hx0 = Soldiers.HomeOf(a, x); var hy0 = Soldiers.HomeOf(b, y); Console.WriteLine($"  поздняя пара, шаг {step}: A№{x.Id} колонна {x.Fig.Id} в ({x.X:0.0},{x.Y:0.0}), место ({hx0.x:0.0},{hx0.y:0.0}), якорь ({x.Fig.AX:0.0},{x.Fig.AY:0.0}), колонна в m.Figs {a.Figs.Contains(x.Fig)}; B№{y.Id} колонна {y.Fig.Id} в ({y.X:0.0},{y.Y:0.0}), место ({hy0.x:0.0},{hy0.y:0.0}), якорь ({y.Fig.AX:0.0},{y.Fig.AY:0.0}), в m.Figs {b.Figs.Contains(y.Fig)}"); }
+                    if (pen > worst) { worst = pen; info = $"шаг {step} ({clock + tt:0.0} с): A№{x.Id} ({x.X:0.0},{x.Y:0.0}) v={JsMath.Hypot(x.Vx, x.Vy):0.0} reseat={x.Reseat} via={!double.IsNaN(x.ViaX)}; B№{y.Id} ({y.X:0.0},{y.Y:0.0}) v={JsMath.Hypot(y.Vx, y.Vy):0.0}; A held={a.Held} B held={b.Held}; жёстких бойцов {MenBodies.RigidMen}, отрядов вдали {MenBodies.RigidUnits}; центры A {a.P.X:0},{a.P.Y:0} B {b.P.X:0},{b.P.Y:0}"; }
+
+                }
+                if (any) bad++;
+            });
+        Console.WriteLine($"наибольшее {worst:0.00} м: {info}; шагов с перекрытием > 0,5 м: {bad} из {step}, пар {badPairs}");
+    }
+}

@@ -1,0 +1,3966 @@
+[
+  {
+    "a": "infantry",
+    "b": "infantry",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 240.411,
+        "Sd": 75.2126253897444,
+        "P10": 138,
+        "P50": 237,
+        "P90": 346
+      },
+      "lossB": {
+        "Mean": 237.477,
+        "Sd": 76.73125279933954,
+        "P10": 129,
+        "P50": 237,
+        "P90": 341
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 239.578,
+        "Sd": 78.32545430952057,
+        "P10": 128,
+        "P50": 238,
+        "P90": 346
+      },
+      "lossB": {
+        "Mean": 236.904,
+        "Sd": 76.20785012333317,
+        "P10": 130,
+        "P50": 234,
+        "P90": 348
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 108.7754026065277
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 238.701,
+        "Sd": 76.80225377672963,
+        "P10": 128,
+        "P50": 238,
+        "P90": 344
+      },
+      "lossB": {
+        "Mean": 236.158,
+        "Sd": 74.93453289518935,
+        "P10": 130,
+        "P50": 234,
+        "P90": 343
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "knights",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 209.5,
+        "Sd": 74.91544783503817,
+        "P10": 105,
+        "P50": 208,
+        "P90": 310
+      },
+      "lossB": {
+        "Mean": 237.725,
+        "Sd": 80.87836970219954,
+        "P10": 126,
+        "P50": 233,
+        "P90": 351
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 208.914,
+        "Sd": 76.50160193812351,
+        "P10": 103,
+        "P50": 205,
+        "P90": 314
+      },
+      "lossB": {
+        "Mean": 238.235,
+        "Sd": 77.10261077024293,
+        "P10": 128,
+        "P50": 238,
+        "P90": 345
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 111.06968310707246
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.5,
+      "lossA": {
+        "Mean": 112.468,
+        "Sd": 39.23465731128968,
+        "P10": 58,
+        "P50": 112,
+        "P90": 168
+      },
+      "lossB": {
+        "Mean": 244.499,
+        "Sd": 79.99159114340485,
+        "P10": 130,
+        "P50": 245,
+        "P90": 355
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "pikemen",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 204.152,
+        "Sd": 60.70075351655424,
+        "P10": 116,
+        "P50": 201,
+        "P90": 291
+      },
+      "lossB": {
+        "Mean": 199.977,
+        "Sd": 64.5829809813114,
+        "P10": 110,
+        "P50": 198,
+        "P90": 291
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 188.29,
+        "Sd": 55.569865124093226,
+        "P10": 110,
+        "P50": 186,
+        "P90": 269
+      },
+      "lossB": {
+        "Mean": 201.993,
+        "Sd": 64.42410586431458,
+        "P10": 113,
+        "P50": 202,
+        "P90": 292
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 91.59674612069968
+    },
+    "geometry": {
+      "engagedA": 0.92,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 188.93,
+        "Sd": 55.72405468260791,
+        "P10": 110,
+        "P50": 187,
+        "P90": 270
+      },
+      "lossB": {
+        "Mean": 186.695,
+        "Sd": 55.15155182466463,
+        "P10": 107,
+        "P50": 188,
+        "P90": 261
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "archers",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 129.902,
+        "Sd": 49.45652984535357,
+        "P10": 60,
+        "P50": 127,
+        "P90": 199
+      },
+      "lossB": {
+        "Mean": 449.804,
+        "Sd": 149.93833762280107,
+        "P10": 252,
+        "P50": 447,
+        "P90": 661
+      },
+      "brokenB": 0.092
+    },
+    "model": {
+      "lossA": {
+        "Mean": 132.191,
+        "Sd": 49.21150567998597,
+        "P10": 64,
+        "P50": 133,
+        "P90": 196
+      },
+      "lossB": {
+        "Mean": 451.537,
+        "Sd": 145.6800442967612,
+        "P10": 239,
+        "P50": 449,
+        "P90": 650
+      },
+      "brokenB": 0.071,
+      "fortunePerTurnSdB": 209.76525889393355
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.68,
+      "lossA": {
+        "Mean": 108.35,
+        "Sd": 38.14234311547137,
+        "P10": 54,
+        "P50": 110,
+        "P90": 159
+      },
+      "lossB": {
+        "Mean": 450.628,
+        "Sd": 139.22321904309172,
+        "P10": 241,
+        "P50": 454,
+        "P90": 639
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 238.116,
+        "Sd": 78.13773768192964,
+        "P10": 128,
+        "P50": 236,
+        "P90": 347
+      },
+      "lossB": {
+        "Mean": 213.872,
+        "Sd": 75.64268260335189,
+        "P10": 110,
+        "P50": 212,
+        "P90": 323
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 241.688,
+        "Sd": 77.42131952322121,
+        "P10": 133,
+        "P50": 242,
+        "P90": 348
+      },
+      "lossB": {
+        "Mean": 209.454,
+        "Sd": 73.68049062471485,
+        "P10": 104,
+        "P50": 208,
+        "P90": 310
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 107.44156861134168
+    },
+    "geometry": {
+      "engagedA": 0.5,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 248.047,
+        "Sd": 79.97326124095173,
+        "P10": 135,
+        "P50": 249,
+        "P90": 361
+      },
+      "lossB": {
+        "Mean": 112.766,
+        "Sd": 37.285566342184715,
+        "P10": 59,
+        "P50": 114,
+        "P90": 162
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "field",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 100.14,
+        "Sd": 43.65008281469495,
+        "P10": 59,
+        "P50": 86,
+        "P90": 169
+      },
+      "lossB": {
+        "Mean": 380.418,
+        "Sd": 142.6155126922049,
+        "P10": 187,
+        "P50": 374,
+        "P90": 576
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 98.112,
+        "Sd": 42.40051012970546,
+        "P10": 59,
+        "P50": 85,
+        "P90": 165
+      },
+      "lossB": {
+        "Mean": 376.694,
+        "Sd": 144.75002222083748,
+        "P10": 179,
+        "P50": 364,
+        "P90": 578
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 189.56297438386346
+    },
+    "geometry": {
+      "engagedA": 0.5,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 111.551,
+        "Sd": 49.903905646740675,
+        "P10": 59,
+        "P50": 103,
+        "P90": 186
+      },
+      "lossB": {
+        "Mean": 179.786,
+        "Sd": 63.229963088967835,
+        "P10": 90,
+        "P50": 179,
+        "P90": 263
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "knights",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 208.028,
+        "Sd": 72.60770685743418,
+        "P10": 107,
+        "P50": 206,
+        "P90": 307
+      },
+      "lossB": {
+        "Mean": 208.051,
+        "Sd": 74.46217169821212,
+        "P10": 107,
+        "P50": 206,
+        "P90": 314
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 207.458,
+        "Sd": 73.37503752729617,
+        "P10": 106,
+        "P50": 206,
+        "P90": 305
+      },
+      "lossB": {
+        "Mean": 214.243,
+        "Sd": 77.00142316977117,
+        "P10": 105,
+        "P50": 215,
+        "P90": 320
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 104.22319414697574
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 206.16,
+        "Sd": 71.34144659314109,
+        "P10": 106,
+        "P50": 206,
+        "P90": 303
+      },
+      "lossB": {
+        "Mean": 212.632,
+        "Sd": 74.68857314850082,
+        "P10": 105,
+        "P50": 215,
+        "P90": 315
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "knights",
+    "ground": "field",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 78.185,
+        "Sd": 37.524483498935254,
+        "P10": 39,
+        "P50": 69,
+        "P90": 135
+      },
+      "lossB": {
+        "Mean": 385.319,
+        "Sd": 144.5180359045255,
+        "P10": 194,
+        "P50": 382,
+        "P90": 585
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 76.035,
+        "Sd": 35.93570856613446,
+        "P10": 38,
+        "P50": 71,
+        "P90": 129
+      },
+      "lossB": {
+        "Mean": 378.504,
+        "Sd": 144.915224895131,
+        "P10": 182,
+        "P50": 371,
+        "P90": 580
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 193.28915622433107
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 77.421,
+        "Sd": 36.27113665649797,
+        "P10": 38,
+        "P50": 74,
+        "P90": 129
+      },
+      "lossB": {
+        "Mean": 341.294,
+        "Sd": 113.04716372039245,
+        "P10": 181,
+        "P50": 341,
+        "P90": 493
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "pikemen",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 435.039,
+        "Sd": 155.55722268197167,
+        "P10": 242,
+        "P50": 402,
+        "P90": 663
+      },
+      "lossB": {
+        "Mean": 149.04,
+        "Sd": 62.97897070253492,
+        "P10": 71,
+        "P50": 148,
+        "P90": 232
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 426.627,
+        "Sd": 153.9796272128122,
+        "P10": 241,
+        "P50": 399,
+        "P90": 654
+      },
+      "lossB": {
+        "Mean": 149.132,
+        "Sd": 63.28114315559633,
+        "P10": 71,
+        "P50": 147,
+        "P90": 233
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 81.70107135809818
+    },
+    "geometry": {
+      "engagedA": 0.4,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 430.301,
+        "Sd": 154.08194457704838,
+        "P10": 241,
+        "P50": 404,
+        "P90": 656
+      },
+      "lossB": {
+        "Mean": 78.588,
+        "Sd": 30.323881575316097,
+        "P10": 37,
+        "P50": 79,
+        "P90": 120
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "pikemen",
+    "ground": "field",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 431.452,
+        "Sd": 150.86949758417472,
+        "P10": 242,
+        "P50": 406,
+        "P90": 657
+      },
+      "lossB": {
+        "Mean": 149.738,
+        "Sd": 63.441170687008444,
+        "P10": 71,
+        "P50": 148,
+        "P90": 236
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 430.108,
+        "Sd": 150.5065133027357,
+        "P10": 241,
+        "P50": 403,
+        "P90": 654
+      },
+      "lossB": {
+        "Mean": 150.65,
+        "Sd": 61.757003063842326,
+        "P10": 71,
+        "P50": 149,
+        "P90": 233
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 82.1904932287011
+    },
+    "geometry": {
+      "engagedA": 0.4,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 434.032,
+        "Sd": 150.700861728544,
+        "P10": 244,
+        "P50": 406,
+        "P90": 658
+      },
+      "lossB": {
+        "Mean": 79.574,
+        "Sd": 29.69522403233101,
+        "P10": 39,
+        "P50": 81,
+        "P90": 118
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "archers",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 130.051,
+        "Sd": 48.415518808141094,
+        "P10": 64,
+        "P50": 129,
+        "P90": 197
+      },
+      "lossB": {
+        "Mean": 402.513,
+        "Sd": 142.58387704433127,
+        "P10": 216,
+        "P50": 399,
+        "P90": 608
+      },
+      "brokenB": 0.024
+    },
+    "model": {
+      "lossA": {
+        "Mean": 132.422,
+        "Sd": 48.16562927901853,
+        "P10": 67,
+        "P50": 131,
+        "P90": 200
+      },
+      "lossB": {
+        "Mean": 400.648,
+        "Sd": 144.6166452040361,
+        "P10": 202,
+        "P50": 396,
+        "P90": 606
+      },
+      "brokenB": 0.02,
+      "fortunePerTurnSdB": 202.66715054470458
+    },
+    "geometry": {
+      "engagedA": 0.7,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 137.118,
+        "Sd": 49.376473265231446,
+        "P10": 70,
+        "P50": 137,
+        "P90": 206
+      },
+      "lossB": {
+        "Mean": 275.377,
+        "Sd": 86.5816912531758,
+        "P10": 154,
+        "P50": 277,
+        "P90": 393
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "archers",
+    "ground": "field",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 43.423,
+        "Sd": 24.92760430640008,
+        "P10": 25,
+        "P50": 28,
+        "P90": 84
+      },
+      "lossB": {
+        "Mean": 698.999,
+        "Sd": 237.05440259313505,
+        "P10": 360,
+        "P50": 704,
+        "P90": 1000
+      },
+      "brokenB": 0.567
+    },
+    "model": {
+      "lossA": {
+        "Mean": 40.744,
+        "Sd": 25.053945081846173,
+        "P10": 17,
+        "P50": 29,
+        "P90": 80
+      },
+      "lossB": {
+        "Mean": 703.421,
+        "Sd": 234.82302189225405,
+        "P10": 370,
+        "P50": 725,
+        "P90": 1000
+      },
+      "brokenB": 0.582,
+      "fortunePerTurnSdB": 289.90313958517623
+    },
+    "geometry": {
+      "engagedA": 0.7,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 52.121,
+        "Sd": 26.482289755054623,
+        "P10": 25,
+        "P50": 47,
+        "P90": 91
+      },
+      "lossB": {
+        "Mean": 433.191,
+        "Sd": 132.63411449294395,
+        "P10": 251,
+        "P50": 440,
+        "P90": 610
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "infantry",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 201.238,
+        "Sd": 63.59565837196564,
+        "P10": 112,
+        "P50": 201,
+        "P90": 284
+      },
+      "lossB": {
+        "Mean": 198.503,
+        "Sd": 59.7075789660407,
+        "P10": 116,
+        "P50": 196,
+        "P90": 281
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 205.017,
+        "Sd": 65.82274184766496,
+        "P10": 109,
+        "P50": 206,
+        "P90": 292
+      },
+      "lossB": {
+        "Mean": 194.234,
+        "Sd": 58.763444303294406,
+        "P10": 111,
+        "P50": 188,
+        "P90": 276
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 81.76759857166023
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.92,
+      "lossA": {
+        "Mean": 189.978,
+        "Sd": 56.668746791003514,
+        "P10": 106,
+        "P50": 192,
+        "P90": 267
+      },
+      "lossB": {
+        "Mean": 194.837,
+        "Sd": 58.85086112245818,
+        "P10": 112,
+        "P50": 189,
+        "P90": 276
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "knights",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 179.46,
+        "Sd": 63.2885443017916,
+        "P10": 96,
+        "P50": 176,
+        "P90": 267
+      },
+      "lossB": {
+        "Mean": 377.891,
+        "Sd": 116.34205857553667,
+        "P10": 223,
+        "P50": 358,
+        "P90": 543
+      },
+      "brokenB": 0.068
+    },
+    "model": {
+      "lossA": {
+        "Mean": 175.749,
+        "Sd": 62.58071863877362,
+        "P10": 91,
+        "P50": 172,
+        "P90": 262
+      },
+      "lossB": {
+        "Mean": 376.013,
+        "Sd": 119.61321060464495,
+        "P10": 220,
+        "P50": 353,
+        "P90": 541
+      },
+      "brokenB": 0.061,
+      "fortunePerTurnSdB": 160.69176376822472
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.4,
+      "lossA": {
+        "Mean": 83.396,
+        "Sd": 28.37054937910211,
+        "P10": 44,
+        "P50": 82,
+        "P90": 122
+      },
+      "lossB": {
+        "Mean": 389.642,
+        "Sd": 128.29661670464205,
+        "P10": 220,
+        "P50": 364,
+        "P90": 569
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "pikemen",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 168.354,
+        "Sd": 50.756782157017554,
+        "P10": 97,
+        "P50": 164,
+        "P90": 241
+      },
+      "lossB": {
+        "Mean": 172.274,
+        "Sd": 50.85236363126974,
+        "P10": 99,
+        "P50": 172,
+        "P90": 242
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 171.071,
+        "Sd": 50.31643571143227,
+        "P10": 97,
+        "P50": 169,
+        "P90": 239
+      },
+      "lossB": {
+        "Mean": 166.233,
+        "Sd": 48.897235613587085,
+        "P10": 97,
+        "P50": 164,
+        "P90": 234
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 70.93207549715667
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 171.056,
+        "Sd": 50.2859377911911,
+        "P10": 97,
+        "P50": 169,
+        "P90": 239
+      },
+      "lossB": {
+        "Mean": 166.213,
+        "Sd": 48.85253525868644,
+        "P10": 97,
+        "P50": 164,
+        "P90": 234
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "archers",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 113.645,
+        "Sd": 41.37587386313357,
+        "P10": 57,
+        "P50": 111,
+        "P90": 174
+      },
+      "lossB": {
+        "Mean": 390.839,
+        "Sd": 113.20057176732124,
+        "P10": 226,
+        "P50": 388,
+        "P90": 543
+      },
+      "brokenB": 0.001
+    },
+    "model": {
+      "lossA": {
+        "Mean": 112.526,
+        "Sd": 41.71145129540769,
+        "P10": 54,
+        "P50": 111,
+        "P90": 169
+      },
+      "lossB": {
+        "Mean": 375.804,
+        "Sd": 110.7651502165844,
+        "P10": 226,
+        "P50": 369,
+        "P90": 521
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 158.639589773308
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.56,
+      "lossA": {
+        "Mean": 76.183,
+        "Sd": 26.574531354601845,
+        "P10": 39,
+        "P50": 76,
+        "P90": 112
+      },
+      "lossB": {
+        "Mean": 379.186,
+        "Sd": 111.66949216092755,
+        "P10": 230,
+        "P50": 372,
+        "P90": 525
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "infantry",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 454.267,
+        "Sd": 149.4026534699566,
+        "P10": 226,
+        "P50": 460,
+        "P90": 660
+      },
+      "lossB": {
+        "Mean": 135.466,
+        "Sd": 51.070059672913985,
+        "P10": 65,
+        "P50": 136,
+        "P90": 203
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 450.022,
+        "Sd": 145.3572228622927,
+        "P10": 247,
+        "P50": 448,
+        "P90": 658
+      },
+      "lossB": {
+        "Mean": 131.396,
+        "Sd": 46.92768257000756,
+        "P10": 68,
+        "P50": 130,
+        "P90": 195
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 67.2272780269357
+    },
+    "geometry": {
+      "engagedA": 0.68,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 449.269,
+        "Sd": 139.08462593749243,
+        "P10": 249,
+        "P50": 452,
+        "P90": 644
+      },
+      "lossB": {
+        "Mean": 107.374,
+        "Sd": 36.48864954400949,
+        "P10": 58,
+        "P50": 107,
+        "P90": 157
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "knights",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 399.187,
+        "Sd": 141.4044456452777,
+        "P10": 212,
+        "P50": 392,
+        "P90": 598
+      },
+      "lossB": {
+        "Mean": 132.528,
+        "Sd": 48.570467429357755,
+        "P10": 66,
+        "P50": 131,
+        "P90": 201
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 401.364,
+        "Sd": 142.22799410209757,
+        "P10": 213,
+        "P50": 394,
+        "P90": 598
+      },
+      "lossB": {
+        "Mean": 132.461,
+        "Sd": 50.46953192424765,
+        "P10": 64,
+        "P50": 130,
+        "P90": 203
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 70.62340278562785
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.7,
+      "lossA": {
+        "Mean": 276.208,
+        "Sd": 84.6805617218824,
+        "P10": 156,
+        "P50": 279,
+        "P90": 391
+      },
+      "lossB": {
+        "Mean": 136.84,
+        "Sd": 51.59319972882335,
+        "P10": 68,
+        "P50": 136,
+        "P90": 209
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "pikemen",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 382.631,
+        "Sd": 114.94723879548698,
+        "P10": 218,
+        "P50": 384,
+        "P90": 544
+      },
+      "lossB": {
+        "Mean": 112.895,
+        "Sd": 41.35931053061171,
+        "P10": 55,
+        "P50": 114,
+        "P90": 170
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 372.06,
+        "Sd": 107.8583321761458,
+        "P10": 213,
+        "P50": 375,
+        "P90": 517
+      },
+      "lossB": {
+        "Mean": 112.663,
+        "Sd": 40.082015904879455,
+        "P10": 59,
+        "P50": 112,
+        "P90": 167
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 58.184740336346046
+    },
+    "geometry": {
+      "engagedA": 0.56,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 375.601,
+        "Sd": 109.23811956348281,
+        "P10": 215,
+        "P50": 379,
+        "P90": 523
+      },
+      "lossB": {
+        "Mean": 75.711,
+        "Sd": 25.697818134169616,
+        "P10": 41,
+        "P50": 75,
+        "P90": 110
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "archers",
+    "ground": "field",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 263.798,
+        "Sd": 93.84346429982106,
+        "P10": 135,
+        "P50": 262,
+        "P90": 388
+      },
+      "lossB": {
+        "Mean": 259.84,
+        "Sd": 94.09833631311925,
+        "P10": 134,
+        "P50": 262,
+        "P90": 390
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 258.384,
+        "Sd": 96.79678797440641,
+        "P10": 124,
+        "P50": 257,
+        "P90": 390
+      },
+      "lossB": {
+        "Mean": 253.405,
+        "Sd": 94.31316954142169,
+        "P10": 124,
+        "P50": 256,
+        "P90": 380
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 132.69302624559526
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 253.205,
+        "Sd": 90.09465034629433,
+        "P10": 125,
+        "P50": 255,
+        "P90": 376
+      },
+      "lossB": {
+        "Mean": 248.9,
+        "Sd": 88.35934230953359,
+        "P10": 124,
+        "P50": 254,
+        "P90": 366
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "infantry",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 510.745,
+        "Sd": 168.13631313548768,
+        "P10": 282,
+        "P50": 505,
+        "P90": 741
+      },
+      "lossB": {
+        "Mean": 496.459,
+        "Sd": 188.18570130904533,
+        "P10": 273,
+        "P50": 486,
+        "P90": 755
+      },
+      "brokenB": 0.23
+    },
+    "model": {
+      "lossA": {
+        "Mean": 507.978,
+        "Sd": 175.15992839835417,
+        "P10": 281,
+        "P50": 494,
+        "P90": 746
+      },
+      "lossB": {
+        "Mean": 486.118,
+        "Sd": 182.56811658444954,
+        "P10": 272,
+        "P50": 471,
+        "P90": 732
+      },
+      "brokenB": 0.209,
+      "fortunePerTurnSdB": 243.38441002258554
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 488.6,
+        "Sd": 143.0727220814782,
+        "P10": 281,
+        "P50": 492,
+        "P90": 683
+      },
+      "lossB": {
+        "Mean": 474.632,
+        "Sd": 147.16144558635958,
+        "P10": 277,
+        "P50": 470,
+        "P90": 671
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "knights",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 514.164,
+        "Sd": 191.39420797622589,
+        "P10": 255,
+        "P50": 506,
+        "P90": 774
+      },
+      "lossB": {
+        "Mean": 479.048,
+        "Sd": 191.79578023855817,
+        "P10": 243,
+        "P50": 468,
+        "P90": 744
+      },
+      "brokenB": 0.213
+    },
+    "model": {
+      "lossA": {
+        "Mean": 515.485,
+        "Sd": 193.45434178988404,
+        "P10": 261,
+        "P50": 510,
+        "P90": 781
+      },
+      "lossB": {
+        "Mean": 473.549,
+        "Sd": 187.61126188100906,
+        "P10": 268,
+        "P50": 460,
+        "P90": 735
+      },
+      "brokenB": 0.209,
+      "fortunePerTurnSdB": 235.62480377106357
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.5,
+      "lossA": {
+        "Mean": 303.125,
+        "Sd": 93.13444797925416,
+        "P10": 172,
+        "P50": 303,
+        "P90": 428
+      },
+      "lossB": {
+        "Mean": 544.958,
+        "Sd": 171.6266002865696,
+        "P10": 301,
+        "P50": 536,
+        "P90": 790
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "pikemen",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 422.874,
+        "Sd": 126.52027309290595,
+        "P10": 257,
+        "P50": 424,
+        "P90": 587
+      },
+      "lossB": {
+        "Mean": 444.227,
+        "Sd": 147.0615196493004,
+        "P10": 239,
+        "P50": 436,
+        "P90": 650
+      },
+      "brokenB": 0.053
+    },
+    "model": {
+      "lossA": {
+        "Mean": 397.739,
+        "Sd": 121.47344020680269,
+        "P10": 244,
+        "P50": 385,
+        "P90": 564
+      },
+      "lossB": {
+        "Mean": 448.432,
+        "Sd": 140.34652301543676,
+        "P10": 253,
+        "P50": 442,
+        "P90": 642
+      },
+      "brokenB": 0.046,
+      "fortunePerTurnSdB": 207.13305284425414
+    },
+    "geometry": {
+      "engagedA": 0.92,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 401.572,
+        "Sd": 118.13372250290084,
+        "P10": 246,
+        "P50": 392,
+        "P90": 565
+      },
+      "lossB": {
+        "Mean": 405.938,
+        "Sd": 105.34368252271909,
+        "P10": 249,
+        "P50": 411,
+        "P90": 544
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "archers",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 291.557,
+        "Sd": 123.72677586547734,
+        "P10": 132,
+        "P50": 286,
+        "P90": 457
+      },
+      "lossB": {
+        "Mean": 870.926,
+        "Sd": 169.64643951005684,
+        "P10": 556,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "brokenB": 0.809
+    },
+    "model": {
+      "lossA": {
+        "Mean": 279.446,
+        "Sd": 132.26762948586395,
+        "P10": 108,
+        "P50": 269,
+        "P90": 460
+      },
+      "lossB": {
+        "Mean": 853.88,
+        "Sd": 180.3604321504187,
+        "P10": 520,
+        "P50": 963,
+        "P90": 1000
+      },
+      "brokenB": 0.771,
+      "fortunePerTurnSdB": 238.13223266966045
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.68,
+      "lossA": {
+        "Mean": 256.228,
+        "Sd": 96.79772629465955,
+        "P10": 121,
+        "P50": 255,
+        "P90": 386
+      },
+      "lossB": {
+        "Mean": 822.27,
+        "Sd": 156.56784660520373,
+        "P10": 538,
+        "P50": 863,
+        "P90": 995
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 502.048,
+        "Sd": 177.80627313671127,
+        "P10": 277,
+        "P50": 490,
+        "P90": 745
+      },
+      "lossB": {
+        "Mean": 498.099,
+        "Sd": 201.0217573944322,
+        "P10": 228,
+        "P50": 495,
+        "P90": 769
+      },
+      "brokenB": 0.265
+    },
+    "model": {
+      "lossA": {
+        "Mean": 501.584,
+        "Sd": 175.48639382703837,
+        "P10": 275,
+        "P50": 492,
+        "P90": 743
+      },
+      "lossB": {
+        "Mean": 499.537,
+        "Sd": 202.07781192667608,
+        "P10": 227,
+        "P50": 492,
+        "P90": 773
+      },
+      "brokenB": 0.276,
+      "fortunePerTurnSdB": 258.372325643941
+    },
+    "geometry": {
+      "engagedA": 0.5,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 548.197,
+        "Sd": 170.73790329807446,
+        "P10": 293,
+        "P50": 543,
+        "P90": 794
+      },
+      "lossB": {
+        "Mean": 289.083,
+        "Sd": 97.98548497745101,
+        "P10": 155,
+        "P50": 294,
+        "P90": 416
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "forest",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 114.811,
+        "Sd": 90.64514229025615,
+        "P10": 0,
+        "P50": 100,
+        "P90": 247
+      },
+      "lossB": {
+        "Mean": 844.394,
+        "Sd": 200.9197040896986,
+        "P10": 495,
+        "P50": 989,
+        "P90": 1000
+      },
+      "brokenB": 0.789
+    },
+    "model": {
+      "lossA": {
+        "Mean": 102.296,
+        "Sd": 100.35339150814593,
+        "P10": 0,
+        "P50": 100,
+        "P90": 256
+      },
+      "lossB": {
+        "Mean": 853.488,
+        "Sd": 197.9413009319041,
+        "P10": 489,
+        "P50": 999,
+        "P90": 1000
+      },
+      "brokenB": 0.817,
+      "fortunePerTurnSdB": 257.7544442769997
+    },
+    "geometry": {
+      "engagedA": 0.5,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 208.666,
+        "Sd": 94.5875956838805,
+        "P10": 124,
+        "P50": 175,
+        "P90": 360
+      },
+      "lossB": {
+        "Mean": 436.017,
+        "Sd": 129.51105676669002,
+        "P10": 239,
+        "P50": 437,
+        "P90": 604
+      }
+    },
+    "withinTolerance": false,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "knights",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 513.417,
+        "Sd": 189.31953675729812,
+        "P10": 255,
+        "P50": 515,
+        "P90": 763
+      },
+      "lossB": {
+        "Mean": 482.29,
+        "Sd": 203.03615831073435,
+        "P10": 224,
+        "P50": 477,
+        "P90": 744
+      },
+      "brokenB": 0.28
+    },
+    "model": {
+      "lossA": {
+        "Mean": 510.988,
+        "Sd": 194.38434898708059,
+        "P10": 240,
+        "P50": 501,
+        "P90": 769
+      },
+      "lossB": {
+        "Mean": 484.733,
+        "Sd": 202.9473314195839,
+        "P10": 226,
+        "P50": 473,
+        "P90": 757
+      },
+      "brokenB": 0.262,
+      "fortunePerTurnSdB": 255.85295310512373
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 483.522,
+        "Sd": 152.74202972215488,
+        "P10": 251,
+        "P50": 494,
+        "P90": 682
+      },
+      "lossB": {
+        "Mean": 464.791,
+        "Sd": 157.96864059176562,
+        "P10": 253,
+        "P50": 466,
+        "P90": 676
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "knights",
+    "ground": "forest",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 96.691,
+        "Sd": 89.03287242008632,
+        "P10": 0,
+        "P50": 77,
+        "P90": 233
+      },
+      "lossB": {
+        "Mean": 845.153,
+        "Sd": 199.44881403613647,
+        "P10": 507,
+        "P50": 998,
+        "P90": 1000
+      },
+      "brokenB": 0.787
+    },
+    "model": {
+      "lossA": {
+        "Mean": 89.798,
+        "Sd": 90.1035840122458,
+        "P10": 0,
+        "P50": 77,
+        "P90": 239
+      },
+      "lossB": {
+        "Mean": 848.192,
+        "Sd": 196.86702049799808,
+        "P10": 513,
+        "P50": 996,
+        "P90": 1000
+      },
+      "brokenB": 0.808,
+      "fortunePerTurnSdB": 256.01088878243735
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 126.375,
+        "Sd": 71.25014356447261,
+        "P10": 77,
+        "P50": 95,
+        "P90": 248
+      },
+      "lossB": {
+        "Mean": 696.026,
+        "Sd": 163.6731872856279,
+        "P10": 448,
+        "P50": 713,
+        "P90": 904
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "pikemen",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 805.655,
+        "Sd": 192.1525138101585,
+        "P10": 541,
+        "P50": 839,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 324.126,
+        "Sd": 152.43440021980055,
+        "P10": 106,
+        "P50": 316,
+        "P90": 520
+      },
+      "brokenB": 0.057
+    },
+    "model": {
+      "lossA": {
+        "Mean": 826.749,
+        "Sd": 188.2093801322609,
+        "P10": 543,
+        "P50": 916,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 294.768,
+        "Sd": 150.6393919345215,
+        "P10": 106,
+        "P50": 284,
+        "P90": 501
+      },
+      "brokenB": 0.037,
+      "fortunePerTurnSdB": 167.72691666686814
+    },
+    "geometry": {
+      "engagedA": 0.4,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 833.871,
+        "Sd": 170.16862731044378,
+        "P10": 556,
+        "P50": 898,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 198.854,
+        "Sd": 87.56221688505737,
+        "P10": 80,
+        "P50": 196,
+        "P90": 318
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "pikemen",
+    "ground": "forest",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 816.079,
+        "Sd": 191.62212240969637,
+        "P10": 544,
+        "P50": 891,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 318.537,
+        "Sd": 151.2971230739383,
+        "P10": 106,
+        "P50": 307,
+        "P90": 518
+      },
+      "brokenB": 0.067
+    },
+    "model": {
+      "lossA": {
+        "Mean": 813.771,
+        "Sd": 191.46536382475063,
+        "P10": 539,
+        "P50": 882,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 302.69,
+        "Sd": 155.36299933240707,
+        "P10": 106,
+        "P50": 292,
+        "P90": 524
+      },
+      "brokenB": 0.036,
+      "fortunePerTurnSdB": 170.82711829022742
+    },
+    "geometry": {
+      "engagedA": 0.4,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 822.198,
+        "Sd": 174.51955154042156,
+        "P10": 549,
+        "P50": 876,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 200.896,
+        "Sd": 88.22260715039207,
+        "P10": 80,
+        "P50": 199,
+        "P90": 322
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "archers",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 281.358,
+        "Sd": 123.25514864567607,
+        "P10": 123,
+        "P50": 278,
+        "P90": 439
+      },
+      "lossB": {
+        "Mean": 868.052,
+        "Sd": 181.8346532901199,
+        "P10": 549,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "brokenB": 0.824
+    },
+    "model": {
+      "lossA": {
+        "Mean": 278.171,
+        "Sd": 129.35877802628028,
+        "P10": 115,
+        "P50": 278,
+        "P90": 450
+      },
+      "lossB": {
+        "Mean": 855.183,
+        "Sd": 194.4749753233759,
+        "P10": 517,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "brokenB": 0.807,
+      "fortunePerTurnSdB": 261.9518606945186
+    },
+    "geometry": {
+      "engagedA": 0.7,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 322.887,
+        "Sd": 121.5728431319561,
+        "P10": 158,
+        "P50": 320,
+        "P90": 478
+      },
+      "lossB": {
+        "Mean": 617.322,
+        "Sd": 144.42463360102667,
+        "P10": 389,
+        "P50": 635,
+        "P90": 795
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "archers",
+    "ground": "forest",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 26.858,
+        "Sd": 39.70143624656459,
+        "P10": 0,
+        "P50": 0,
+        "P90": 87
+      },
+      "lossB": {
+        "Mean": 983.393,
+        "Sd": 56.16531931800921,
+        "P10": 987,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "brokenB": 1
+    },
+    "model": {
+      "lossA": {
+        "Mean": 19.604,
+        "Sd": 32.595761498508814,
+        "P10": 0,
+        "P50": 0,
+        "P90": 65
+      },
+      "lossB": {
+        "Mean": 980.597,
+        "Sd": 60.967315871739835,
+        "P10": 954,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "brokenB": 1,
+      "fortunePerTurnSdB": 105.17628751508498
+    },
+    "geometry": {
+      "engagedA": 0.7,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 77.511,
+        "Sd": 54.52110077235621,
+        "P10": 34,
+        "P50": 52,
+        "P90": 171
+      },
+      "lossB": {
+        "Mean": 810.663,
+        "Sd": 164.86651691413658,
+        "P10": 547,
+        "P50": 844,
+        "P90": 1000
+      }
+    },
+    "withinTolerance": false,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "infantry",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 437.478,
+        "Sd": 147.4239035004952,
+        "P10": 237,
+        "P50": 429,
+        "P90": 639
+      },
+      "lossB": {
+        "Mean": 415.768,
+        "Sd": 127.49401907893917,
+        "P10": 257,
+        "P50": 400,
+        "P90": 591
+      },
+      "brokenB": 0.014
+    },
+    "model": {
+      "lossA": {
+        "Mean": 440.306,
+        "Sd": 140.0215354664931,
+        "P10": 239,
+        "P50": 436,
+        "P90": 626
+      },
+      "lossB": {
+        "Mean": 397.537,
+        "Sd": 120.34650768889361,
+        "P10": 246,
+        "P50": 386,
+        "P90": 564
+      },
+      "brokenB": 0.005,
+      "fortunePerTurnSdB": 166.9422581420103
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.92,
+      "lossA": {
+        "Mean": 401.637,
+        "Sd": 107.6718182787467,
+        "P10": 235,
+        "P50": 410,
+        "P90": 543
+      },
+      "lossB": {
+        "Mean": 400.582,
+        "Sd": 117.35061330237025,
+        "P10": 248,
+        "P50": 392,
+        "P90": 565
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "knights",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 437.902,
+        "Sd": 158.2449742262542,
+        "P10": 227,
+        "P50": 432,
+        "P90": 656
+      },
+      "lossB": {
+        "Mean": 688.834,
+        "Sd": 196.53240809452086,
+        "P10": 452,
+        "P50": 690,
+        "P90": 1000
+      },
+      "brokenB": 0.579
+    },
+    "model": {
+      "lossA": {
+        "Mean": 438.473,
+        "Sd": 162.48895325815514,
+        "P10": 215,
+        "P50": 435,
+        "P90": 662
+      },
+      "lossB": {
+        "Mean": 669.482,
+        "Sd": 206.59296292063834,
+        "P10": 450,
+        "P50": 657,
+        "P90": 996
+      },
+      "brokenB": 0.534,
+      "fortunePerTurnSdB": 260.5911426807202
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.4,
+      "lossA": {
+        "Mean": 240.105,
+        "Sd": 77.10745446799893,
+        "P10": 133,
+        "P50": 240,
+        "P90": 340
+      },
+      "lossB": {
+        "Mean": 757.938,
+        "Sd": 183.2147477682949,
+        "P10": 495,
+        "P50": 779,
+        "P90": 998
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "pikemen",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 358.439,
+        "Sd": 110.64963452547234,
+        "P10": 217,
+        "P50": 346,
+        "P90": 516
+      },
+      "lossB": {
+        "Mean": 357.072,
+        "Sd": 107.84097779829561,
+        "P10": 217,
+        "P50": 350,
+        "P90": 505
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 357.038,
+        "Sd": 108.40083623892068,
+        "P10": 217,
+        "P50": 343,
+        "P90": 506
+      },
+      "lossB": {
+        "Mean": 359.041,
+        "Sd": 106.95766106390067,
+        "P10": 217,
+        "P50": 351,
+        "P90": 505
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 155.20569935770115
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 353.918,
+        "Sd": 103.01526790442966,
+        "P10": 217,
+        "P50": 343,
+        "P90": 497
+      },
+      "lossB": {
+        "Mean": 355.89,
+        "Sd": 101.62698432967464,
+        "P10": 217,
+        "P50": 351,
+        "P90": 494
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "archers",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 261.033,
+        "Sd": 101.76181689798176,
+        "P10": 115,
+        "P50": 265,
+        "P90": 393
+      },
+      "lossB": {
+        "Mean": 782.041,
+        "Sd": 192.77797245968196,
+        "P10": 487,
+        "P50": 809,
+        "P90": 1000
+      },
+      "brokenB": 0.676
+    },
+    "model": {
+      "lossA": {
+        "Mean": 251.974,
+        "Sd": 105.90760002824986,
+        "P10": 114,
+        "P50": 248,
+        "P90": 393
+      },
+      "lossB": {
+        "Mean": 766.57,
+        "Sd": 197.8315961631022,
+        "P10": 472,
+        "P50": 782,
+        "P90": 1000
+      },
+      "brokenB": 0.644,
+      "fortunePerTurnSdB": 244.10441978538216
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.56,
+      "lossA": {
+        "Mean": 197.237,
+        "Sd": 69.31180965721468,
+        "P10": 97,
+        "P50": 197,
+        "P90": 292
+      },
+      "lossB": {
+        "Mean": 753.536,
+        "Sd": 169.81149739828757,
+        "P10": 477,
+        "P50": 790,
+        "P90": 961
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "infantry",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 874.198,
+        "Sd": 167.2789378225453,
+        "P10": 568,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 266.408,
+        "Sd": 133.5244108929312,
+        "P10": 75,
+        "P50": 264,
+        "P90": 442
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 860.028,
+        "Sd": 176.76264381437502,
+        "P10": 525,
+        "P50": 970,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 276.065,
+        "Sd": 132.0273380516058,
+        "P10": 87,
+        "P50": 276,
+        "P90": 451
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 154.51196559332058
+    },
+    "geometry": {
+      "engagedA": 0.68,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 824.96,
+        "Sd": 151.22894760790544,
+        "P10": 540,
+        "P50": 873,
+        "P90": 989
+      },
+      "lossB": {
+        "Mean": 236.636,
+        "Sd": 104.04683199044194,
+        "P10": 77,
+        "P50": 243,
+        "P90": 365
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "knights",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 858.415,
+        "Sd": 191.71756413901906,
+        "P10": 509,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 266.906,
+        "Sd": 130.3693343057612,
+        "P10": 84,
+        "P50": 267,
+        "P90": 449
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 858.781,
+        "Sd": 191.06319421380843,
+        "P10": 532,
+        "P50": 1000,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 267.986,
+        "Sd": 134.1237898174481,
+        "P10": 73,
+        "P50": 266,
+        "P90": 444
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 156.76173278215848
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.7,
+      "lossA": {
+        "Mean": 618.104,
+        "Sd": 139.61599410457896,
+        "P10": 403,
+        "P50": 638,
+        "P90": 788
+      },
+      "lossB": {
+        "Mean": 303.888,
+        "Sd": 133.5606300445528,
+        "P10": 134,
+        "P50": 306,
+        "P90": 480
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "pikemen",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 794.307,
+        "Sd": 191.1195422515202,
+        "P10": 491,
+        "P50": 828,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 230.293,
+        "Sd": 113.49730741206939,
+        "P10": 64,
+        "P50": 229,
+        "P90": 382
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 755.73,
+        "Sd": 191.6036509544091,
+        "P10": 472,
+        "P50": 765,
+        "P90": 1000
+      },
+      "lossB": {
+        "Mean": 243.58,
+        "Sd": 113.34111261059604,
+        "P10": 96,
+        "P50": 237,
+        "P90": 394
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 138.97952621774073
+    },
+    "geometry": {
+      "engagedA": 0.56,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 744.823,
+        "Sd": 161.08938345049458,
+        "P10": 475,
+        "P50": 773,
+        "P90": 940
+      },
+      "lossB": {
+        "Mean": 180.323,
+        "Sd": 76.33887800652624,
+        "P10": 76,
+        "P50": 181,
+        "P90": 281
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "archers",
+    "ground": "forest",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 603.206,
+        "Sd": 229.28312261113868,
+        "P10": 285,
+        "P50": 610,
+        "P90": 927
+      },
+      "lossB": {
+        "Mean": 581.789,
+        "Sd": 256.66951848772555,
+        "P10": 253,
+        "P50": 578,
+        "P90": 981
+      },
+      "brokenB": 0.48
+    },
+    "model": {
+      "lossA": {
+        "Mean": 599.87,
+        "Sd": 228.073265672491,
+        "P10": 269,
+        "P50": 607,
+        "P90": 920
+      },
+      "lossB": {
+        "Mean": 573.276,
+        "Sd": 251.48279746619102,
+        "P10": 245,
+        "P50": 580,
+        "P90": 935
+      },
+      "brokenB": 0.472,
+      "fortunePerTurnSdB": 295.19767414025785
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 560.208,
+        "Sd": 169.1785924168071,
+        "P10": 303,
+        "P50": 587,
+        "P90": 774
+      },
+      "lossB": {
+        "Mean": 534.047,
+        "Sd": 185.24191036683985,
+        "P10": 260,
+        "P50": 563,
+        "P90": 757
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "infantry",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 206.033,
+        "Sd": 67.8841230713424,
+        "P10": 113,
+        "P50": 201,
+        "P90": 299
+      },
+      "lossB": {
+        "Mean": 289.671,
+        "Sd": 96.35012249657554,
+        "P10": 157,
+        "P50": 282,
+        "P90": 426
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 214.605,
+        "Sd": 68.32488027259369,
+        "P10": 120,
+        "P50": 214,
+        "P90": 308
+      },
+      "lossB": {
+        "Mean": 286.464,
+        "Sd": 93.59441553115556,
+        "P10": 149,
+        "P50": 288,
+        "P90": 415
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 137.3781098321747
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 214.481,
+        "Sd": 67.99603738527782,
+        "P10": 120,
+        "P50": 214,
+        "P90": 308
+      },
+      "lossB": {
+        "Mean": 283.121,
+        "Sd": 88.9630304102765,
+        "P10": 149,
+        "P50": 287,
+        "P90": 404
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "knights",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 188.259,
+        "Sd": 65.53889887895781,
+        "P10": 97,
+        "P50": 187,
+        "P90": 279
+      },
+      "lossB": {
+        "Mean": 288.345,
+        "Sd": 91.43059405105346,
+        "P10": 159,
+        "P50": 289,
+        "P90": 419
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 185.592,
+        "Sd": 65.86143989668967,
+        "P10": 92,
+        "P50": 184,
+        "P90": 274
+      },
+      "lossB": {
+        "Mean": 285.786,
+        "Sd": 94.49743895984683,
+        "P10": 159,
+        "P50": 281,
+        "P90": 421
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 133.18177837110477
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.5,
+      "lossA": {
+        "Mean": 102.765,
+        "Sd": 34.20719086547312,
+        "P10": 53,
+        "P50": 104,
+        "P90": 149
+      },
+      "lossB": {
+        "Mean": 292.528,
+        "Sd": 97.01947224137017,
+        "P10": 162,
+        "P50": 290,
+        "P90": 433
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "pikemen",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 179.339,
+        "Sd": 54.64644831380459,
+        "P10": 104,
+        "P50": 174,
+        "P90": 257
+      },
+      "lossB": {
+        "Mean": 244.449,
+        "Sd": 76.41588045547724,
+        "P10": 139,
+        "P50": 244,
+        "P90": 348
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 173.654,
+        "Sd": 49.65883893411406,
+        "P10": 103,
+        "P50": 172,
+        "P90": 245
+      },
+      "lossB": {
+        "Mean": 247.774,
+        "Sd": 81.06070417755919,
+        "P10": 132,
+        "P50": 248,
+        "P90": 362
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 115.63768760137756
+    },
+    "geometry": {
+      "engagedA": 0.92,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 174.461,
+        "Sd": 49.790878789298446,
+        "P10": 104,
+        "P50": 172,
+        "P90": 245
+      },
+      "lossB": {
+        "Mean": 223.446,
+        "Sd": 66.0091076010446,
+        "P10": 125,
+        "P50": 228,
+        "P90": 312
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "archers",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 116.64,
+        "Sd": 41.428066388436285,
+        "P10": 60,
+        "P50": 115,
+        "P90": 172
+      },
+      "lossB": {
+        "Mean": 554.19,
+        "Sd": 175.98378388985776,
+        "P10": 306,
+        "P50": 557,
+        "P90": 807
+      },
+      "brokenB": 0.317
+    },
+    "model": {
+      "lossA": {
+        "Mean": 115.907,
+        "Sd": 42.68316065151695,
+        "P10": 59,
+        "P50": 114,
+        "P90": 175
+      },
+      "lossB": {
+        "Mean": 545.125,
+        "Sd": 176.17872833948857,
+        "P10": 302,
+        "P50": 539,
+        "P90": 791
+      },
+      "brokenB": 0.305,
+      "fortunePerTurnSdB": 248.91397323185763
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.68,
+      "lossA": {
+        "Mean": 97.587,
+        "Sd": 34.03319981561646,
+        "P10": 50,
+        "P50": 98,
+        "P90": 143
+      },
+      "lossB": {
+        "Mean": 531.543,
+        "Sd": 152.9930554830056,
+        "P10": 304,
+        "P50": 545,
+        "P90": 733
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 210.668,
+        "Sd": 71.20542105758513,
+        "P10": 111,
+        "P50": 211,
+        "P90": 309
+      },
+      "lossB": {
+        "Mean": 250.667,
+        "Sd": 89.35538313663864,
+        "P10": 126,
+        "P50": 250,
+        "P90": 373
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 214.093,
+        "Sd": 69.93954454306157,
+        "P10": 115,
+        "P50": 211,
+        "P90": 315
+      },
+      "lossB": {
+        "Mean": 248.412,
+        "Sd": 87.24723684069507,
+        "P10": 125,
+        "P50": 245,
+        "P90": 364
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 124.91037760503895
+    },
+    "geometry": {
+      "engagedA": 0.5,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 221.099,
+        "Sd": 72.67441619834153,
+        "P10": 119,
+        "P50": 221,
+        "P90": 326
+      },
+      "lossB": {
+        "Mean": 130.825,
+        "Sd": 43.16968840514125,
+        "P10": 67,
+        "P50": 131,
+        "P90": 189
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "hill",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 84.244,
+        "Sd": 34.82072582452794,
+        "P10": 53,
+        "P50": 73,
+        "P90": 137
+      },
+      "lossB": {
+        "Mean": 455.628,
+        "Sd": 167.9385988657432,
+        "P10": 237,
+        "P50": 433,
+        "P90": 696
+      },
+      "brokenB": 0.172
+    },
+    "model": {
+      "lossA": {
+        "Mean": 84.767,
+        "Sd": 37.438193457074405,
+        "P10": 53,
+        "P50": 70,
+        "P90": 146
+      },
+      "lossB": {
+        "Mean": 450.857,
+        "Sd": 167.6603248700644,
+        "P10": 229,
+        "P50": 433,
+        "P90": 685
+      },
+      "brokenB": 0.155,
+      "fortunePerTurnSdB": 225.59740039740282
+    },
+    "geometry": {
+      "engagedA": 0.5,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 99.564,
+        "Sd": 44.34819800923894,
+        "P10": 53,
+        "P50": 91,
+        "P90": 165
+      },
+      "lossB": {
+        "Mean": 209.984,
+        "Sd": 69.35453695177992,
+        "P10": 113,
+        "P50": 208,
+        "P90": 305
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "knights",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 182.764,
+        "Sd": 64.65264316536697,
+        "P10": 96,
+        "P50": 178,
+        "P90": 272
+      },
+      "lossB": {
+        "Mean": 252.821,
+        "Sd": 89.12509321869601,
+        "P10": 128,
+        "P50": 250,
+        "P90": 374
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 187.25,
+        "Sd": 67.21265536371139,
+        "P10": 94,
+        "P50": 185,
+        "P90": 280
+      },
+      "lossB": {
+        "Mean": 251.965,
+        "Sd": 92.78735510977916,
+        "P10": 125,
+        "P50": 252,
+        "P90": 378
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 129.5074326790518
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 186.696,
+        "Sd": 66.15094505395622,
+        "P10": 94,
+        "P50": 185,
+        "P90": 279
+      },
+      "lossB": {
+        "Mean": 247.198,
+        "Sd": 86.82267545389841,
+        "P10": 125,
+        "P50": 252,
+        "P90": 366
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "knights",
+    "ground": "hill",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 64.901,
+        "Sd": 32.060553302743855,
+        "P10": 35,
+        "P50": 55,
+        "P90": 116
+      },
+      "lossB": {
+        "Mean": 454.971,
+        "Sd": 174.8973963735831,
+        "P10": 218,
+        "P50": 441,
+        "P90": 700
+      },
+      "brokenB": 0.171
+    },
+    "model": {
+      "lossA": {
+        "Mean": 64.405,
+        "Sd": 30.91304888864234,
+        "P10": 35,
+        "P50": 56,
+        "P90": 111
+      },
+      "lossB": {
+        "Mean": 457.44,
+        "Sd": 173.6787975681681,
+        "P10": 232,
+        "P50": 439,
+        "P90": 699
+      },
+      "brokenB": 0.178,
+      "fortunePerTurnSdB": 232.96846784706923
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 66.227,
+        "Sd": 31.26904578371758,
+        "P10": 35,
+        "P50": 59,
+        "P90": 112
+      },
+      "lossB": {
+        "Mean": 396.264,
+        "Sd": 123.7765039372454,
+        "P10": 227,
+        "P50": 392,
+        "P90": 560
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "pikemen",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 387.181,
+        "Sd": 132.90797857829975,
+        "P10": 217,
+        "P50": 370,
+        "P90": 582
+      },
+      "lossB": {
+        "Mean": 187.474,
+        "Sd": 74.6111932229619,
+        "P10": 90,
+        "P50": 183,
+        "P90": 292
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 385.321,
+        "Sd": 135.884040385291,
+        "P10": 217,
+        "P50": 363,
+        "P90": 585
+      },
+      "lossB": {
+        "Mean": 188.256,
+        "Sd": 73.99605313717673,
+        "P10": 88,
+        "P50": 183,
+        "P90": 287
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 96.12880237809405
+    },
+    "geometry": {
+      "engagedA": 0.4,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 389.753,
+        "Sd": 136.43532016156084,
+        "P10": 219,
+        "P50": 366,
+        "P90": 590
+      },
+      "lossB": {
+        "Mean": 97.201,
+        "Sd": 35.61338107947495,
+        "P10": 48,
+        "P50": 97,
+        "P90": 144
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "pikemen",
+    "ground": "hill",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 384.698,
+        "Sd": 134.86691173108352,
+        "P10": 217,
+        "P50": 355,
+        "P90": 586
+      },
+      "lossB": {
+        "Mean": 190.319,
+        "Sd": 75.14438047463639,
+        "P10": 88,
+        "P50": 189,
+        "P90": 290
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 387.227,
+        "Sd": 135.49317278324716,
+        "P10": 219,
+        "P50": 365,
+        "P90": 583
+      },
+      "lossB": {
+        "Mean": 186.734,
+        "Sd": 72.81416858790017,
+        "P10": 88,
+        "P50": 181,
+        "P90": 284
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 96.78987455212348
+    },
+    "geometry": {
+      "engagedA": 0.4,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 391.504,
+        "Sd": 135.8453604137659,
+        "P10": 221,
+        "P50": 371,
+        "P90": 585
+      },
+      "lossB": {
+        "Mean": 96.667,
+        "Sd": 34.80050554498006,
+        "P10": 51,
+        "P50": 97,
+        "P90": 144
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "archers",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 115.873,
+        "Sd": 44.128655193753744,
+        "P10": 58,
+        "P50": 116,
+        "P90": 179
+      },
+      "lossB": {
+        "Mean": 487.643,
+        "Sd": 173.8560539022973,
+        "P10": 234,
+        "P50": 488,
+        "P90": 722
+      },
+      "brokenB": 0.168
+    },
+    "model": {
+      "lossA": {
+        "Mean": 116.832,
+        "Sd": 43.04586766139952,
+        "P10": 58,
+        "P50": 117,
+        "P90": 175
+      },
+      "lossB": {
+        "Mean": 486.539,
+        "Sd": 172.12077748209535,
+        "P10": 252,
+        "P50": 484,
+        "P90": 732
+      },
+      "brokenB": 0.147,
+      "fortunePerTurnSdB": 243.77387936417693
+    },
+    "geometry": {
+      "engagedA": 0.7,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 121.894,
+        "Sd": 44.5910431042505,
+        "P10": 60,
+        "P50": 122,
+        "P90": 181
+      },
+      "lossB": {
+        "Mean": 323.039,
+        "Sd": 97.21887156302519,
+        "P10": 183,
+        "P50": 330,
+        "P90": 455
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "archers",
+    "ground": "hill",
+    "charge": true,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 34.419,
+        "Sd": 22.788346753280486,
+        "P10": 23,
+        "P50": 23,
+        "P90": 71
+      },
+      "lossB": {
+        "Mean": 774.338,
+        "Sd": 226.17267703203075,
+        "P10": 427,
+        "P50": 823,
+        "P90": 1000
+      },
+      "brokenB": 0.684
+    },
+    "model": {
+      "lossA": {
+        "Mean": 30.12,
+        "Sd": 23.788978866599493,
+        "P10": 1,
+        "P50": 23,
+        "P90": 66
+      },
+      "lossB": {
+        "Mean": 783.295,
+        "Sd": 223.96150725455453,
+        "P10": 451,
+        "P50": 847,
+        "P90": 1000
+      },
+      "brokenB": 0.703,
+      "fortunePerTurnSdB": 279.66037796943175
+    },
+    "geometry": {
+      "engagedA": 0.7,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 44.65,
+        "Sd": 22.353549632691013,
+        "P10": 23,
+        "P50": 39,
+        "P90": 80
+      },
+      "lossB": {
+        "Mean": 489.069,
+        "Sd": 141.18445838791985,
+        "P10": 296,
+        "P50": 499,
+        "P90": 668
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "infantry",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 180.235,
+        "Sd": 57.34309029870122,
+        "P10": 99,
+        "P50": 180,
+        "P90": 260
+      },
+      "lossB": {
+        "Mean": 242.469,
+        "Sd": 72.83989765018678,
+        "P10": 139,
+        "P50": 238,
+        "P90": 348
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 180.254,
+        "Sd": 57.00746736468248,
+        "P10": 97,
+        "P50": 181,
+        "P90": 259
+      },
+      "lossB": {
+        "Mean": 235.074,
+        "Sd": 72.135511754309,
+        "P10": 139,
+        "P50": 227,
+        "P90": 340
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 99.02197585739579
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.92,
+      "lossA": {
+        "Mean": 171.025,
+        "Sd": 51.41939643100973,
+        "P10": 95,
+        "P50": 174,
+        "P90": 240
+      },
+      "lossB": {
+        "Mean": 235.581,
+        "Sd": 72.19566228418886,
+        "P10": 139,
+        "P50": 227,
+        "P90": 340
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "knights",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 157.931,
+        "Sd": 56.29416730241481,
+        "P10": 83,
+        "P50": 157,
+        "P90": 238
+      },
+      "lossB": {
+        "Mean": 448.818,
+        "Sd": 137.24075889436747,
+        "P10": 265,
+        "P50": 427,
+        "P90": 647
+      },
+      "brokenB": 0.222
+    },
+    "model": {
+      "lossA": {
+        "Mean": 158.235,
+        "Sd": 54.89007829923093,
+        "P10": 85,
+        "P50": 156,
+        "P90": 234
+      },
+      "lossB": {
+        "Mean": 450.323,
+        "Sd": 139.30575280211423,
+        "P10": 265,
+        "P50": 428,
+        "P90": 656
+      },
+      "brokenB": 0.227,
+      "fortunePerTurnSdB": 190.57719286798567
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.4,
+      "lossA": {
+        "Mean": 78.621,
+        "Sd": 26.440205056758614,
+        "P10": 43,
+        "P50": 78,
+        "P90": 113
+      },
+      "lossB": {
+        "Mean": 464.539,
+        "Sd": 147.99475979887922,
+        "P10": 270,
+        "P50": 437,
+        "P90": 679
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "pikemen",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 153.53,
+        "Sd": 46.987369716902776,
+        "P10": 88,
+        "P50": 152,
+        "P90": 220
+      },
+      "lossB": {
+        "Mean": 205.167,
+        "Sd": 62.97361977675882,
+        "P10": 117,
+        "P50": 205,
+        "P90": 294
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 152.231,
+        "Sd": 43.535445030158755,
+        "P10": 89,
+        "P50": 150,
+        "P90": 211
+      },
+      "lossB": {
+        "Mean": 202.033,
+        "Sd": 60.27731966723693,
+        "P10": 117,
+        "P50": 198,
+        "P90": 287
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 86.96609005710123
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 152.231,
+        "Sd": 43.535445030158755,
+        "P10": 89,
+        "P50": 150,
+        "P90": 211
+      },
+      "lossB": {
+        "Mean": 201.781,
+        "Sd": 59.76039109095043,
+        "P10": 117,
+        "P50": 198,
+        "P90": 287
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "pikemen",
+    "b": "archers",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 98.566,
+        "Sd": 36.45867357541793,
+        "P10": 49,
+        "P50": 96,
+        "P90": 147
+      },
+      "lossB": {
+        "Mean": 465.038,
+        "Sd": 139.58104249296687,
+        "P10": 273,
+        "P50": 453,
+        "P90": 667
+      },
+      "brokenB": 0.084
+    },
+    "model": {
+      "lossA": {
+        "Mean": 98.824,
+        "Sd": 36.4819675724591,
+        "P10": 48,
+        "P50": 99,
+        "P90": 147
+      },
+      "lossB": {
+        "Mean": 445.036,
+        "Sd": 134.26253808539866,
+        "P10": 255,
+        "P50": 437,
+        "P90": 638
+      },
+      "brokenB": 0.042,
+      "fortunePerTurnSdB": 191.30386730446853
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.56,
+      "lossA": {
+        "Mean": 69.78,
+        "Sd": 24.762123551156986,
+        "P10": 35,
+        "P50": 70,
+        "P90": 103
+      },
+      "lossB": {
+        "Mean": 447.574,
+        "Sd": 133.4583817662409,
+        "P10": 256,
+        "P50": 441,
+        "P90": 641
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "infantry",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 413.671,
+        "Sd": 131.25621872488156,
+        "P10": 228,
+        "P50": 414,
+        "P90": 590
+      },
+      "lossB": {
+        "Mean": 160.573,
+        "Sd": 59.43627968120429,
+        "P10": 77,
+        "P50": 162,
+        "P90": 240
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 397.979,
+        "Sd": 127.96791921160299,
+        "P10": 220,
+        "P50": 398,
+        "P90": 577
+      },
+      "lossB": {
+        "Mean": 160.547,
+        "Sd": 59.70107209262665,
+        "P10": 82,
+        "P50": 159,
+        "P90": 241
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 83.74600762898365
+    },
+    "geometry": {
+      "engagedA": 0.68,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 401.065,
+        "Sd": 126.91844257658565,
+        "P10": 224,
+        "P50": 402,
+        "P90": 580
+      },
+      "lossB": {
+        "Mean": 127.333,
+        "Sd": 43.94664285720152,
+        "P10": 67,
+        "P50": 127,
+        "P90": 187
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "knights",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 356.699,
+        "Sd": 126.21783289353507,
+        "P10": 182,
+        "P50": 355,
+        "P90": 528
+      },
+      "lossB": {
+        "Mean": 165.648,
+        "Sd": 56.73228929497419,
+        "P10": 90,
+        "P50": 165,
+        "P90": 241
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 358.451,
+        "Sd": 125.38347824021956,
+        "P10": 182,
+        "P50": 357,
+        "P90": 528
+      },
+      "lossB": {
+        "Mean": 161.845,
+        "Sd": 57.74021915361862,
+        "P10": 85,
+        "P50": 160,
+        "P90": 241
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 82.06298120275606
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 0.7,
+      "lossA": {
+        "Mean": 254.195,
+        "Sd": 78.06141530589588,
+        "P10": 141,
+        "P50": 259,
+        "P90": 357
+      },
+      "lossB": {
+        "Mean": 166.5,
+        "Sd": 58.84401939550543,
+        "P10": 87,
+        "P50": 164,
+        "P90": 247
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "pikemen",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 349.102,
+        "Sd": 102.98078771614941,
+        "P10": 199,
+        "P50": 346,
+        "P90": 489
+      },
+      "lossB": {
+        "Mean": 135.304,
+        "Sd": 49.50679252897029,
+        "P10": 68,
+        "P50": 135,
+        "P90": 202
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 335.136,
+        "Sd": 98.85195604141182,
+        "P10": 190,
+        "P50": 333,
+        "P90": 477
+      },
+      "lossB": {
+        "Mean": 137.422,
+        "Sd": 50.33087633960997,
+        "P10": 71,
+        "P50": 135,
+        "P90": 209
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 70.98236851951786
+    },
+    "geometry": {
+      "engagedA": 0.56,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 339.193,
+        "Sd": 100.39195333937526,
+        "P10": 194,
+        "P50": 338,
+        "P90": 482
+      },
+      "lossB": {
+        "Mean": 89.377,
+        "Sd": 30.658878613508303,
+        "P10": 47,
+        "P50": 89,
+        "P90": 131
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "archers",
+    "b": "archers",
+    "ground": "hill",
+    "charge": false,
+    "sector": "front",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 235.153,
+        "Sd": 84.24677507246264,
+        "P10": 124,
+        "P50": 234,
+        "P90": 355
+      },
+      "lossB": {
+        "Mean": 317.268,
+        "Sd": 112.25100651871438,
+        "P10": 160,
+        "P50": 317,
+        "P90": 470
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 230.858,
+        "Sd": 83.72179629687349,
+        "P10": 116,
+        "P50": 233,
+        "P90": 348
+      },
+      "lossB": {
+        "Mean": 314.438,
+        "Sd": 112.9264651998926,
+        "P10": 156,
+        "P50": 316,
+        "P90": 467
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 165.98048845134335
+    },
+    "geometry": {
+      "engagedA": 1,
+      "engagedB": 1,
+      "lossA": {
+        "Mean": 229.069,
+        "Sd": 80.73860886813671,
+        "P10": 117,
+        "P50": 233,
+        "P90": 339
+      },
+      "lossB": {
+        "Mean": 302.822,
+        "Sd": 100.37655986219978,
+        "P10": 156,
+        "P50": 311,
+        "P90": 437
+      }
+    },
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "infantry",
+    "ground": "field",
+    "charge": false,
+    "sector": "flank",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 112.817,
+        "Sd": 49.58314228645661,
+        "P10": 59,
+        "P50": 104,
+        "P90": 187
+      },
+      "lossB": {
+        "Mean": 254.301,
+        "Sd": 85.9069170521059,
+        "P10": 133,
+        "P50": 255,
+        "P90": 376
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 113.582,
+        "Sd": 50.653914903934975,
+        "P10": 59,
+        "P50": 104,
+        "P90": 188
+      },
+      "lossB": {
+        "Mean": 251.623,
+        "Sd": 82.98427116183076,
+        "P10": 128,
+        "P50": 251,
+        "P90": 366
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 117.79877183844778
+    },
+    "geometry": null,
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "field",
+    "charge": true,
+    "sector": "flank",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 96.302,
+        "Sd": 41.392948338722746,
+        "P10": 59,
+        "P50": 83,
+        "P90": 161
+      },
+      "lossB": {
+        "Mean": 383.829,
+        "Sd": 141.40923000048227,
+        "P10": 188,
+        "P50": 381,
+        "P90": 571
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 96.834,
+        "Sd": 41.14339829454083,
+        "P10": 59,
+        "P50": 85,
+        "P90": 158
+      },
+      "lossB": {
+        "Mean": 380.777,
+        "Sd": 143.19584603374958,
+        "P10": 182,
+        "P50": 382,
+        "P90": 575
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 190.9800016547074
+    },
+    "geometry": null,
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "infantry",
+    "b": "infantry",
+    "ground": "field",
+    "charge": false,
+    "sector": "rear",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 106.952,
+        "Sd": 47.89536158817113,
+        "P10": 59,
+        "P50": 95,
+        "P90": 180
+      },
+      "lossB": {
+        "Mean": 283.948,
+        "Sd": 94.55196121376531,
+        "P10": 151,
+        "P50": 283,
+        "P90": 411
+      },
+      "brokenB": 0
+    },
+    "model": {
+      "lossA": {
+        "Mean": 112.681,
+        "Sd": 48.96432113022437,
+        "P10": 59,
+        "P50": 106,
+        "P90": 186
+      },
+      "lossB": {
+        "Mean": 282.226,
+        "Sd": 96.4593350968548,
+        "P10": 147,
+        "P50": 276,
+        "P90": 421
+      },
+      "brokenB": 0,
+      "fortunePerTurnSdB": 132.64226946055953
+    },
+    "geometry": null,
+    "withinTolerance": true,
+    "spreadSimilar": true
+  },
+  {
+    "a": "knights",
+    "b": "infantry",
+    "ground": "field",
+    "charge": true,
+    "sector": "rear",
+    "runs": 1000,
+    "table": {
+      "lossA": {
+        "Mean": 92.497,
+        "Sd": 40.71404701849997,
+        "P10": 59,
+        "P50": 73,
+        "P90": 158
+      },
+      "lossB": {
+        "Mean": 434.531,
+        "Sd": 168.18219373432274,
+        "P10": 213,
+        "P50": 424,
+        "P90": 668
+      },
+      "brokenB": 0.177
+    },
+    "model": {
+      "lossA": {
+        "Mean": 93.302,
+        "Sd": 40.839253673893744,
+        "P10": 59,
+        "P50": 77,
+        "P90": 161
+      },
+      "lossB": {
+        "Mean": 436.632,
+        "Sd": 173.84678104376633,
+        "P10": 210,
+        "P50": 428,
+        "P90": 684
+      },
+      "brokenB": 0.19,
+      "fortunePerTurnSdB": 222.75601486415155
+    },
+    "geometry": null,
+    "withinTolerance": true,
+    "spreadSimilar": true
+  }
+]

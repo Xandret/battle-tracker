@@ -1,0 +1,7 @@
+{
+  "name": "com.journal.battlecore",
+  "version": "0.1.0",
+  "displayName": "Battle Core — правила «Журнала боевых действий»",
+  "description": "Движок правил боя без UnityEngine: те же правила, что у трекера (эталон v29).",
+  "unity": "2022.3"
+}

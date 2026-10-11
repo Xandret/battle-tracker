@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Движок правил на C#. Исходники лежат в Package/Runtime — это же локальный пакет для Unity
+       (Unity компилирует их сама под свой профиль .NET). Здесь они собираются для тестов под .NET 10,
+       но язык ограничен C# 9 — как у Unity, чтобы новый синтаксис не проскочил. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>BattleCore</RootNamespace>
+    <AssemblyName>BattleCore</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Package/Runtime/**/*.cs" />
+  </ItemGroup>
+</Project>

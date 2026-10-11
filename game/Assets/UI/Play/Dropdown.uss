@@ -1,0 +1,17 @@
+/* Выпадающие списки — в теме панели: Unity рисует их над всем окном, вне таблиц стилей интерфейса игры */
+.unity-base-dropdown__container-inner {
+    background-color: #241d14;
+    border-color: #8a6526;
+}
+
+.unity-base-dropdown__label {
+    color: #ece4d0;
+}
+
+.unity-base-dropdown__item:hover {
+    background-color: #3d3223;
+}
+
+.unity-base-dropdown__item:checked {
+    background-color: #4a3a22;
+}

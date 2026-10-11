@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Полигон движения</title>
+<!-- Шаблон полигона (Г55). Данные подставляет dotnet run --project Tests -- polygon → core/polygon/polygon.html -->
+<style>
+:root{
+  --bg:#f4f1e8; --panel:#fbfaf5; --ink:#24221d; --muted:#6b675c; --line:#d9d3c2; --accent:#8a5a1f; --chip:#ece6d4;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#17161a; --panel:#201f24; --ink:#ebe8df; --muted:#a29d90; --line:#36343b; --accent:#e0a85a; --chip:#2b2a30; color-scheme: dark; }
+}
+:root[data-theme="dark"]{ --bg:#17161a; --panel:#201f24; --ink:#ebe8df; --muted:#a29d90; --line:#36343b; --accent:#e0a85a; --chip:#2b2a30; color-scheme: dark; }
+*{ box-sizing:border-box; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+body{ display:grid; grid-template-rows:auto 1fr auto; height:100vh; }
+header{ display:flex; gap:12px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+header h1{ font-size:16px; margin:0 8px 0 0; font-weight:650; }
+.tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+button{ font:inherit; color:var(--ink); background:var(--chip); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; }
+button.on{ background:var(--accent); color:var(--bg); border-color:var(--accent); }
+main{ display:grid; grid-template-columns:1fr 340px; min-height:0; }
+#wrap{ position:relative; min-width:0; min-height:0; }
+canvas{ display:block; width:100%; height:100%; cursor:grab; touch-action:none; }
+canvas.drag{ cursor:grabbing; }
+aside{ border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:12px 14px; }
+aside h2{ font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:14px 0 6px; font-weight:600; }
+.note{ color:var(--muted); margin:0; }
+.unit{ display:grid; grid-template-columns:14px 1fr; gap:2px 8px; padding:6px; border-radius:6px; cursor:pointer; }
+.unit:hover{ background:var(--chip); }
+.unit.sel{ outline:1px solid var(--accent); }
+.sw{ width:12px; height:12px; border-radius:3px; margin-top:3px; }
+.unit small{ grid-column:2; color:var(--muted); }
+label{ display:flex; gap:6px; align-items:center; margin:3px 0; }
+.log p{ margin:0 0 4px; font-size:13px; }
+.log b{ color:var(--accent); font-weight:600; }
+footer{ display:flex; gap:10px; align-items:center; padding:8px 16px; border-top:1px solid var(--line); }
+#time{ min-width:120px; font-variant-numeric:tabular-nums; }
+#slider{ flex:1; accent-color:var(--accent); }
+.hint{ position:absolute; left:10px; bottom:8px; color:var(--muted); font-size:12px; background:var(--panel); padding:2px 6px; border-radius:4px; opacity:.85; }
+@media (max-width:760px){
+  main{ grid-template-columns:1fr; grid-template-rows:55vh auto; }
+  aside{ border-left:none; border-top:1px solid var(--line); }
+  footer{ flex-wrap:wrap; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Полигон движения</h1>
+  <div class="tabs" id="tabs"></div>
+</header>
+<main>
+  <div id="wrap"><canvas id="cv"></canvas><div class="hint">колесо — приближение · тянуть — сдвиг · двойной щелчок — вся карта · пробел — пауза</div></div>
+  <aside>
+    <p class="note" id="note"></p>
+    <h2>Отряды</h2><div id="units"></div>
+    <h2>Показать</h2>
+    <label><input type="checkbox" id="showMen" checked> человечки вблизи (иначе плашки)</label>
+    <label><input type="checkbox" id="showRoute" checked> путь и цель</label>
+    <label><input type="checkbox" id="showFlow"> карта направлений выбранного отряда</label>
+    <label><input type="checkbox" id="showSlots"> места в строю</label>
+    <label><input type="checkbox" id="showGrid" checked> тетрадная клетка 10 м</label>
+    <label><input type="checkbox" id="greyMen"> серые фигурки (Г7; иначе тело в цвете стороны)</label>
+    <h2>Журнал</h2><div class="log" id="log"></div>
+    <p class="note" id="made"></p>
+  </aside>
+</main>
+<footer>
+  <button id="play">▶</button>
+  <button data-speed="1" class="on">×1</button><button data-speed="2">×2</button><button data-speed="4">×4</button>
+  <span id="time"></span>
+  <input type="range" id="slider" min="0" value="0" step="1">
+</footer>
+<script src="polygon-men.js"></script>
+<script>
+const DATA = /*DATA*/null;
+// цвет стороны (В4): отряды одной фракции — оттенки её цвета, чтобы свои различались, а стороны читались сразу
+const SIDE = {1: ["#b5372b", "#c8662c", "#9b2d52", "#cf8f2e", "#8a2c2a", "#d4573c"], 2: ["#2f63a8", "#2c8b9e", "#5a4aa2", "#4583c8", "#27497f", "#5b7fb6"],
+  3: ["#2f7d4a", "#4f9a3a", "#24685e", "#6f9a2e"], 4: ["#c9a227", "#d9c04a", "#a8841c", "#e0b84e"]};
+function sideColor(i){
+  const f = S.units[i].faction || 1, pal = SIDE[f] || SIDE[1];
+  let k = 0;
+  for(let j = 0; j < i; j++) if((S.units[j].faction || 1) === f) k++;
+  return pal[k % pal.length];
+}
+const DX = [-1,0,1,-1,1,-1,0,1], DY = [-1,-1,-1,0,0,1,1,1];
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+let S = null, sel = 0, frame = 0, playing = false, speed = 1, view = null;
+
+function decode(str, n){
+  const out = new Uint8Array(n); let p = 0;
+  if(!str) return out;
+  for(const run of str.split(",")){ const [v, c] = run.split(".").map(x => parseInt(x, 36)); out.fill(v, p, p + c); p += c; }
+  return out;
+}
+// ══ Земля и постройки (В1–В3): облик в духе Iron Kings — идеи, рисунок свой (Г10) ══
+// Карта рисуется плитками 256 px под ступень приближения (×2) и копится в кэше; пока плитки нет — видна плитка
+// ступенью крупнее или общая карта. Плитка — в два прохода. Попиксельно: земля с неровными краями (граница клеток 5 м
+// плюс шум), тёмная кромка воды, обочины, светотень холмов и горизонтали. Векторно: тетрадная клетка, трава, рябь,
+// тени, мосты, частокол, стены с зубцами, ворота, пролом, камни, кусты, деревья, дома, башни. Сверху — зерно бумаги.
+// Свет — справа сверху, тени ложатся влево вниз. Рисунок не трогает правила: клетки те же, что у движка.
+const TILE = 256, SHB = 24, SH_X = -0.6, SH_Y = 0.8;
+// под постройкой: стена, башня, дом, пролом — поле, ворота — дорога, мост — вода
+const UNDER = {0: 1, 9: 7, 12: 1, 13: 2, 14: 1, 15: 1, 18: 1, 20: 1};
+// цвет земли и неровность края (0 — край ровно по клеткам)
+const GROUND = {1: ["#9ca86c", .28], 2: ["#b9a072", .16], 3: ["#dccb98", .3], 4: ["#eceff2", .3], 5: ["#919f62", .34],
+  6: ["#6a7f4c", .3], 7: ["#5b8aa5", .2], 8: ["#88aebd", .14], 10: ["#77885f", .3], 11: ["#9a968b", .3],
+  16: ["#587a7b", .06], 17: ["#977d59", .05], 19: ["#b4ad9f", 0]};
+const GR = new Float32Array(21), GG = new Float32Array(21), GB = new Float32Array(21), AMP = new Float32Array(21), WETA = new Uint8Array(21);
+for(let k = 0; k <= 20; k++){
+  const [hex, a] = GROUND[k] || GROUND[1];
+  GR[k] = parseInt(hex.slice(1, 3), 16); GG[k] = parseInt(hex.slice(3, 5), 16); GB[k] = parseInt(hex.slice(5, 7), 16);
+  AMP[k] = a; WETA[k] = k === 7 || k === 8 || k === 16 ? 1 : 0;
+}
+// кроны: тень-контур, основной тон, середина, блик
+const TREES = [["#2f3d24", "#3e5c34", "#557a3e", "#74984e"], ["#33401f", "#46622f", "#5f7f3a", "#86a052"],
+  ["#2c3b2c", "#3a5940", "#4f744c", "#6d9466"], ["#4a4320", "#76702f", "#958c3c", "#b8ac58"]];
+const BUSH = ["#36452a", "#5e8040", "#78994e", "#9ab868"];
+const ROOFS = ["#ad5a3c", "#c3a468", "#6c7480", "#8c6846"];   // черепица, солома, сланец, дранка
+let SHOW_GRID = true, MAP = null, OVER = null, want = [];
+const TILES = new Map();
+
+// шум для неровных краёв и пятен: значения в узлах решётки, плавно между ними
+function h2(x, y, s){
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function vn(x, y, s){
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = h2(ix, iy, s), b = h2(ix + 1, iy, s), c = h2(ix, iy + 1, s), d = h2(ix + 1, iy + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+// какой вид земли в точке: доля каждого вида среди четырёх ближних клеток плюс шум — край идёт по границе клеток, но живой
+let PICK_M = 1;
+function pick(a, b, cc, d, w00, w10, w01, w11, wx, wy, fine){
+  let best = a, bs = -9, ss = -9;
+  for(let q = 0; q < 4; q++){
+    const k = q === 0 ? a : q === 1 ? b : q === 2 ? cc : d;
+    if((q > 0 && k === a) || (q > 1 && k === b) || (q > 2 && k === cc)) continue;
+    let s = (a === k ? w00 : 0) + (b === k ? w10 : 0) + (cc === k ? w01 : 0) + (d === k ? w11 : 0);
+    const amp = AMP[k];
+    if(amp) s += amp * (1.2 * vn(wx / 5.5 + k * 7.3, wy / 5.5 - k * 3.1, k) + (fine ? 0.8 * vn(wx / 1.9 + k * 5.1, wy / 1.9, k + 40) : 0.4) - 1);
+    if(s > bs){ ss = bs; bs = s; best = k; } else if(s > ss) ss = s;
+  }
+  PICK_M = bs - ss;
+  return best;
+}
+function classAt(wx, wy){
+  const {gt, cols, rows, c} = MAP, fx = wx / c - 0.5, fy = wy / c - 0.5, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+  const x0 = Math.max(0, Math.min(cols - 1, ix)), x1 = Math.max(0, Math.min(cols - 1, ix + 1));
+  const y0 = Math.max(0, Math.min(rows - 1, iy)), y1 = Math.max(0, Math.min(rows - 1, iy + 1));
+  const a = gt[y0 * cols + x0], b = gt[y0 * cols + x1], cc = gt[y1 * cols + x0], d = gt[y1 * cols + x1];
+  if(a === b && a === cc && a === d) return a;
+  return pick(a, b, cc, d, (1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty, wx, wy, true);
+}
+
+// Подготовка сцены: виды земли, сглаженная высота, укрепления линиями, башни и дома кусками
+function prepMap(){
+  const cols = S.cols, rows = S.rows, n = cols * rows, c = S.w / cols;
+  const t = decode(S.t, n), z = decode(S.z, n), gt = new Uint8Array(n), zb = new Float32Array(n);
+  for(let i = 0; i < n; i++){ const k = t[i]; gt[i] = UNDER[k] ?? (GROUND[k] ? k : 1); }
+  for(let y = 0; y < rows; y++) for(let x = 0; x < cols; x++){   // высота для светотени — сглаженная 3 × 3
+    let s = 0, m = 0;
+    for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+      const xx = x + dx, yy = y + dy;
+      if(xx >= 0 && yy >= 0 && xx < cols && yy < rows){ s += z[yy * cols + xx]; m++; }
+    }
+    zb[y * cols + x] = s / m;
+  }
+  const at = (x, y) => x < 0 || y < 0 || x >= cols || y >= rows ? 0 : t[y * cols + x];
+  // материал укрепления: 1 — камень, 2 — частокол, 3 — окоп; ворота и башни — как их соседи
+  const mat = new Uint8Array(n);
+  for(let y = 0; y < rows; y++) for(let x = 0; x < cols; x++){
+    const i = y * cols + x, k = t[i];
+    if(k === 12) mat[i] = 1; else if(k === 15) mat[i] = 2; else if(k === 17) mat[i] = 3;
+    else if(k === 13 || k === 14){
+      let s = 0, p = 0;
+      for(let dy = -2; dy <= 2; dy++) for(let dx = -2; dx <= 2; dx++){ const q = at(x + dx, y + dy); if(q === 12) s++; else if(q === 15) p++; }
+      mat[i] = p > s ? 2 : 1;
+    }
+  }
+  const matAt = (x, y) => x < 0 || y < 0 || x >= cols || y >= rows ? 0 : mat[y * cols + x];
+  // середины клеток укреплений, дважды сглаженные по соседям: лесенка из клеток становится плавной линией
+  let px = new Float32Array(n), py = new Float32Array(n);
+  for(let i = 0; i < n; i++){ px[i] = (i % cols + 0.5) * c; py[i] = (Math.floor(i / cols) + 0.5) * c; }
+  for(let it = 0; it < 2; it++){
+    const nx = px.slice(), ny = py.slice();
+    for(let i = 0; i < n; i++){
+      const m = mat[i]; if(!m) continue;
+      const x = i % cols, y = (i - x) / cols;
+      let sx = 2 * px[i], sy = 2 * py[i], w = 2;
+      for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+        if((dx || dy) && matAt(x + dx, y + dy) === m){ const j = (y + dy) * cols + x + dx; sx += px[j]; sy += py[j]; w++; }
+      }
+      nx[i] = sx / w; ny[i] = sy / w;
+    }
+    px = nx; py = ny;
+  }
+  // связи: вправо, вниз и по диагонали (диагональ — только если угол не закрыт клеткой того же укрепления)
+  const lines = {1: new Path2D(), 2: new Path2D(), 3: new Path2D()}, deg = new Uint8Array(n);
+  for(let i = 0; i < n; i++){
+    const m = mat[i]; if(!m) continue;
+    const x = i % cols, y = (i - x) / cols;
+    for(const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]){
+      if(matAt(x + dx, y + dy) !== m) continue;
+      if(dx && dy && (matAt(x + dx, y) === m || matAt(x, y + dy) === m)) continue;
+      const j = (y + dy) * cols + x + dx;
+      lines[m].moveTo(px[i], py[i]); lines[m].lineTo(px[j], py[j]); deg[i]++; deg[j]++;
+    }
+  }
+  for(let i = 0; i < n; i++) if(mat[i] && !deg[i]){ lines[mat[i]].moveTo(px[i], py[i]); lines[mat[i]].lineTo(px[i] + 0.01, py[i]); }
+  const gates = [], rubble = [];
+  for(let i = 0; i < n; i++){
+    const x = i % cols, y = (i - x) / cols;
+    if(t[i] === 13) gates.push({x: px[i], y: py[i], horiz: matAt(x - 1, y) === mat[i] || matAt(x + 1, y) === mat[i], m: mat[i]});
+    if(t[i] === 20) rubble.push({x: (x + 0.5) * c, y: (y + 0.5) * c, i});
+  }
+  // связные куски одного вида: башни (по 8 соседям), дома и мосты (по 4)
+  const comps = (kind, diag) => {
+    const seen = new Uint8Array(n), out = [];
+    for(let s = 0; s < n; s++){
+      if(t[s] !== kind || seen[s]) continue;
+      const cells = [], st = [s]; seen[s] = 1;
+      while(st.length){
+        const i = st.pop(), x = i % cols, y = (i - x) / cols; cells.push([x, y]);
+        for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+          if(!(dx || dy) || (!diag && dx && dy) || at(x + dx, y + dy) !== kind) continue;
+          const j = (y + dy) * cols + x + dx;
+          if(!seen[j]){ seen[j] = 1; st.push(j); }
+        }
+      }
+      const xs = cells.map(q => q[0]), ys = cells.map(q => q[1]);
+      out.push({cells, i: s, x0: Math.min(...xs) * c, y0: Math.min(...ys) * c, x1: (Math.max(...xs) + 1) * c, y1: (Math.max(...ys) + 1) * c});
+    }
+    return out;
+  };
+  // башня — круг с площадь обычной башни карты; слипшиеся башни (кусок вдвое больше обычного) делятся по скоплениям клеток
+  const tc = comps(14, true), sizes = tc.map(q => q.cells.length).sort((a, b) => a - b), usual = sizes[sizes.length >> 1] || 1;
+  const towers = tc.flatMap(q => {
+    const P = q.cells.map(([x, y]) => [(x + 0.5) * c, (y + 0.5) * c]), k = Math.max(1, Math.round(P.length / usual));
+    let C = [P[0]];
+    while(C.length < k){   // центры — самые далёкие клетки, потом несколько шагов к серединам скоплений
+      let best = P[0], bd = -1;
+      for(const p of P){ const d = Math.min(...C.map(q2 => Math.hypot(p[0] - q2[0], p[1] - q2[1]))); if(d > bd){ bd = d; best = p; } }
+      C.push(best);
+    }
+    for(let it = 0; it < 6; it++){
+      const acc = C.map(() => [0, 0, 0]);
+      for(const p of P){ let j = 0; C.forEach((q2, jj) => { if(Math.hypot(p[0] - q2[0], p[1] - q2[1]) < Math.hypot(p[0] - C[j][0], p[1] - C[j][1])) j = jj; }); acc[j][0] += p[0]; acc[j][1] += p[1]; acc[j][2]++; }
+      C = acc.map((a, j) => a[2] ? [a[0] / a[2], a[1] / a[2]] : C[j]);
+    }
+    const r = Math.sqrt(P.length / k) * c * 0.52 + 0.3;
+    return C.map(([x, y], j) => ({...q, i: q.i + j, m: mat[q.i], r, x, y}));
+  });
+  // дом — прямоугольник; неровный кусок режется на прямоугольники: от верхней левой клетки вправо, потом вниз полными рядами
+  const houses = comps(18, false).flatMap(q => {
+    const left = new Set(q.cells.map(([x, y]) => y * cols + x)), out = [];
+    while(left.size){
+      const s = Math.min(...left), x0 = s % cols, y0 = (s - x0) / cols;
+      let x1 = x0; while(left.has(y0 * cols + x1 + 1)) x1++;
+      let y1 = y0;
+      while(true){ let ok = true; for(let x = x0; x <= x1; x++) if(!left.has((y1 + 1) * cols + x)){ ok = false; break; } if(!ok) break; y1++; }
+      for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++) left.delete(y * cols + x);
+      out.push({x0: x0 * c, y0: y0 * c, x1: (x1 + 1) * c, y1: (y1 + 1) * c, i: s, n: (x1 - x0 + 1) * (y1 - y0 + 1)});
+    }
+    return out;
+  });
+  // мост — один настил вдоль главной оси его клеток (лесенка клеток по диагонали становится ровным мостом)
+  const bridges = comps(9, false).map(q => {
+    const P = q.cells.map(([x, y]) => [(x + 0.5) * c, (y + 0.5) * c]), n1 = P.length;
+    const mx = P.reduce((s, p) => s + p[0], 0) / n1, my = P.reduce((s, p) => s + p[1], 0) / n1;
+    let sxx = 0, syy = 0, sxy = 0;
+    for(const [x, y] of P){ sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my); }
+    let a = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    if(n1 === 1){   // одна клетка — поперёк воды
+      const [x, y] = q.cells[0];
+      a = WETA[UNDER[at(x - 1, y)] ?? at(x - 1, y)] && WETA[UNDER[at(x + 1, y)] ?? at(x + 1, y)] ? Math.PI / 2 : 0;
+    }
+    const ux = Math.cos(a), uy = Math.sin(a), along = P.map(([x, y]) => (x - mx) * ux + (y - my) * uy), across = P.map(([x, y]) => -(x - mx) * uy + (y - my) * ux);
+    const t0 = Math.min(...along), t1 = Math.max(...along), s0 = Math.min(...across), s1 = Math.max(...across);
+    return {...q, cx: mx + ux * (t0 + t1) / 2 - uy * (s0 + s1) / 2, cy: my + uy * (t0 + t1) / 2 + ux * (s0 + s1) / 2, a,
+      len: t1 - t0 + c, w: Math.max(4, s1 - s0 + c * 0.6)};
+  });
+  MAP = {t, z, zb, gt, cols, rows, c, lines, gates, rubble, towers, houses, bridges,
+    rustic: t.some(k => k === 15),                            // в остроге — соломенные и тесовые крыши
+    towerRoof: hash(cols * 31 + rows, 4) < 0.5 ? ROOFS[0] : ROOFS[2]};   // у башен одного замка — одна кровля
+}
+
+// Плитка: попиксельно земля, векторно всё остальное, сверху зерно
+const SHC = document.createElement("canvas"); SHC.width = SHC.height = TILE + 2 * SHB;
+const GRAIN = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const g = c.getContext("2d");
+  for(let i = 0; i < 2800; i++){
+    const x = Math.floor(hash(i, 91) * 256), y = Math.floor(hash(i, 92) * 256), s = hash(i, 93), a = (0.08 + 0.14 * hash(i, 94)).toFixed(3);
+    g.fillStyle = s < 0.72 ? `rgba(40,32,18,${a})` : `rgba(255,250,232,${a})`;
+    const w = s < 0.1 ? 2 : 1; g.fillRect(x, y, w, w);
+  }
+  return c;
+})();
+function makeTile(L, tx, ty){
+  const c = document.createElement("canvas"); c.width = c.height = TILE;
+  const g = c.getContext("2d"), span = TILE / L, wx0 = tx * span, wy0 = ty * span;
+  groundPass(g, L, wx0, wy0);
+  vectorPass(g, L, wx0, wy0);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
+  g.fillStyle = g.createPattern(GRAIN, "repeat"); g.fillRect(0, 0, TILE, TILE);
+  return c;
+}
+
+function groundPass(g, L, wx0, wy0){
+  const {gt, z, zb, cols, rows, c} = MAP, inv = 1 / L, fine = L >= 2;
+  const E = Math.max(1, Math.min(4, Math.round(0.3 * L))), N = TILE + 2 * E;
+  const cls = new Uint8Array(N * N), mar = new Float32Array(N * N), zs = new Float32Array(N * N), zh = new Float32Array(N * N);
+  for(let py = 0; py < N; py++){
+    const wy = wy0 + (py - E + 0.5) * inv, fy = wy / c - 0.5, iy = Math.floor(fy), ty = fy - iy;
+    const r0 = Math.max(0, Math.min(rows - 1, iy)) * cols, r1 = Math.max(0, Math.min(rows - 1, iy + 1)) * cols;
+    for(let px = 0; px < N; px++){
+      const wx = wx0 + (px - E + 0.5) * inv, fx = wx / c - 0.5, ix = Math.floor(fx), tx = fx - ix;
+      const x0 = Math.max(0, Math.min(cols - 1, ix)), x1 = Math.max(0, Math.min(cols - 1, ix + 1)), o = py * N + px;
+      const i00 = r0 + x0, i10 = r0 + x1, i01 = r1 + x0, i11 = r1 + x1;
+      const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+      zs[o] = z[i00] * w00 + z[i10] * w10 + z[i01] * w01 + z[i11] * w11;
+      zh[o] = zb[i00] * w00 + zb[i10] * w10 + zb[i01] * w01 + zb[i11] * w11;
+      const a = gt[i00], b = gt[i10], cc = gt[i01], d = gt[i11];
+      if(a === b && a === cc && a === d){ cls[o] = a; mar[o] = 1; continue; }
+      cls[o] = pick(a, b, cc, d, w00, w10, w01, w11, wx, wy, fine); mar[o] = PICK_M;
+    }
+  }
+  const img = g.createImageData(TILE, TILE), D = img.data, zd = Math.max(1, Math.round(E / 2));
+  for(let py = 0; py < TILE; py++){
+    const wy = wy0 + (py + 0.5) * inv;
+    for(let px = 0; px < TILE; px++){
+      const wx = wx0 + (px + 0.5) * inv, o = (py + E) * N + px + E, k = cls[o];
+      let r = GR[k], gg = GG[k], b = GB[k];
+      // пятна: крупные и мелкие перепады тона; на лугу — проплешины сухой травы
+      let f = 0.92 + 0.1 * vn(wx / 17, wy / 17, 3) + (fine ? 0.05 * vn(wx / 4, wy / 4, 4) : 0.025);
+      if(k === 1 || k === 5){
+        const dry = vn(wx / 48, wy / 48, 5);
+        if(dry > 0.58){ const m = (dry - 0.58) * 1.4; r += (196 - r) * m; gg += (184 - gg) * m * 0.7; b += (118 - b) * m * 0.6; }
+      } else if(k === 10 && vn(wx / 3.2, wy / 3.2, 8) > 0.6){ r = 92; gg = 118; b = 112; }   // болото: лужи
+      const wet = WETA[k], n1 = cls[o - E], n2 = cls[o + E], n3 = cls[o - E * N], n4 = cls[o + E * N];
+      if(wet){
+        const m = mar[o]; if(m < 0.5) f *= 1.13 - 0.26 * m;   // у берега вода светлее
+        if(!WETA[n1] || !WETA[n2] || !WETA[n3] || !WETA[n4]){ r = 60; gg = 72; b = 62; f = 1; }   // кромка берега
+      } else if(WETA[n1] || WETA[n2] || WETA[n3] || WETA[n4]) f *= 0.84;                   // сырая полоса суши
+      else if((k === 2 || k === 19) && (n1 !== k || n2 !== k || n3 !== k || n4 !== k)) f *= k === 2 ? 0.9 : 0.8;   // обочина, бордюр
+      // светотень холмов (свет справа сверху) и горизонтали — граница уровней высоты
+      const gx = (zh[o + 1] - zh[o - 1]) * L * 0.5, gy = (zh[o + N] - zh[o - N]) * L * 0.5;
+      f *= 1 + Math.max(-0.22, Math.min(0.22, (-gx * 0.7 + gy * 0.7) * 0.9)) + zh[o] * 0.02;
+      r *= f; gg *= f; b *= f;
+      const lv = Math.round(zs[o]);
+      if(Math.round(zs[o + zd]) !== lv || Math.round(zs[o + zd * N]) !== lv){ r = r * 0.55 + 43; gg = gg * 0.55 + 31; b = b * 0.55 + 16; }
+      const p = (py * TILE + px) * 4;
+      D[p] = r; D[p + 1] = gg; D[p + 2] = b; D[p + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+}
+
+function vectorPass(g, L, wx0, wy0){
+  const span = TILE / L, M = 10, {t, cols, rows, c} = MAP, pxm = 1 / L, o = Math.max(0.12, 1.15 / L);
+  const X0 = wx0 - M, Y0 = wy0 - M, X1 = wx0 + span + M, Y1 = wy0 + span + M;
+  const cx0 = Math.max(0, Math.floor(X0 / c)), cx1 = Math.min(cols - 1, Math.floor(X1 / c));
+  const cy0 = Math.max(0, Math.floor(Y0 / c)), cy1 = Math.min(rows - 1, Math.floor(Y1 / c));
+  const box = q => q.x1 >= X0 && q.x0 <= X1 && q.y1 >= Y0 && q.y0 <= Y1;
+  g.setTransform(L, 0, 0, L, -wx0 * L, -wy0 * L); g.lineCap = "round"; g.lineJoin = "round";
+  // тетрадная клетка 10 м
+  if(SHOW_GRID && 10 * L >= 8){
+    g.beginPath();
+    for(let x = Math.ceil(wx0 / 10) * 10; x <= wx0 + span; x += 10){ g.moveTo(x, wy0); g.lineTo(x, wy0 + span); }
+    for(let y = Math.ceil(wy0 / 10) * 10; y <= wy0 + span; y += 10){ g.moveTo(wx0, y); g.lineTo(wx0 + span, y); }
+    g.strokeStyle = "rgba(36,44,26,.1)"; g.lineWidth = pxm; g.stroke();
+  }
+  // мелочь на земле и предметы по клеткам: [вид, x, y, r, зерно] — 1 дерево, 2 куст, 3 камень
+  const pDark = new Path2D(), pLight = new Path2D(), pRip = new Path2D(), pDot = new Path2D(), pReed = new Path2D(), pCob = new Path2D();
+  const objs = [], grass = L >= 2.5, small = L >= 4;
+  for(let cy = cy0; cy <= cy1; cy++) for(let cx = cx0; cx <= cx1; cx++){
+    const i = cy * cols + cx, k = t[i], x0 = cx * c, y0 = cy * c;
+    if(k === 6){
+      const nT = hash(i, 1) < 0.4 ? 2 : 1;
+      for(let q = 0; q < nT; q++){ const s = i * 4 + q; objs.push([1, x0 + (0.15 + 0.7 * hash(s, 2)) * c, y0 + (0.15 + 0.7 * hash(s, 3)) * c, (q ? 1.8 : 2.4) + 2 * hash(s, 4), s]); }
+    } else if(k === 5){
+      const nB = 1 + Math.floor(hash(i, 1) * 3);
+      for(let q = 0; q < nB; q++){ const s = i * 4 + q; objs.push([2, x0 + (0.1 + 0.8 * hash(s, 2)) * c, y0 + (0.1 + 0.8 * hash(s, 3)) * c, 0.6 + 0.7 * hash(s, 4), s]); }
+    } else if(k === 11){
+      const nR = Math.floor(hash(i, 1) * 3);
+      for(let q = 0; q < nR; q++){ const s = i * 4 + q; objs.push([3, x0 + (0.15 + 0.7 * hash(s, 2)) * c, y0 + (0.15 + 0.7 * hash(s, 3)) * c, 0.5 + 1.2 * hash(s, 4), s]); }
+    }
+    if(grass && (k === 1 || k === 0 || k === 5)){   // трава — короткие кудрявые штрихи
+      const nG = 2 + Math.floor(hash(i, 5) * 3);
+      for(let q = 0; q < nG; q++){
+        const s = i * 8 + q, x = x0 + hash(s, 6) * c, y = y0 + hash(s, 7) * c, sz = 0.2 + 0.16 * hash(s, 8);
+        const q2 = classAt(x, y); if(q2 !== 1 && q2 !== 5) continue;   // край луга неровный — у воды и дороги травы нет
+        const p = hash(s, 9) < 0.72 ? pDark : pLight;
+        for(const bl of [-1, 0, 1]){ p.moveTo(x + bl * sz * 0.22, y); p.quadraticCurveTo(x + bl * sz * 0.3, y - sz * 0.7, x + bl * sz * 0.7 + sz * 0.18, y - sz * (bl ? 0.78 : 1)); }
+      }
+    }
+    if(L >= 1.5 && (k === 7 || k === 16) && hash(i, 10) < 0.3){   // рябь
+      const x = x0 + (0.2 + 0.6 * hash(i, 11)) * c, y = y0 + (0.2 + 0.6 * hash(i, 12)) * c, w = 0.7 + 0.9 * hash(i, 13);
+      if(WETA[classAt(x - w, y)] && WETA[classAt(x + w, y)]){
+        pRip.moveTo(x - w, y); pRip.quadraticCurveTo(x - w / 2, y + 0.4, x, y); pRip.quadraticCurveTo(x + w / 2, y + 0.4, x + w, y);
+      }
+    }
+    if(small && (k === 2 || k === 8 || k === 3)){   // камешки на дороге, броде, песке
+      for(let q = 0; q < 3; q++){
+        const s = i * 8 + q, x = x0 + hash(s, 14) * c, y = y0 + hash(s, 15) * c, rr = 0.06 + 0.1 * hash(s, 16);
+        pDot.moveTo(x + rr, y); pDot.ellipse(x, y, rr, rr * 0.75, hash(s, 17) * 3, 0, 6.283);
+      }
+    }
+    if(grass && k === 10){   // камыш
+      for(let q = 0; q < 2; q++){
+        const s = i * 8 + q, x = x0 + hash(s, 18) * c, y = y0 + hash(s, 19) * c;
+        for(let b = -2; b <= 2; b++){ pReed.moveTo(x + b * 0.06, y); pReed.lineTo(x + b * 0.2, y - 0.55 - 0.15 * (2 - Math.abs(b))); }
+      }
+    }
+    if(k === 19 && L >= 5){   // мостовая: ряды камней вразбежку
+      for(let yy = 0; yy < c - 0.01; yy += 0.7){
+        pCob.moveTo(x0, y0 + yy); pCob.lineTo(x0 + c, y0 + yy);
+        for(let xx = (Math.round(yy / 0.7) % 2) * 0.45; xx < c; xx += 0.9){ pCob.moveTo(x0 + xx, y0 + yy); pCob.lineTo(x0 + xx, y0 + Math.min(c, yy + 0.7)); }
+      }
+    }
+  }
+  const thin = Math.max(0.05, 0.9 * pxm);
+  g.lineWidth = thin;
+  g.strokeStyle = "rgba(62,82,38,.55)"; g.stroke(pDark);
+  g.strokeStyle = "rgba(214,222,160,.45)"; g.stroke(pLight);
+  g.strokeStyle = "rgba(60,76,30,.75)"; g.stroke(pReed);
+  g.strokeStyle = "rgba(70,64,56,.32)"; g.stroke(pCob);
+  g.fillStyle = "rgba(88,76,58,.35)"; g.fill(pDot);
+  g.lineWidth = Math.max(0.1, 1.1 * pxm); g.strokeStyle = "rgba(226,238,242,.6)"; g.stroke(pRip);
+
+  // тени: всё высокое — в одну маску (тень не темнеет там, где тени перекрылись), размытие, полупрозрачно
+  const W = 0.9 * c, sg = SHC.getContext("2d");
+  sg.setTransform(1, 0, 0, 1, 0, 0); sg.clearRect(0, 0, SHC.width, SHC.height);
+  sg.setTransform(L, 0, 0, L, -wx0 * L + SHB, -wy0 * L + SHB);
+  sg.fillStyle = sg.strokeStyle = "#000"; sg.lineCap = "round"; sg.lineJoin = "round";
+  const sweep = (h, fn) => { for(let s = 1; s <= 4; s++) fn(SH_X * h * s / 4, SH_Y * h * s / 4); };
+  const pSh = new Path2D();
+  for(const [kind, x, y, r] of objs) sweep(kind === 1 ? 3 : kind === 2 ? 0.9 : 0.6, (dx, dy) => { pSh.moveTo(x + dx + r * 0.92, y + dy); pSh.arc(x + dx, y + dy, r * 0.92, 0, 6.283); });
+  for(const T of MAP.towers){ const h = T.m === 2 ? 4 : 7; sweep(h, (dx, dy) => { pSh.moveTo(T.x + dx + T.r, T.y + dy); pSh.arc(T.x + dx, T.y + dy, T.r, 0, 6.283); }); }
+  for(const H of MAP.houses) if(box(H)) sweep(H.n >= 6 && !MAP.rustic ? 7 : 3, (dx, dy) => pSh.rect(H.x0 + 0.4 + dx, H.y0 + 0.4 + dy, H.x1 - H.x0 - 0.8, H.y1 - H.y0 - 0.8));
+  sg.fill(pSh);
+  for(const B of MAP.bridges) if(box(B)){ sg.save(); sg.translate(B.cx - 0.4, B.cy + 0.7); sg.rotate(B.a); sg.fillRect(-B.len / 2, -B.w / 2, B.len, B.w); sg.restore(); }
+  for(const [m, h, w] of [[1, 4, W], [2, 1.8, 0.7]]) sweep(h, (dx, dy) => { sg.save(); sg.translate(dx, dy); sg.lineWidth = w; sg.stroke(MAP.lines[m]); sg.restore(); });
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 0.3;
+  g.filter = `blur(${Math.max(0.6, Math.min(7, 0.45 * L)).toFixed(1)}px)`;
+  g.drawImage(SHC, -SHB, -SHB); g.restore();
+
+  // мосты: настил из досок поперёк пути, перила по бокам
+  for(const B of MAP.bridges){
+    if(!box(B)) continue;
+    const hl = B.len / 2, hw = B.w / 2;
+    g.save(); g.translate(B.cx, B.cy); g.rotate(B.a);
+    g.fillStyle = "#9a7448"; g.fillRect(-hl, -hw, B.len, B.w);
+    g.beginPath(); for(let s = -hl + 0.55; s < hl; s += 0.55){ g.moveTo(s, -hw); g.lineTo(s, hw); }
+    g.lineWidth = thin; g.strokeStyle = "rgba(58,38,20,.5)"; g.stroke();
+    g.beginPath(); g.moveTo(-hl, -hw + 0.3); g.lineTo(hl, -hw + 0.3); g.moveTo(-hl, hw - 0.3); g.lineTo(hl, hw - 0.3);
+    g.lineCap = "butt"; g.lineWidth = 0.55 + 2 * o; g.strokeStyle = INK; g.stroke();
+    g.lineWidth = 0.55; g.strokeStyle = "#71502f"; g.stroke(); g.lineCap = "round";
+    if(L >= 3){   // столбики перил
+      g.beginPath(); for(let s = -hl + 0.6; s < hl; s += 2.5) for(const e of [-hw + 0.3, hw - 0.3]){ g.moveTo(s + 0.2, e); g.arc(s, e, 0.2, 0, 6.283); }
+      g.fillStyle = "#5a3f25"; g.fill();
+    }
+    g.restore();
+  }
+  // окоп и вал: тёмная канава с земляной бровкой
+  g.lineWidth = 2.6; g.strokeStyle = "#86704f"; g.stroke(MAP.lines[3]);
+  g.lineWidth = 1.1; g.strokeStyle = "#4b3c2a"; g.stroke(MAP.lines[3]);
+  // частокол: брёвна торцами — ряд кружков
+  if(0.7 * L >= 2){
+    g.setLineDash([0, 0.66]);
+    g.lineWidth = 0.66 + 2 * o; g.strokeStyle = INK; g.stroke(MAP.lines[2]);
+    g.lineWidth = 0.66; g.strokeStyle = "#946c43"; g.stroke(MAP.lines[2]);
+    g.lineWidth = 0.3; g.strokeStyle = "#b88d5c"; g.stroke(MAP.lines[2]);
+    g.setLineDash([]);
+  } else { g.lineWidth = Math.max(0.7, 1.5 * pxm); g.strokeStyle = "#6e5134"; g.stroke(MAP.lines[2]); }
+  // каменная стена: лента с обводкой, зубцы по краям, дорожка посередине, швы плит поперёк
+  g.lineWidth = W + 2 * o; g.strokeStyle = INK; g.stroke(MAP.lines[1]);
+  g.lineWidth = W; g.strokeStyle = "#c6bfae"; g.stroke(MAP.lines[1]);
+  if(W * L >= 7){
+    g.lineCap = "butt";
+    g.setLineDash([0.75, 1.0]); g.strokeStyle = "#8a8374"; g.stroke(MAP.lines[1]);
+    g.setLineDash([]); g.lineWidth = W * 0.56 + o; g.strokeStyle = "#6f685c"; g.stroke(MAP.lines[1]);
+    g.lineWidth = W * 0.56; g.strokeStyle = "#b2aa99"; g.stroke(MAP.lines[1]);
+    if(L >= 4){ g.setLineDash([thin, 1.25]); g.strokeStyle = "rgba(86,78,66,.55)"; g.stroke(MAP.lines[1]); g.setLineDash([]); }
+    g.lineCap = "round";
+  }
+  // ворота: створки из досок с железными полосами поперёк стены
+  for(const G of MAP.gates){
+    if(G.x < X0 || G.x > X1 || G.y < Y0 || G.y > Y1) continue;
+    const gw = c, gd = G.m === 2 ? 1.6 : W * 1.04;
+    g.save(); g.translate(G.x, G.y); if(!G.horiz) g.rotate(Math.PI / 2);
+    g.fillStyle = "#3a2c20"; g.fillRect(-gw / 2, -gd / 2, gw, gd);
+    g.fillStyle = "#8a6239"; g.fillRect(-gw / 2 + 0.2, -gd * 0.34, gw - 0.4, gd * 0.68);
+    g.beginPath(); for(let s = -gw / 2 + 0.2 + 0.45; s < gw / 2 - 0.2; s += 0.45){ g.moveTo(s, -gd * 0.34); g.lineTo(s, gd * 0.34); }
+    g.lineWidth = thin; g.strokeStyle = "rgba(46,30,16,.55)"; g.stroke();
+    g.beginPath(); g.moveTo(-gw / 2 + 0.2, -gd * 0.17); g.lineTo(gw / 2 - 0.2, -gd * 0.17); g.moveTo(-gw / 2 + 0.2, gd * 0.17); g.lineTo(gw / 2 - 0.2, gd * 0.17);
+    g.lineWidth = 0.16; g.strokeStyle = "#45433f"; g.stroke();
+    g.lineWidth = o; g.strokeStyle = INK; g.strokeRect(-gw / 2, -gd / 2, gw, gd);
+    g.restore();
+  }
+  // пролом: груда обломков
+  for(const R of MAP.rubble){
+    if(R.x < X0 || R.x > X1 || R.y < Y0 || R.y > Y1) continue;
+    for(let q = 0; q < 16; q++){
+      const s = R.i * 32 + q, a = hash(s, 1) * 6.283, d = 2.6 * (hash(s, 2) + hash(s, 3)) / 2, rr = 0.2 + 0.5 * hash(s, 4);
+      const x = R.x + Math.cos(a) * d, y = R.y + Math.sin(a) * d;
+      g.beginPath();
+      for(let v = 0; v < 5; v++){ const b = v * 1.2566 + hash(s, 5 + v) * 0.6, e = rr * (0.7 + 0.4 * hash(s, 10 + v)); v ? g.lineTo(x + Math.cos(b) * e, y + Math.sin(b) * e) : g.moveTo(x + Math.cos(b) * e, y + Math.sin(b) * e); }
+      g.closePath(); g.fillStyle = hash(s, 15) < 0.5 ? "#bdb5a5" : "#9b9488"; g.fill(); g.lineWidth = o * 0.8; g.strokeStyle = INK; g.stroke();
+    }
+  }
+  // камни, кусты, деревья — по рядам клеток, нижние поверх верхних
+  for(const [kind, x, y, r, s] of objs){
+    if(kind === 3) boulder(g, x, y, r, s, o);
+    else crown(g, x, y, r, s, kind === 2 ? BUSH : TREES[hash(s, 6) < 0.06 ? 3 : Math.floor(hash(s, 7) * 3)], L, o, kind === 2 ? 5 : 7);
+  }
+  // дома и донжон; башни
+  for(const H of MAP.houses) if(box(H)) house(g, H, L, o);
+  for(const T of MAP.towers) if(T.x + T.r >= X0 && T.x - T.r <= X1 && T.y + T.r >= Y0 && T.y - T.r <= Y1) tower(g, T, L, o);
+}
+
+// Крона: облачко из кружков с тёмной обводкой, светлее к солнцу; вблизи — штрихи листвы
+function crownPath(g, x, y, r, nb, a0, s, grow){
+  g.beginPath(); g.moveTo(x + r * 0.72 + grow, y); g.arc(x, y, r * 0.72 + grow, 0, 6.283);
+  for(let k = 0; k < nb; k++){
+    const a = a0 + k * 6.283 / nb + (hash(s, 10 + k) - 0.5) * 0.4, rr = r * (0.33 + 0.1 * hash(s, 30 + k)) + grow;
+    const bx = x + Math.cos(a) * r * 0.62, by = y + Math.sin(a) * r * 0.62;
+    g.moveTo(bx + rr, by); g.arc(bx, by, rr, 0, 6.283);
+  }
+}
+function crown(g, x, y, r, s, pal, L, o, nb0){
+  const rp = r * L;
+  if(rp < 2.5){ g.fillStyle = pal[1]; g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill(); return; }
+  if(rp < 7){
+    g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fillStyle = pal[1]; g.fill(); g.lineWidth = o; g.strokeStyle = pal[0]; g.stroke();
+    g.beginPath(); g.arc(x + r * 0.25, y - r * 0.25, r * 0.5, 0, 6.283); g.fillStyle = pal[2]; g.fill();
+    return;
+  }
+  const nb = nb0 + Math.floor(hash(s, 1) * 3), a0 = hash(s, 2) * 6.283;
+  crownPath(g, x, y, r, nb, a0, s, o); g.fillStyle = pal[0]; g.fill();
+  crownPath(g, x, y, r, nb, a0, s, 0); g.fillStyle = pal[1]; g.fill();
+  crownPath(g, x + r * 0.16, y - r * 0.16, r * 0.7, nb - 1, a0 + 0.5, s + 7, 0); g.fillStyle = pal[2]; g.fill();
+  g.beginPath(); g.arc(x + r * 0.32, y - r * 0.32, r * 0.3, 0, 6.283); g.fillStyle = pal[3]; g.fill();
+  if(rp > 12){
+    g.beginPath();
+    for(let k = 0; k < 3; k++){
+      const a = hash(s, 50 + k) * 6.283, d = r * 0.5 * hash(s, 60 + k), cx = x + Math.cos(a) * d, cy = y + Math.sin(a) * d, b = hash(s, 70 + k) * 6.283;
+      g.moveTo(cx + Math.cos(b) * r * 0.22, cy + Math.sin(b) * r * 0.22); g.arc(cx, cy, r * 0.22, b, b + 1.8);
+    }
+    g.lineWidth = Math.max(0.06, 0.8 / L); g.strokeStyle = pal[0]; g.globalAlpha = 0.45; g.stroke(); g.globalAlpha = 1;
+  }
+}
+function boulder(g, x, y, r, s, o){
+  const n = 6 + Math.floor(hash(s, 1) * 3), pts = [];
+  for(let k = 0; k < n; k++){ const a = k * 6.283 / n + (hash(s, 10 + k) - 0.5) * 0.5, d = r * (0.75 + 0.3 * hash(s, 20 + k)); pts.push([Math.cos(a) * d, Math.sin(a) * d * 0.85]); }
+  const poly = (sc, ox, oy) => { g.beginPath(); pts.forEach(([px, py], k) => k ? g.lineTo(x + ox + px * sc, y + oy + py * sc) : g.moveTo(x + ox + px * sc, y + oy + py * sc)); g.closePath(); };
+  poly(1, 0, 0); g.fillStyle = "#8f8b82"; g.fill(); g.lineWidth = o; g.strokeStyle = "#3b3833"; g.stroke();
+  poly(0.56, r * 0.14, -r * 0.16); g.fillStyle = "#bab6ab"; g.fill();
+}
+// грань крыши светлее, если смотрит к солнцу (вправо вверх)
+const facet = (base, nx, ny) => { const k = (nx * 0.7 - ny * 0.7) * 0.2; return k >= 0 ? mix(base, "#ffffff", k) : mix(base, "#000000", -k); };
+function house(g, H, L, o){
+  const x0 = H.x0 + 0.4, y0 = H.y0 + 0.4, x1 = H.x1 - 0.4, y1 = H.y1 - 0.4, w = x1 - x0, h = y1 - y0;
+  const keep = H.n >= 6 && !MAP.rustic;
+  if(keep){   // донжон: каменный квадрат с зубцами, внутри — шатровая крыша
+    g.fillStyle = "#c6bfae"; g.fillRect(x0, y0, w, h); g.lineWidth = o; g.strokeStyle = INK; g.strokeRect(x0, y0, w, h);
+    if(L >= 1.5){ g.lineCap = "butt"; g.setLineDash([0.75, 1.0]); g.lineWidth = 0.9; g.strokeStyle = "#8a8374"; g.strokeRect(x0 + 0.45, y0 + 0.45, w - 0.9, h - 0.9); g.setLineDash([]); g.lineCap = "round"; }
+    roof(g, x0 + 1.4, y0 + 1.4, x1 - 1.4, y1 - 1.4, ROOFS[2], L, o, true);
+    return;
+  }
+  const pal = MAP.rustic ? [ROOFS[1], ROOFS[3]] : [ROOFS[0], ROOFS[0], ROOFS[2], ROOFS[1]];
+  roof(g, x0, y0, x1, y1, pal[Math.floor(hash(H.i, 3) * pal.length)], L, o, false);
+}
+// вальмовая крыша: конёк вдоль длинной стороны, четыре ската в два тона, ряды черепицы
+function roof(g, x0, y0, x1, y1, base, L, o, tent){
+  const w = x1 - x0, h = y1 - y0, wide = w >= h, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const hl = tent ? 0 : Math.abs(w - h) / 2;
+  const ra = wide ? [cx - hl, cy] : [cx, cy - hl], rb = wide ? [cx + hl, cy] : [cx, cy + hl];
+  const F = [
+    [[[x0, y0], [x1, y0], rb, ra], 0, -1],
+    [[[x1, y0], [x1, y1], rb], 1, 0],
+    [[[x1, y1], [x0, y1], ra, rb], 0, 1],
+    [[[x0, y1], [x0, y0], ra], -1, 0],
+  ];
+  // у узкого дома конёк идёт сверху вниз: верх и низ — треугольники, бока — трапеции
+  if(!wide){ F[0][0] = [[x0, y0], [x1, y0], ra]; F[1][0] = [[x1, y0], [x1, y1], rb, ra]; F[2][0] = [[x1, y1], [x0, y1], rb]; F[3][0] = [[x0, y1], [x0, y0], ra, rb]; }
+  for(const [pts, nx, ny] of F){
+    g.beginPath(); pts.forEach(([px, py], k) => k ? g.lineTo(px, py) : g.moveTo(px, py)); g.closePath();
+    g.fillStyle = facet(base, nx, ny); g.fill();
+    if(L >= 3){
+      g.save(); g.clip(); g.beginPath();
+      if(nx === 0) for(let yy = y0 + 0.5; yy < y1; yy += 0.5){ g.moveTo(x0, yy); g.lineTo(x1, yy); }
+      else for(let xx = x0 + 0.5; xx < x1; xx += 0.5){ g.moveTo(xx, y0); g.lineTo(xx, y1); }
+      g.lineWidth = Math.max(0.04, 0.7 / L); g.strokeStyle = "rgba(40,24,14,.22)"; g.stroke(); g.restore();
+    }
+  }
+  g.beginPath(); g.moveTo(x0, y0); g.lineTo(ra[0], ra[1]); g.lineTo(rb[0], rb[1]); g.lineTo(x1, y1);
+  g.moveTo(x1, y0); g.lineTo(wide ? rb[0] : ra[0], wide ? rb[1] : ra[1]); g.moveTo(x0, y1); g.lineTo(wide ? ra[0] : rb[0], wide ? ra[1] : rb[1]);
+  g.lineWidth = o * 0.8; g.strokeStyle = "rgba(30,20,12,.55)"; g.stroke();
+  g.lineWidth = o; g.strokeStyle = INK; g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+}
+// башня: каменное кольцо с зубцами и конус крыши из восьми граней; у острога — деревянная вышка
+function tower(g, T, L, o){
+  const {x, y, r} = T;
+  if(T.m === 2){
+    const a = r * 0.8;
+    g.fillStyle = "#8f6a42"; g.fillRect(x - a, y - a, 2 * a, 2 * a); g.lineWidth = o; g.strokeStyle = INK; g.strokeRect(x - a, y - a, 2 * a, 2 * a);
+    roof(g, x - a + 0.3, y - a + 0.3, x + a - 0.3, y + a - 0.3, ROOFS[1], L, o, true);
+    return;
+  }
+  g.beginPath(); g.arc(x, y, r + o, 0, 6.283); g.fillStyle = INK; g.fill();
+  g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fillStyle = "#c6bfae"; g.fill();
+  if(r * L >= 8){ g.lineCap = "butt"; g.setLineDash([0.8, 0.75]); g.beginPath(); g.arc(x, y, r - 0.45, 0, 6.283); g.lineWidth = 0.9; g.strokeStyle = "#8a8374"; g.stroke(); g.setLineDash([]); g.lineCap = "round"; }
+  const rr = r * 0.74, base = MAP.towerRoof;
+  for(let k = 0; k < 8; k++){
+    const a0 = k * Math.PI / 4, a1 = a0 + Math.PI / 4, am = (a0 + a1) / 2;
+    g.beginPath(); g.moveTo(x, y); g.arc(x, y, rr, a0, a1); g.closePath();
+    g.fillStyle = facet(base, Math.cos(am), Math.sin(am)); g.fill();
+  }
+  g.beginPath(); for(let k = 0; k < 8; k++){ const a = k * Math.PI / 4; g.moveTo(x, y); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  g.lineWidth = o * 0.6; g.strokeStyle = "rgba(30,20,12,.4)"; g.stroke();
+  g.beginPath(); g.arc(x, y, rr, 0, 6.283); g.lineWidth = o; g.strokeStyle = INK; g.stroke();
+  g.beginPath(); g.arc(x, y, Math.max(0.3, r * 0.08), 0, 6.283); g.fillStyle = "#d6b75a"; g.fill(); g.lineWidth = o * 0.7; g.stroke();
+}
+
+// Общая карта мельче — подложка, пока плиток нужной ступени нет
+function makeOverview(){
+  const Lo = Math.pow(2, Math.floor(Math.log2(1024 / Math.max(S.w, S.h)))), span = TILE / Lo;
+  const c = document.createElement("canvas"); c.width = Math.ceil(S.w * Lo); c.height = Math.ceil(S.h * Lo);
+  const g = c.getContext("2d");
+  for(let ty = 0; ty * span < S.h; ty++) for(let tx = 0; tx * span < S.w; tx++){
+    const tile = makeTile(Lo, tx, ty); g.drawImage(tile, tx * TILE, ty * TILE); TILES.set(`${Lo}|${tx}|${ty}`, tile);
+  }
+  OVER = {c, L: Lo};
+}
+const levelFor = () => Math.pow(2, Math.max(-3, Math.min(6, Math.ceil(Math.log2(view.s * (window.devicePixelRatio || 1)) - 0.2))));
+function drawGround(r){
+  const dpr = window.devicePixelRatio || 1, mx = X(0), my = Y(0), mw = S.w * view.s, mh = S.h * view.s;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 16; ctx.shadowOffsetY = 3; ctx.fillStyle = "#9ca86c"; ctx.fillRect(mx, my, mw, mh); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.rect(mx, my, mw, mh); ctx.clip();
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(OVER.c, mx, my, OVER.c.width / OVER.L * view.s, OVER.c.height / OVER.L * view.s);
+  const L = levelFor();
+  want = [];
+  if(L > OVER.L){
+    const span = TILE / L, snap = v => Math.round(v * dpr) / dpr;
+    const vx0 = Math.max(0, -view.ox / view.s), vy0 = Math.max(0, -view.oy / view.s);
+    const vx1 = Math.min(S.w, (r.width - view.ox) / view.s), vy1 = Math.min(S.h, (r.height - view.oy) / view.s);
+    const ccx = (vx0 + vx1) / 2, ccy = (vy0 + vy1) / 2;
+    for(let ty = Math.floor(vy0 / span); ty * span < vy1; ty++) for(let tx = Math.floor(vx0 / span); tx * span < vx1; tx++){
+      const key = `${L}|${tx}|${ty}`, tile = TILES.get(key);
+      const ax = snap(X(tx * span)), bx = snap(X((tx + 1) * span)), ay = snap(Y(ty * span)), by = snap(Y((ty + 1) * span));
+      if(tile){ TILES.delete(key); TILES.set(key, tile); ctx.drawImage(tile, ax, ay, bx - ax, by - ay); continue; }
+      want.push([Math.hypot((tx + 0.5) * span - ccx, (ty + 0.5) * span - ccy), L, tx, ty]);
+      const up = TILES.get(`${L / 2}|${tx >> 1}|${ty >> 1}`);   // пока нет — четверть плитки ступенью крупнее
+      if(up) ctx.drawImage(up, (tx & 1) * TILE / 2, (ty & 1) * TILE / 2, TILE / 2, TILE / 2, ax, ay, bx - ax, by - ay);
+    }
+    want.sort((a, b) => a[0] - b[0]);
+  }
+  ctx.restore();
+}
+// дорисовать недостающие плитки — понемногу за кадр, от середины экрана
+function growTiles(){
+  const t0 = performance.now();
+  while(want.length && performance.now() - t0 < 14){
+    const [, L, tx, ty] = want.shift(), key = `${L}|${tx}|${ty}`;
+    if(!TILES.has(key)) TILES.set(key, makeTile(L, tx, ty));
+  }
+  if(TILES.size > 240){ for(const key of TILES.keys()){ if(TILES.size <= 200) break; if(!key.startsWith(OVER.L + "|")) TILES.delete(key); } }
+}
+// виньетка: края поля темнее
+function drawVignette(r){
+  const x0 = Math.max(0, X(0)), y0 = Math.max(0, Y(0)), x1 = Math.min(r.width, X(S.w)), y1 = Math.min(r.height, Y(S.h));
+  if(x1 <= x0 || y1 <= y0) return;
+  const cx = r.width / 2, cy = r.height / 2, R = Math.hypot(r.width, r.height) / 2;
+  const vg = ctx.createRadialGradient(cx, cy, R * 0.42, cx, cy, R * 1.05);
+  vg.addColorStop(0, "rgba(46,34,14,0)"); vg.addColorStop(1, "rgba(46,34,14,.4)");
+  ctx.fillStyle = vg; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+}
+
+function fit(){
+  const r = cv.getBoundingClientRect(), pad = 16;
+  const s = Math.min((r.width - 2 * pad) / S.w, (r.height - 2 * pad) / S.h);
+  view = {s, ox: (r.width - S.w * s) / 2, oy: (r.height - S.h * s) / 2};
+}
+const X = x => view.ox + x * view.s, Y = y => view.oy + y * view.s;
+
+function lerpFrame(f){
+  const i = Math.floor(f), a = S.frames[i], b = S.frames[Math.min(i + 1, S.frames.length - 1)], k = f - i;
+  return a.map((ua, u) => ua.map((v, j) => {
+    const bj = b[u][j];
+    if(bj == null || v == null) return v;   // тело выбыло (null) или ещё не было; тела — по постоянному номеру
+    if(j === 2){ let d = ((bj - v + 540) % 360) - 180; return v + d * k; }
+    return v + (bj - v) * k;
+  }));
+}
+
+function draw(){
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if(cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)){ cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  drawGround(r);
+  const fr = lerpFrame(frame);
+
+  if($("showFlow").checked) drawFlow(S.units[sel]);
+  drawDead();   // павшие и кровь (Г67)
+  // бой (БД1): павшие фигурки — серые крестики там, где упали (если поимённых павших нет)
+  if(S.fallen && !S.dead) S.fallen.forEach(list => {
+    ctx.strokeStyle = "rgba(60,50,40,.55)"; ctx.lineWidth = 1;
+    list.forEach(([x, y, fi]) => {
+      if(fi > frame) return;
+      const px = X(x), py = Y(y), s = Math.max(1.5, 1.2 * view.s);
+      ctx.beginPath(); ctx.moveTo(px - s, py - s); ctx.lineTo(px + s, py + s); ctx.moveTo(px + s, py - s); ctx.lineTo(px - s, py + s); ctx.stroke();
+    });
+  });
+  // охват (Г68): фигурки, развёрнутые не по строю, — свой курс
+  const HD = new Map();
+  const hf = S.heads ? S.heads[Math.min(S.heads.length - 1, Math.round(frame))] : null;
+  if(hf) for(const [ui, k, a] of hf) HD.set(ui * 100000 + k, a * Math.PI / 180);
+  drawVignette(r);
+  S.units.forEach((u, i) => {
+    const col = u.col;
+    if($("showRoute").checked && u.route){
+      ctx.setLineDash([6, 5]); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
+      u.route.forEach(([x, y], k) => k ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))); ctx.stroke(); ctx.setLineDash([]);
+      const [tx, ty, tf] = u.order, a = tf * Math.PI / 180;
+      ctx.beginPath(); ctx.arc(X(tx), Y(ty), 4, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(tx), Y(ty)); ctx.lineTo(X(tx + Math.sin(a) * 25), Y(ty - Math.cos(a) * 25)); ctx.stroke();
+    }
+    const f = fr[i], h = f[2] * Math.PI / 180;
+    if($("showSlots").checked) drawSlots(u, f, col);
+    if($("showMen").checked && view.s >= MEN_FROM){
+      // вблизи — человечки (Г32); идущий отряд шагает
+      const moving = f[3] > 0.02, t = frame * S.dt;
+      u.figs.forEach((fig, k) => {
+        const fx = f[4 + 2 * k], fy = f[5 + 2 * k];
+        if(fx == null) return;
+        const pad = (Math.max(fig[0], fig[1]) / 2 + 5) * view.s, sx = X(fx), sy = Y(fy);   // за краем экрана не рисуем
+        if(sx < -pad || sy < -pad || sx > r.width + pad || sy > r.height + pad) return;
+        drawMen(u, fig, fx, fy, HD.get(i * 100000 + k) ?? h, col, moving, t, k);
+      });
+    } else {
+      // издали — плашка: фигурка одним прямоугольником
+      ctx.fillStyle = col; ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.6;
+      u.figs.forEach(([w, d], k) => {
+        if(f[4 + 2 * k] == null) return;   // тело выбыло (Г30)
+        const x = X(f[4 + 2 * k]), y = Y(f[5 + 2 * k]);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(figHead(i, k) ?? HD.get(i * 100000 + k) ?? h);   // курс фигурки — куда идёт (В10)
+        const W = Math.max(1.2, w * view.s), D = Math.max(1, d * view.s);
+        ctx.fillRect(-W / 2, -D / 2, W, D); if(view.s > 2) ctx.strokeRect(-W / 2, -D / 2, W, D);
+        ctx.restore();
+      });
+    }
+    // центр строя и курс
+    ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.moveTo(X(f[0]), Y(f[1])); ctx.lineTo(X(f[0] + Math.sin(h) * (u.depth / 2 + 14)), Y(f[1] - Math.cos(h) * (u.depth / 2 + 14))); ctx.stroke();
+    if($("showMen").checked && view.s >= 1.5) drawBanner(f, h, u.depth, col, i);   // поверх линии курса; i — для знамени при бегстве (В11)
+    // карта всегда «бумажная» — подпись тёмная со светлой обводкой в любой теме
+    const lx = X(f[0]) + 8, ly = Y(f[1]) + u.depth / 2 * view.s + 16;
+    ctx.font = "600 12px system-ui"; ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(255,253,245,.9)"; ctx.lineWidth = 3; ctx.strokeText(u.name, lx, ly);
+    ctx.fillStyle = "#1d1b16"; ctx.fillText(u.name, lx, ly);
+  });
+  drawArrows(r);   // стрелы в полёте — поверх бойцов (В6)
+  const time = frame * S.dt, turn = Math.min(S.turns, Math.floor(time / S.turnSec + 1e-9) + 1), tin = time - (turn - 1) * S.turnSec;
+  $("time").textContent = `ход ${turn} · ${tin.toFixed(1).replace(".", ",")} с`;
+  $("slider").value = Math.round(frame);
+  showLog(time);
+  showUnits(fr);
+}
+
+function drawFlow(u){
+  if(!u || !u.flow) return;
+  const cw = S.w / S.cols, ch = S.h / S.rows, step = Math.max(1, Math.round(16 / (cw * view.s)));
+  ctx.strokeStyle = "rgba(30,30,30,.45)"; ctx.lineWidth = 1;
+  for(let y = Math.floor(step / 2); y < S.rows; y += step) for(let x = Math.floor(step / 2); x < S.cols; x += step){
+    const c = u.flow[y * S.cols + x];
+    if(c === "." || c === "T") continue;
+    const k = c.charCodeAt(0) - 48, dx = DX[k], dy = DY[k], l = Math.hypot(dx * cw, dy * ch);
+    const cx = X((x + 0.5) * cw), cy = Y((y + 0.5) * ch), L = Math.min(7, step * cw * view.s * 0.4), ux = dx * cw / l, uy = dy * ch / l;
+    ctx.beginPath(); ctx.moveTo(cx - ux * L, cy - uy * L); ctx.lineTo(cx + ux * L, cy + uy * L);
+    ctx.lineTo(cx + ux * L - (ux * 3 - uy * 2.5), cy + uy * L - (uy * 3 + ux * 2.5));
+    ctx.moveTo(cx + ux * L, cy + uy * L); ctx.lineTo(cx + ux * L - (ux * 3 + uy * 2.5), cy + uy * L - (uy * 3 - ux * 2.5));
+    ctx.stroke();
+  }
+}
+
+// места в строю: по раскладке фигурок вокруг центра (сетка, как Formation.Layout) — пунктирный контур строя
+function drawSlots(u, f, col){
+  const h = f[2] * Math.PI / 180, c = Math.cos(h), s = Math.sin(h), fw = u.front / 2, dd = u.depth / 2;
+  const pts = [[-fw, -dd], [fw, -dd], [fw, dd], [-fw, dd]].map(([lx, ly]) => [f[0] + lx * c - ly * s, f[1] + lx * s + ly * c]);
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath();
+  pts.forEach(([x, y], k) => k ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+}
+
+function showLog(time){
+  const done = Math.min(S.turns, Math.floor(time / S.turnSec + 1e-9));
+  let html = "";
+  for(let t = 0; t < done; t++) html += `<p><b>Ход ${t + 1}</b></p>` + S.logs[t].map(l => `<p>${esc(l)}</p>`).join("");
+  if(!done) html = `<p class="note">Строки журнала появятся в конце хода.</p>`;
+  if($("log").dataset.n !== String(done)){ $("log").innerHTML = html; $("log").dataset.n = done; }
+}
+function showUnits(fr){
+  $("units").innerHTML = S.units.map((u, i) => {
+    const v = fr[i][3], kind = {infantry:"пехота", pike:"пикинёры", archer:"стрелки", cavalry:"конница"}[u.type] || u.type;
+    const now = S.soldiers ? S.soldiers[Math.min(S.soldiers.length - 1, Math.round(frame))][i] : null;
+    return `<div class="unit${i === sel ? " sel" : ""}" data-i="${i}"><span class="sw" style="background:${u.col}"></span>
+      <span>${esc(u.name)}</span><small>${kind}, ${now !== null ? `в строю ${now} из ${u.men}` : `${u.men} чел.`}, фронт ${u.front} × ${u.depth} м · норма ${u.norm} м · сейчас ${(v).toFixed(1).replace(".", ",")} м нормы/с${u.note ? " · " + esc(u.note) : ""}</small></div>`;
+  }).join("");
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function load(i){
+  S = DATA.scenes[i]; sel = 0; frame = 0; playing = false; $("play").textContent = "▶";
+  $("note").textContent = S.note;
+  $("slider").max = S.frames.length - 1;
+  $("log").dataset.n = "";
+  document.querySelectorAll("#tabs button").forEach((b, k) => b.classList.toggle("on", k === i));
+  S.units.forEach((u, k) => u.col = sideColor(k));
+  prepMap(); TILES.clear(); want = []; makeOverview(); fit(); draw();
+}
+
+let last = 0;
+function tick(ts){
+  const grow = want.length > 0;
+  if(grow) growTiles();   // плитки земли дорисовываются понемногу, пока картинка не станет чёткой
+  if(playing){
+    const dt = last ? (ts - last) / 1000 : 0;
+    frame = Math.min(S.frames.length - 1, frame + dt * speed / S.dt);
+    if(frame >= S.frames.length - 1){ playing = false; $("play").textContent = "▶"; }
+  }
+  if(playing || grow) draw();
+  last = ts; requestAnimationFrame(tick);
+}
+
+if(!DATA){
+  document.body.innerHTML = `<p style="padding:24px">Нет данных. Запусти из папки core: <code>dotnet run --project Tests -- polygon</code> и открой core/polygon/polygon.html.</p>`;
+} else {
+  $("tabs").innerHTML = DATA.scenes.map((s, i) => `<button>${esc(s.name)}</button>`).join("");
+  document.querySelectorAll("#tabs button").forEach((b, i) => b.onclick = () => load(i));
+  $("made").textContent = "Записано: " + DATA.made;
+  $("play").onclick = () => { if(frame >= S.frames.length - 1) frame = 0; playing = !playing; $("play").textContent = playing ? "❚❚" : "▶"; };
+  document.querySelectorAll("[data-speed]").forEach(b => b.onclick = () => {
+    speed = +b.dataset.speed; document.querySelectorAll("[data-speed]").forEach(x => x.classList.toggle("on", x === b));
+  });
+  $("slider").oninput = e => { frame = +e.target.value; draw(); };
+  ["showMen", "showRoute", "showFlow", "showSlots"].forEach(id => $(id).onchange = draw);
+  $("showGrid").onchange = e => { SHOW_GRID = e.target.checked; TILES.clear(); want = []; makeOverview(); draw(); };
+  $("greyMen").onchange = e => { GREY = e.target.checked; SPR.clear(); draw(); };
+  $("units").onclick = e => { const el = e.target.closest(".unit"); if(el){ sel = +el.dataset.i; draw(); } };
+  addEventListener("keydown", e => {
+    if(e.code === "Space"){ e.preventDefault(); $("play").click(); }
+    if(e.code === "ArrowRight"){ frame = Math.min(S.frames.length - 1, Math.floor(frame) + 1); draw(); }
+    if(e.code === "ArrowLeft"){ frame = Math.max(0, Math.ceil(frame) - 1); draw(); }
+  });
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, k = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+    view.ox = mx - (mx - view.ox) * k; view.oy = my - (my - view.oy) * k; view.s *= k; draw();
+  }, {passive: false});
+  let drag = null;
+  cv.addEventListener("pointerdown", e => { drag = {x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy}; cv.classList.add("drag"); cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", e => { if(drag){ view.ox = drag.ox + e.clientX - drag.x; view.oy = drag.oy + e.clientY - drag.y; draw(); } });
+  cv.addEventListener("pointerup", () => { drag = null; cv.classList.remove("drag"); });
+  cv.addEventListener("dblclick", () => { fit(); draw(); });
+  addEventListener("resize", () => { fit(); draw(); });
+  load(0);
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>
