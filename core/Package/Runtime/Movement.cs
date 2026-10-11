@@ -247,6 +247,7 @@ namespace BattleCore
         {
             var M = r.Move; double norm = NormOf(m, r);
             if (track == null || track.Pieces.Count == 0) return false;
+            if (BattleMap.IsHorse(m.P.U)) return false;   // Г122: конница боком не ходит — всегда поворачивает и идёт головой вперёд
             if (track.Cost <= M.CloseShare * norm) return true;
             double WheelSec(double deg) { deg = Math.Abs(deg); return deg > M.AboutFaceDeg ? M.AboutFaceSec : deg / Math.Max(1e-6, WheelRate(m, r)); }
             double d1 = AngleDiff(m.P.Facing, LegHeading(track, 0)), d2 = AngleDiff(LegHeading(track, track.Points.Count - 2), o.Facing);

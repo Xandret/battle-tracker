@@ -331,6 +331,30 @@ static class Polygon
         var rk = b1r.Fighter("knights", 2, "Конница", 850, 830, 0, men: 300);
         b1r.Order(ri, new MoveOrder { X = 350, Y = 80, Facing = 0 }); b1r.Order(rk, new MoveOrder { X = 850, Y = 60, Facing = 0 });
         list.Add(b1r);
+
+        // Г123: узость, дом, узость + дом — пехота и конница, под мерилом Г118
+        Scene G123(string name, int turns, Action<TerrainMap> paint, string note)
+        {
+            var sc = new Scene { Name = name, Turns = turns, Geo = MoveTests.Open(1000, 1000), Note = note };
+            paint(sc.Geo.Map);
+            sc.Add("infantry", 1, "Пехота", 300, 900, 0, 300, 80, 0);
+            sc.Add("knights", 2, "Конница", 700, 920, 0, 700, 60, 0, men: 400);
+            return sc;
+        }
+        void Narrows(TerrainMap g, int row)   // стена поперёк поля с проходами 20 м против каждого отряда
+        {
+            Terrain.PaintRect(g, "t", 0, row, 199, row + 1, Terrain.Id("wall"));
+            Terrain.PaintRect(g, "t", 58, row, 61, row + 1, Terrain.Id("field"));
+            Terrain.PaintRect(g, "t", 138, row, 141, row + 1, Terrain.Id("field"));
+        }
+        void Houses(TerrainMap g, int row)   // дом 20 × 15 м на оси каждого отряда
+        {
+            Terrain.PaintRect(g, "t", 58, row, 61, row + 2, Terrain.Id("building"));
+            Terrain.PaintRect(g, "t", 138, row, 141, row + 2, Terrain.Id("building"));
+        }
+        list.Add(G123("Г123: узость", 8, g => Narrows(g, 100), "Стена с проходом 20 м: строй сужается с подхода, за проходом расходится постепенно."));
+        list.Add(G123("Г123: дом", 8, g => Houses(g, 100), "Дом 20 × 15 м на оси: строй обходит его согласованными дугами — внутренний у стены, остальные шире."));
+        list.Add(G123("Г123: узость + дом", 9, g => { Narrows(g, 120); Houses(g, 90); }, "Проход 20 м, за ним в 135 м дом: сперва проход, потом дом; между ними строй не расходится зря."));
         return list;
     }
     static readonly Rules R0 = Rules.Base;
@@ -405,11 +429,40 @@ static class Polygon
         public readonly List<(string scene, string kind, string unit, double t, double val, double lim, string line)> Recs = new List<(string, string, string, double, double, double, string)>();
         public int Samples;
         public int Count => Lines.Count;
+        public long HorsePairs, HorseFrames; public int HorsePairsWorst; public string HorsePairsAt = "";   // Г122: кони вплотную
+        public readonly Dictionary<string, long> HorseByScene = new Dictionary<string, long>();
     }
     public static string TraceUnit; public static int TraceMan; public static bool TraceCol;   // след одного бойца по кадрам (зонд smooth --trace [--col])
+    // Г122: два своих коня вплотную (капсулы в осях курса пересекаются) — мерило считает пары за кадр
+    [ThreadStatic] static SmoothReport curRep;
+    static void HorseOverlaps(string scene, Mover m, double now)
+    {
+        var R = Rules.Base; double L = R.Ranged.HorseLength, Wd = R.Ranged.HorseWidth;
+        var men = m.Men.Where(x => x.Alive && x.Foe == null && x.DownLeft <= 0).ToList();
+        var grid = new Dictionary<long, List<Man>>();
+        long Key(double x, double y) => ((long)Math.Floor(x / 3) << 32) ^ (uint)(int)Math.Floor(y / 3);
+        foreach (var x in men) { var k = Key(x.X, x.Y); if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<Man>(); l.Add(x); }
+        int n = 0;
+        foreach (var a in men)
+        {
+            double h = a.Facing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h);
+            for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++)
+            {
+                if (!grid.TryGetValue(Key(a.X + dx * 3, a.Y + dy * 3), out var l)) continue;
+                foreach (var b in l)
+                {
+                    if (b.Id <= a.Id) continue;
+                    double ex = b.X - a.X, ey = b.Y - a.Y, along = Math.Abs(ex * fx + ey * fy), side = Math.Abs(-ex * fy + ey * fx);
+                    if (along < L * 0.8 && side < Wd * 0.8) n++;   // глубоко внутри друг друга (капсулы с запасом)
+                }
+            }
+        }
+        if (n > 0 && curRep != null) { curRep.HorsePairs += n; curRep.HorseByScene[scene] = (curRep.HorseByScene.TryGetValue(scene, out var v) ? v : 0) + n; if (n > curRep.HorsePairsWorst) { curRep.HorsePairsWorst = n; curRep.HorsePairsAt = $"{scene}, {now:0.0} с «{m.P.U.Name}»"; } }
+        if (curRep != null) curRep.HorseFrames++;
+    }
     public static SmoothReport Smooth(params string[] only)
     {
-        var R = Rules.Base; var S = R.Smooth; var rep = new SmoothReport();
+        var R = Rules.Base; var S = R.Smooth; var rep = new SmoothReport(); curRep = rep;
         var prev = new Dictionary<Man, (double x, double y, double vx, double vy, double head, double t, bool contact)>();
         var prevC = new Dictionary<Mover, (double x, double y, double t)>();   // опорная точка отряда (m.P) — по ней знамёна и таблички (Графика, Г118 п.а)
         void Add(string scene, string kind, double val, string what, string unit = "", double t = 0, double lim = 0)
@@ -446,6 +499,7 @@ static class Polygon
                             if (vc > (top + wheelMps) * S.VmaxK) Add(sc.Name, "рамка", vc, $"{now:0.0} с «{u.Name}»: опорная точка {vc:0.0} м/с ({JsMath.Hypot(m.P.X - pc.x, m.P.Y - pc.y):0.0} м за кадр) при норме {top:0.0} + колесо {wheelMps:0.0}", u.Name, now, (top + wheelMps) * S.VmaxK);
                         }
                         prevC[m] = (m.P.X, m.P.Y, now);
+                        if (horse && S.HorseOverlap) HorseOverlaps(sc.Name, m, now);
                         double acc = MoveSim.TopSpeed(u, R) / Math.Max(0.1, MoveSim.AccelSec(u, R)) * S.AccelK * S.TolK, turnMax = (horse ? S.HorseTurnDegPerSec : S.FootTurnDegPerSec) * S.TolK;
                         foreach (var man in m.Men)
                         {
@@ -457,7 +511,7 @@ static class Polygon
                                 if (TraceCol && man.Fig != null)
                                 {
                                     var s0 = man.Fig; double hh = s0.Hd * Math.PI / 180, fx0 = Math.Sin(hh), fy0 = -Math.Cos(hh);
-                                    var col = m.Men.Where(x => x.Alive && x.Fig == s0).OrderBy(x => x.Row).Select(x => $"р{x.Row}:{((x.X - s0.AX) * fx0 + (x.Y - s0.AY) * fy0):+0.0;-0.0}/{JsMath.Hypot(x.LastVx, x.LastVy):0.0}{(x.WasRigid ? "ж" : "")}{((x.LastFlag & 2) != 0 ? "п" : "")}{((x.LastFlag & 8) != 0 ? "с" : "")}{((x.LastFlag & 128) != 0 ? "ж?" : "")}{(x.LastBlocked != 0 ? $"у{x.LastBlocked}" : "")}{(x.Reseat ? "R" : "")}");
+                                    var col = m.Men.Where(x => x.Alive && x.Fig == s0).OrderBy(x => x.Row).Select(x => $"р{x.Row}:{((x.X - s0.AX) * fx0 + (x.Y - s0.AY) * fy0):+0.0;-0.0}/{JsMath.Hypot(x.LastVx, x.LastVy):0.0}[ф{x.LastFlag} у{x.LastBlocked}]{(x.WasRigid ? "ж" : "")}{((x.LastFlag & 2) != 0 ? "п" : "")}{((x.LastFlag & 8) != 0 ? "с" : "")}{((x.LastFlag & 128) != 0 ? "ж?" : "")}{(x.LastBlocked != 0 ? $"у{x.LastBlocked}" : "")}{(x.Reseat ? "R" : "")}");
                                     Console.WriteLine($"  {now,6:0.0} с колонна: якорь v {JsMath.Hypot(s0.AVx, s0.AVy):0.0}, центроид {((s0.X - s0.AX) * fx0 + (s0.Y - s0.AY) * fy0):+0.0;-0.0}; бойцы (вперёд от якоря / v): {string.Join(" ", col)}");
                                 }
                                 Console.WriteLine($"  {now,6:0.0} с ({man.X:0.0},{man.Y:0.0}) v {JsMath.Hypot(tvx, tvy):0.0} ход {MoveSim.HeadingOf(tvx, tvy):0}° курс {man.Facing:0}° колонна {man.Fig?.Hd:0}° якорь v {JsMath.Hypot(man.Fig?.AVx ?? 0, man.Fig?.AVy ?? 0):0.0} до места {JsMath.Hypot(hm.x - man.X, hm.y - man.Y):0.0} ряд {man.Row}{(man.WasRigid ? " жёсткий" : "")}{(man.Reseat ? " пересадка" : "")}{(man.Fig != null && man.Fig.Wrap ? " охват" : "")}{(m.Held ? " упёрся" : "")}{(double.IsNaN(man.ViaX) ? "" : " в обход")} отряд v {m.Vs:0.0} курс {m.P.Facing:0}°{(m.Done ? " дошёл" : "")}{(m.OnSpot ? " на месте" : "")}{(man.Fig != null && man.Fig.Moving ? "" : " колонна стоит")}");
@@ -492,7 +546,7 @@ static class Polygon
                     foreach (var m in ms)
                     {
                         var fars = m.Men.Where(x => x.Alive).Select(x => { var h = Soldiers.HomeOf(m, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); }).ToList();
-                        Console.WriteLine($"  конец хода {turn + 1} «{m.P.U.Name}»: центр ({m.P.X:0},{m.P.Y:0}) курс {m.P.Facing:0}° {(m.Done ? "дошёл" : $"идёт, v {m.Vs:0.0}")}{(m.Note != null ? $" «{m.Note}»" : "")}; до мест: в среднем {(fars.Count > 0 ? fars.Average() : 0):0.0} м, дальше 10 м — {fars.Count(f => f > 10)} из {fars.Count}, самый дальний {(fars.Count > 0 ? fars.Max() : 0):0} м; колонн {m.Cols} из {m.NominalCols}");
+                        Console.WriteLine($"  конец хода {turn + 1} «{m.P.U.Name}»: центр ({m.P.X:0},{m.P.Y:0}) курс {m.P.Facing:0}° {(m.Done ? "дошёл" : $"идёт, v {m.Vs:0.0}")}{(m.Note != null ? $" «{m.Note}»" : "")}; до мест: в среднем {(fars.Count > 0 ? fars.Average() : 0):0.0} м, дальше 10 м — {fars.Count(f => f > 10)} из {fars.Count}, самый дальний {(fars.Count > 0 ? fars.Max() : 0):0} м (№{m.Men.Where(x => x.Alive).OrderByDescending(x => { var h = Soldiers.HomeOf(m, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); }).Select(x => x.Id).FirstOrDefault()}); колонн {m.Cols} из {m.NominalCols}");
                     }
             }
         }

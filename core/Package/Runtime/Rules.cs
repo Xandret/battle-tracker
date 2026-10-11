@@ -385,7 +385,8 @@ namespace BattleCore
             public double HorseTurnDegPerSec = 90, FootTurnDegPerSec = 180;   // курс тела меняется не быстрее
             public double AccelK = 1.0;             // скорость меняется не быстрее разгона своего рода войск (TopSpeed / AccelSec) × AccelK — и в торможении
             public double TolK = 1.05;              // допуск мерила на округление кадра к пределам курса и разгона
-            public double GrossK = 4, MaxShare = 0.04, MaxGrossShare = 0.003;   // планка-трещотка теста: доля нарушений среди замеров и доля грубых (> GrossK пределов) — пока столько, снижать по мере починки
+            public double GrossK = 4, MaxShare = 0.04, MaxGrossShare = 0.003;
+            public bool HorseOverlap = true;        // Г122: считать своих коней вплотную (пары за кадр) — в зонде smooth   // планка-трещотка теста: доля нарушений среди замеров и доля грубых (> GrossK пределов) — пока столько, снижать по мере починки
         }
         public SmoothR Smooth = new SmoothR();
         // Г112 п.4 (панель ГМа, таблица этапа 3 — Q5): готовые модификаторы БД; ключ, название, значение. Применяет ГМ (Battle.ApplyMorale),
