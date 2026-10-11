@@ -37,7 +37,7 @@ namespace BattleCore
             if (!OnField(m)) { p.Note = "отряда на поле нет"; return p; }
             if (m.Fleeing && o.Kind != OrderKind.Rally) { p.Note = "бежит — слышит только «сплотить»"; return p; }
             if (o.Kind == OrderKind.Hold || o.Kind == OrderKind.Rally) { p.ReachThisTurn = true; return p; }
-            double norm = BattleMap.UnitSpeed(u, R);
+            double norm = double.IsNaN(o.NormCap) || o.NormCap <= 0 ? BattleMap.UnitSpeed(u, R) : Math.Min(BattleMap.UnitSpeed(u, R), o.NormCap);   // темп группы
             double tx = o.X, ty = o.Y, face = o.Facing, stop = 0;
             Mover t = null;
             bool side = false;
@@ -132,7 +132,7 @@ namespace BattleCore
         public readonly Dictionary<int, (double x0, double y0, double x1, double y1)> Zones = new Dictionary<int, (double, double, double, double)>();
         public bool BeginDeploy()
         {
-            if (Turn != 1 || Phase != Phase.Orders || Battle.Movers.Any(m => m.Order != null)) return false;
+            if (Turn != 1 || Phase != Phase.Orders || Battle.Movers.Any(m => m.Order != null && m.Order.Kind != OrderKind.Hold)) return false;   // «держать» из сценария — не помеха
             Phase = Phase.Deploy; return true;
         }
         public string Place(Mover m, double x, double y, double facing)
@@ -146,6 +146,8 @@ namespace BattleCore
         public bool InZone(Mover m) => !Zones.TryGetValue(SideOf(m), out var z) || (m.P.X >= z.x0 && m.P.X <= z.x1 && m.P.Y >= z.y0 && m.P.Y <= z.y1);
 
         public static int SideOf(Mover m) => m.P.U.FactionId ?? 0;
+        // Алекс 11.10.2026: общий темп группы — норма самого медленного (м за ход); ставить в MoveOrder.NormCap каждому отряду группового приказа
+        public double GroupNorm(IEnumerable<Mover> group) => group.Where(Present).Select(m => BattleMap.UnitSpeed(m.P.U, Battle.R)).DefaultIfEmpty(double.NaN).Min();
         public IEnumerable<int> Sides => Battle.Movers.Select(SideOf).Distinct().OrderBy(s => s);
         public IEnumerable<Mover> UnitsOf(int side) => Battle.Movers.Where(m => SideOf(m) == side);
         static bool InLine(Mover m) => m.P.U.Status == "active" && m.P.U.Soldiers > 0 && m.Figs.Count > 0 && !m.Gone;
