@@ -254,22 +254,48 @@ namespace Journal.Viewer
         static readonly Gait Trot = new Gait { Amp = 0.22f, Off = new[] { 0, 0.5f, 0.5f, 0 }, Nod = 0.012f, NodN = 2, Tail = 0.07f, Bob = 0.025f };
         static readonly Gait Gallop = new Gait { Amp = 0.32f, Off = new[] { 0.4f, 0.5f, 0, 0.1f }, Nod = 0.06f, NodN = 1, Tail = 0.18f, Bob = 0.035f };
         readonly float[] legs = new float[4];
-        // поза коня: ноги (сдвиг вперёд со знаком минус), кивок, хвост (рад), качка всадника; стоит — переступает и машет хвостом
-        void HorsePose(float v, float ph, float t, int s, out float nod, out float tail, out float bob)
+        // поза коня: ноги (сдвиг вперёд со знаком минус), кивок, хвост (рад), качка всадника. Г124 (по ролику Iron Kings): на ходу
+        // голова кивает в такт шагу (фаза — по пройденному пути), хвост машет, на бегу сильнее; act — «на ходу» 0…1: после
+        // остановки кивок и хвост гаснут плавно. Стоит дольше 1,5 с — у каждого свой распорядок по 5 с: щиплет траву
+        // (graze 0…1 — голова вниз и вперёд), встряхивается (shake — голова мотается), машет хвостом, переступает
+        void HorsePose(float v, float ph, float t, int s, float act, float still, out float nod, out float tail, out float bob, out float graze, out float shake)
         {
             var G = v < 0.35f ? null : v < 2.3f ? Walk : v < 4.8f ? Trot : Gallop;
             const float tau = 2 * Mathf.PI;
-            if (G == null)
+            float mNod = 0, mTail = 0;
+            if (G != null)
             {
-                int slot = Mathf.FloorToInt(t / 3.5f + H(s, 31) * 4); float r = H(s * 13 + slot, 32), u = Frac(t / 3.5f + H(s, 31) * 4);
-                float pulse = Mathf.Sin(u * Mathf.PI);
-                legs[0] = legs[1] = 0; legs[2] = r < 0.25f ? -0.06f * pulse : 0; legs[3] = r > 0.75f ? -0.06f * pulse : 0;
-                nod = r > 0.4f && r < 0.6f ? 0.05f * pulse : 0.01f * Mathf.Sin(t * 0.8f + s);
-                tail = (r < 0.5f ? 0.25f : 0.06f) * Mathf.Sin(t * 5 + s) * pulse; bob = 0;
-                return;
+                for (int i = 0; i < 4; i++) legs[i] = -G.Amp * Mathf.Sin(tau * (ph - G.Off[i]));
+                mNod = -G.Nod * Mathf.Sin(tau * G.NodN * ph); mTail = G.Tail * Mathf.Sin(tau * ph + 1); bob = G.Bob * Mathf.Sin(tau * 2 * ph);
             }
-            for (int i = 0; i < 4; i++) legs[i] = -G.Amp * Mathf.Sin(tau * (ph - G.Off[i]));
-            nod = -G.Nod * Mathf.Sin(tau * G.NodN * ph); tail = G.Tail * Mathf.Sin(tau * ph + 1); bob = G.Bob * Mathf.Sin(tau * 2 * ph);
+            else
+            {
+                legs[0] = legs[1] = legs[2] = legs[3] = 0; bob = 0;
+                // догорающий шаг: кивок и хвост по последней фазе, гаснут с act
+                mNod = -Walk.Nod * Mathf.Sin(tau * Walk.NodN * ph); mTail = Walk.Tail * 1.4f * Mathf.Sin(t * 4.5f + s);
+            }
+            float k = Mathf.Clamp01((still - 1.5f) / 1f) * (1 - act);   // покой набирается за секунду
+            t = Time.time;   // покой — по часам экрана: между ходами время боя стоит, а конь живёт
+            float iNod = 0.008f * Mathf.Sin(t * 0.8f + s), iTail = 0.04f * Mathf.Sin(t * 1.3f + s);   // дышит
+            graze = 0; shake = 0;
+            if (k > 0)
+            {
+                float tt = t + H(s, 33) * 20; int slot = Mathf.FloorToInt(tt / 5); float r = H(s * 17 + slot, 34), u = Frac(tt / 5);
+                float pulse = Mathf.Sin(u * Mathf.PI);
+                if (r < 0.24f) graze = k * Mathf.Clamp01(pulse * 2.5f);                                                  // щиплет траву
+                else if (r < 0.34f && u > 0.3f && u < 0.5f) shake = k * 0.32f * Mathf.Sin((u - 0.3f) / 0.2f * Mathf.PI * 7) * Mathf.Sin((u - 0.3f) / 0.2f * Mathf.PI);   // встряхивается
+                else if (r < 0.62f) iTail += k * 0.33f * Mathf.Sin(t * 7 + s) * pulse;                                   // машет хвостом
+                else if (r < 0.8f) { legs[2] = -0.06f * pulse * k; }                                                       // переступает
+                else if (r < 0.9f) { legs[3] = -0.06f * pulse * k; }
+            }
+            nod = Mathf.Lerp(iNod, mNod, act); tail = Mathf.Lerp(iTail, mTail, act);
+        }
+        // «дышащий» контур (Г124): у коня три заранее заданных чуть разных кадра по кругу, около 7 в секунду — штрих живой
+        static Aff Boil(Aff a, int s, float t, float amt)
+        {
+            int k = (Mathf.FloorToInt(Time.time * 7 + H(s, 40) * 3) % 3 + 3) % 3;   // по часам экрана — дышит и на паузе
+            float jx = (H(s * 3 + k, 41) - 0.5f) * amt, jy = (H(s * 3 + k, 42) - 0.5f) * amt, r = (H(s * 3 + k, 43) - 0.5f) * amt * 0.5f;
+            return a.R(r).S(1 + jx, 1 + jy);
         }
 
         public void Hide() { foreach (var m in new[] { decalMesh, deadMesh, deadTopMesh, horseMesh, menMesh, airMesh }) m.Clear(); }
@@ -413,7 +439,7 @@ namespace Journal.Viewer
         // Brace — защитник ждёт удара своего противника (0…1, к мигу удара — 1): щит или оружие навстречу
         // Z — высота над землёй (Г104: на стене 9 м, на башне 11)
         // Role — 1 полководец, 2 стража, 0 — рядовой
-        struct ManP { public byte Role; public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace, Z; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
+        struct ManP { public byte Role; public float X, Y, Face, Sp, Ph, Shot, Ap, Parry, MeleeFor, Down, Rise, Impact, Brace, Z, HeadYaw, Act, Still; public int Id, Seed, Rank, Fig, Blow; public bool Atk, Vis, Second; public Kit Kit; }
         // парные поединки: по кому и когда придётся ближайший удар (отряд << 32 | боец → миг удара), на кадр
         readonly Dictionary<long, float> incoming = new Dictionary<long, float>();
         int curUnit;   // отряд, которого бойцов сейчас рисуем (для MenMelee)
@@ -446,7 +472,9 @@ namespace Journal.Viewer
         readonly Dictionary<int, (float at, float end)> down0 = new Dictionary<int, (float, float)>();
         // где боец нарисован (сглаживание): сдвиг от середины отряда и его скорость, где был, ход и фаза шага, доля «в схватке»,
         // с какого времени в схватке; Dx, Dy — нарисован минус место в движке (павший ляжет там, где его видели)
-        struct Vis { public float T, Ex, Ey, Vx, Vy, Px, Py, Sp, Ph, Melee, Since, Dx, Dy, Cx, Cy; }
+        // Fd, Ft — нарисованный курс и когда (курс не быстрее поворота тела); у коня (Г124): Hf — курс, сглаженный от дрожи, Hy —
+        // поворот головы, Act — «на ходу» 0…1 (после остановки гаснет плавно), Stop — когда последний раз шёл
+        struct Vis { public float T, Ex, Ey, Vx, Vy, Px, Py, Sp, Ph, Melee, Since, Dx, Dy, Cx, Cy, Fd, Ft, Hf, Hy, Act, Stop; }
         Vis[][] vis;
         Vis[] VisOf(int ui, int n)
         {
@@ -568,6 +596,36 @@ namespace Journal.Viewer
                     m.Face = m.Atk ? toward : m.Face + Mathf.DeltaAngle(m.Face * Mathf.Rad2Deg, toward * Mathf.Rad2Deg) * Mathf.Deg2Rad * 0.5f;
                     M[i] = m;
                 }
+            }
+            // курс на экране — не быстрее поворота тела (Г118: в миг сшибки рисунок разом смотрел на врага — «вбок» до 19 м/с);
+            // у коня (Г124) — сглаженный курс, голова ведёт поворот, «на ходу» гаснет после остановки
+            for (int i = 0; i < M.Count; i++)
+            {
+                var m = M[i]; ref var v = ref vs[m.Id];
+                float dt = t - v.Ft;
+                bool fresh = v.Ft <= 0 || dt < 0 || dt > 0.5f;
+                if (!fresh && dt > 0 && m.Down < 0)
+                {
+                    float maxd = (horse ? 100 : 200) * Mathf.Deg2Rad * dt, d = Mathf.DeltaAngle(v.Fd * Mathf.Rad2Deg, m.Face * Mathf.Rad2Deg) * Mathf.Deg2Rad;
+                    m.Face = v.Fd + Mathf.Clamp(d, -maxd, maxd);
+                }
+                if (horse)
+                {
+                    bool moving = m.Sp > 0.5f || m.Atk;
+                    if (fresh) { v.Hf = m.Face; v.Hy = 0; v.Act = moving ? 1 : 0; v.Stop = moving ? t : t - 10; }
+                    else if (dt > 0)
+                    {
+                        float prev = v.Hf;
+                        v.Hf += Mathf.DeltaAngle(v.Hf * Mathf.Rad2Deg, m.Face * Mathf.Rad2Deg) * Mathf.Deg2Rad * (1 - Mathf.Exp(-dt / 0.25f));   // мелкая дрожь курса — мимо
+                        float w = Mathf.DeltaAngle(prev * Mathf.Rad2Deg, v.Hf * Mathf.Rad2Deg) * Mathf.Deg2Rad / dt;   // рад/с
+                        v.Hy += (Mathf.Clamp(w * 0.4f, -0.45f, 0.45f) - v.Hy) * (1 - Mathf.Exp(-dt / 0.15f));
+                        v.Act += ((moving ? 1 : 0) - v.Act) * (1 - Mathf.Exp(-dt / (moving ? 0.35f : 1.2f)));
+                        if (moving) v.Stop = t;
+                    }
+                    m.HeadYaw = v.Hy; m.Act = v.Act; m.Still = t - v.Stop;
+                }
+                v.Fd = m.Face; v.Ft = t;
+                M[i] = m;
             }
             // Г118: мерило гладкости — каждый нарисованный боец (место и курс — как на экране), кроме падающих
             if (MotionProbe.On) foreach (var m in M) if (m.Down < 0) MotionProbe.Add(ui, m.Id, horse, t, m.X, m.Y, m.Face, m.Atk || m.MeleeFor >= 0);
@@ -819,7 +877,7 @@ namespace Journal.Viewer
                 bool run = walking || m.Atk;
                 // в рубке конь не стоит столбом: переступает и доворачивает корпус под удар всадника
                 bool fightH = m.Atk && m.Sp < 1.2f;
-                HorsePose(fightH ? 1f : m.Sp, fightH ? t * 0.9f + ph0 : m.Ph, t, s, out var nod, out var tail, out var bob);
+                HorsePose(fightH ? 1f : m.Sp, fightH ? t * 0.9f + ph0 : m.Ph, t, s, fightH ? 1 : m.Act, m.Still, out var nod, out var tail, out var bob, out var graze, out var shake);
                 float sw = m.Atk && ap >= 0 ? Mathf.Sin(ap * 6.283f) : 0;
                 if (sw != 0) bas = bas.R(0.12f * sw);
                 // сшибка: за 0,5 с рывок вперёд и назад, голова вниз, всадника бросает вперёд; пыль из-под копыт
@@ -827,13 +885,16 @@ namespace Journal.Viewer
                 if (jolt > 0) { bas = bas.T(0, -0.3f * jolt); nod += 0.14f * jolt; }
                 if (m.Impact >= 0 && m.Impact < 0.6f) Dust(bas, 0, -0.6f, m.Impact, 0.6f, s);
                 var z = Vector4.zero; var white = new Color32(255, 255, 255, 255);
+                var hbo = Boil(bas, s, t, 0.025f);   // тело и попона «дышат»
                 for (int i = 0; i < 4; i++) horseB.Quad(horses.Get((kit.Socks >> i & 1) != 0 ? $"hleg/{kit.Coat}/s" : $"hleg/{kit.Coat}"), bas.T(HLeg[i, 0], HLeg[i, 1] + legs[i]), white, z);
                 horseB.Quad(horses.Get($"htail/{kit.Coat}"), bas.T(0, 0.84f).R(tail), white, z);
-                horseB.Quad(horses.Get(kit.HorseHead), bas.T(0, -0.5f + nod), col, z);
-                horseB.Quad(horses.Get($"hbody/{kit.Coat}"), bas, white, z);
-                horseB.Quad(horses.Get(kit.HorseCover), bas, col, Mt(kit.CoverTint, z));
+                // голова ведёт поворот (Г124): от шеи — на сглаженный поворот курса, в покое — вниз к траве, встряхивается
+                float gs = 1 - 0.1f * graze;
+                horseB.Quad(horses.Get(kit.HorseHead), Boil(bas.T(0, -0.5f + nod - 0.16f * graze).R(m.HeadYaw + shake), s + 7, t, 0.03f).S(gs, gs), col, z);
+                horseB.Quad(horses.Get($"hbody/{kit.Coat}"), hbo, white, z);
+                horseB.Quad(horses.Get(kit.HorseCover), hbo, col, Mt(kit.CoverTint, z));
                 if (ppm >= 30) for (int sd = -1; sd <= 1; sd += 2) Strip(menB, bas, sd * 0.1f, -1.19f + nod, sd * 0.07f, -0.13f, 0.9f / ppm, new Color32(74, 48, 32, 255));
-                var R0 = bas.T(0, 0.03f - bob * 0.5f); var Mr = R0.T(ox + 0.05f * sw, -0.18f * jolt).R(rot * 0.35f + 0.15f * sw);
+                var R0 = bas.T(0, 0.03f - bob * 0.5f); var Mr = R0.T(ox + 0.05f * sw + 0.03f * shake, -0.18f * jolt).R(rot * 0.35f + 0.15f * sw + 0.1f * m.HeadYaw);   // всадник глядит в поворот
                 // копьё — на сшибку: ломается щепками (через 0,15 с после удара — меч); без сшибки — меч после 0,5 с рубки на месте
                 string hw = kit.Weapon, hb = kit.Base;
                 if (hb == "lance" && m.Impact >= 0 && m.Impact < 0.5f) Splinters(bas, m.Impact, s);
