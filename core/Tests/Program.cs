@@ -367,7 +367,9 @@ if (args.Length > 0 && args[0] == "smooth")
     int ti = Array.IndexOf(args, "--trace");
     if (ti >= 0 && ti + 2 < args.Length) { Polygon.TraceUnit = args[ti + 1]; Polygon.TraceMan = int.Parse(args[ti + 2]); }
     Polygon.TraceCol = args.Contains("--col");
-    var rep = Polygon.Smooth(args.Skip(1).Where((a, i) => a != "--all" && a != "--col" && !(ti >= 0 && i + 1 >= ti && i + 1 <= ti + 2)).ToArray());
+    int td = Array.IndexOf(args, "--dump"); if (td >= 0) { var dp = args[td + 1].Split(','); Polygon.DumpFile = dp[0]; Polygon.DumpEvery = double.Parse(dp[1], System.Globalization.CultureInfo.InvariantCulture); Polygon.DumpFrom = double.Parse(dp[2], System.Globalization.CultureInfo.InvariantCulture); Polygon.DumpTo = double.Parse(dp[3], System.Globalization.CultureInfo.InvariantCulture); if (System.IO.File.Exists(dp[0])) System.IO.File.Delete(dp[0]); }
+    int tn = Array.IndexOf(args, "--near"); if (tn >= 0) Polygon.TraceNear = double.Parse(args[tn + 1], System.Globalization.CultureInfo.InvariantCulture);
+    var rep = Polygon.Smooth(args.Skip(1).Where((a, i) => a != "--all" && a != "--col" && !(ti >= 0 && i + 1 >= ti && i + 1 <= ti + 2) && !(tn >= 0 && (i + 1 == tn || i + 1 == tn + 1)) && !(td >= 0 && (i + 1 == td || i + 1 == td + 1))).ToArray());
     Console.WriteLine($"замеров {rep.Samples}, нарушений {rep.Count}; кони вплотную (Г122): {rep.HorsePairs} пар за {rep.HorseFrames} кадров отрядов, наибольшее {rep.HorsePairsWorst} — {rep.HorsePairsAt}");
     foreach (var kv in rep.ByKind.OrderByDescending(k => k.Value)) Console.WriteLine($"  {kv.Key}: {kv.Value} (худшее {rep.Worst[kv.Key]:0.0})");
     foreach (var kv in rep.ByScene.OrderByDescending(k => k.Value)) Console.WriteLine($"  сцена «{kv.Key}»: {kv.Value}{(rep.HorseByScene.TryGetValue(kv.Key, out var hp) ? $"; кони вплотную {hp}" : "")}");

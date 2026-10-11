@@ -52,6 +52,7 @@ namespace BattleCore
         public int BlockedBy; public bool BlockedByEnemy, Slowed;
         // Охват (Г68): колонна огибает врага — фигурка идёт к (WX, WY) и смотрит по WH (градусы), а не по строю
         public bool Wrap; public double WX, WY, WH;
+        public bool Morph; public double MTX, MTY;   // Г123: место колонны едет к новому (MTX, MTY в осях строя) — сужение и расширение без перескока
         // место у врага WFoe (в его системе), которое колонна заняла, — держится за ним, пока оно свободно
         public Mover WFoe; public double WSlotX, WSlotY, WNx, WNy; public int WBehind;
         // тело развёрнуто не по строю (Turned): ось капсулы Axis поворачивается к нужной постепенно (FigTurnDegPerSec)
@@ -317,11 +318,13 @@ namespace BattleCore
             int every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt)), narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
             var prev = new List<(double x, double y)[]>();
             foreach (var m in ms) m.NarrowSince += M.Dt;
+            MorphOn = M.MenBodies && M.SlotMorphK > 0; MorphHorse = M.SlotMorphHorse;
             if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, ms, r);   // узости впереди (Г59); Б5 — и проходы между своими
             foreach (var m in ms)
             {
                 prev.Add(Slots(m.P));
                 if (m.Order != null && m.Track != null && !m.Done && !m.Fleeing) Lead(m, t, M.Dt, r);
+                if (M.MenBodies && M.SlotMorphK > 0) MorphSlots(m, M.Dt, r);
                 m.Steps++;
             }
             for (int i = 0; i < ms.Count; i++) Desire(ms[i], prev[i], M.Dt, r);
@@ -436,7 +439,7 @@ namespace BattleCore
                     target = Math.Min(target, Math.Sqrt(2 * acc * Math.Max(0, LegEndCost(m.Track, leg) - m.Along)));
             }
             // перестроение в колонну и обратно (Г60): пока многие фигурки далеко от новых мест — вдвое медленнее
-            int lag = 0, farLag = 0;
+            int lag = 0, farLag = 0, behind = 0;
             if (m.Reforming || M.MenBodies)   // Б5: у бойцов-тел отставание колонн смотрим всегда — рамка не уходит от застрявших одна
             {
                 for (int k = 0; k < P.Figs.Count; k++)
@@ -450,11 +453,14 @@ namespace BattleCore
                     // застряли ли сами бойцы: середина живых бойцов колонны далеко от места и почти не движется (догоняющие после
                     // поворота колесом идут быстро — их не ждём, Г60 лишь замедляет)
                     if (JsMath.Hypot(sx - m.Figs[k].X, sy - m.Figs[k].Y) > M.FrameWaitM && JsMath.Hypot(m.Figs[k].Vx, m.Figs[k].Vy) < M.StuckMps) farLag++;
+                    // Г123: строй держится вместе — бойцы колонны (их середина) позади места по ходу дальше FrameWaitM, хоть и идут
+                    if (M.MenBodies && M.KeepTogether) { double hr = P.Facing * Math.PI / 180; if ((sx - m.Figs[k].X) * Math.Sin(hr) - (sy - m.Figs[k].Y) * Math.Cos(hr) > M.FrameWaitM) behind++; }
                 }
             }
             // Б5: колонны отстали далеко (бойцы застряли — лес, давка) — рамка стоит и ждёт, а не уходит к цели одна
             m.FarLagN = farLag; m.LagColsN = lag;
-            if (!wheel && farLag > M.RegroupShare * P.Figs.Count) { target = 0; m.RegroupSec += dt; }   // при повороте колесом места сами уходят от якорей — это не застрявшие
+            if (!wheel && farLag > M.RegroupShare * P.Figs.Count) { target = 0; m.RegroupSec += dt; }
+            else if (!wheel && behind > M.RegroupShare * P.Figs.Count) { target *= M.RegroupSpeed; m.RegroupSec += dt; }   // Г123: отстают, хоть и идут — рамка сбавляет ход, строй не растягивается   // при повороте колесом места сами уходят от якорей — это не застрявшие
             else if (m.Reforming)
             {
                 if (lag > M.RegroupShare * P.Figs.Count) { target *= M.RegroupSpeed; m.RegroupSec += dt; }
@@ -621,6 +627,21 @@ namespace BattleCore
         // Перестроиться в cols колонн фигурок: обратно в линию (места из Nominal) или в колонну — сетка с шагом
         // фигурки, неполный задний ряд — по центру. Места раздаются спереди назад ближайшим фигуркам: кто где
         // стоит, тот туда и встаёт. Пока фигурки далеко от новых мест — перестроение, вдвое медленнее (Г60).
+        [ThreadStatic] static bool MorphOn, MorphHorse;
+        // Г123: места колонн едут к новым (после SetCols) поперёк и вдоль строя не быстрее SlotMorphK хода отряда (не медленнее SlotMorphMin)
+        static void MorphSlots(Mover m, double dt, Rules r)
+        {
+            var M = r.Move; var P = m.P;
+            if (P.Figs.Count != m.Figs.Count) { foreach (var s in m.Figs) s.Morph = false; return; }
+            double v = Math.Max(M.SlotMorphMin, M.SlotMorphK * Math.Max(m.Vs, 0)) * dt;
+            for (int k = 0; k < P.Figs.Count; k++)
+            {
+                var s = m.Figs[k]; if (!s.Morph) continue;
+                var f = P.Figs[k]; double dx = s.MTX - f.X, dy = s.MTY - f.Y, d = JsMath.Hypot(dx, dy);
+                if (d <= v) { f.X = s.MTX; f.Y = s.MTY; s.Morph = false; }
+                else { f.X += dx / d * v; f.Y += dy / d * v; }
+            }
+        }
         public static void SetCols(Mover m, int cols)
         {
             var P = m.P; int n = P.Figs.Count;
@@ -646,8 +667,17 @@ namespace BattleCore
             }
             var free = Enumerable.Range(0, n).ToList();
             var assign = new (double X, double Y, int Rank, int File)[n];
+            if (MorphOn && m.Figs.Count == n && slots.Count == n && (MorphHorse || !BattleMap.IsHorse(P.U)))
+            {
+                // Г123: колонны — к местам по порядку слева направо (и спереди назад в файле): пути соседей не пересекаются, сходятся по косой
+                var figOrder = Enumerable.Range(0, n).OrderBy(k => Math.Round(P.Figs[k].X, 3)).ThenBy(k => P.Figs[k].Y).ToList();
+                var slotOrder = Enumerable.Range(0, n).OrderBy(i => Math.Round(slots[i].X, 3)).ThenBy(i => slots[i].Y).ToList();
+                for (int q = 0; q < n; q++) assign[figOrder[q]] = slots[slotOrder[q]];
+                free.Clear();
+            }
             foreach (int si in Enumerable.Range(0, slots.Count).OrderBy(i => slots[i].Y).ThenBy(i => slots[i].X))
             {
+                if (free.Count == 0) break;
                 var sl = slots[si];
                 P.ToWorld(sl.X, sl.Y, out var wx, out var wy);
                 int best = 0; double bd = double.MaxValue;
@@ -659,7 +689,14 @@ namespace BattleCore
                 }
                 assign[free[best]] = sl; free.RemoveAt(best);
             }
-            for (int k = 0; k < n; k++) { var f = P.Figs[k]; (f.X, f.Y, f.Rank, f.File) = assign[k]; }
+            bool morph = MorphOn && m.Figs.Count == n && (MorphHorse || !BattleMap.IsHorse(P.U));
+            for (int k = 0; k < n; k++)
+            {
+                var f = P.Figs[k]; double ox = f.X, oy = f.Y;
+                (f.X, f.Y, f.Rank, f.File) = assign[k];
+                // Г123: место не перескакивает — колонна едет к новому постепенно (MorphSlots), соседи сходятся по косой
+                if (morph) { m.Figs[k].MTX = f.X; m.Figs[k].MTY = f.Y; m.Figs[k].Morph = true; f.X = ox; f.Y = oy; }
+            }
             m.Cols = cols; m.MinCols = Math.Min(m.MinCols, cols); m.Reforming = true;
         }
 
@@ -702,9 +739,18 @@ namespace BattleCore
                 return max;
             }
             int ColsFor(double width) => Math.Max(1, Math.Min(m.NominalCols, (int)Math.Floor((width * (1 + M.NarrowSlack) - 2 * M.NarrowMarginM) / fw)));
-            double LeadFor(int cols) => Math.Ceiling(n / (double)cols) * fd / 2 + M.NarrowAheadM;
+            // Г123: упреждение — и на то, чтобы места успели съехаться (поперёк не быстрее SlotMorphK хода): готовится с подхода
+            double LeadFor(int cols) => Math.Ceiling(n / (double)cols) * fd / 2 + M.NarrowAheadM
+                + (M.MenBodies && M.SlotMorphK > 0 && (M.SlotMorphHorse || !BattleMap.IsHorse(P.U)) ? Math.Max(0, m.NominalFp.Front - cols * fw) / 2 / M.SlotMorphK : 0);
             double s = T.MetersAt(m.Along), half = m.NominalFp.Front / 2 + M.NarrowMarginM;
-            double from = Math.Max(0, s - P.Fp.Depth / 2), to = Math.Min(T.Length, s + LeadFor(1));
+            // Г123: хвост — по самому дальнему назад бойцу, а не по рамке: строй не расходится, пока из прохода не вышел последний
+            double tail = P.Fp.Depth / 2;
+            if (M.MenBodies && M.SlotMorphK > 0 && (M.SlotMorphHorse || !BattleMap.IsHorse(P.U)) && m.Men.Count > 0)
+            {
+                double hr = P.Facing * Math.PI / 180, fx = Math.Sin(hr), fy = -Math.Cos(hr);
+                foreach (var man in m.Men) if (man.Alive) { double back = -((man.X - P.X) * fx + (man.Y - P.Y) * fy); if (back > tail) tail = back; }
+            }
+            double from = Math.Max(0, s - tail), to = Math.Min(T.Length, s + LeadFor(1));
             int want = m.NominalCols;
             // Б1: колонны узкие (1 м) и чувствуют каждые полметра прохода — точки проверки привязаны к меткам пути, а не к
             // хвосту строя (иначе соседние проверки то попадают на узость, то проскакивают её)

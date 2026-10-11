@@ -432,7 +432,7 @@ static class Polygon
         public long HorsePairs, HorseFrames; public int HorsePairsWorst; public string HorsePairsAt = "";   // Г122: кони вплотную
         public readonly Dictionary<string, long> HorseByScene = new Dictionary<string, long>();
     }
-    public static string TraceUnit; public static int TraceMan; public static bool TraceCol;   // след одного бойца по кадрам (зонд smooth --trace [--col])
+    public static string TraceUnit; public static int TraceMan; public static bool TraceCol; public static double TraceNear; public static string DumpFile; public static double DumpEvery, DumpFrom, DumpTo = 1e9;   // след одного бойца по кадрам (зонд smooth --trace [--col])
     // Г122: два своих коня вплотную (капсулы в осях курса пересекаются) — мерило считает пары за кадр
     [ThreadStatic] static SmoothReport curRep;
     static void HorseOverlaps(string scene, Mover m, double now)
@@ -487,6 +487,10 @@ static class Polygon
                 {
                     if (t - last < S.SampleSec - 1e-6) return;
                     last = t; double now = clock + t;
+                    if (DumpEvery > 0 && DumpFile != null && Math.Abs(now - Math.Round(now / DumpEvery) * DumpEvery) < 0.099 && now >= DumpFrom && now <= DumpTo)
+                        using (var w = System.IO.File.AppendText(DumpFile))
+                            foreach (var m in ms) foreach (var man in m.Men.Where(x => x.Alive))
+                            { var h = Soldiers.HomeOf(m, man); w.WriteLine(FormattableString.Invariant($"{now:0.0};{m.P.U.Name};{man.Id};{man.X:0.00};{man.Y:0.00};{man.Facing:0};{h.x:0.00};{h.y:0.00};{(man.WasRigid ? 1 : 0)}")); }
                     foreach (var m in ms)
                     {
                         var u = m.P.U; bool horse = BattleMap.IsHorse(u);
@@ -514,6 +518,9 @@ static class Polygon
                                     var col = m.Men.Where(x => x.Alive && x.Fig == s0).OrderBy(x => x.Row).Select(x => $"р{x.Row}:{((x.X - s0.AX) * fx0 + (x.Y - s0.AY) * fy0):+0.0;-0.0}/{JsMath.Hypot(x.LastVx, x.LastVy):0.0}[ф{x.LastFlag} у{x.LastBlocked}]{(x.WasRigid ? "ж" : "")}{((x.LastFlag & 2) != 0 ? "п" : "")}{((x.LastFlag & 8) != 0 ? "с" : "")}{((x.LastFlag & 128) != 0 ? "ж?" : "")}{(x.LastBlocked != 0 ? $"у{x.LastBlocked}" : "")}{(x.Reseat ? "R" : "")}");
                                     Console.WriteLine($"  {now,6:0.0} с колонна: якорь v {JsMath.Hypot(s0.AVx, s0.AVy):0.0}, центроид {((s0.X - s0.AX) * fx0 + (s0.Y - s0.AY) * fy0):+0.0;-0.0}; бойцы (вперёд от якоря / v): {string.Join(" ", col)}");
                                 }
+                                if (TraceNear > 0 && Math.Abs(now - TraceNear) < 0.11)
+                                    foreach (var o in ms.SelectMany(q => q.Men.Where(x => x.Alive && x != man && JsMath.Hypot(x.X - man.X, x.Y - man.Y) < 6).Select(x => (q, x))))
+                                    { var oh = Soldiers.HomeOf(o.q, o.x); Console.WriteLine($"      рядом «{o.q.P.U.Name}» №{o.x.Id}: ({o.x.X - man.X:+0.0;-0.0},{o.x.Y - man.Y:+0.0;-0.0}) v {JsMath.Hypot(o.x.LastVx, o.x.LastVy):0.0} курс {o.x.Facing:0}° до места {JsMath.Hypot(oh.x - o.x.X, oh.y - o.x.Y):0.0} ряд {o.x.Row}{(o.x.WasRigid ? " ж" : "")} ф{o.x.LastFlag}"); }
                                 Console.WriteLine($"  {now,6:0.0} с ({man.X:0.0},{man.Y:0.0}) v {JsMath.Hypot(tvx, tvy):0.0} ход {MoveSim.HeadingOf(tvx, tvy):0}° курс {man.Facing:0}° колонна {man.Fig?.Hd:0}° якорь v {JsMath.Hypot(man.Fig?.AVx ?? 0, man.Fig?.AVy ?? 0):0.0} до места {JsMath.Hypot(hm.x - man.X, hm.y - man.Y):0.0} ряд {man.Row}{(man.WasRigid ? " жёсткий" : "")}{(man.Reseat ? " пересадка" : "")}{(man.Fig != null && man.Fig.Wrap ? " охват" : "")}{(m.Held ? " упёрся" : "")}{(double.IsNaN(man.ViaX) ? "" : " в обход")} отряд v {m.Vs:0.0} курс {m.P.Facing:0}°{(m.Done ? " дошёл" : "")}{(m.OnSpot ? " на месте" : "")}{(man.Fig != null && man.Fig.Moving ? "" : " колонна стоит")}");
                             }
                             if (prev.TryGetValue(man, out var p) && !p.contact && !contact)

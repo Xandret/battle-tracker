@@ -640,10 +640,12 @@ static class MenBodyTests
             True(d.Men.All(x => x.Z == bt.StandZ(x.X, x.Y)), "высота бойца не по клетке");
             var e = bt.Add(T.Make(2, "Штурм", 1000, 2), 150, 60, 180);
             bt.Order(e, AttackOn(1));
-            for (int t = 0; t < 3; t++) bt.Turn();
+            int crossed = 0;
+            for (int t = 0; t < 2; t++) bt.Turn(tt => crossed += e.Men.Count(x => x.Alive && x.Y > 150.5 && x.Y < 154.5 && x.X > 105 && x.X < 195));   // в полосе стены по её длине
             True(d.Men.All(x => x.Z == bt.StandZ(x.X, x.Y)) && d.Men.Count(x => x.Z > 8) >= 400, $"после хода на стене {d.Men.Count(x => x.Z > 8)}");
             True(e.Men.Count(x => bt.StandZ(x.X, x.Y) > 0) == 0, $"штурмующих на стене {e.Men.Count(x => bt.StandZ(x.X, x.Y) > 0)}");
-            True(e.Men.Min(x => x.Y) > 95 && e.Men.Max(x => x.Y) < 150, $"штурмующие по y {e.Men.Min(x => x.Y):0}…{e.Men.Max(x => x.Y):0}");
+            // сквозь стену никто не прошёл; обойти её край по полю и войти во двор с торца — можно (Г123: перестраиваются без замедления — за 3 хода успевали обойти край стены и войти во двор с торца, поэтому ходов 2)
+            True(e.Men.Min(x => x.Y) > 95 && crossed == 0, $"штурмующие по y {e.Men.Min(x => x.Y):0}…{e.Men.Max(x => x.Y):0}; в полосе стены (бойцо-шагов) {crossed}");
             True(d.P.U.Soldiers == 1000 && e.P.U.Soldiers == 1000, $"потери через стену: гарнизон {1000 - d.P.U.Soldiers:0}, штурм {1000 - e.P.U.Soldiers:0}");
             True(!bt.Relocate(d, 100, 100, 0), "перестановка после первого хода принята");
         });
