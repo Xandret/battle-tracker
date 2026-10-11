@@ -175,7 +175,14 @@ namespace Journal.Maps
             foreach (var f in Features.Where(f => f.Kind == "hill" && f.Pts.Count >= 3)) Hill(m, f);
             foreach (var f in Features.Where(f => f.Kind == "town" && f.Pts.Count >= 3)) Town(m, f);
             foreach (var f in Features.Where(f => f.Kind == "village" && f.Pts.Count >= 3)) Village(m, f);
-            foreach (var f in Features.Where(f => f.Kind == "keep" && f.Pts.Count >= 3)) FillPoly(m, f.Pts, (i, x, y) => m.T[i] = K("building"));
+            foreach (var f in Features.Where(f => f.Kind == "keep" && f.Pts.Count >= 3))
+            {
+                // донжон — каменная башня, не дома (Алекс 11.10): клетки — здание, рисунку — контур (FortView: кладка, зубцы, башенки)
+                FillPoly(m, f.Pts, (i, x, y) => m.T[i] = K("building"));
+                var kci = CultureInfo.InvariantCulture;
+                Mark("keep", f.Pts.Min(p => p[0]), f.Pts.Min(p => p[1]), f.Pts.Max(p => p[0]), f.Pts.Max(p => p[1]), f.Seed);
+                marks[marks.Count - 1] += " " + string.Join(",", f.Pts.Select(p => p[0].ToString("0.#", kci) + ":" + p[1].ToString("0.#", kci)));
+            }
             foreach (var f in Features.Where(f => f.IsProp && f.Pts.Count >= 1)) Prop(m, f);
             foreach (var f in Features.Where(f => (f.Kind == "river" || f.Kind == "moat" || f.Kind == "trench") && f.Pts.Count >= 2))
                 Thick(m, f, f.Kind == "river" ? K("water") : K(f.Kind), _ => true);
@@ -184,6 +191,15 @@ namespace Journal.Maps
             foreach (var f in walls) WallLine(m, f);
             foreach (var f in walls) Towers(m, f);
             foreach (var f in walls) GateCells(m, f);
+            // ворота рисунку — как их поставили (Алекс 11.10: на косой стене клетки проёма лесенкой распадались на несколько
+            // «ворот» по сторонам света, стена рвалась): середина, направление стены, ширина, материал
+            var gs = new List<string>(); var ci = CultureInfo.InvariantCulture;
+            foreach (var f in walls)
+            {
+                double L = f.Length();
+                foreach (double g in f.Gates) { var (x, y, tx, ty) = f.At(Math.Max(0, Math.Min(L, g))); gs.Add(string.Join(" ", x.ToString("0.##", ci), y.ToString("0.##", ci), tx.ToString("0.####", ci), ty.ToString("0.####", ci), f.Kind == "wall" ? "1" : "2")); }
+            }
+            if (gs.Count > 0) m.Meta["gates"] = string.Join(";", gs);
             if (marks.Count > 0) m.Meta["landmarks"] = string.Join(";", marks);
             return m;
         }
@@ -360,17 +376,31 @@ namespace Journal.Maps
                 int cnt = (int)Math.Floor(span / f.E);
                 for (int j = 1; j <= cnt; j++) marks.Add((s0 + span * j / (cnt + 1)) % Math.Max(L, 1e-9));
             }
+            // башни в точках (Алекс 11.10: «ставлю ворота на косую стену — рядом ещё две башни»): ближайшая точка с каждой
+            // стороны ворот в 9…30 м — сама надвратная башня; своя надвратная — только где такой точки нет
+            var gateSide = new HashSet<(double, int)>();
+            if (f.PtTowers)
+                foreach (double g in f.Gates)
+                    foreach (int sd in new[] { -1, 1 })
+                        if (marks.Any(s => { double d = SignedDist(g, s, L, f.Closed); return d * sd >= 9 && d * sd <= 30; })) gateSide.Add((g, sd));
             foreach (double s in marks)
             {
-                if (f.Gates.Any(g => CircDist(g, s, L, f.Closed) < (f.Kind == "wall" ? 27 : 14))) continue;   // надвратные башни — в 12,5 м, сами 15 м
+                if (f.PtTowers ? f.Gates.Any(g => { double d = CircDist(g, s, L, f.Closed); return d < 9 || d < 27 && !gateSide.Contains((g, Math.Sign(SignedDist(g, s, L, f.Closed)))); })
+                               : f.Gates.Any(g => CircDist(g, s, L, f.Closed) < (f.Kind == "wall" ? 27 : 14))) continue;   // надвратные башни — в 12,5 м, сами 15 м
                 var (x, y, _, _) = f.At(s); spots.Add((x, y));
             }
             if (f.Kind == "wall" && gateTowers)
                 foreach (double g in f.Gates)
-                    foreach (int sd in new[] { -1, 1 }) { var (x, y, _, _) = f.At(Wrap(g + sd * 12.5, L, f.Closed)); spots.Add((x, y)); }
+                    foreach (int sd in new[] { -1, 1 }) { if (gateSide.Contains((g, sd))) continue; var (x, y, _, _) = f.At(Wrap(g + sd * 12.5, L, f.Closed)); spots.Add((x, y)); }
             return spots;
         }
         static double CircDist(double a, double b, double L, bool closed) { double d = Math.Abs(a - b); return closed && L > 0 ? Math.Min(d, L - d) : d; }
+        // от a до b вдоль пути со знаком (у кольца — кратчайшим путём)
+        static double SignedDist(double a, double b, double L, bool closed)
+        {
+            double d = b - a; if (closed && L > 0) { d = ((d % L) + L) % L; if (d > L / 2) d -= L; }
+            return d;
+        }
         static double Wrap(double s, double L, bool closed) => closed && L > 0 ? ((s % L) + L) % L : Math.Max(0, Math.Min(L, s));
         void Towers(TerrainMap m, MapFeature f)
         {

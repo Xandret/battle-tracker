@@ -344,6 +344,56 @@ namespace Journal.Viewer
             var ink = new Color32(34, 24, 15, 255);
             switch (L.Kind)
             {
+                case "keep":   // донжон: каменная громада по контуру, по краю — зубцы, по углам — башенки, внутри — свинцовая кровля
+                {
+                    var P = L.Poly; if (P == null || P.Count < 3) break;
+                    float pcx = 0, pcy = 0; foreach (var p in P) { pcx += p.x; pcy += p.y; } pcx /= P.Count; pcy /= P.Count;
+                    (float, float) Inset((float x, float y) p, float d) { float dx = pcx - p.x, dy = pcy - p.y, l = Mathf.Max(0.01f, Mathf.Sqrt(dx * dx + dy * dy)); return (p.x + dx / l * d, p.y + dy / l * d); }
+                    void Fan(List<(float x, float y)> Q, Color32 col, Geo g)
+                    {
+                        float qx = 0, qy = 0; foreach (var p in Q) { qx += p.x; qy += p.y; } qx /= Q.Count; qy /= Q.Count;
+                        int c0 = g.Vert(qx, qy, du, dv, col, solid);
+                        for (int k = 0; k <= Q.Count; k++) { var p = Q[k % Q.Count]; g.Vert(p.x, p.y, du, dv, col, solid); if (k > 0) g.Tri(c0, c0 + k, c0 + k + 1); }
+                    }
+                    // тень от высокой башни (20 м)
+                    var sh = new List<(float x, float y)>(); foreach (var p in P) sh.Add((p.x + Sun.x * 18, p.y + Sun.y * 18));
+                    var shc = dark; shc.a = 90; Fan(sh, shc, shadows);
+                    Fan(P, ink, top);
+                    // размеры — от величины донжона: башенки, ширина боевого хода, зубцы
+                    float area = 0; for (int k = 0; k < P.Count; k++) { var u = P[k]; var v = P[(k + 1) % P.Count]; area += u.x * v.y - v.x * u.y; }
+                    float size = Mathf.Sqrt(Mathf.Abs(area) / 2), tr = Mathf.Clamp(size * 0.11f, 2.6f, 8f), ww = Mathf.Clamp(size * 0.07f, 1.8f, 5f), mz = Mathf.Clamp(size * 0.012f, 0.45f, 1.1f);
+                    var inner = new List<(float x, float y)>(); foreach (var p in P) inner.Add(Inset(p, 0.5f)); Fan(inner, Hex("#c9c2b0"), top);            // кладка верха стен
+                    var walk = new List<(float x, float y)>(); foreach (var p in P) walk.Add(Inset(p, ww)); Fan(walk, Hex("#8f897d"), top);               // боевой ход
+                    // шатровая кровля: грань на каждую сторону, светлее к солнцу (как скаты домов)
+                    var roof = new List<(float x, float y)>(); foreach (var p in P) roof.Add(Inset(p, ww + 1.2f));
+                    var slate = Hex("#5d6670");
+                    for (int k = 0; k < roof.Count; k++)
+                    {
+                        var u = roof[k]; var v = roof[(k + 1) % roof.Count];
+                        float ex = v.x - u.x, ey = v.y - u.y, el = Mathf.Max(0.01f, Mathf.Sqrt(ex * ex + ey * ey)), nx = ey / el, ny = -ex / el;
+                        if (nx * (u.x - pcx) + ny * (u.y - pcy) < 0) { nx = -nx; ny = -ny; }   // нормаль — наружу
+                        var col = Facet(slate, nx, ny);
+                        int i0 = topUp.Vert(pcx, pcy, du, dv, col, solid); topUp.Vert(u.x, u.y, du, dv, col, solid); topUp.Vert(v.x, v.y, du, dv, col, solid); topUp.Tri(i0, i0 + 1, i0 + 2);
+                        Seg(topUp, new Vector2(pcx, pcy), new Vector2(u.x, u.y), 0.12f, new Color32(34, 24, 15, 120), solid);   // рёбра
+                    }
+                    for (int k = 0; k < roof.Count; k++) Seg(topUp, new Vector2(roof[k].x, roof[k].y), new Vector2(roof[(k + 1) % roof.Count].x, roof[(k + 1) % roof.Count].y), 0.2f, ink, solid);
+                    // зубцы по краю
+                    for (int k = 0; k < P.Count; k++)
+                    {
+                        var a2 = Inset(P[k], 0.5f); var b2 = Inset(P[(k + 1) % P.Count], 0.5f);
+                        float dx = b2.Item1 - a2.Item1, dy = b2.Item2 - a2.Item2, sl = Mathf.Sqrt(dx * dx + dy * dy); int nM = Mathf.Max(1, (int)(sl / (mz * 3.4f)));
+                        for (int j = 0; j < nM; j += 2) { float u = (j + 0.5f) / nM; float mx = a2.Item1 + dx * u, my = a2.Item2 + dy * u; FillG(top, mx - mz, my - mz, mx + mz, my + mz, Hex("#ece6d6")); }
+                    }
+                    // по углам — каменные башни, как на стенах замка
+                    var tpart = build.Get("tower/stone/slate");
+                    foreach (var p in P)
+                    {
+                        var q = Inset(p, tr * 0.25f);
+                        top.Quad(disc, Aff.At(q.Item1 + Sun.x * 12, q.Item2 + Sun.y * 12).S(tr * 2, tr * 2), new Color32(28, 22, 12, 90), solid);
+                        topUp.Quad(tpart, Aff.At(q.Item1, q.Item2).R((float)Kits.Hash(L.Seed + (int)p.x, 6) * 6.283f).S(tr / 5, tr / 5), new Color32(255, 255, 255, 255), Vector4.zero);
+                    }
+                    break;
+                }
                 case "church":   // колокольня у переда, неф, апсида
                 {
                     float tw = Mathf.Min(wid, 8.5f), nw = Mathf.Min(wid * 0.8f, 9.5f);

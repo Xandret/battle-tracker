@@ -1150,6 +1150,12 @@
     flex-shrink: 0;
 }
 
+/* «Подробно» открыто: сводка свёрнута, панель выше, журнал — на всю её высоту */
+.log-panel.is-details { max-height: 78%; }
+.log-panel.is-details > .sum-box { display: none; }
+.log-panel.is-details > .sum-details { max-height: none; height: 620px; flex-shrink: 1; min-height: 160px; }
+.log-panel.is-details .log-line { font-size: 12px; }
+
 /* ── лента событий слева во время хода ── */
 .feed {
     position: absolute;

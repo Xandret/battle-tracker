@@ -105,7 +105,8 @@ namespace Journal.Play
             detailsToggle.RegisterCallback<ClickEvent>(_ =>
             {
                 bool open = detailsScroll.ClassListContains("hidden");
-                detailsScroll.EnableInClassList("hidden", !open); detailsToggle.text = open ? "Подробно ▾" : "Подробно ▸";
+                detailsScroll.EnableInClassList("hidden", !open); detailsToggle.text = open ? "Подробно ▾  (сводка — ▴)" : "Подробно ▸";
+                logPanel.EnableInClassList("is-details", open);   // открыт журнал — сводка свёрнута, журнал на всю панель (Алекс 11.10)
             });
             BuildOrders();
             pc.SetUiPicker(OverUi);
@@ -972,6 +973,7 @@ namespace Journal.Play
             if (sum.Arrows > 0) summaryBox.Add(Line($"Стрел за ход: {sum.Arrows}, выбыло от них: {sum.ArrowHits}", "sum-sub"));
             Review(s);
             if (s.Logs.Count > 0) foreach (var line in s.Logs[s.Logs.Count - 1]) { var l = Line(line, "log-line"); l.EnableInClassList("is-ai", line.StartsWith("ИИ:")); detailsScroll.Add(l); }
+            if (s.Logs.Count > 0 && detailsScroll.childCount == 0) detailsScroll.Add(Line("За этот ход записей в журнале нет.", "log-line"));
         }
         // Г116в: разбор хода адъютантом — для стороны, чьими глазами смотрим; у ГМа — для всех сторон. Щелчок по строке — к отряду
         void Review(BattleSession s)

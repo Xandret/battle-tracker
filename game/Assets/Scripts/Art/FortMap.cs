@@ -21,7 +21,7 @@ namespace Journal.Art
         public struct House { public float X0, Y0, X1, Y1; public int Seed; }   // прямоугольник клеток «здание», метры
         // ориентир (Алекс 11.10: «ни ратуши, ни церкви, ни торговых рядов»): что за постройка в этом прямоугольнике — из
         // Meta["landmarks"] карты редактора (MapDoc.Mark); дома в нём не рисуются, рисуется он
-        public struct Landmark { public string Kind; public float X0, Y0, X1, Y1; public bool Rot; public int Seed; }
+        public struct Landmark { public string Kind; public float X0, Y0, X1, Y1; public bool Rot; public int Seed; public List<(float x, float y)> Poly; }
 
         public readonly List<Line> Lines = new List<Line>();
         public readonly List<Gate> Gates = new List<Gate>();
@@ -141,7 +141,8 @@ namespace Journal.Art
             }
             for (int i = 0; i < n; i++) if (adj[i] != null && Deg(i) != 2) foreach (int j in adj[i]) if (!used.Contains(Key(i, j))) Walk(i, j);
             for (int i = 0; i < n; i++) if (adj[i] != null) foreach (int j in adj[i]) if (!used.Contains(Key(i, j))) Walk(i, j);
-            for (int i = 0; i < n; i++) if (mat[i] != 0 && adj[i] == null && m.T[i] != KTower && m.T[i] != KGate)   // одиночная клетка — коротыш
+            bool NearGate(int i) { int x = i % cols, y = i / cols; for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) if (At(x + dx, y + dy) == KGate) return true; return false; }
+            for (int i = 0; i < n; i++) if (mat[i] != 0 && adj[i] == null && m.T[i] != KTower && m.T[i] != KGate && !NearGate(i))   // одиночная клетка — коротыш (у ворот — косяк, не коротыш)
                 {
                     var L = new Line { Mat = mat[i], Thick = thick[i] }; L.P.Add((px[i] - c * 0.3f, py[i])); L.P.Add((px[i] + c * 0.3f, py[i])); f.Lines.Add(L);
                 }
@@ -160,6 +161,17 @@ namespace Journal.Art
             }
             // ворота: соседние клетки ворот — один проём (по середине клеток, без сглаживания); проломы — груда на клетку
             var gseen = new bool[n];
+            List<(float x, float y, float tx, float ty, int mat)> edGates = null; bool[] edUsed = null;
+            if (m.Meta != null && m.Meta.TryGetValue("gates", out var ego) && ego is string egs)
+            {
+                var inv = System.Globalization.CultureInfo.InvariantCulture; edGates = new List<(float, float, float, float, int)>();
+                foreach (var part in egs.Split(';'))
+                {
+                    var a = part.Split(' '); if (a.Length < 5) continue;
+                    edGates.Add((float.Parse(a[0], inv), float.Parse(a[1], inv), float.Parse(a[2], inv), float.Parse(a[3], inv), a[4] == "2" ? Palisade : Wall));
+                }
+                edUsed = new bool[edGates.Count];
+            }
             for (int i = 0; i < n; i++)
             {
                 int x = i % cols, y = i / cols, k = m.T[i];
@@ -169,7 +181,7 @@ namespace Journal.Art
                 while (q.Count > 0)
                 {
                     int j = q.Pop(), jx = j % cols, jy = j / cols; cells.Add(j);
-                    foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                    foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1) })   // и по диагонали: на косой стене проём — лесенкой
                         if (At(jx + dx, jy + dy) == KGate) { int t2 = (jy + dy) * cols + jx + dx; if (!gseen[t2]) { gseen[t2] = true; q.Push(t2); } }
                 }
                 int x0 = int.MaxValue, x1 = -1, y0 = int.MaxValue, y1 = -1;
@@ -195,7 +207,20 @@ namespace Journal.Art
                         if (d < bestD) { bestD = d; ax = -sy / sl; ay = sx / sl; }
                     }
                 }
-                f.Gates.Add(new Gate { X = gx, Y = gy, W = (Math.Max(x1 - x0, y1 - y0) + 1) * c, Horiz = horiz, Mat = mat[i], Ax = ax, Ay = ay, Out = OutSide(gx, gy, ax, ay) is int o && o != 0 ? o : -1 });
+                float gw = (Math.Max(x1 - x0, y1 - y0) + 1) * c;
+                // ворота, поставленные в редакторе карт (Meta["gates"]): середина и направление стены — как поставили
+                if (edGates != null)
+                {
+                    int best = -1; float bd = 9;
+                    for (int e = 0; e < edGates.Count; e++) { float d = Dist((gx, gy), (edGates[e].x, edGates[e].y)); if (d < bd) { bd = d; best = e; } }
+                    if (best >= 0)
+                    {
+                        if (edUsed[best]) continue;   // этот проём уже нарисован
+                        edUsed[best] = true;
+                        var eg = edGates[best]; gx = eg.x; gy = eg.y; ax = -eg.ty; ay = eg.tx; gw = eg.mat == Wall ? 10 : 8;
+                    }
+                }
+                f.Gates.Add(new Gate { X = gx, Y = gy, W = gw, Horiz = horiz, Mat = mat[i], Ax = ax, Ay = ay, Out = OutSide(gx, gy, ax, ay) is int o && o != 0 ? o : -1 });
             }
             // башни: связные куски (по 8 соседям); кусок вдвое больше обычного — несколько башен по скоплениям клеток
             var seen = new bool[n]; var comps = new List<List<int>>();
@@ -272,10 +297,18 @@ namespace Journal.Art
                     if (!float.TryParse(a[1], System.Globalization.NumberStyles.Float, inv, out var x0) || !float.TryParse(a[2], System.Globalization.NumberStyles.Float, inv, out var y0)
                         || !float.TryParse(a[3], System.Globalization.NumberStyles.Float, inv, out var x1) || !float.TryParse(a[4], System.Globalization.NumberStyles.Float, inv, out var y1)) continue;
                     int.TryParse(a[5], System.Globalization.NumberStyles.Integer, inv, out var sd);
-                    f.Landmarks.Add(new Landmark { Kind = a[0].Replace("/r", ""), Rot = a[0].EndsWith("/r"), X0 = x0, Y0 = y0, X1 = x1, Y1 = y1, Seed = sd });
+                    List<(float, float)> poly = null;
+                    if (a.Length >= 7)
+                    {
+                        poly = new List<(float, float)>();
+                        foreach (var pt in a[6].Split(',')) { var xy = pt.Split(':'); if (xy.Length == 2) poly.Add((float.Parse(xy[0], inv), float.Parse(xy[1], inv))); }
+                    }
+                    f.Landmarks.Add(new Landmark { Kind = a[0].Replace("/r", ""), Rot = a[0].EndsWith("/r"), X0 = x0, Y0 = y0, X1 = x1, Y1 = y1, Seed = sd, Poly = poly });
                 }
+                // дома, что лежат в постройке-ориентире, — её часть; у донжона — всё, чья середина внутри контура
                 f.Houses.RemoveAll(h => f.Landmarks.Exists(l => l.Kind != "market" && l.Kind != "well" && l.Kind != "tents"
-                    && h.X0 >= l.X0 - 0.1f && h.X1 <= l.X1 + 0.1f && h.Y0 >= l.Y0 - 0.1f && h.Y1 <= l.Y1 + 0.1f));
+                    && (l.Poly != null ? InPoly(l.Poly, (h.X0 + h.X1) / 2, (h.Y0 + h.Y1) / 2)
+                                       : h.X0 >= l.X0 - 0.1f && h.X1 <= l.X1 + 0.1f && h.Y0 >= l.Y0 - 0.1f && h.Y1 <= l.Y1 + 0.1f)));
             }
             return f;
         }
@@ -343,6 +376,13 @@ namespace Journal.Art
                 }
             }
             return thick;
+        }
+        static bool InPoly(List<(float x, float y)> p, float px, float py)
+        {
+            bool c = false;
+            for (int i = 0, j = p.Count - 1; i < p.Count; j = i++)
+                if ((p[i].y > py) != (p[j].y > py) && px < (p[j].x - p[i].x) * (py - p[i].y) / (p[j].y - p[i].y) + p[i].x) c = !c;
+            return c;
         }
         static float Dist((float x, float y) a, (float x, float y) b) => (float)Math.Sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
     }
