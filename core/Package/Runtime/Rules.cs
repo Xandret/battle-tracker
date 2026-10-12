@@ -222,12 +222,15 @@ namespace BattleCore
             // к нему, разворачивается в линию во всю ширину (узость позади — расширяется сразу) и идёт в сшибку всем фронтом; ближе DeployMinM
             // при приказе — сразу в атаку; с фланга (сбоку от его строя) — как есть, колонна остаётся колонной. Числа — черновик до ГМа
             public double DeployM = 80, DeployMinM = 30; public bool DeployWide = true;
+            // Г123: перестроение в узость и обратно — места колонн едут к новым не быстрее SlotMorphK хода отряда (не медленнее SlotMorphMin
+            // м/с), упреждение узости растёт на этот путь: строй готовится с подхода, соседи сходятся по косой, за проходом расходятся постепенно
+            public double SlotMorphK = 0.35, SlotMorphMin = 1.5; public bool SlotMorphHorse = false;
             // Г111 п.5: ширина прохода — по всему фронту, центрированному на оси пути: 2 × меньшее плечо (NarrowCentered; было l + r — строй
             // у берега «умещался», но половина его лезла в воду); стенки прохода — и медленная местность (брод, лес) дороже оси в CorridorSlowK раз
             public bool NarrowCentered = false; public double CorridorSlowK = 0; public bool ViaToHome = true;   // ViaToHome — обходящий боец идёт к своему месту (поиск в окне), не к цели отряда
             public double NarrowCheckSec = 0.5;
             public double RegroupLagM = 3, RegroupShare = 0.2, RegroupSpeed = 0.5;   // Г60: перестраиваются — вдвое медленнее
-            public double FrameWaitM = 8, StuckMps = 0.5;
+            public double FrameWaitM = 8, StuckMps = 0.5; public bool KeepTogether = false;   // Г123: колонны отстали по ходу (хоть и идут) — рамка вдвое медленнее
             public bool MoatImpassable = true;   // Г105 (Алекс 10.10.2026: «солдаты спокойно заходят на ров»): в бою ров непроходим, как вода (стол даёт ему цену — вопрос ГМу)
             public bool PalisadeImpassable = true;   // Г105: и частокол в бою — стена (стол: цена 3; перелезть — приступ, И5)
             // Г101 (Алекс 09.10.2026, «стоит добавить возможность выбора построения»): глубина строя — на выбор игрока, не глубже RanksMax
@@ -273,6 +276,8 @@ namespace BattleCore
         {
             public double Tau = 0.5;          // Г76: боец догоняет своё место за ~Tau с — строй «дышит» на поворотах и в давке
             public double SpeedK = 1.4, WalkMin = 2;   // предел скорости бойца — скорость фигурки (не меньше WalkMin) × SpeedK
+            public double BodyAccelBusyK = 12; public bool HorseKeepPush = false;   // Г123: разгон тела в лесу, на пересадке и сквозь своих — во столько раз резвее нормы (было без предела: срывы 1 → 22 м/с за кадр)
+            public double HorseGapM = 0.4;     // Г122: зазор, с которым конь держится за своим передним (подравнивает ход загодя, не толкается)
             public double BodyMaxK = 1.05;    // Г118: и никогда не быстрее своей наибольшей (норма отряда после разгона, в натиске × Cavalry.ChargeMult) × BodyMaxK (мерило даёт 1,1)
             public double AccelK = 1.0;       // Г118: разгон и тормоз бойца — ровно как у его отряда (FigureAccelK 1 × 1; было 1,5 × 2 — втрое резвее нормы) (иначе всадник пролетает мимо остановившейся фигурки)
             public double MaxLagM = 2.5;      // дальше этого от своего места боец не отстаёт и не вылетает
@@ -385,7 +390,8 @@ namespace BattleCore
             public double HorseTurnDegPerSec = 90, FootTurnDegPerSec = 180;   // курс тела меняется не быстрее
             public double AccelK = 1.0;             // скорость меняется не быстрее разгона своего рода войск (TopSpeed / AccelSec) × AccelK — и в торможении
             public double TolK = 1.05;              // допуск мерила на округление кадра к пределам курса и разгона
-            public double GrossK = 4, MaxShare = 0.04, MaxGrossShare = 0.003;   // планка-трещотка теста: доля нарушений среди замеров и доля грубых (> GrossK пределов) — пока столько, снижать по мере починки
+            public double GrossK = 4, MaxShare = 0.04, MaxGrossShare = 0.003;
+            public bool HorseOverlap = true;        // Г122: считать своих коней вплотную (пары за кадр) — в зонде smooth   // планка-трещотка теста: доля нарушений среди замеров и доля грубых (> GrossK пределов) — пока столько, снижать по мере починки
         }
         public SmoothR Smooth = new SmoothR();
         // Г112 п.4 (панель ГМа, таблица этапа 3 — Q5): готовые модификаторы БД; ключ, название, значение. Применяет ГМ (Battle.ApplyMorale),

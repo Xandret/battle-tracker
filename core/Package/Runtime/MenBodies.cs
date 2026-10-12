@@ -42,7 +42,8 @@ namespace BattleCore
         public static int RigidMen, RigidUnits;      // Г86: сколько бойцов на жёстких местах и отрядов «вдали» на последнем шаге (для тестов и замеров)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
-        [ThreadStatic] static bool[] tYield;   // Г118: на этом шаге уступил (взгляд вперёд) — ход меняет без предела тормоза
+        [ThreadStatic] static bool[] tYield, tSamePush, tPushOther;   // Г123: толкнули только свои по отряду / кто-то чужой
+        [ThreadStatic] static double[] tPx, tPy;   // Г118: на этом шаге уступил (взгляд вперёд) — ход меняет без предела тормоза
         [ThreadStatic] static bool[] tFree;    // Г118: тело в свободном ходу (не в лесу, не на пересадке, не сквозь своих) — только там пределы разгона
         [ThreadStatic] static int[] gNext, gHead;
         const double Cell = 1.5;                     // сетка соседей, м: запросы — по размеру тел, клетка — около шага в строю
@@ -186,7 +187,7 @@ namespace BattleCore
                     double d = JsMath.Hypot(a.P.X - b.P.X, a.P.Y - b.P.Y) - ra - JsMath.Hypot(b.P.Fp.Front, b.P.Fp.Depth) / 2;
                     if (d < (SameSide(a.P.U, b.P.U) ? MR.FarFriendM : MR.FarEnemyM)) ok = false;
                 }
-                unitRigid[i] = ok && !a.Reforming;   // перестраивается (узость, выбор построения Г101) — жёстких нет: вставшие на места стеной не пускали бы идущих
+                unitRigid[i] = ok && !a.Reforming && !a.Figs.Exists(f => f.Morph);   // Г123: колонны съезжаются — жёстких нет (жёсткие друг с другом не сталкиваются)   // перестраивается (узость, выбор построения Г101) — жёстких нет: вставшие на места стеной не пускали бы идущих
             }
             RigidUnits = 0; foreach (var ok in unitRigid) if (ok) RigidUnits++;
             RigidMen = 0;
@@ -197,7 +198,7 @@ namespace BattleCore
                 tMan = new Man[cap]; tMi = new int[cap]; tM = new Mover[cap];
                 tUx = new double[cap]; tUy = new double[cap]; tHalf = new double[cap]; tRad = new double[cap]; tX0 = new double[cap]; tY0 = new double[cap];
                 tDvx = new double[cap]; tDvy = new double[cap]; tVmax = new double[cap]; tCap = new double[cap]; tReach = new double[cap];
-                tFlag = new byte[cap]; tBlocked = new int[cap]; tBlockedEnemy = new bool[cap]; tYield = new bool[cap]; tFree = new bool[cap]; gNext = new int[cap];
+                tFlag = new byte[cap]; tBlocked = new int[cap]; tBlockedEnemy = new bool[cap]; tYield = new bool[cap]; tSamePush = new bool[cap]; tPushOther = new bool[cap]; tPx = new double[cap]; tPy = new double[cap]; tFree = new bool[cap]; gNext = new int[cap];
                 tX = new double[cap]; tY = new double[cap]; tLx = new double[cap]; tLy = new double[cap]; tRigid = new bool[cap];
             }
             int c = 0; double maxBody = 0;
@@ -318,7 +319,7 @@ namespace BattleCore
                     // Г86: одним телом с колонной — замораживается там, где стоит (сдвиг от якоря в осях колонны), без прыжка на место;
                     // место догонит, когда оттает. Курс — по Г94, как у всех
                     bool atHome = far < MR.RigidSnapM && (F == null || MoveSim.Free(F, hx, hy));
-                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw && !inForest && double.IsNaN(man.PostX)
+                    bool rigid = uRigid && atHome && !s.Fighting && !s.Wrap && !s.Morph && !s.Returning && !man.Reseat && !down && !waiting && !man.Thaw && !inForest && double.IsNaN(man.PostX)
                         // Г118: одним телом — только когда тело уже идёт со скоростью якоря и колонна не поворачивает: иначе тело разом
                         // принимало ход якоря (22 → 1 м/с за кадр), а при повороте колонны задние тела метались вбок со скоростью колонны × глубина
                         && JsMath.Hypot(man.Vx - s.AVx, man.Vy - s.AVy) <= MR.RigidSnapMps && (double.IsNaN(s.HdWas) || Math.Abs(MoveSim.AngleDiff(s.HdWas, s.Hd)) <= MR.RigidTurnDegPerSec * dt);
@@ -372,7 +373,7 @@ namespace BattleCore
                     // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
                     double ph = m.Fleeing || inForest || horse && (M.HorseBodyOwnCourse || M.HorseBodyOwnCourseInMelee && (man.Foe != null || s.Fighting)) ? fh : s.Hd * Math.PI / 180;   // Б5: в лесу — по своему курсу: иначе конь не повернётся между стволами
                     tUx[c] = Math.Sin(ph); tUy[c] = -Math.Cos(ph); tHalf[c] = half; tRad[c] = rad; man.BodyFacing = ph * 180 / Math.PI;
-                    tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax; tYield[c] = false; tFree[c] = !inForest && !man.Reseat && !Through(s);
+                    tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax; tYield[c] = false; tSamePush[c] = false; tPushOther[c] = false; tPx[c] = 0; tPy[c] = 0; tFree[c] = !inForest && !man.Reseat && !Through(s);
                     // расталкивание — не быстрее PushMaxMps, как бы ни был скор сам боец: иначе конь на полном ходу, врезавшись,
                     // отлетал на 2,8 м за шаг — рывок
                     tCap[c] = Math.Min(Math.Max(vmax, 1), MR.PushMaxMps) * dt * M.PushSpeedK;
@@ -416,6 +417,8 @@ namespace BattleCore
                 if (orad > maxBody) maxBody = orad;
             }
             Prof.Add(12, ref pt);
+            var amaxOf0 = new double[ms.Count];
+            for (int q = 0; q < ms.Count; q++) amaxOf0[q] = MR.AccelK * MoveSim.FigAccel(ms[q], r);   // Г122: разгон отряда, м/с²
             // 3) взгляд вперёд — с бойцами чужих отрядов: каждый смотрит на свой ход вперёд (кто быстрее — увидит сам).
             // Клетки, где только свои, пропускаются целиком — в глубине строя взгляд вперёд ничего не стоит
             Grid(ct, Cell);
@@ -488,6 +491,37 @@ namespace BattleCore
                 Prof.N[6] += seen;
             }
 
+            // Г122: свой конь впереди по отряду — задний загодя подравнивает ход под него, держа зазор HorseGapM: смотрит на свой тормозной
+            // путь (ход² / 2 разгона), не толкается и не влетает в очередь у прохода (взгляд выше — только на чужих)
+            if (MR.HorseGapM > 0)
+                for (int i = 0; i < c; i++)
+                {
+                    if (tRigid[i] || (tFlag[i] & 64) == 0 || tM[i].Fleeing || tMan[i].Foe != null || (tFlag[i] & 16) != 0) continue;
+                    double vx = tDvx[i], vy = tDvy[i], vl = Math.Sqrt(vx * vx + vy * vy);
+                    if (vl < 1) continue;
+                    double ux = vx / vl, uy = vy / vl, own = tMi[i], acc = amaxOf0[tMi[i]];
+                    double la = Math.Max(laF, vl / (2 * Math.Max(0.5, acc))), reach = vl * la + tReach[i] + maxBody;
+                    double xi = tX[i], yi = tY[i];
+                    int cx0 = Math.Max(0, (int)((xi - reach - gx0) / gCell)), cx1 = Math.Min(gW - 1, (int)((xi + reach - gx0) / gCell));
+                    int cy0 = Math.Max(0, (int)((yi - reach - gy0) / gCell)), cy1 = Math.Min(gH - 1, (int)((yi + reach - gy0) / gCell));
+                    double allow = vl;
+                    for (int cy = cy0; cy <= cy1; cy++)
+                        for (int cx = cx0; cx <= cx1; cx++)
+                            for (int j = gHead[cy * gW + cx]; j >= 0; j = gNext[j])
+                            {
+                                if (j == i || tMi[j] != own || (tFlag[j] & 64) == 0 || tMan[j].Fig != tMan[i].Fig) continue;   // только своя колонна
+                                double ex = tX[j] - xi, ey = tY[j] - yi, along = ex * ux + ey * uy;
+                                if (along <= 0) continue;   // уступает только задний
+                                double side = Math.Abs(-ex * uy + ey * ux);
+                                if (side > tRad[i] + tRad[j] + MR.HorseGapM) continue;   // не на пути: сбоку — по ширине коней
+                                double gap = along - (tHalf[i] + tRad[i] + tHalf[j] + tRad[j]) - MR.HorseGapM;   // свободно до зазора
+                                double vj = Math.Max(0, tDvx[j] * ux + tDvy[j] * uy);
+                                // не быстрее, чем успеет затормозить до хода переднего на этом пути
+                                double a = Math.Sqrt(vj * vj + 2 * Math.Max(0.5, acc) * Math.Max(0, gap));
+                                if (a < allow) allow = a;
+                            }
+                    if (allow < vl) { double k = allow / vl; tDvx[i] *= k; tDvy[i] *= k; }
+                }
             Prof.Add(13, ref pt);
             // 4) шаг: предел скорости (сквозь своих — медленнее) и разгона, непроходимое
             var amaxOf = new double[ms.Count];
@@ -512,7 +546,7 @@ namespace BattleCore
                 // В схватке (отряд касается врага), в касании и в натиске — как было, без пределов: толкотня и удары — не движение (мерило их
                 // не считает), а предел разгона там ломал охват, натиск и отход (Г68, Г90, Г94)
                 // Предел разгона — только в свободном ходу: в лесу (стволы толкают каждый шаг), на пересадке и сквозь своих (толкотня) — как было
-                double amax = tM[i].InMelee || man.Foe != null || (tFlag[i] & 16) != 0 || !tFree[i] ? double.PositiveInfinity : amaxOf[tMi[i]]; bool stopFree = tYield[i] || tBlocked[i] != 0 || (tFlag[i] & 128) != 0 || man.Pushed;
+                double amax = tM[i].InMelee || man.Foe != null || (tFlag[i] & 16) != 0 ? double.PositiveInfinity : amaxOf[tMi[i]] * (tFree[i] ? 1 : MR.BodyAccelBusyK); bool stopFree = tYield[i] || tBlocked[i] != 0 || (tFlag[i] & 128) != 0 || man.Pushed;
                 man.Pushed = false;
                 if (BattleMap.IsHorse(tM[i].P.U) && !tM[i].Fleeing && !tM[i].InMelee && (tFlag[i] & 16) == 0 && man.Foe == null)   // одноколейность — только в свободном ходу: в натиске и схватке как было
                 {
@@ -587,7 +621,18 @@ namespace BattleCore
                 man.LastFlag = tFlag[i]; man.LastBlocked = tBlocked[i];
                 // толкнули: скорость тела — по сдвигу; следующий шаг — без предела разгона (Г118: иначе с разгоном нормы толпа отставших
                 // ехала вполсилы навсегда — каждый шаг толчок съедал полскорости, а набрать её заново тело не успевало)
-                if ((tFlag[i] & 4) != 0) { man.Vx = man.LastVx; man.Vy = man.LastVy; man.Pushed = true; }
+                if ((tFlag[i] & 4) != 0)
+                {
+                    man.Pushed = true;
+                    if (tPushOther[i] || !tSamePush[i] || (tFlag[i] & 64) == 0 || !MR.HorseKeepPush) { man.Vx = man.LastVx; man.Vy = man.LastVy; }   // пешие — как было: в давке толчок гасит ход   // чужой, враг, дерево — ход по сдвигу (Г118)
+                    else
+                    {
+                        // Г123: толкнули только свои по отряду — гасится лишь встречная толчку часть хода: иначе двое отставших, задевая друг
+                        // друга раз в несколько шагов, никогда не разгонялись и отставали на десятки метров (у дома, в проходе)
+                        double pl = JsMath.Hypot(tPx[i], tPy[i]);
+                        if (pl > 1e-9) { double ux = tPx[i] / pl, uy = tPy[i] / pl, ap = man.Vx * ux + man.Vy * uy; if (ap < 0) { man.Vx -= ap * ux; man.Vy -= ap * uy; } }
+                    }
+                }
                 // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает
             }
             Prof.Add(20, ref pp);
@@ -751,7 +796,7 @@ namespace BattleCore
                 double dT = Dist(i, tX[i], tY[i], j, tX[j], tY[j], out double tnx, out double tny), penT = -dT;
                 if (penT <= M.BodyTol) return;
                 Prof.N[9]++;
-                if (tMi[i] < 0) Push(j, -tnx * penT, -tny * penT, -1, false); else Push(i, tnx * penT, tny * penT, -1, false);
+                if (tMi[i] < 0) { Push(j, -tnx * penT, -tny * penT, -1, false); tPushOther[j] = true; } else { Push(i, tnx * penT, tny * penT, -1, false); tPushOther[i] = true; }
                 return;
             }
             if (Math.Abs(tMan[i].Z - tMan[j].Z) > tStepM) return;   // Г104: один на стене, другой под ней — не достают друг друга
@@ -807,6 +852,7 @@ namespace BattleCore
             }
             Push(i, nx * pen * wa, ny * pen * wa, rel != Rel.Same ? j : -1, rel == Rel.Enemy, capI);
             Push(j, -nx * pen * (1 - wa), -ny * pen * (1 - wa), rel != Rel.Same ? i : -1, rel == Rel.Enemy, capJ);
+            if (rel == Rel.Same) { tSamePush[i] = true; tSamePush[j] = true; }
         }
 
         // Г90: конь j в натиске сбил пешего i — лежит DownSecMin…DownSecMax с (свой ритм по хешу), конь теряет ChargeLoss хода
@@ -847,6 +893,7 @@ namespace BattleCore
             if (ol > cap) { nx = tX0[i] + ox * cap / ol; ny = tY0[i] + oy * cap / ol; }   // давка: перекрытие рассосётся за несколько шагов
             var F = tM[i].Field;
             if (F != null && !MoveSim.Free(F, nx, ny) && MoveSim.Free(F, tX[i], tY[i])) return;   // в воду и в стену не выталкиваем
+            tPx[i] += nx - tX[i]; tPy[i] += ny - tY[i]; if (other >= 0) tPushOther[i] = true;
             tX[i] = nx; tY[i] = ny; tFlag[i] |= 4;
             // упёрся — если толкнули против его хода; толчок стоящего или туда, куда он и шёл (враг напирает на отступающего,
             // Г81), — не упор
