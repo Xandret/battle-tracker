@@ -435,7 +435,7 @@ namespace Journal.Play
                     break;
                 }
                 case Tool.Edit:
-                    Keys(opts, ("ЛКМ", "выбрать, тянуть точку или объект"), ("Shift+ЛКМ по линии", "новая точка"), ("ПКМ по точке", "убрать точку"), ("ПКМ по объекту", "меню объекта"), ("Del", "удалить"));
+                    Keys(opts, ("ЛКМ", "выбрать, тянуть точку или объект"), ("Shift+ЛКМ по линии", "новая точка"), ("ПКМ по точке", "убрать точку"), ("T над точкой стены", "снять / вернуть башню"), ("ПКМ по объекту", "меню объекта"), ("Del", "удалить"));
                     break;
             }
             RefreshObj();
@@ -540,6 +540,12 @@ namespace Journal.Play
             void It(string text, Action act, string cls = null) { var b = new Button(() => { ctx.AddToClassList("hidden"); act(); }) { text = text }; b.AddToClassList("me-ctx-btn"); if (cls != null) b.AddToClassList(cls); ctx.Add(b); }
             if (f.Kind == "town" || f.Kind == "village") { It(f.Kind == "town" ? "Перегенерировать город" : "Перегенерировать деревню", () => Regen(f)); It("Разобрать на дома", () => Explode(f)); }
             if (f.IsWall && !f.PtTowers) It("Башни — в точки", () => { Push(); doc.TowersToPoints(f); Bake(false); RefreshObj(); Say("Теперь каждая башня — точка: тяни"); });
+            if (f.IsWall && f.PtTowers)
+            {
+                It("Башни только на углах", () => { Push(); MapDoc.TowersOnCorners(f); Bake(false); Say("Башни остались на углах; T над точкой — снять или вернуть"); });
+                It("Башни во всех точках", () => { Push(); for (int i = 0; i < f.Pts.Count; i++) MapDoc.SetTower(f, i, true); Bake(false); });
+                It("Убрать все башни", () => { Push(); for (int i = 0; i < f.Pts.Count; i++) MapDoc.SetTower(f, i, false); Bake(false); });
+            }
             if (f.IsProp) It("Повернуть", () => { Push(); f.Rot ^= 1; Bake(false); });
             It("Копия рядом", () => { Push(); var c = f.Copy(); foreach (var q in c.Pts) { q[0] += 20; q[1] += 20; } c.Seed = UnityEngine.Random.Range(1, 999999); doc.Features.Add(c); Select(c); Bake(false); });
             It("Удалить", () => { Select(f); DeleteSel(); }, "me-danger");
@@ -599,6 +605,17 @@ namespace Journal.Play
                 for (int i = 0; i < digits.Length && i < Tools.Length; i++) if (digits[i].wasPressedThisFrame) SetTool(Tools[i].T);
                 if (kb.leftBracketKey.wasPressedThisFrame) { brushR = Math.Max(1, brushR - 1); sizeSlider?.SetValueWithoutNotify(brushR); }
                 if (kb.rightBracketKey.wasPressedThisFrame) { brushR = Math.Min(20, brushR + 1); sizeSlider?.SetValueWithoutNotify(brushR); }
+                if (kb.tKey.wasPressedThisFrame && tool == Tool.Edit)
+                {
+                    var mp = Mouse.current.position.ReadValue(); var w = viewer.ScreenToMap(mp);
+                    var (vf, vi) = HitVertex(w.x, w.y, 12 / ppm);
+                    if (vf != null && vf.IsWall)
+                    {
+                        Push(); if (!vf.PtTowers) doc.TowersToPoints(vf);
+                        if (vi < vf.Pts.Count) { bool off = !MapDoc.NoTower(vf.Pts[vi]); MapDoc.SetTower(vf, vi, !off); Say(off ? "Башня снята — точка осталась" : "Башня поставлена"); }
+                        Bake(false);
+                    }
+                }
                 if (kb.rKey.wasPressedThisFrame)
                 {
                     if (tool == Tool.Prop) propRot ^= 1;
@@ -802,12 +819,12 @@ namespace Journal.Play
             }
             if (mouse.leftButton.isPressed && sel != null)
             {
-                if (dragPt >= 0 && dragPt < sel.Pts.Count) { sel.Pts[dragPt] = new[] { Math.Round(mx, 1), Math.Round(my, 1) }; needBake = true; }
+                if (dragPt >= 0 && dragPt < sel.Pts.Count) { bool nt = MapDoc.NoTower(sel.Pts[dragPt]); sel.Pts[dragPt] = nt ? new[] { Math.Round(mx, 1), Math.Round(my, 1), 1.0 } : new[] { Math.Round(mx, 1), Math.Round(my, 1) }; needBake = true; }
                 else if (dragAll)
                 {
                     double dx = mx - dragX, dy = my - dragY;
                     if (sel.IsProp) { var q = Snap(dragOrig[0][0] + dx, dragOrig[0][1] + dy, sel.Prop, sel.Rot); if (sel.PW > 0) q = new[] { dragOrig[0][0] + Math.Round(dx / doc.Cell) * doc.Cell, dragOrig[0][1] + Math.Round(dy / doc.Cell) * doc.Cell }; sel.Pts[0] = q; }
-                    else for (int i = 0; i < sel.Pts.Count; i++) sel.Pts[i] = new[] { dragOrig[i][0] + dx, dragOrig[i][1] + dy };
+                    else for (int i = 0; i < sel.Pts.Count; i++) { var q = (double[])dragOrig[i].Clone(); q[0] += dx; q[1] += dy; sel.Pts[i] = q; }
                     needBake = true;
                 }
             }
@@ -859,7 +876,7 @@ namespace Journal.Play
                 if (on || tool == Tool.Edit)
                     foreach (var p in f.Pts)
                     {
-                        if (f.PtTowers && f.IsWall) Circle(p[0], p[1], f.Kind == "wall" ? 7.5 : 5, on ? gold : c, on ? 2.5f : 1.2f);   // башня-точка
+                        if (f.PtTowers && f.IsWall && !MapDoc.NoTower(p)) Circle(p[0], p[1], f.Kind == "wall" ? 7.5 : 5, on ? gold : c, on ? 2.5f : 1.2f);   // башня-точка
                         Square(p[0], p[1], on ? 7 : 4, on ? gold : c);
                     }
                 if (f.IsWall)

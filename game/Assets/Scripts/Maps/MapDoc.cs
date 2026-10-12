@@ -245,6 +245,29 @@ namespace Journal.Maps
         }
         // башни стены — в точки ломаной (кнопка «Башни — в точки»): по нынешним местам башен встают точки, дальше каждую
         // можно тянуть; ворота стоят по длине пути — точки на прямой её не меняют
+        // точка стены без башни: третье число точки = 1 (снята «Правкой»: T над точкой или меню стены)
+        public static bool NoTower(double[] p) => p.Length > 2 && p[2] == 1;
+        public static void SetTower(MapFeature f, int i, bool on)
+        {
+            var p = f.Pts[i];
+            f.Pts[i] = on ? new[] { p[0], p[1] } : new[] { p[0], p[1], 1.0 };
+        }
+        // башни только на углах (поворот больше 25°) и на концах — с прочих точек сняты
+        public static void TowersOnCorners(MapFeature f)
+        {
+            int n = f.Pts.Count;
+            for (int i = 0; i < n; i++)
+            {
+                bool end = !f.Closed && (i == 0 || i == n - 1), corner = end;
+                if (!end)
+                {
+                    var p = f.Pts[(i - 1 + n) % n]; var c = f.Pts[i]; var q = f.Pts[(i + 1) % n];
+                    double a1 = Math.Atan2(c[1] - p[1], c[0] - p[0]), a2 = Math.Atan2(q[1] - c[1], q[0] - c[0]);
+                    corner = Math.Abs(Math.IEEERemainder(a2 - a1, 2 * Math.PI)) > 25 * Math.PI / 180;
+                }
+                SetTower(f, i, corner);
+            }
+        }
         public void TowersToPoints(MapFeature f)
         {
             if (!f.IsWall || f.Pts.Count < 2) return;
@@ -359,14 +382,15 @@ namespace Journal.Maps
             {
                 bool end = !f.Closed && (i == 0 || i == n - 1);
                 if (i > 0) acc += MapFeature.Hyp(f.Pts[i][0] - f.Pts[i - 1][0], f.Pts[i][1] - f.Pts[i - 1][1]);
-                if (end || f.PtTowers) { corners.Add(acc); continue; }   // башни в точках — в каждой
+                if (f.PtTowers) { if (!NoTower(f.Pts[i])) corners.Add(acc); continue; }   // башни в точках — в каждой, кроме снятых
+                if (end) { corners.Add(acc); continue; }
                 var p = f.Pts[(i - 1 + n) % n]; var c = f.Pts[i]; var q = f.Pts[(i + 1) % n];
                 double a1 = Math.Atan2(c[1] - p[1], c[0] - p[0]), a2 = Math.Atan2(q[1] - c[1], q[0] - c[0]);
                 double turn = Math.Abs(Math.IEEERemainder(a2 - a1, 2 * Math.PI));
                 if (turn > 25 * Math.PI / 180) corners.Add(acc);
             }
             double L = f.Length();
-            if (f.Closed && corners.Count == 0) corners.Add(0);
+            if (f.Closed && corners.Count == 0 && !f.PtTowers) corners.Add(0);
             corners.Sort();
             var marks = new List<double>(corners);
             for (int k = 0; k < corners.Count; k++)
@@ -383,6 +407,15 @@ namespace Journal.Maps
                 foreach (double g in f.Gates)
                     foreach (int sd in new[] { -1, 1 })
                         if (marks.Any(s => { double d = SignedDist(g, s, L, f.Closed); return d * sd >= 9 && d * sd <= 30; })) gateSide.Add((g, sd));
+            // башни не налезают друг на друга: ближе 18 м (каменная — 15 м в поперечнике) — одна
+            if (f.PtTowers)
+            {
+                double minGap = f.Kind == "wall" ? 18 : 11;
+                var sorted = marks.Distinct().OrderBy(x => x).ToList(); var kept = new List<double>();
+                foreach (double sm in sorted) if (kept.Count == 0 || sm - kept[kept.Count - 1] >= minGap) kept.Add(sm);
+                if (f.Closed && kept.Count > 1 && L - kept[kept.Count - 1] + kept[0] < minGap) kept.RemoveAt(kept.Count - 1);
+                marks = kept;
+            }
             foreach (double s in marks)
             {
                 if (f.PtTowers ? f.Gates.Any(g => { double d = CircDist(g, s, L, f.Closed); return d < 9 || d < 27 && !gateSide.Contains((g, Math.Sign(SignedDist(g, s, L, f.Closed)))); })
@@ -605,7 +638,7 @@ namespace Journal.Maps
             var feats = new JArray();
             foreach (var f in Features)
             {
-                var o = new JObject { ["kind"] = f.Kind, ["pts"] = new JArray(f.Pts.Select(p => new JArray(Math.Round(p[0], 2), Math.Round(p[1], 2)))) };
+                var o = new JObject { ["kind"] = f.Kind, ["pts"] = new JArray(f.Pts.Select(p => p.Length > 2 && p[2] != 0 ? new JArray(Math.Round(p[0], 2), Math.Round(p[1], 2), p[2]) : new JArray(Math.Round(p[0], 2), Math.Round(p[1], 2)))) };
                 if (f.Closed) o["closed"] = true;
                 if (f.Seed != 1) o["seed"] = f.Seed;
                 if (f.Width > 0) o["width"] = f.Width;
@@ -638,7 +671,7 @@ namespace Journal.Maps
                 var f = new MapFeature { Kind = (string)fo["kind"], Closed = (bool?)fo["closed"] ?? false, Seed = (int?)fo["seed"] ?? 1,
                     Width = (double?)fo["width"] ?? 0, Every = (double?)fo["every"] ?? 0, Level = (int?)fo["level"] ?? 1,
                     PtTowers = (bool?)fo["ptTowers"] ?? false, Prop = (string)fo["prop"], Rot = (int?)fo["rot"] ?? 0, PW = (int?)fo["pw"] ?? 0, PH = (int?)fo["ph"] ?? 0 };
-                foreach (var p in (JArray)fo["pts"]) f.Pts.Add(new[] { (double)p[0], (double)p[1] });
+                foreach (var p in (JArray)fo["pts"]) f.Pts.Add(((JArray)p).Count > 2 ? new[] { (double)p[0], (double)p[1], (double)p[2] } : new[] { (double)p[0], (double)p[1] });
                 if (fo["gates"] is JArray g) f.Gates.AddRange(g.Select(x => (double)x));
                 d.Features.Add(f);
             }

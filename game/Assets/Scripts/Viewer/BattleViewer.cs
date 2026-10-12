@@ -58,6 +58,7 @@ namespace Journal.Viewer
         // Слои рисунка: земля 0, кровь 4, павшие 5–6, кони 9, бойцы и плашки 10, стрелы в полёте 20; 21–39 — за смотрелкой
         // (знамёна, дым, подсветка), 50+ — подсказки приказов игры.
         public bool ShowGui = true;                       // false — без OnGUI (кнопок сцен и нижней полосы)
+        public static bool KeysBlocked;                   // в поле интерфейса печатают — клавиши не камере и не приказам (задаёт игра)
         public bool InputBlocked;                         // окно игры поверх (меню, редактор армий) — камера клавиш и мыши не слушает
         public bool PlayInput;                            // управление игры: ЛКМ/ПКМ — игре, камера — средней кнопкой и клавишами (SetLive включает)
         public Func<Vector2, bool> OverExternalUi;        // экранная точка над интерфейсом игры — колесо и сдвиг камеры её не трогают
@@ -173,7 +174,7 @@ namespace Journal.Viewer
         }
         void HandleInput()
         {
-            var mouse = Mouse.current; var kb = Keyboard.current;
+            var mouse = Mouse.current; var kb = KeysBlocked ? null : Keyboard.current;
             if (!Application.isFocused || InputBlocked) { dragging = false; return; }
             // облик: F6 — стиль всем отрядам по кругу (В16), F7 — свет на природе (бойцы с В18 плоские), F8 — эффект миниатюр
             if (kb != null && kb.f6Key.wasPressedThisFrame) CycleStyle();

@@ -1169,7 +1169,7 @@ namespace Journal.Play
         static bool InScreen(Vector2 p) => p.x >= 0 && p.y >= 0 && p.x < Screen.width && p.y < Screen.height;
         void HandleInput()
         {
-            var mouse = Mouse.current; var kb = Keyboard.current;
+            var mouse = Mouse.current; var kb = Journal.Viewer.BattleViewer.KeysBlocked ? null : Keyboard.current;   // печатают в поле — клавиши не приказам
             if (!Application.isFocused || Blocked) { CancelDrag(); BoxSelecting = leftDown = false; return; }
             bool ctrl = kb != null && (kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed);
             if (kb != null)

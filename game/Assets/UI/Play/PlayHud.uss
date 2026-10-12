@@ -268,6 +268,14 @@
 
 .detail-val {
     -unity-font-style: bold;
+    white-space: normal;
+    flex-shrink: 1;
+    -unity-text-align: upper-right;
+    margin-left: 10px;
+}
+
+.detail-key {
+    flex-shrink: 0;
 }
 
 .detail-order {
@@ -1634,7 +1642,18 @@
     margin-bottom: 1px;
 }
 
-/* полосы прокрутки — тёмные, тонкие */
+/* полосы прокрутки — тёмные, тонкие, везде в игре: белые стрелки Unity посреди панелей выглядели чужими */
+.hud .unity-scroller--vertical {
+    width: 8px;
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+}
+.hud .unity-scroller--vertical .unity-base-slider__tracker { background-color: #15110b; border-width: 0; }
+.hud .unity-scroller--vertical .unity-base-slider__dragger { background-color: var(--edge); border-width: 0; border-radius: 3px; }
+.hud .unity-scroller--vertical .unity-base-slider__dragger:hover { background-color: var(--gold-deep); }
+.hud .unity-scroller__low-button, .hud .unity-scroller__high-button { display: none; }
+.hud .unity-scroller--horizontal { display: none; }
+
 .army .unity-scroller--vertical {
     width: 8px;
     border-width: 0;

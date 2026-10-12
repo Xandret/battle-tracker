@@ -366,6 +366,17 @@ namespace Journal.Play
             // музыка — в меню и пока битва не выбрана; бой под ней тише
             if (music != null) { music.Want = mainMenu.Visible || !pc.Chosen || !menu.ClassListContains("hidden") || lineup.Visible || armyBattle.Visible; Journal.Viewer.BattleAudio.Duck = music.Want ? 0.35f : 1; }
             var kb = UnityEngine.InputSystem.Keyboard.current;
+            // печатают в поле (имя отряда у ГМа, поиск…) — клавиши не игре; щелчок по карте — поле отпускает
+            var focused = hud.panel?.focusController?.focusedElement as VisualElement;
+            bool typing = false; for (var e = focused; e != null; e = e.parent) if (e.ClassListContains("unity-base-text-field")) { typing = true; break; }
+            var ms = UnityEngine.InputSystem.Mouse.current;
+            if (typing && ms != null && (ms.leftButton.wasPressedThisFrame || ms.rightButton.wasPressedThisFrame))
+            {
+                var mp = ms.position.ReadValue(); var picked = hud.panel.Pick(RuntimePanelUtils.ScreenToPanel(hud.panel, new Vector2(mp.x, Screen.height - mp.y)));
+                if (picked == null || picked == hud) { focused.Blur(); typing = false; }
+            }
+            Journal.Viewer.BattleViewer.KeysBlocked = typing;
+            if (kb != null && kb.escapeKey.wasPressedThisFrame && typing) { focused.Blur(); escHandled = true; }   // Esc в поле — выйти из поля
             if (kb != null && kb.escapeKey.wasPressedThisFrame && pc.Blocked && !escHandled) Back();
             escHandled = false;
             if (viewer != null) viewer.InputBlocked = pc.Blocked && !(mapEditor.Visible && !mapEditor.Typing && !settings.Visible);   // в редакторе карт камера своя   // набор текста в окнах не двигает камеру
@@ -477,6 +488,7 @@ namespace Journal.Play
             ["Дисциплина"] = "Выучка: по ней бросают проверки на бегство и «сплотить» бегущих (d100 ≤ дисциплина).",
             ["Усталость"] = "Копится на марше, бегом и в рукопашной; отдых — стоя.",
             ["Норма хода"] = "Сколько метров отряд проходит за ход (15 с) по ровному полю; лес, холм, брод и строй в беспорядке — медленнее.",
+            ["Местность"] = "Что под отрядом и что это даёт по правилам: ход медленнее или быстрее, укрытие от стрел (на сколько меньше урона), усталость, нельзя ли натиск, обзор; на высоте — удар сверху сильнее, снизу слабее.",
         };
         void Hint(VisualElement e, System.Func<string> text) { hints[e] = text; }
         void Hints()
@@ -628,7 +640,7 @@ namespace Journal.Play
             double start = pc.Game.StartMen.TryGetValue(m, out var sm) ? sm : u.Soldiers;
             var st = Units.MoraleStage(u.Morale);
             Rows(("Бойцов", $"{u.Soldiers:0} из {start:0}"), ("Боевой дух", $"{u.Morale:0} — {st.Label}"), ("Дисциплина", $"{u.Discipline:0}"), ("Усталость", $"{u.Fatigue:0}%"),
-                 ("Норма хода", $"{BattleMap.UnitSpeed(u, pc.Battle.R):0} м"));
+                 ("Норма хода", $"{BattleMap.UnitSpeed(u, pc.Battle.R):0} м"), ("Местность", TerrainText(m)));
             var o = pc.Session.OrderOf(m);
             var task = pc.ViewSide == 0 || pc.ViewSide == PlayController.SideOf(m) ? pc.AiTaskOf(m) : null;
             detailOrder.text = "Приказ: " + OrderText(o) + (pc.Session.Pending.ContainsKey(m) ? " (новый)" : "")
@@ -640,6 +652,26 @@ namespace Journal.Play
             detailPlan.text = p == null ? "" : PlanText(p);
             if (p?.ChargeOk == false || p?.Note != null && p.Note.Contains("нет")) detailPlan.AddToClassList("is-bad");
             else if (p?.ChargeOk == true || p?.InRange == true) detailPlan.AddToClassList("is-good");
+        }
+        // местность под отрядом и что она даёт по правилам (Алекс 13.10: «видеть баффы и дебаффы от местности») — числа
+        // из Rules.Map (движок), здесь только подписи
+        string TerrainText(Mover m)
+        {
+            var u = m.P.U; var R = pc.Battle.R;
+            var g = BattleMap.GroundUnder(u, pc.Battle.Geo, R);
+            if (g == null || g.Key == null || g.Share < 0.5) return g != null && g.Z > 0 ? $"поле, высота {g.Z:0}" : "поле";   // вид — если он под большей частью строя
+            var parts = new List<string> { g.Name.ToLowerInvariant() + (g.Z > 0 ? $", высота {g.Z:0}" : "") };
+            if (R.Map.Terrain.TryGetValue(g.Key, out var t))
+            {
+                if (t.Move != null) { double k = t.Move[Units.IsCav(u) ? 1 : 0]; if (System.Math.Abs(k - 1) > 1e-9) parts.Add(k > 1 ? $"ход медленнее в {k:0.#} раза" : $"ход быстрее ×{1 / k:0.#}"); }
+                if (t.Cover > 0) parts.Add($"стрелы −{t.Cover:0}%");
+                if (t.Fatigue > 0) parts.Add($"устаёт ×{t.Fatigue:0.#}");
+                if (t.NoCharge) parts.Add("без натиска");
+                if (t.Sight != null) parts.Add($"обзор {t.Sight:0} м");
+            }
+            if (g.Z > 0) parts.Add($"сверху ×{R.Map.Height.DownhillMelee:0.##}");
+            if (m.Garrisoned) parts.Add("на стене");
+            return string.Join(" · ", parts);
         }
         // ── Г116б: адъютант — замечания к приказу: пока тянешь ПКМ — живые, по отдаче — всплывают на 8 с ──
         VisualElement adjBox; string adjKey;
