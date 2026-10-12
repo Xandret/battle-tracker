@@ -156,12 +156,13 @@ namespace Journal.Maps
                 var r = Add("road", pts); r.Width = 10;
             }
             static double Clamp(double v, double a, double b) => Math.Max(a, Math.Min(b, v));
-            void Groves(int n, double cx, double cy, double keepOut)
+            void Groves(int n, double cx, double cy, double keepOut, List<(double x, double y)> avoid = null)
             {
                 for (int k = 0; k < n * 4 && n > 0; k++)
                 {
                     double x = R() * d.WM, y = R() * d.HM;
                     if (MapFeature.Hyp(x - cx, y - cy) < keepOut) continue;
+                    if (avoid != null && avoid.Any(a => MapFeature.Hyp(x - a.x, y - a.y) < 200)) continue;   // не в деревне
                     double a = Lerp(30, 90, R()), b = Lerp(25, 70, R());
                     Add("forest", Ring(x, y, a, b, true), true);
                     n--;
@@ -495,7 +496,7 @@ namespace Journal.Maps
                 if (B("river"))
                 {
                     double y0 = cy + r + 90 + R() * 60, wob = 50;
-                    var river = Add("river", Enumerable.Range(0, 7).Select(k => new[] { -20 + (d.WM + 40) * k / 6.0, y0 + (R() - 0.5) * wob * 2 }).ToList());
+                    var river = Add("river", Meander(-30, y0, d.WM + 30, y0 + (R() - 0.5) * wob * 2, wob));
                     river.Width = 25;
                 }
                 var townPoly = Ring(cx, cy, r, r * 0.8, true);
@@ -534,38 +535,152 @@ namespace Journal.Maps
             }
 
             // ── деревни ──
+            // река: плавная петля (Алекс 13.10: «на реке пиздец» — была ломаная из 6 случайных точек с изломами); опорные точки
+            // через ~120 м с отклонением, бегущим волной, потом дважды сглажена (Чайкин). Направление — от a к b
+            List<double[]> Meander(double ax, double ay, double bx, double by, double amp)
+            {
+                double L = MapFeature.Hyp(bx - ax, by - ay), nx = -(by - ay) / L, ny = (bx - ax) / L;
+                int n = Math.Max(4, (int)(L / 120));
+                double off = 0, vel = 0; var pts = new List<double[]>();
+                for (int k = 0; k <= n; k++)
+                {
+                    double t = (double)k / n;
+                    if (k > 0 && k < n) { vel = vel * 0.6 + (R() - 0.5) * amp * 0.9; off = Math.Max(-amp, Math.Min(amp, off + vel)); }
+                    else off = k == 0 ? (R() - 0.5) * amp * 0.5 : off * 0.5;
+                    pts.Add(new[] { ax + (bx - ax) * t + nx * off, ay + (by - ay) * t + ny * off });
+                }
+                for (int it = 0; it < 2; it++)
+                {
+                    var q = new List<double[]> { pts[0] };
+                    for (int i = 0; i + 1 < pts.Count; i++)
+                    {
+                        var u = pts[i]; var v = pts[i + 1];
+                        q.Add(new[] { u[0] * 0.75 + v[0] * 0.25, u[1] * 0.75 + v[1] * 0.25 });
+                        q.Add(new[] { u[0] * 0.25 + v[0] * 0.75, u[1] * 0.25 + v[1] * 0.75 });
+                    }
+                    q.Add(pts[pts.Count - 1]); pts = q;
+                }
+                return pts.Select(q => new[] { Math.Round(q[0], 1), Math.Round(q[1], 1) }).ToList();
+            }
+            // сглаживание ломаной (Чайкин), концы на месте
+            static List<double[]> Smooth(List<double[]> pts, int iter)
+            {
+                for (int it = 0; it < iter; it++)
+                {
+                    var q = new List<double[]> { pts[0] };
+                    for (int i = 0; i + 1 < pts.Count; i++)
+                    {
+                        var u = pts[i]; var v = pts[i + 1];
+                        q.Add(new[] { u[0] * 0.75 + v[0] * 0.25, u[1] * 0.75 + v[1] * 0.25 });
+                        q.Add(new[] { u[0] * 0.25 + v[0] * 0.75, u[1] * 0.25 + v[1] * 0.75 });
+                    }
+                    q.Add(pts[pts.Count - 1]); pts = q;
+                }
+                return pts;
+            }
+            // съезд дугой: из (x0, y0) в сторону (ux, uy), вливается в дорогу в (x1, y1) вдоль её хода (tx, ty) — кубическая кривая
+            static List<double[]> Curve(double x0, double y0, double ux, double uy, double x1, double y1, double tx, double ty)
+            {
+                double D = MapFeature.Hyp(x1 - x0, y1 - y0), k = D * 0.45;
+                double sg = (x0 - x1) * tx + (y0 - y1) * ty >= 0 ? 1 : -1;   // со стороны деревни вдоль дороги
+                double bx1 = x0 + ux * k, by1 = y0 + uy * k, bx2 = x1 + tx * sg * k * 0.8, by2 = y1 + ty * sg * k * 0.8;
+                var r = new List<double[]>(); int n = Math.Max(6, (int)(D / 12));
+                for (int i = 0; i <= n; i++)
+                {
+                    double t = (double)i / n, m = 1 - t;
+                    r.Add(new[] { Math.Round(m * m * m * x0 + 3 * m * m * t * bx1 + 3 * m * t * t * bx2 + t * t * t * x1, 1), Math.Round(m * m * m * y0 + 3 * m * m * t * by1 + 3 * m * t * t * by2 + t * t * t * y1, 1) });
+                }
+                return r;
+            }
+            static double DistToPath(List<double[]> path, double x, double y)
+            {
+                double best = double.MaxValue;
+                for (int i = 0; i + 1 < path.Count; i++)
+                {
+                    var a = path[i]; var b = path[i + 1]; double dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+                    double k = L2 > 0 ? Math.Max(0, Math.Min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2)) : 0;
+                    best = Math.Min(best, MapFeature.Hyp(x - (a[0] + k * dx), y - (a[1] + k * dy)));
+                }
+                return best;
+            }
+
+            // ── деревни ──
+            // Алекс 13.10: «дороги идут только вниз и порой проходят через стены деревни без ворот». Теперь одна проезжая
+            // дорога поперёк карты (через реку — мост) заходит в каждую деревню по порядку: в деревню без частокола — через
+            // середину, у частокола — двое ворот, на въезд и на выезд. Деревни — не у самой реки
             public void Villages()
             {
                 int n = (int)N("count");
+                List<double[]> riv = null;
                 if (B("river"))
                 {
-                    double x0 = d.WM * Lerp(0.25, 0.75, R());
-                    var river = Add("river", Enumerable.Range(0, 6).Select(k => new[] { x0 + (R() - 0.5) * 120, -20 + (d.HM + 40) * k / 5.0 }).ToList());
-                    river.Width = 12;
+                    double x0 = d.WM * Lerp(0.3, 0.7, R()), x1 = Clamp(x0 + (R() - 0.5) * d.WM * 0.3, d.WM * 0.2, d.WM * 0.8);
+                    riv = Meander(x0, -30, x1, d.HM + 30, Math.Min(90, d.WM * 0.08));
+                    var river = Add("river", riv); river.Width = 12;
                 }
                 var spots = new List<(double x, double y)>();
                 for (int k = 0; k < n; k++)
                 {
-                    double x = 0, y = 0;
-                    for (int tries = 0; tries < 30; tries++)   // не ближе 320 м к прежним
+                    double x = 0, y = 0, bestScore = double.MinValue, bx = 0, by = 0;
+                    for (int tries = 0; tries < 60; tries++)   // не ближе 320 м к прежним и 110 м к реке; не вышло — где лучше всего
                     {
                         x = d.WM * Lerp(0.15, 0.85, R()); y = d.HM * Lerp(0.2, 0.8, R());
                         double xx = x, yy = y;
-                        if (spots.All(s2 => MapFeature.Hyp(s2.x - xx, s2.y - yy) >= 320)) break;
+                        double dv = spots.Count == 0 ? 1e9 : spots.Min(s2 => MapFeature.Hyp(s2.x - xx, s2.y - yy)), dr = riv == null ? 1e9 : DistToPath(riv, x, y);
+                        double score = Math.Min(dv / 320, dr / 110);
+                        if (score > bestScore) { bestScore = score; bx = x; by = y; }
+                        if (score >= 1) break;
                     }
-                    spots.Add((x, y));
+                    spots.Add((bx, by));
+                }
+                // главная дорога: петляет с запада на восток (поперёк реки — мост) по середине между деревнями и обходит их
+                // стороной; к каждой деревне — съезд: без частокола — к середине, с частоколом — к воротам на ближней стороне
+                var ys = spots.Select(s2 => s2.y).OrderBy(v => v).ToList(); double ym = ys[ys.Count / 2];
+                var main = Meander(-10, Clamp(ym + (R() - 0.5) * 160, 80, d.HM - 80), d.WM + 10, Clamp(ym + (R() - 0.5) * 160, 80, d.HM - 80), Math.Min(110, d.HM * 0.1));
+                for (int it = 0; it < 3; it++)   // в обход деревень: точки ближе 135 м к середине — на 135 м
+                    foreach (var q in main)
+                        foreach (var (vx, vy) in spots)
+                        {
+                            double dx = q[0] - vx, dy = q[1] - vy, l = MapFeature.Hyp(dx, dy);
+                            if (l < 135) { if (l < 1e-3) { dx = 0; dy = 1; l = 1; } q[0] = vx + dx / l * 135; q[1] = vy + dy / l * 135; }
+                        }
+                main = Smooth(main, 2);   // после обхода — снова плавно (Алекс 13.10: «дороги излишне резкие»)
+                Add("road", main).Width = 6;
+                foreach (var (x, y) in spots)
+                {
                     var poly = Ring(x, y, 90, 70, true);
                     Add("village", poly, true);
+                    // ближайшая к деревне точка главной дороги
+                    int ni = 0; double nd = double.MaxValue;
+                    for (int qi = 0; qi < main.Count; qi++) { double dd = MapFeature.Hyp(main[qi][0] - x, main[qi][1] - y); if (dd < nd) { nd = dd; ni = qi; } }
+                    var near = main[ni]; var ta = main[Math.Max(0, ni - 1)]; var tb = main[Math.Min(main.Count - 1, ni + 1)];
+                    double tx = tb[0] - ta[0], ty = tb[1] - ta[1], tl = Math.Max(1e-6, MapFeature.Hyp(tx, ty)); tx /= tl; ty /= tl;   // ход главной дороги здесь
                     if (B("palisade"))
                     {
                         var pal = Add("palisade", MapDoc.Offset(poly, 8), true);
-                        pal.Gates.Add(GateAt(pal, x, y, "south"));
-                        var (gx, gy, _, _) = pal.At(pal.Gates[0]);
-                        Add("road", new List<double[]> { new[] { gx, gy }, new[] { gx, d.HM + 10 } });
+                        double gs = pal.AwayFromCorners(pal.Nearest(near[0], near[1]).s, 16); pal.Gates.Add(gs);
+                        var (gx, gy, _, _) = pal.At(gs);
+                        double ox = gx - x, oy = gy - y, ol = Math.Max(1, MapFeature.Hyp(ox, oy));
+                        var spur = new List<double[]> { new[] { x, y } };
+                        spur.AddRange(Curve(gx, gy, ox / ol, oy / ol, near[0], near[1], tx, ty));
+                        Add("road", spur).Width = 5;
                     }
-                    else Add("road", new List<double[]> { new[] { x, y - 80 }, new[] { x + (R() - 0.5) * 60, y }, new[] { x, d.HM + 10 } });
+                    else
+                    {
+                        double ox = near[0] - x, oy = near[1] - y, ol = Math.Max(1, MapFeature.Hyp(ox, oy)), a0 = (R() - 0.5) * 0.8;
+                        double ux = ox / ol * Math.Cos(a0) - oy / ol * Math.Sin(a0), uy = ox / ol * Math.Sin(a0) + oy / ol * Math.Cos(a0);
+                        Add("road", Curve(x, y, ux, uy, near[0], near[1], tx, ty)).Width = 5;
+                    }
                 }
-                if (B("woods")) Groves(6, d.WM / 2, d.HM / 2, 160);
+                // проселок от главной дороги к краю карты — у половины карт
+                if (R() < 0.6)
+                {
+                    var o = main[main.Count / 4 + (int)(R() * main.Count / 2)];
+                    double ty = o[1] < d.HM / 2 ? d.HM + 10 : -10, tx = Clamp(o[0] + (R() - 0.5) * 300, 40, d.WM - 40);
+                    var lane = Meander(o[0], o[1], tx, ty, 40);
+                    if (!spots.Any(v => DistToPath(lane, v.x, v.y) < 120)) Add("road", lane).Width = 5;   // через деревню — не ведём
+                }
+                if (B("woods")) Groves(6, d.WM / 2, d.HM / 2, 0, spots);
             }
         }
     }
