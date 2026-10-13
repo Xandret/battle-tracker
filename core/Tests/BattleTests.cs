@@ -409,6 +409,39 @@ static class BattleTests
             True(bt.WrapOpposite == 0, $"колоннам давали место на противоположной стороне врага: {bt.WrapOpposite} раз (по счёту ядра; по наблюдению за якорями и сменой стороны места — {crossed})");
         });
 
+        yield return ("журнал ГМа (Алекс 13.10.2026: «логи должны быть с формулами расчёта»): натиск рыцарей и ответ пехоты — в журнале хода строки «ƒ» с расчётом окна (атака, бросок, урон) и итогом (потери, убиты/ранены); потери в итоге — те же, что сняты с отряда; без журнала ход тот же", () =>
+        {
+            List<string> Run(bool calc, out double lossB)
+            {
+                var (bt, a, b) = Duel("knights", "infantry", 150, 5);
+                bt.CalcLog = calc;
+                bt.Order(a, Attack(2, true));
+                var log = new List<string>();
+                for (int i = 0; i < 2; i++) log.AddRange(bt.Turn());
+                lossB = 1000 - b.P.U.Soldiers;
+                return log;
+            }
+            var L = Run(true, out var loss1); Run(false, out var loss0);
+            var f = L.Where(l => l.StartsWith("ƒ ")).ToList();
+            True(f.Any(l => l.StartsWith("ƒ ⚔") && l.Contains("натиск")) && f.Any(l => l.StartsWith("ƒ   Атака:")) && f.Any(l => l.StartsWith("ƒ итог окна")), $"строк ƒ {f.Count}: {string.Join(" | ", f.Take(12))}");
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var wins = f.Where(l => l.StartsWith("ƒ итог окна") && l.Contains("→ «Пехота»")).ToList();
+            double sums = 0;
+            foreach (var l in wins)
+            {
+                int i0 = l.IndexOf("урон Σ = ") + 9, i1 = l.IndexOf(" →", i0);
+                double acc = double.Parse(l.Substring(i0, i1 - i0), inv), cas = double.Parse(l.Substring(l.LastIndexOf("потери ") + 7).Trim(), inv);
+                True(Math.Abs(acc - cas) <= 0.5 + 1e-9, $"в итоге окна потери не по урону: {l}");
+                sums += cas;
+            }
+            True(wins.Count > 0 && sums <= loss1 + 1, $"итоги окон по пехоте Σ {sums}, снято {loss1:0.0} (открытые на конце хода окна — в следующем)");
+            True(Math.Abs(loss1 - loss0) < 1e-9, $"с журналом и без — разный ход: {loss1} и {loss0}");
+            var (bs, sa, sb) = Duel("archers", "infantry", 120, 6);
+            bs.Order(sa, Attack(2)); bs.Order(sb, new MoveOrder { Kind = OrderKind.Hold });
+            var S = bs.Turn().Concat(bs.Turn()).Where(l => l.StartsWith("ƒ ")).ToList();
+            True(S.Any(l => l.StartsWith("ƒ 🏹")) && S.Any(l => l.StartsWith("ƒ итог залпа")) && S.Any(l => l.StartsWith("ƒ   Стрел в залпе")), $"стрельба, строк ƒ {S.Count}: {string.Join(" | ", S.Take(10))}");
+        });
+
         yield return ("охват (Г68): враг разбит — колонны возвращаются на свои места сквозь свой строй", () =>
         {
             var (bt, a, b) = Duel("knights", "infantry", 0.5, 31);
@@ -426,7 +459,8 @@ static class BattleTests
                 a.P.ToWorld(a.P.Figs[k].X, a.P.Figs[k].Y, out var sx, out var sy);
                 far = Math.Max(far, JsMath.Hypot(fx - sx, fy - sy));
             }
-            True(a.Figs.All(s => !s.Wrap && !s.Turned && !s.Returning), "охват снят");
+            // 13.10.2026: колонна в метре от места может ещё числиться «возвращающейся» (Г122: конь не налетает на своего переднего) — место держит проверка far
+            True(a.Figs.All(s => !s.Wrap && !s.Turned && (!s.Returning || far < 1)), $"охват снят: в охвате {a.Figs.Count(s => s.Wrap)}, повёрнуты {a.Figs.Count(s => s.Turned)}, возвращаются {a.Figs.Count(s => s.Returning)}, дальше всех {far:0.0} м");
             True(far < 1, $"дальше всех от своего места — {far:0.0} м");
         });
 
@@ -476,6 +510,17 @@ static class BattleTests
             True(b.P.Y > r.P.Y + 30 && r.P.U.Status == "active", $"прошли сквозь резерв: толпа на {b.P.Y:0}, резерв на {r.P.Y:0}");
             for (int i = 0; i < 6 && !b.Gone; i++) bt.Turn();
             True(b.Gone && b.Figs.Count == 0 && b.P.U.Status == "fled" && b.P.U.Soldiers > 0, $"ушёл с поля: {b.Gone}, фигурок {b.Figs.Count}, бойцов {b.P.U.Soldiers:0}");
+        });
+
+        yield return ("Г127 (отзыв Алекса 13.10.2026: «бегущие упираются в склон и остаются»): край по курсу бегства — в скалах; толпа обходит их и уходит с поля, а не стоит у скал", () =>
+        {
+            var (bt, a, b) = Breaking("infantry", "infantry", 30, 1, 6, menA: 300, h: 900);
+            Terrain.PaintRect(bt.Geo.Map, "t", 50, 150, 189, 179, Terrain.Id("rocks"));   // скалы x 250…950, y 750…900 — прямо по курсу бегства (вниз)
+            bt.Turn();
+            True(b.Fleeing, "побежали в первый ход");
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+            for (int i = 0; i < 10 && !b.Gone; i++) bt.Turn();
+            True(b.Gone && b.P.U.Status == "fled", $"не ушёл с поля за 10 ходов: осталось фигурок {b.Figs.Count}, середина ({b.P.X:0}, {b.P.Y:0}), цель бегства ({b.FleeX:0}, {b.FleeY:0}), цель поля {b.Field?.Target}, свой курс у {b.Figs.Count(f => !double.IsNaN(f.FleeH))}, поле: следующая из середины {b.Field?.Next(b.Field.CellOf(b.P.X, b.P.Y))}");
         });
 
         yield return ("преследование (Г70): рыцари рубят бегущую пехоту — та не отвечает", () =>

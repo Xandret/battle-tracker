@@ -361,11 +361,25 @@ Test("мерило гладкости (Г118): по всем сценам пол
 
 if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
 // Г118: мерило гладкости по сценам полигона (dotnet run --project Tests -- smooth [сцена…] [--all]): счёт по видам и первые примеры
+if (args.Length > 0 && args[0] == "calc")
+{
+    var bt = new Battle(MoveTests.Open(1000, 1000), Rules.Base, new EngineContext { Rng = new Mulberry32(5).Next });
+    var b = bt.Add(Templates.Get("infantry").Make(2, "Пехота", 1000, 2), 500, 500, 0);
+    var a = bt.Add(Templates.Get("knights").Make(1, "Рыцари", 1000, 1), 500, 330, 180);
+    var c = bt.Add(Templates.Get("archers").Make(3, "Лучники", 1000, 2), 380, 420, 0);
+    bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+    bt.Order(c, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1 });
+    for (int i = 0; i < 2; i++) { var log = bt.Turn(); foreach (var l in log) if (l.StartsWith("ƒ") && (l.Contains("🏹") || l.Contains("залп") || l.Contains("🎲") || l.Contains("🕐") || !l.StartsWith("ƒ   "))) Console.WriteLine(l); Console.WriteLine($"— строк {log.Count}, из них ƒ {log.Count(l => l.StartsWith("ƒ"))}; стрельб {bt.Shots.Arrows}"); }
+    return 0;
+}
 if (args.Length > 0 && args[0] == "cav") { if (args.Contains("own")) Rules.Base.Move.HorseBodyOwnCourseInMelee = true; Polygon.CavProbe(args[1]); return 0; }
 if (args.Length > 0 && args[0] == "smooth")
 {
     if (Environment.GetEnvironmentVariable("OWN_MELEE") == "1") Rules.Base.Move.HorseBodyOwnCourseInMelee = true;
     if (Environment.GetEnvironmentVariable("OWN_ALL") == "1") Rules.Base.Move.HorseBodyOwnCourse = true;
+    if (Environment.GetEnvironmentVariable("HKP") == "1") Rules.Base.Men.HorseKeepPush = true;
+    if (Environment.GetEnvironmentVariable("HKP") == "2") { Rules.Base.Men.HorseKeepPush = true; Rules.Base.Men.HorseKeepPushMode = 2; }
+    if (Environment.GetEnvironmentVariable("NOSPLIT") == "1") Rules.Base.Move.SplitAround = false;
     bool all = args.Contains("--all");
     int ti = Array.IndexOf(args, "--trace");
     if (ti >= 0 && ti + 2 < args.Length) { Polygon.TraceUnit = args[ti + 1]; Polygon.TraceMan = int.Parse(args[ti + 2]); }

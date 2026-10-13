@@ -42,6 +42,7 @@ namespace BattleCore
         public static int RigidMen, RigidUnits;      // Г86: сколько бойцов на жёстких местах и отрядов «вдали» на последнем шаге (для тестов и замеров)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
+        [ThreadStatic] static Dictionary<FigState, List<int>> colOf;   // Г122: кони по колоннам — для «своего переднего»
         [ThreadStatic] static bool[] tYield, tSamePush, tPushOther;   // Г123: толкнули только свои по отряду / кто-то чужой
         [ThreadStatic] static double[] tPx, tPy;   // Г118: на этом шаге уступил (взгляд вперёд) — ход меняет без предела тормоза
         [ThreadStatic] static bool[] tFree;    // Г118: тело в свободном ходу (не в лесу, не на пересадке, не сквозь своих) — только там пределы разгона
@@ -494,34 +495,42 @@ namespace BattleCore
             // Г122: свой конь впереди по отряду — задний загодя подравнивает ход под него, держа зазор HorseGapM: смотрит на свой тормозной
             // путь (ход² / 2 разгона), не толкается и не влетает в очередь у прохода (взгляд выше — только на чужих)
             if (MR.HorseGapM > 0)
+            {
+                // 13.10.2026 (Г127 п.1): передний — только в своей колонне: перебор её бойцов, а не сетки в радиусе тормозного пути
+                // (до 50 м — тысячи соседей на коня; счёт хода на 33 тыс. бойцов вырос с 37 до 65 с)
+                colOf ??= new Dictionary<FigState, List<int>>();
+                if (colOf.Count > 4 * c + 1024) colOf.Clear();   // колонны прошлых боёв не копятся
+                foreach (var l in colOf.Values) l.Clear();
                 for (int i = 0; i < c; i++)
                 {
-                    if (tRigid[i] || (tFlag[i] & 64) == 0 || tM[i].Fleeing || tMan[i].Foe != null || (tFlag[i] & 16) != 0) continue;
+                    if ((tFlag[i] & 64) == 0 || tMan[i].Fig == null) continue;
+                    if (!colOf.TryGetValue(tMan[i].Fig, out var l)) colOf[tMan[i].Fig] = l = new List<int>();
+                    l.Add(i);
+                }
+                for (int i = 0; i < c; i++)
+                {
+                    if (tRigid[i] || (tFlag[i] & 64) == 0 || tM[i].Fleeing || tMan[i].Foe != null || (tFlag[i] & 16) != 0 || tMan[i].Fig == null) continue;
                     double vx = tDvx[i], vy = tDvy[i], vl = Math.Sqrt(vx * vx + vy * vy);
                     if (vl < 1) continue;
-                    double ux = vx / vl, uy = vy / vl, own = tMi[i], acc = amaxOf0[tMi[i]];
-                    double la = Math.Max(laF, vl / (2 * Math.Max(0.5, acc))), reach = vl * la + tReach[i] + maxBody;
+                    double ux = vx / vl, uy = vy / vl, acc = amaxOf0[tMi[i]];
                     double xi = tX[i], yi = tY[i];
-                    int cx0 = Math.Max(0, (int)((xi - reach - gx0) / gCell)), cx1 = Math.Min(gW - 1, (int)((xi + reach - gx0) / gCell));
-                    int cy0 = Math.Max(0, (int)((yi - reach - gy0) / gCell)), cy1 = Math.Min(gH - 1, (int)((yi + reach - gy0) / gCell));
                     double allow = vl;
-                    for (int cy = cy0; cy <= cy1; cy++)
-                        for (int cx = cx0; cx <= cx1; cx++)
-                            for (int j = gHead[cy * gW + cx]; j >= 0; j = gNext[j])
-                            {
-                                if (j == i || tMi[j] != own || (tFlag[j] & 64) == 0 || tMan[j].Fig != tMan[i].Fig) continue;   // только своя колонна
-                                double ex = tX[j] - xi, ey = tY[j] - yi, along = ex * ux + ey * uy;
-                                if (along <= 0) continue;   // уступает только задний
-                                double side = Math.Abs(-ex * uy + ey * ux);
-                                if (side > tRad[i] + tRad[j] + MR.HorseGapM) continue;   // не на пути: сбоку — по ширине коней
-                                double gap = along - (tHalf[i] + tRad[i] + tHalf[j] + tRad[j]) - MR.HorseGapM;   // свободно до зазора
-                                double vj = Math.Max(0, tDvx[j] * ux + tDvy[j] * uy);
-                                // не быстрее, чем успеет затормозить до хода переднего на этом пути
-                                double a = Math.Sqrt(vj * vj + 2 * Math.Max(0.5, acc) * Math.Max(0, gap));
-                                if (a < allow) allow = a;
-                            }
+                    foreach (int j in colOf[tMan[i].Fig])
+                    {
+                        if (j == i) continue;
+                        double ex = tX[j] - xi, ey = tY[j] - yi, along = ex * ux + ey * uy;
+                        if (along <= tHalf[i] + tHalf[j]) continue;   // уступает только задний; сосед по шеренге рядом (на ходу наискось чуть впереди) — не передний
+                        double side = Math.Abs(-ex * uy + ey * ux);
+                        if (side > tRad[i] + tRad[j] + MR.HorseGapM) continue;   // не на пути: сбоку — по ширине коней
+                        double gap = along - (tHalf[i] + tRad[i] + tHalf[j] + tRad[j]) - MR.HorseGapM;   // свободно до зазора
+                        double vj = Math.Max(0, tDvx[j] * ux + tDvy[j] * uy);
+                        // не быстрее, чем успеет затормозить до хода переднего на этом пути
+                        double a = Math.Sqrt(vj * vj + 2 * Math.Max(0.5, acc) * Math.Max(0, gap));
+                        if (a < allow) allow = a;
+                    }
                     if (allow < vl) { double k = allow / vl; tDvx[i] *= k; tDvy[i] *= k; }
                 }
+            }
             Prof.Add(13, ref pt);
             // 4) шаг: предел скорости (сквозь своих — медленнее) и разгона, непроходимое
             var amaxOf = new double[ms.Count];
@@ -630,7 +639,8 @@ namespace BattleCore
                         // Г123: толкнули только свои по отряду — гасится лишь встречная толчку часть хода: иначе двое отставших, задевая друг
                         // друга раз в несколько шагов, никогда не разгонялись и отставали на десятки метров (у дома, в проходе)
                         double pl = JsMath.Hypot(tPx[i], tPy[i]);
-                        if (pl > 1e-9) { double ux = tPx[i] / pl, uy = tPy[i] / pl, ap = man.Vx * ux + man.Vy * uy; if (ap < 0) { man.Vx -= ap * ux; man.Vy -= ap * uy; } }
+                        if (MR.HorseKeepPushMode == 2) { }   // ход как был: толчок своего только сдвинул тело
+                        else if (pl > 1e-9) { double ux = tPx[i] / pl, uy = tPy[i] / pl, ap = man.Vx * ux + man.Vy * uy; if (ap < 0) { man.Vx -= ap * ux; man.Vy -= ap * uy; } }
                     }
                 }
                 // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает

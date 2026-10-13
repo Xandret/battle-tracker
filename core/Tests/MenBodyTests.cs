@@ -590,7 +590,7 @@ static class MenBodyTests
             True(r1.hash == r2.hash, "одно зерно — разный исход");
         });
 
-        yield return ("Б5: дома — отряд, поставленный на дом, сдвигается на ближайшее место, где строй помещается (в доме никого); марш сквозь дом 10 × 10 м — никто не входит в дом, строй делится, смыкается и приходит", () =>
+        yield return ("Б5: дома — отряд, поставленный на дом, сдвигается на ближайшее место, где строй помещается (в доме никого); марш сквозь дом 10 × 10 м — никто не входит в дом, строй делится (бойцы обходят или строй расступается, Г123), смыкается и приходит", () =>
         {
             int bId = Terrain.Id("building");
             var geo = MoveTests.Open(600, 900);
@@ -606,12 +606,13 @@ static class MenBodyTests
             var bt2 = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(2).Next });
             var m = bt2.Add(T.Make(1, "Сквозь дом", 400, 1), 300, 600, 0);
             bt2.Order(m, new MoveOrder { X = 300, Y = 150, Facing = 0 });
-            int inside = 0; double maxOff = 0; int turns = 0;
-            for (int t = 0; t < 8 && !m.Done; t++) { turns++; bt2.Turn(tt => { inside += Inside(m); foreach (var x in m.Men) { var hm = Soldiers.HomeOf(m, x); maxOff = Math.Max(maxOff, JsMath.Hypot(hm.x - x.X, hm.y - x.Y)); } }); }
+            int inside = 0; double maxOff = 0; int turns = 0; bool split = false;
+            for (int t = 0; t < 8 && !m.Done; t++) { turns++; bt2.Turn(tt => { inside += Inside(m); split |= m.Splitting; foreach (var x in m.Men) { var hm = Soldiers.HomeOf(m, x); maxOff = Math.Max(maxOff, JsMath.Hypot(hm.x - x.X, hm.y - x.Y)); } }); }
             double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
             True(m.Done && turns <= 6, $"не дошёл за {turns} ходов");
             True(inside == 0, $"бойцов в клетках дома за марш: {inside}");
-            True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
+            // Г123 (13.10.2026): строй делится и местами — расступается половинами (Splitting), бойцы при этом у своих мест
+            True((maxOff > 3 || split) && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м (расступился: {split}), в конце до мест {fin:0.00} м");
         });
 
         // ── Г104: гарнизон — стены и ворота по стороне, высота бойца ──
@@ -709,6 +710,37 @@ static class MenBodyTests
             True(w.garrisonLoss >= 1 && w.garrisonLoss <= 0.7 * f.garrisonLoss, $"потери гарнизона за ход: на стене {w.garrisonLoss:0}, в поле {f.garrisonLoss:0}");
             True(w.building > 0 && f.building == 0, $"стрел в стену: у стены {w.building}, в поле {f.building}");
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
+        });
+
+        // ── Г127: отзыв Алекса 13.10.2026 ──
+        yield return ("Г127: стена в одну клетку без ворот — пики и пехота по обе стороны приказом «атаковать» друг друга сквозь неё не бьётся (ни одного противника, потерь нет); частокол непроходим — сквозь него не войти, «пути нет»", () =>
+        {
+            var geo = MoveTests.Open(400, 400);
+            Terrain.PaintRect(geo.Map, "t", 0, 40, 79, 40, Terrain.Id("wall"));   // стена y 200…205 во всю ширину
+            var bt = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(3).Next });
+            var T = Templates.Get("infantry"); var TP = Templates.Get("pikemen");
+            var a = bt.Add(TP.Make(1, "Север: пики", 600, 1), 200, 194, 180); var b = bt.Add(T.Make(2, "Юг", 600, 2), 200, 211, 0);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 }); bt.Order(b, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1 });
+            int foes = 0;
+            bt.Turn(t => foes += a.Men.Count(x => x.Alive && x.Foe != null) + b.Men.Count(x => x.Alive && x.Foe != null));
+            True(foes == 0 && a.P.U.Soldiers == 600 && b.P.U.Soldiers == 600, $"сквозь стену: бойце-шагов с противником {foes}, потери {600 - a.P.U.Soldiers:0} / {600 - b.P.U.Soldiers:0}");
+            var geo2 = MoveTests.Open(400, 400);
+            Terrain.PaintRect(geo2.Map, "t", 0, 40, 79, 40, Terrain.Id("palisade"));
+            var bt2 = new Battle(geo2, RB, new EngineContext { Rng = new Mulberry32(4).Next });
+            var m = bt2.Add(T.Make(1, "Ополчение", 300, 1), 200, 300, 0);
+            var pv = bt2.Preview(m, new MoveOrder { X = 200, Y = 100, Facing = 0 });
+            True(pv.Note == "пути нет", $"сквозь частокол: {pv.Note ?? "путь есть"}");
+        });
+
+        yield return ("Г127: GroundUnder — карта без кодов, вода задела угол строя: под отрядом «не задано», а не «глубокая вода»", () =>
+        {
+            var geo = MoveTests.Open(400, 400);
+            for (int i = 0; i < geo.Map.T.Length; i++) geo.Map.T[i] = 0;   // ничего не нарисовано
+            Terrain.PaintRect(geo.Map, "t", 0, 0, 37, 37, Terrain.Id("water"));   // вода x, y 0…190
+            var u = Templates.Get("infantry").Make(1, "Пехота", 1000, 1);
+            u.OnMap = true; u.MapX = 200 / 400.0 * 100; u.MapY = 200 / 400.0 * 100; u.Facing = 0;   // строй 125 × 8: левый край заходит в воду
+            var g = BattleMap.GroundUnder(u, geo, RB);
+            True(g.Key == null && g.Name == "не задано", $"под отрядом «{g.Name}» (доля {g.Share:0.00})");
         });
 
         // ── Алекс 13.10.2026: конница на конницу ──

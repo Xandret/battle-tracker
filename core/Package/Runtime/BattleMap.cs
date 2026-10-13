@@ -82,7 +82,9 @@ namespace BattleCore
             Terrain.ById.TryGetValue(id, out var t) && r.Map.Terrain.TryGetValue(t.Key, out var tr) && tr.Mode == "rough";
 
         // Что под отрядом: местность под большей частью строя (сетка точек 5 × 3) и средняя высота.
-        // «Не задано» не голосует; поровну — побеждает пересечённая местность, при равенстве и тут — меньший код.
+        // Поровну — побеждает пересечённая местность, при равенстве и тут — меньший код. Г127 (отзыв Алекса 13.10.2026): «не задано»
+        // тоже голосует — иначе на карте без кодов вода, задевшая угол строя, давала под отрядом «глубокую воду»; большинство «не задано» —
+        // под отрядом «не задано»
         public static GroundInfo GroundUnder(Unit u, Geo geo, Rules r, int nx = 5, int ny = 3)
         {
             if (geo == null || geo.Map == null) return null;
@@ -97,12 +99,12 @@ namespace BattleCore
                     double y = (P[0][1] * (1 - a) + P[1][1] * a) * (1 - b) + (P[3][1] * (1 - a) + P[2][1] * a) * b;
                     var c = Terrain.CellAt(geo.Map, x / geo.W, y / geo.H);
                     zSum += c.Z; n++;
-                    if (c.T != 0) votes[c.T] = (votes.TryGetValue(c.T, out var v) ? v : 0) + 1;
+                    votes[c.T] = (votes.TryGetValue(c.T, out var v) ? v : 0) + 1;
                 }
             // как Object.entries (коды по возрастанию) + устойчивая сортировка: больше голосов, затем пересечённая
             var best = votes.ToList().OrderByDescending(kv => kv.Value).ThenByDescending(kv => IsRough(kv.Key, r) ? 1 : 0).FirstOrDefault();
             double z = Js.Round(zSum / n);
-            if (votes.Count == 0) return new GroundInfo { Id = 0, Key = null, Name = "не задано", Z = z, Share = 0 };
+            if (best.Key == 0) return new GroundInfo { Id = 0, Key = null, Name = "не задано", Z = z, Share = (double)best.Value / n };
             var t = Terrain.ById[best.Key];
             return new GroundInfo { Id = t.Id, Key = t.Key, Name = t.Name, Z = z, Share = (double)best.Value / n };
         }
