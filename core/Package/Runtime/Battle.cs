@@ -35,6 +35,7 @@ namespace BattleCore
             public Mover Att, Def; public bool Counter, Charge;
             public double Extra = 1, Factor = 1, T0, T1, U, N0, Acc;
             public bool Open, Closed, Skipped;
+            public bool Logged; public int Steps;   // журнал ГМа: расчёт окна записан (на первом шаге); шагов с уроном
         }
         public Side Of(Mover m) => m == A ? SA : SB;
         public Mover Other(Mover m) => m == A ? B : A;
@@ -51,7 +52,25 @@ namespace BattleCore
         public int BodyK;                    // Г87: людей в бойце-теле; 0 — выбрать по численности на поле перед первым ходом
         bool bodyKFixed;
         public double BurstSec = 2, ContactEverySec = 0.5, FightEndSec = 2, ReplanSec = 1, ReplanMoveM = 5;
-        public List<string> Details = new List<string>();   // окна ударов этого хода: «8,2 с · A → B (натиск): −40»
+        public List<string> Details = new List<string>();
+        // Журнал ГМа (Алекс 13.10.2026: «логи должны быть с формулами расчёта»): строки «ƒ …» в журнале хода — расчёт каждого окна удара
+        // (схватка, натиск, ответ, залп) по формулам стола с броском и модификаторами того шага, итог окна, проверки БД и бегства, конец хода.
+        // Пишется только уже посчитанное — кости ради журнала не бросаются, ход не расходится с эталоном. Игра показывает их в «Расчётах»
+        public bool CalcLog = true;
+        static readonly System.Text.RegularExpressions.Regex LongNum = new System.Text.RegularExpressions.Regex(@"\d+\.\d{3,}");   // бросок без округления — до десятых
+        void Calc(string head, List<string> lines = null)
+        {
+            if (!CalcLog) return;
+            events.Add("ƒ " + head);
+            if (lines == null) return;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var l = lines[i];
+                // заголовок «Отряд (бьёт):» без своих строк (Eff ничего не дописал) — не пишем
+                if (l.EndsWith("):") && l.StartsWith("«") && (i + 1 == lines.Count || lines[i + 1].EndsWith("):") && lines[i + 1].StartsWith("«") || lines[i + 1].StartsWith("Бросок"))) continue;
+                events.Add("ƒ   " + LongNum.Replace(l, mm => Js.Num(Js.R1(double.Parse(mm.Value, System.Globalization.CultureInfo.InvariantCulture)))));
+            }
+        }   // окна ударов этого хода: «8,2 с · A → B (натиск): −40»
         public bool MoraleChecks = true;     // БД4: проверки БД и на побег в ходу; сверка обмена ударами со столом — без них
         public bool PanicMoraleLoss;         // переключатель трекера «−100 БД вместе с проверкой» (по умолчанию выключен)
         readonly List<string> events = new List<string>();   // проверки, бегство, паника, «сплотить» — в журнал хода
@@ -800,20 +819,32 @@ namespace BattleCore
                     var sa = f.Of(w.Att);
                     if (!f.Touching || sa.Engaged <= 0) continue;   // разошлись — не бьют
                     string mode = ModeAt(w.Def);
-                    var At = Combat.Eff(w.Att.P.U, mode, null, Ctx); var Df = Combat.Eff(w.Def.P.U, mode, null, Ctx);
+                    var CL = CalcLog && !w.Logged ? new List<string>() : null;   // журнал ГМа — расчёт окна на первом его шаге
+                    CL?.Add($"«{w.Att.P.U.Name}» (бьёт):");
+                    var At = Combat.Eff(w.Att.P.U, mode, CL, Ctx);
+                    CL?.Add($"«{w.Def.P.U.Name}» (принимает):");
+                    var Df = Combat.Eff(w.Def.P.U, mode, CL, Ctx);
                     var opts = new BattleRequest { Mode = mode, FatigueMode = "percent" };
                     var H = R.Map.Height;
                     StrikeMod mod = w.Att.P.Level > w.Def.P.Level ? new StrikeMod { Mult = H.DownhillMelee }
                                   : w.Att.P.Level < w.Def.P.Level ? new StrikeMod { Mult = H.UphillMelee } : null;
                     double roll = w.U * w.N0 * sa.Engaged, dmg = 0;
-                    if (w.Counter) dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, null, Ctx, false, w.Extra, "", "front", mod, roll * w.Factor);
+                    CL?.Add($"Бросок окна: удача {Js.Num(Math.Round(w.U, 2))} × бойцов в начале окна {Js.Num(Js.Round(w.N0))} × вступило {Js.Num(Js.Round(sa.Engaged * 100))} % = {Js.Num(Js.R1(roll))}");
+                    if (w.Counter) { CL?.Add($"Ответ: доля фронтальных касаний {Js.Num(Js.Round(w.Factor * 100))} %{(w.Extra != 1 ? $", пики против конницы ×{Js.Num(w.Extra)}" : "")}"); dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, CL, Ctx, false, w.Extra, "", "front", mod, roll * w.Factor); }
                     else
                     {
-                        if (sa.Front > 0) dmg += sa.Front * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, null, Ctx, w.Charge, 1, "", "front", mod, roll);
-                        if (sa.Flank > 0) dmg += sa.Flank * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, null, Ctx, w.Charge, 1, "", "flank", mod, roll);
-                        if (sa.Rear > 0) dmg += sa.Rear * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, null, Ctx, w.Charge, 1, "", "rear", mod, roll);
+                        if (sa.Front > 0) { CL?.Add($"Фронт — доля {Js.Num(Js.Round(sa.Front * 100))} %:"); dmg += sa.Front * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, CL, Ctx, w.Charge, 1, "", "front", mod, roll); }
+                        if (sa.Flank > 0) { CL?.Add($"Фланг — доля {Js.Num(Js.Round(sa.Flank * 100))} %:"); dmg += sa.Flank * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, CL, Ctx, w.Charge, 1, "", "flank", mod, roll); }
+                        if (sa.Rear > 0) { CL?.Add($"Тыл — доля {Js.Num(Js.Round(sa.Rear * 100))} %:"); dmg += sa.Rear * Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, At, Df, opts, CL, Ctx, w.Charge, 1, "", "rear", mod, roll); }
                     }
-                    if (w.Def.Disordered) dmg *= R.Move.DisorderDmgK;   // Г111 п.2: строй в беспорядке (свои прошли сквозь) — удар по нему опаснее (черновик ГМу)
+                    if (w.Def.Disordered) { dmg *= R.Move.DisorderDmgK; CL?.Add($"Строй «{w.Def.P.U.Name}» в беспорядке: ×{Js.Num(R.Move.DisorderDmgK)}"); }   // Г111 п.2: строй в беспорядке (свои прошли сквозь) — удар по нему опаснее (черновик ГМу)
+                    if (CL != null)
+                    {
+                        CL.Add($"Урон окна: {Js.Num(Js.R1(Math.Max(0, dmg)))} — раскладывается по шагам окна ({Js.Num(Js.R1(w.T0 - Clock))}…{Js.Num(Js.R1(w.T1 - Clock))} с) по мере касания");
+                        Calc($"⚔ «{w.Att.P.U.Name}» → «{w.Def.P.U.Name}», {Js.Num(Js.R1(t - Clock))} с{(w.Charge ? ", натиск" : w.Counter ? ", ответ" : "")}, {mode}", CL);
+                        w.Logged = true;
+                    }
+                    w.Steps++;
                     inc[i] = Math.Max(0, dmg) * portion;
                     if (w.Def == f.A) toA += inc[i]; else toB += inc[i];
                 }
@@ -840,9 +871,11 @@ namespace BattleCore
             double before = def.Soldiers + w.Acc;
             double cas = Math.Min(Js.Round(w.Acc), Math.Floor(before + 1e-9));
             var clone = def.Clone(); clone.Soldiers = before;
-            var res = Combat.Casualties(clone, cas, null, Ctx);
-            var patch = Combat.CasualtyPatch(clone, res, new List<string>(), Ctx, out _);
+            var CL = CalcLog ? new List<string>() : null;
+            var res = Combat.Casualties(clone, cas, CL, Ctx);
+            var patch = Combat.CasualtyPatch(clone, res, CL ?? new List<string>(), Ctx, out _);
             patch.ApplyTo(def);
+            if (CL != null) Calc($"итог окна «{w.Att.P.U.Name}» → «{def.Name}»{(w.Charge ? " (натиск)" : w.Counter ? " (ответ)" : "")}, {Js.Num(Js.R1(t - Clock))} с: шагов {w.Steps}, урон Σ = {Js.Num(Js.R1(w.Acc))} → потери {Js.Num(cas)}", CL);
             double whole = Math.Round(def.Soldiers);
             if (Math.Abs(def.Soldiers - whole) < 1e-6) def.Soldiers = whole;
             Details.Add($"{Js.Num(Js.R1(t - (Clock)))} с · {w.Att.P.U.Name} → {def.Name}{(w.Charge ? " (натиск)" : w.Counter ? " (ответ)" : "")}: −{Js.Num(cas)}");
@@ -867,6 +900,7 @@ namespace BattleCore
         {
             r.Patch.ApplyTo(u);
             events.Add($"{At(t)} с · {r.Title}: {string.Join("; ", r.Lines.Where(l => !l.Contains("требуется")))}");
+            Calc($"🎲 {At(t)} с · {r.Title}", r.Lines);
         }
 
         // Г70, Г71: побежал — толпой прочь от врага (от тех, кто ближе FleeLookM: чем ближе, тем сильнее; никого —
@@ -1127,6 +1161,7 @@ namespace BattleCore
                 }
             }
             foreach (var l in res.Lines) events.Add($"конец хода · {l}");
+            if (res.Lines.Count > 0) Calc("🕐 конец хода (усталость, дисциплина, бегство — по формулам стола)", res.Lines);
         }
 
         // Павшие в рукопашной (Г67): точного места нет — падают у переднего края схватки, в случайной точке

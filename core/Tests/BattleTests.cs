@@ -409,6 +409,39 @@ static class BattleTests
             True(bt.WrapOpposite == 0, $"колоннам давали место на противоположной стороне врага: {bt.WrapOpposite} раз (по счёту ядра; по наблюдению за якорями и сменой стороны места — {crossed})");
         });
 
+        yield return ("журнал ГМа (Алекс 13.10.2026: «логи должны быть с формулами расчёта»): натиск рыцарей и ответ пехоты — в журнале хода строки «ƒ» с расчётом окна (атака, бросок, урон) и итогом (потери, убиты/ранены); потери в итоге — те же, что сняты с отряда; без журнала ход тот же", () =>
+        {
+            List<string> Run(bool calc, out double lossB)
+            {
+                var (bt, a, b) = Duel("knights", "infantry", 150, 5);
+                bt.CalcLog = calc;
+                bt.Order(a, Attack(2, true));
+                var log = new List<string>();
+                for (int i = 0; i < 2; i++) log.AddRange(bt.Turn());
+                lossB = 1000 - b.P.U.Soldiers;
+                return log;
+            }
+            var L = Run(true, out var loss1); Run(false, out var loss0);
+            var f = L.Where(l => l.StartsWith("ƒ ")).ToList();
+            True(f.Any(l => l.StartsWith("ƒ ⚔") && l.Contains("натиск")) && f.Any(l => l.StartsWith("ƒ   Атака:")) && f.Any(l => l.StartsWith("ƒ итог окна")), $"строк ƒ {f.Count}: {string.Join(" | ", f.Take(12))}");
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var wins = f.Where(l => l.StartsWith("ƒ итог окна") && l.Contains("→ «Пехота»")).ToList();
+            double sums = 0;
+            foreach (var l in wins)
+            {
+                int i0 = l.IndexOf("урон Σ = ") + 9, i1 = l.IndexOf(" →", i0);
+                double acc = double.Parse(l.Substring(i0, i1 - i0), inv), cas = double.Parse(l.Substring(l.LastIndexOf("потери ") + 7).Trim(), inv);
+                True(Math.Abs(acc - cas) <= 0.5 + 1e-9, $"в итоге окна потери не по урону: {l}");
+                sums += cas;
+            }
+            True(wins.Count > 0 && sums <= loss1 + 1, $"итоги окон по пехоте Σ {sums}, снято {loss1:0.0} (открытые на конце хода окна — в следующем)");
+            True(Math.Abs(loss1 - loss0) < 1e-9, $"с журналом и без — разный ход: {loss1} и {loss0}");
+            var (bs, sa, sb) = Duel("archers", "infantry", 120, 6);
+            bs.Order(sa, Attack(2)); bs.Order(sb, new MoveOrder { Kind = OrderKind.Hold });
+            var S = bs.Turn().Concat(bs.Turn()).Where(l => l.StartsWith("ƒ ")).ToList();
+            True(S.Any(l => l.StartsWith("ƒ 🏹")) && S.Any(l => l.StartsWith("ƒ итог залпа")) && S.Any(l => l.StartsWith("ƒ   Стрел в залпе")), $"стрельба, строк ƒ {S.Count}: {string.Join(" | ", S.Take(10))}");
+        });
+
         yield return ("охват (Г68): враг разбит — колонны возвращаются на свои места сквозь свой строй", () =>
         {
             var (bt, a, b) = Duel("knights", "infantry", 0.5, 31);

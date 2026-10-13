@@ -353,10 +353,18 @@ namespace BattleCore
             w.N0 = w.Att.P.U.Soldiers;
             w.LRoll = Dice.Roll(Ctx.Rng, R.Lethality.Die);
             w.Bow = Ballistics.BowKeyFor(w.Att.P.U);
-            var A = Combat.Eff(w.Att.P.U, mode, null, Ctx);
+            var CL = CalcLog ? new List<string>() : null;   // журнал ГМа
+            CL?.Add($"«{w.Att.P.U.Name}» (стреляет):");
+            var A = Combat.Eff(w.Att.P.U, mode, CL, Ctx);
             var opts = new BattleRequest { Mode = mode, FatigueMode = "percent" };
-            double dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, A, new EffStats(), opts, null, Ctx, false, 1, "", "front", null, w.U * w.N0);
+            CL?.Add($"Бросок залпа: удача {Js.Num(Math.Round(w.U, 2))} × стрелков {Js.Num(Js.Round(w.N0))} = {Js.Num(Js.R1(w.U * w.N0))}");
+            double dmg = Combat.StrikeDamage(w.Att.P.U, w.Def.P.U, A, new EffStats(), opts, CL, Ctx, false, 1, "", "front", null, w.U * w.N0);
             w.Planned = (int)Js.Round(Math.Max(0, dmg) * RR.Bows[w.Bow].VolleyK * RR.LiveRanksK);
+            if (CL != null)
+            {
+                CL.Add($"Стрел в залпе: урон стола {Js.Num(Js.R1(Math.Max(0, dmg)))} × лук «{w.Bow}» {Js.Num(RR.Bows[w.Bow].VolleyK)} × живые шеренги {Js.Num(RR.LiveRanksK)} = {w.Planned}; попадания и потери — полётом стрел (Г38), итог — по закрытии залпа");
+                Calc($"🏹 «{w.Att.P.U.Name}» → «{w.Def.P.U.Name}»{(w.Counter ? ", ответ" : "")}, {Js.Num(Js.R1(w.T0 - Clock))}…{Js.Num(Js.R1(w.T1 - Clock))} с", CL);
+            }
             w.Def.UnderFireUntil = Math.Max(w.Def.UnderFireUntil, w.T1 + R.Men.UnderFireSec);   // Г86: под стрелами — колонны поштучно
             var fresh = new List<Shot>();
             for (int i = 0; i < w.Planned; i++)
@@ -554,14 +562,17 @@ namespace BattleCore
         {
             w.Closed = true;
             int total = 0;
+            var CL = CalcLog ? new List<string>() : null;
             foreach (var kv in w.Victims)
             {
                 var def = kv.Key.P.U;
                 int cas = kv.Value.cas; total += cas;
                 var clone = def.Clone(); clone.Soldiers = def.Soldiers + cas;
                 var res = new StrikeResult { Casualties = cas, Killed = kv.Value.killed, Wounded = cas - kv.Value.killed };
-                Combat.CasualtyPatch(clone, res, new List<string>(), Ctx, out _).ApplyTo(def);
+                CL?.Add($"«{def.Name}»{(kv.Key != w.Def ? " (не цель — шальные стрелы)" : "")}: попаданий {cas} — убито {kv.Value.killed}, ранено {cas - kv.Value.killed} (летальность — бросок залпа {Js.Num(w.LRoll)})");
+                Combat.CasualtyPatch(clone, res, CL ?? new List<string>(), Ctx, out _).ApplyTo(def);
             }
+            if (CL != null) Calc($"итог залпа «{w.Att.P.U.Name}» → «{w.Def.P.U.Name}»{(w.Counter ? " (ответ)" : "")}, {Js.Num(Js.R1(t - Clock))} с: стрел {w.Planned}, выпущено {w.Launched}, долетело {w.Landed}, потери {total}", CL);
             foreach (var kv in w.Victims) if (kv.Value.cas > 0) AfterLoss(kv.Key, t);   // Г74: проверки после удара
             Details.Add($"{Js.Num(Js.R1(t - Clock))} с · {w.Att.P.U.Name} → {w.Def.P.U.Name}{(w.Counter ? " (ответ)" : "")}: стрел {w.Planned}, −{total}");
         }
