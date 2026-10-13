@@ -366,6 +366,9 @@ if (args.Length > 0 && args[0] == "smooth")
 {
     if (Environment.GetEnvironmentVariable("OWN_MELEE") == "1") Rules.Base.Move.HorseBodyOwnCourseInMelee = true;
     if (Environment.GetEnvironmentVariable("OWN_ALL") == "1") Rules.Base.Move.HorseBodyOwnCourse = true;
+    if (Environment.GetEnvironmentVariable("HKP") == "1") Rules.Base.Men.HorseKeepPush = true;
+    if (Environment.GetEnvironmentVariable("HKP") == "2") { Rules.Base.Men.HorseKeepPush = true; Rules.Base.Men.HorseKeepPushMode = 2; }
+    if (Environment.GetEnvironmentVariable("NOSPLIT") == "1") Rules.Base.Move.SplitAround = false;
     bool all = args.Contains("--all");
     int ti = Array.IndexOf(args, "--trace");
     if (ti >= 0 && ti + 2 < args.Length) { Polygon.TraceUnit = args[ti + 1]; Polygon.TraceMan = int.Parse(args[ti + 2]); }

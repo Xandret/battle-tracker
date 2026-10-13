@@ -511,7 +511,7 @@ namespace BattleCore
                             {
                                 if (j == i || tMi[j] != own || (tFlag[j] & 64) == 0 || tMan[j].Fig != tMan[i].Fig) continue;   // только своя колонна
                                 double ex = tX[j] - xi, ey = tY[j] - yi, along = ex * ux + ey * uy;
-                                if (along <= 0) continue;   // уступает только задний
+                                if (along <= tHalf[i] + tHalf[j]) continue;   // уступает только задний; сосед по шеренге рядом (на ходу наискось чуть впереди) — не передний
                                 double side = Math.Abs(-ex * uy + ey * ux);
                                 if (side > tRad[i] + tRad[j] + MR.HorseGapM) continue;   // не на пути: сбоку — по ширине коней
                                 double gap = along - (tHalf[i] + tRad[i] + tHalf[j] + tRad[j]) - MR.HorseGapM;   // свободно до зазора
@@ -630,7 +630,8 @@ namespace BattleCore
                         // Г123: толкнули только свои по отряду — гасится лишь встречная толчку часть хода: иначе двое отставших, задевая друг
                         // друга раз в несколько шагов, никогда не разгонялись и отставали на десятки метров (у дома, в проходе)
                         double pl = JsMath.Hypot(tPx[i], tPy[i]);
-                        if (pl > 1e-9) { double ux = tPx[i] / pl, uy = tPy[i] / pl, ap = man.Vx * ux + man.Vy * uy; if (ap < 0) { man.Vx -= ap * ux; man.Vy -= ap * uy; } }
+                        if (MR.HorseKeepPushMode == 2) { }   // ход как был: толчок своего только сдвинул тело
+                        else if (pl > 1e-9) { double ux = tPx[i] / pl, uy = tPy[i] / pl, ap = man.Vx * ux + man.Vy * uy; if (ap < 0) { man.Vx -= ap * ux; man.Vy -= ap * uy; } }
                     }
                 }
                 // курс тела (Г94) — уже повёрнут в шаге 2, не прыгает

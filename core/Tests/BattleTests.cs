@@ -426,7 +426,8 @@ static class BattleTests
                 a.P.ToWorld(a.P.Figs[k].X, a.P.Figs[k].Y, out var sx, out var sy);
                 far = Math.Max(far, JsMath.Hypot(fx - sx, fy - sy));
             }
-            True(a.Figs.All(s => !s.Wrap && !s.Turned && !s.Returning), "охват снят");
+            // 13.10.2026: колонна в метре от места может ещё числиться «возвращающейся» (Г122: конь не налетает на своего переднего) — место держит проверка far
+            True(a.Figs.All(s => !s.Wrap && !s.Turned && (!s.Returning || far < 1)), $"охват снят: в охвате {a.Figs.Count(s => s.Wrap)}, повёрнуты {a.Figs.Count(s => s.Turned)}, возвращаются {a.Figs.Count(s => s.Returning)}, дальше всех {far:0.0} м");
             True(far < 1, $"дальше всех от своего места — {far:0.0} м");
         });
 

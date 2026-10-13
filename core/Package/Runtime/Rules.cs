@@ -229,6 +229,9 @@ namespace BattleCore
             // Г123: перестроение в узость и обратно — места колонн едут к новым не быстрее SlotMorphK хода отряда (не медленнее SlotMorphMin
             // м/с), упреждение узости растёт на этот путь: строй готовится с подхода, соседи сходятся по косой, за проходом расходятся постепенно
             public double SlotMorphK = 0.35, SlotMorphMin = 1.5; public bool SlotMorphHorse = false;
+            // Г123: постройка внутри фронта — строй расступается половинами (SplitAround): у стены с SplitMarginM, не шире 2 × SplitMaxM
+            public double SlotMorphAccK = 0.5;   // Г123: место разгоняется к новому и тормозит у него не резче этой доли разгона отряда (0 — разом)
+            public bool SplitAround = true; public double SplitMarginM = 1.5, SplitMaxM = 20;
             // Г111 п.5: ширина прохода — по всему фронту, центрированному на оси пути: 2 × меньшее плечо (NarrowCentered; было l + r — строй
             // у берега «умещался», но половина его лезла в воду); стенки прохода — и медленная местность (брод, лес) дороже оси в CorridorSlowK раз
             public bool NarrowCentered = false; public double CorridorSlowK = 0; public bool ViaToHome = true;   // ViaToHome — обходящий боец идёт к своему месту (поиск в окне), не к цели отряда
@@ -280,7 +283,7 @@ namespace BattleCore
         {
             public double Tau = 0.5;          // Г76: боец догоняет своё место за ~Tau с — строй «дышит» на поворотах и в давке
             public double SpeedK = 1.4, WalkMin = 2;   // предел скорости бойца — скорость фигурки (не меньше WalkMin) × SpeedK
-            public double BodyAccelBusyK = 12; public bool HorseKeepPush = false;   // Г123: разгон тела в лесу, на пересадке и сквозь своих — во столько раз резвее нормы (было без предела: срывы 1 → 22 м/с за кадр)
+            public double BodyAccelBusyK = 12; public bool HorseKeepPush = false; public int HorseKeepPushMode = 1;   // Г123: разгон тела в лесу, на пересадке и сквозь своих — во столько раз резвее нормы (было без предела: срывы 1 → 22 м/с за кадр)
             public double HorseGapM = 0.4;     // Г122: зазор, с которым конь держится за своим передним (подравнивает ход загодя, не толкается)
             public double BodyMaxK = 1.05;    // Г118: и никогда не быстрее своей наибольшей (норма отряда после разгона, в натиске × Cavalry.ChargeMult) × BodyMaxK (мерило даёт 1,1)
             public double AccelK = 1.0;       // Г118: разгон и тормоз бойца — ровно как у его отряда (FigureAccelK 1 × 1; было 1,5 × 2 — втрое резвее нормы) (иначе всадник пролетает мимо остановившейся фигурки)

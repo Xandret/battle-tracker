@@ -52,7 +52,9 @@ namespace BattleCore
         public int BlockedBy; public bool BlockedByEnemy, Slowed;
         // Охват (Г68): колонна огибает врага — фигурка идёт к (WX, WY) и смотрит по WH (градусы), а не по строю
         public bool Wrap; public double WX, WY, WH;
-        public bool Morph; public double MTX, MTY;   // Г123: место колонны едет к новому (MTX, MTY в осях строя) — сужение и расширение без перескока
+        public bool Morph; public double MTX, MTY;
+        public bool Split; public double BaseX;
+        public double MV;   // Г123: ход места к новому (м/с) — разгоняется и тормозит, как отряд, иначе якорь не поспевает и колонна дёргается   // Г123: строй расступился перед постройкой — колонна сдвинута от своего места BaseX (оси строя)   // Г123: место колонны едет к новому (MTX, MTY в осях строя) — сужение и расширение без перескока
         // место у врага WFoe (в его системе), которое колонна заняла, — держится за ним, пока оно свободно
         public Mover WFoe; public double WSlotX, WSlotY, WNx, WNy; public int WBehind;
         // тело развёрнуто не по строю (Turned): ось капсулы Axis поворачивается к нужной постепенно (FigTurnDegPerSec)
@@ -127,6 +129,7 @@ namespace BattleCore
         public int ShotDown;                     // выбыло от стрел с последней раскладки — их место известно точно (Г67)
         public int StruckDown;                   // Б2: пало от ударов бойцов с последней раскладки — тоже уже не стоят (Г83)
         public bool FightsHorse;                 // Алекс 13.10.2026: в схватке с конницей (ставит бой) — капсула коня по его курсу (HorseBodyOwnCourseInMelee)
+        public bool Splitting; public double SplitC, SplitL, SplitR;   // Г123: строй расступается — где делится (оси строя) и на сколько влево и вправо
         public bool ChargeReady;                 // Г90: натиск готов (ставит бой) — кони с разбега пешему врагу не уступают
         public double UnderFireUntil = double.NegativeInfinity;   // Г86: под стрелами до этого времени (ставит стрельба)
         public double Now;                       // часы боя на этом шаге (ставит бой) — для рисунка: когда сбит с ног
@@ -629,17 +632,21 @@ namespace BattleCore
         // фигурки, неполный задний ряд — по центру. Места раздаются спереди назад ближайшим фигуркам: кто где
         // стоит, тот туда и встаёт. Пока фигурки далеко от новых мест — перестроение, вдвое медленнее (Г60).
         [ThreadStatic] static bool MorphOn, MorphHorse;
+        const double SlotMorphMinStep = 0.02;   // место у цели доезжает хотя бы на 2 см за шаг — не ползёт к ней бесконечно
         // Г123: места колонн едут к новым (после SetCols) поперёк и вдоль строя не быстрее SlotMorphK хода отряда (не медленнее SlotMorphMin)
         static void MorphSlots(Mover m, double dt, Rules r)
         {
             var M = r.Move; var P = m.P;
             if (P.Figs.Count != m.Figs.Count) { foreach (var s in m.Figs) s.Morph = false; return; }
-            double v = Math.Max(M.SlotMorphMin, M.SlotMorphK * Math.Max(m.Vs, 0)) * dt;
+            double vcap = Math.Max(M.SlotMorphMin, M.SlotMorphK * Math.Max(m.Vs, 0)), acc = M.SlotMorphAccK > 0 ? M.SlotMorphAccK * FigAccel(m, r) : double.PositiveInfinity;
             for (int k = 0; k < P.Figs.Count; k++)
             {
-                var s = m.Figs[k]; if (!s.Morph) continue;
+                var s = m.Figs[k]; if (!s.Morph) { s.MV = 0; continue; }
                 var f = P.Figs[k]; double dx = s.MTX - f.X, dy = s.MTY - f.Y, d = JsMath.Hypot(dx, dy);
-                if (d <= v) { f.X = s.MTX; f.Y = s.MTY; s.Morph = false; }
+                // разгон и торможение места — не резче SlotMorphAccK разгона отряда: к цели подъезжает, успевая встать
+                s.MV = Math.Min(vcap, Math.Min(s.MV + acc * dt, Math.Max(SlotMorphMinStep / dt, Math.Sqrt(2 * acc * d))));
+                double v = s.MV * dt;
+                if (d <= v) { f.X = s.MTX; f.Y = s.MTY; s.Morph = false; s.MV = 0; }
                 else { f.X += dx / d * v; f.Y += dy / d * v; }
             }
         }
@@ -697,6 +704,7 @@ namespace BattleCore
                 (f.X, f.Y, f.Rank, f.File) = assign[k];
                 // Г123: место не перескакивает — колонна едет к новому постепенно (MorphSlots), соседи сходятся по косой
                 if (morph) { m.Figs[k].MTX = f.X; m.Figs[k].MTY = f.Y; m.Figs[k].Morph = true; f.X = ox; f.Y = oy; }
+                m.Figs[k].Split = false;
             }
             m.Cols = cols; m.MinCols = Math.Min(m.MinCols, cols); m.Reforming = true;
         }
@@ -777,6 +785,57 @@ namespace BattleCore
             if (!deploy && M.MenBodies && want > m.Cols && want < m.NominalCols && (want - m.Cols < 2 || m.NarrowSince < M.NarrowWidenSec)) want = m.Cols;
             if (!deploy && M.MenBodies && want > m.Cols && m.NarrowSince < M.NarrowWidenSec) want = m.Cols;
             if (want != m.Cols) { SetCols(m, want); m.NarrowSince = 0; }
+            if (M.SplitAround && M.MenBodies && M.SlotMorphK > 0 && m.Figs.Count == n) SplitAround(m, m.Cols == m.NominalCols, s, tail, r);
+        }
+
+        // Г123: постройка внутри фронта (не у края — края сужает Narrow) — строй загодя расступается: колонны левее её середины едут
+        // влево, правее — вправо, все на одно и то же, промежутки целы; внутренние идут у стены с SplitMarginM, остальные шире. Сдвиг —
+        // как перестроение в узость (MorphSlots, SlotMorphK хода), начинается за путь, нужный на сдвиг, и за NarrowAheadM; за постройкой,
+        // когда из окна вышел последний боец, — обратно на свои места. Сбоку нет места — как было (каждая колонна обходит сама)
+        static void SplitAround(Mover m, bool ok, double s, double tail, Rules r)
+        {
+            var F = m.Field; var T = m.Track; var M = r.Move; var P = m.P;
+            double half = m.NominalFp.Front / 2, fw = P.Figs.Max(f => f.Width);
+            double a = double.PositiveInfinity, b = double.NegativeInfinity;
+            double lead = P.Fp.Depth / 2 + M.NarrowAheadM + M.SplitMaxM / M.SlotMorphK;
+            double from = Math.Floor(Math.Max(0, s - tail) / 2.5) * 2.5, to = Math.Min(T.Length, s + lead);
+            bool Blocked(double u0, double u1)
+            {
+                for (double q = from; q <= to + 1e-9; q += 2.5)
+                {
+                    var (x, y, dx, dy) = T.AtMeters(Math.Min(q, T.Length));
+                    for (double u = u0; u <= u1 + 1e-9; u += 0.5) if (!Free(F, x - dy * u, y + dx * u)) return true;
+                }
+                return false;
+            }
+            if (ok)
+                for (double q = from; q <= to + 1e-9; q += 2.5)
+                {
+                    var (x, y, dx, dy) = T.AtMeters(Math.Min(q, T.Length));
+                    for (double u = -half; u <= half + 1e-9; u += 0.5)
+                        if (!Free(F, x - dy * u, y + dx * u)) { if (u < a) a = u; if (u > b) b = u; }
+                }
+            bool split = ok && a <= b && a > -half + fw && b < half - fw && b - a <= 2 * M.SplitMaxM;
+            double dl = 0, dr = 0, c = 0;
+            if (split)
+            {
+                // где делится — один раз на весь обход (иначе середина ползёт, пока постройка входит в окно, и колонна у неё перескакивает
+                // из половины в половину поперёк соседей); сдвиг — только растёт
+                a -= M.SplitMarginM + fw / 2; b += M.SplitMarginM + fw / 2;
+                c = m.Splitting ? m.SplitC : (a + b) / 2;
+                dl = Math.Max(c - a, m.Splitting ? m.SplitL : 0); dr = Math.Max(b - c, m.Splitting ? m.SplitR : 0);
+                split = !Blocked(-half - dl - M.SplitMarginM, -half) && !Blocked(half, half + dr + M.SplitMarginM);
+            }
+            m.Splitting = split; m.SplitC = c; m.SplitL = dl; m.SplitR = dr;
+            for (int k = 0; k < P.Figs.Count; k++)
+            {
+                var st = m.Figs[k]; var f = P.Figs[k];
+                if (!split && !st.Split) continue;
+                if (!st.Split) st.BaseX = st.Morph ? st.MTX : f.X;
+                double tx = split ? st.BaseX + (st.BaseX < c ? -dl : dr) : st.BaseX, cur = st.Morph ? st.MTX : f.X;
+                if (Math.Abs(tx - cur) > 0.5) { st.MTY = st.Morph ? st.MTY : f.Y; st.MTX = tx; st.Morph = true; }
+                st.Split = split;
+            }
         }
 
         static bool NearTarget(Mover m, IList<Mover> ms, double maxM)
@@ -866,7 +925,13 @@ namespace BattleCore
                         if (a.Width != b.Width || a.Depth != b.Depth || a.Men != b.Men) continue;
                         if (m.Figs[i].Wrap || m.Figs[j].Wrap) continue;   // в охвате (Г68) идут не к своим местам — не меняются
                         if (D(i, i) + D(j, j) - (D(j, i) + D(i, j)) > r.Move.ReassignGain)
-                        { (m.Figs[i], m.Figs[j]) = (m.Figs[j], m.Figs[i]); any = true; }
+                        {
+                            (m.Figs[i], m.Figs[j]) = (m.Figs[j], m.Figs[i]); any = true;
+                            // Г123: куда едет место (сужение, расступание) — при месте, а не при колонне: иначе после обмена место ехало к чужой цели
+                            var x = m.Figs[i]; var y = m.Figs[j];
+                            (x.Morph, y.Morph) = (y.Morph, x.Morph); (x.MTX, y.MTX) = (y.MTX, x.MTX); (x.MTY, y.MTY) = (y.MTY, x.MTY);
+                            (x.Split, y.Split) = (y.Split, x.Split); (x.BaseX, y.BaseX) = (y.BaseX, x.BaseX); (x.MV, y.MV) = (y.MV, x.MV);
+                        }
                     }
                 if (!any) break;
             }

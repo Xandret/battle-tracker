@@ -590,7 +590,7 @@ static class MenBodyTests
             True(r1.hash == r2.hash, "одно зерно — разный исход");
         });
 
-        yield return ("Б5: дома — отряд, поставленный на дом, сдвигается на ближайшее место, где строй помещается (в доме никого); марш сквозь дом 10 × 10 м — никто не входит в дом, строй делится, смыкается и приходит", () =>
+        yield return ("Б5: дома — отряд, поставленный на дом, сдвигается на ближайшее место, где строй помещается (в доме никого); марш сквозь дом 10 × 10 м — никто не входит в дом, строй делится (бойцы обходят или строй расступается, Г123), смыкается и приходит", () =>
         {
             int bId = Terrain.Id("building");
             var geo = MoveTests.Open(600, 900);
@@ -606,12 +606,13 @@ static class MenBodyTests
             var bt2 = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(2).Next });
             var m = bt2.Add(T.Make(1, "Сквозь дом", 400, 1), 300, 600, 0);
             bt2.Order(m, new MoveOrder { X = 300, Y = 150, Facing = 0 });
-            int inside = 0; double maxOff = 0; int turns = 0;
-            for (int t = 0; t < 8 && !m.Done; t++) { turns++; bt2.Turn(tt => { inside += Inside(m); foreach (var x in m.Men) { var hm = Soldiers.HomeOf(m, x); maxOff = Math.Max(maxOff, JsMath.Hypot(hm.x - x.X, hm.y - x.Y)); } }); }
+            int inside = 0; double maxOff = 0; int turns = 0; bool split = false;
+            for (int t = 0; t < 8 && !m.Done; t++) { turns++; bt2.Turn(tt => { inside += Inside(m); split |= m.Splitting; foreach (var x in m.Men) { var hm = Soldiers.HomeOf(m, x); maxOff = Math.Max(maxOff, JsMath.Hypot(hm.x - x.X, hm.y - x.Y)); } }); }
             double fin = m.Men.Average(x => { var hm = Soldiers.HomeOf(m, x); return JsMath.Hypot(hm.x - x.X, hm.y - x.Y); });
             True(m.Done && turns <= 6, $"не дошёл за {turns} ходов");
             True(inside == 0, $"бойцов в клетках дома за марш: {inside}");
-            True(maxOff > 3 && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м, в конце до мест {fin:0.00} м");
+            // Г123 (13.10.2026): строй делится и местами — расступается половинами (Splitting), бойцы при этом у своих мест
+            True((maxOff > 3 || split) && fin < 1.0, $"у дома разошлись до {maxOff:0.0} м (расступился: {split}), в конце до мест {fin:0.00} м");
         });
 
         // ── Г104: гарнизон — стены и ворота по стороне, высота бойца ──
