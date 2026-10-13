@@ -409,6 +409,36 @@ static class BattleTests
             True(bt.WrapOpposite == 0, $"колоннам давали место на противоположной стороне врага: {bt.WrapOpposite} раз (по счёту ядра; по наблюдению за якорями и сменой стороны места — {crossed})");
         });
 
+        yield return ("бой в файл для разбора (Алекс 13.10.2026): рыцари в рубке с пехотой, лучники стреляют, поручения ИИ — ход, сохранить, загрузить; следующий ход у сохранённого и у загруженного боец в боец (места, численность, павшие, журнал)", () =>
+        {
+            var bt = new Battle(Open(1200, 900), R, new EngineContext { Rng = new Mulberry32(17).Next });
+            var inf = bt.Add(Templates.Get("infantry").Make(2, "Пехота", 1000, 2), 600, 500, 0);
+            var kn = bt.Add(Templates.Get("knights").Make(1, "Рыцари", 600, 1), 600, 330, 180);
+            var ar = bt.Add(Templates.Get("archers").Make(3, "Лучники", 600, 2), 400, 520, 0);
+            bt.Order(kn, Attack(2, true)); bt.Order(ar, Attack(1)); bt.Order(inf, new MoveOrder { Kind = OrderKind.Hold });
+            bt.Assign(inf, AiKind.Hold);
+            var ses = new BattleSession(bt);
+            ses.Go(); while (ses.Step()) { }
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "battle_test_" + System.Diagnostics.Process.GetCurrentProcess().Id + ".jbf");
+            BattleFile.Save(ses, path, new BattleFileInfo { Note = "ход 2, рыцари", Build = "тест" });
+            var ses2 = BattleFile.Load(path, out var info);
+            long size = new System.IO.FileInfo(path).Length; System.IO.File.Delete(path);
+            True(info.Note == "ход 2, рыцари" && info.Turn == ses.Turn && ses2.Turn == ses.Turn && ses2.Battle.Movers.Count == 3, $"заметка «{info.Note}», ход {info.Turn}/{ses2.Turn}, отрядов {ses2.Battle.Movers.Count}");
+            var L1 = new List<string>(); var L2 = new List<string>();
+            ses.Go(); while (ses.Step()) { } ses2.Go(); while (ses2.Step()) { }
+            L1 = ses.Logs[ses.Logs.Count - 1]; L2 = ses2.Logs[ses2.Logs.Count - 1];
+            for (int i = 0; i < 3; i++)
+            {
+                var m1 = bt.Movers[i]; var m2 = ses2.Battle.Movers[i];
+                True(m1.P.U.Soldiers == m2.P.U.Soldiers && m1.P.X == m2.P.X && m1.P.Y == m2.P.Y, $"«{m1.P.U.Name}»: {m1.P.U.Soldiers} / {m2.P.U.Soldiers}, ({m1.P.X}, {m1.P.Y}) / ({m2.P.X}, {m2.P.Y})");
+                True(m1.Men.Count == m2.Men.Count, $"«{m1.P.U.Name}»: бойцов {m1.Men.Count} / {m2.Men.Count}");
+                for (int k = 0; k < m1.Men.Count; k++)
+                    True(m1.Men[k].X == m2.Men[k].X && m1.Men[k].Y == m2.Men[k].Y && m1.Men[k].Alive == m2.Men[k].Alive, $"«{m1.P.U.Name}» №{m1.Men[k].Id}: ({m1.Men[k].X}, {m1.Men[k].Y}) / ({m2.Men[k].X}, {m2.Men[k].Y})");
+            }
+            True(bt.Deaths.Count == ses2.Battle.Deaths.Count && string.Join("|", L1) == string.Join("|", L2), $"павших {bt.Deaths.Count} / {ses2.Battle.Deaths.Count}; журнал совпал: {string.Join("|", L1) == string.Join("|", L2)}");
+            True(size < 20_000_000, $"файл {size / 1e6:0.0} МБ");
+        });
+
         yield return ("журнал ГМа (Алекс 13.10.2026: «логи должны быть с формулами расчёта»): натиск рыцарей и ответ пехоты — в журнале хода строки «ƒ» с расчётом окна (атака, бросок, урон) и итогом (потери, убиты/ранены); потери в итоге — те же, что сняты с отряда; без журнала ход тот же", () =>
         {
             List<string> Run(bool calc, out double lossB)

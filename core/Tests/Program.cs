@@ -361,6 +361,39 @@ Test("мерило гладкости (Г118): по всем сценам пол
 
 if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
 // Г118: мерило гладкости по сценам полигона (dotnet run --project Tests -- smooth [сцена…] [--all]): счёт по видам и первые примеры
+// разбор боя из игры (кнопка «Сохранить бой для разбора»): replay <файл.jbf> [ходов=1] [выгрузка.csv шаг_с] — заметка Алекса, ход за ходом:
+// где отряды, кто упёрся, кто бежит, журнал хода; выгрузка — положения бойцов для раскадровки (draw.py: время;отряд;№;x;y;курс;место x;y;жёсткий)
+if (args.Length > 1 && args[0] == "replay")
+{
+    var ses = BattleFile.Load(args[1], out var info);
+    int turns = args.Length > 2 ? int.Parse(args[2]) : 1;
+    string dump = args.Length > 3 ? args[3] : null; double every = args.Length > 4 ? double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture) : 1;
+    Console.WriteLine($"«{info.Note}» — ход {info.Turn}, сборка {info.Build}, сохранено {info.Saved}; отрядов {ses.Battle.Movers.Count}, бойцов {ses.Battle.Movers.Sum(m => m.Men.Count(x => x.Alive))}");
+    if (dump != null && System.IO.File.Exists(dump)) System.IO.File.Delete(dump);
+    var bt = ses.Battle; double clock0 = bt.Clock;
+    for (int t = 0; t < turns && ses.Phase != Phase.Over; t++)
+    {
+        double last = -1;
+        ses.Go();
+        while (ses.Step(st =>
+        {
+            double now = bt.Clock - clock0 + st;
+            if (dump == null || now - last < every - 1e-6) return; last = now;
+            using var w = System.IO.File.AppendText(dump);
+            foreach (var m in bt.Movers) foreach (var man in m.Men.Where(x => x.Alive))
+            { var h = Soldiers.HomeOf(m, man); w.WriteLine(FormattableString.Invariant($"{now:0.0};{m.P.U.Name};{man.Id};{man.X:0.00};{man.Y:0.00};{man.Facing:0};{h.x:0.00};{h.y:0.00};{(man.WasRigid ? 1 : 0)}")); }
+        })) { }
+        Console.WriteLine($"── ход {ses.Turn - 1}");
+        foreach (var m in bt.Movers)
+        {
+            var alive = m.Men.Where(x => x.Alive).ToList();
+            double far = alive.Count > 0 ? alive.Max(x => { var h = Soldiers.HomeOf(m, x); return JsMath.Hypot(h.x - x.X, h.y - x.Y); }) : 0;
+            Console.WriteLine($"  «{m.P.U.Name}» ({m.P.X:0},{m.P.Y:0}) курс {m.P.Facing:0} {m.P.U.Status} бойцов {alive.Count}{(m.Order != null ? $" приказ {m.Order.Kind}{(m.Order.Kind == OrderKind.Attack ? " на " + m.Order.TargetId : "")}" : "")}{(m.Done ? " дошёл" : "")}{(m.Held ? " упёрся" : "")}{(m.InMelee ? " в бою" : "")}{(m.Fleeing ? " бежит" : "")}; дальше всех от места {far:0} м{(bt.TaskOf(m) != null ? $"; ИИ: {bt.TaskOf(m).Why}" : "")}");
+        }
+        foreach (var l in ses.Logs[ses.Logs.Count - 1]) if (!l.StartsWith("ƒ")) Console.WriteLine("  · " + l);
+    }
+    return 0;
+}
 if (args.Length > 0 && args[0] == "calc")
 {
     var bt = new Battle(MoveTests.Open(1000, 1000), Rules.Base, new EngineContext { Rng = new Mulberry32(5).Next });
