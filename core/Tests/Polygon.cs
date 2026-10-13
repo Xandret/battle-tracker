@@ -355,7 +355,51 @@ static class Polygon
         list.Add(G123("Г123: узость", 8, g => Narrows(g, 100), "Стена с проходом 20 м: строй сужается с подхода, за проходом расходится постепенно."));
         list.Add(G123("Г123: дом", 8, g => Houses(g, 100), "Дом 20 × 15 м на оси: строй обходит его согласованными дугами — внутренний у стены, остальные шире."));
         list.Add(G123("Г123: узость + дом", 9, g => { Narrows(g, 120); Houses(g, 90); }, "Проход 20 м, за ним в 135 м дом: сперва проход, потом дом; между ними строй не расходится зря."));
+        // Алекс 13.10.2026: конница на конницу — кони проходили сквозь коней, атакующий уезжал за цель
+        Scene CavCav(string name, bool both, string note, bool away = false)
+        {
+            var sc = new Scene { Name = name, Turns = 4, Geo = MoveTests.Open(1200, 800), Note = note };
+            sc.Battle = new Battle(sc.Geo, R0, new EngineContext { Rng = new Mulberry32(11).Next });
+            var g = sc.Fighter("knights", 2, "Стража", 350, 400, 90, faction: 2, men: 400);
+            var d = sc.Fighter("knights", 1, "Дарлтоны", 800, 400, 270, men: 400);
+            sc.Order(d, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+            if (both) sc.Order(g, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1, Charge = true });
+            if (away) sc.Order(g, new MoveOrder { X = 60, Y = 400, Facing = 270 });
+            return sc;
+        }
+        list.Add(CavCav("Конница на стоящую конницу", false, "Натиск конницы на стоящую конницу: кони не проходят сквозь коней, атакующий не уезжает за цель."));
+        list.Add(CavCav("Конница на конницу", true, "Встречный натиск двух конниц."));
+        list.Add(CavCav("Конница вдогон", false, "Цель уходит налево, конница догоняет её и бьёт в тыл.", away: true));
         return list;
+    }
+    // зонд: конница на конницу — по секундам: центры, кони врагов внутри друг друга, сколько атакующих за тылом цели
+    public static void CavProbe(string name)
+    {
+        var R = Rules.Base; var sc = Scenes().First(s => s.Name == name); var ms = sc.Units.Select(u => u.M).ToList();
+        double L = R.Ranged.HorseLength, Wd = R.Ranged.HorseWidth, clock = 0, last = -1;
+        for (int turn = 0; turn < sc.Turns; turn++)
+        {
+            sc.Before?.Invoke(turn);
+            Action<double> rec = t =>
+            {
+                double now = clock + t; if (now - last < 1 - 1e-6) return; last = now;
+                var all = ms.SelectMany(m => m.Men.Where(x => x.Alive).Select(x => (m, x))).ToList();
+                int own = 0, foe = 0;
+                for (int i = 0; i < all.Count; i++)
+                {
+                    var a = all[i].x; double h = a.Facing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h);
+                    for (int j = i + 1; j < all.Count; j++)
+                    {
+                        var b = all[j].x; double ex = b.X - a.X, ey = b.Y - a.Y; if (Math.Abs(ex) > 4 || Math.Abs(ey) > 4) continue;
+                        double along = Math.Abs(ex * fx + ey * fy), side = Math.Abs(-ex * fy + ey * fx);
+                        if (along < L * 0.8 && side < Wd * 0.8) { if (all[i].m == all[j].m) own++; else foe++; }
+                    }
+                }
+                var line = string.Join("; ", ms.Select(m => $"«{m.P.U.Name}» ({m.P.X:0},{m.P.Y:0}) курс {m.P.Facing:0} {(m.Done ? "дошёл" : $"v {m.Vs:0.0}")}{(m.Held ? " упёрся" : "")}{(m.InMelee ? " в бою" : "")} люди x {m.Men.Where(x => x.Alive).Min(x => x.X):0}…{m.Men.Where(x => x.Alive).Max(x => x.X):0} ({m.Men.Count(x => x.Alive)}, в схватке {m.Men.Count(x => x.Alive && x.Foe != null)})"));
+                Console.WriteLine($"{now,5:0} с  внутри: своих {own}, врагов {foe} | {line}");
+            };
+            sc.Battle.Turn(rec); clock += R.Move.TurnSec;
+        }
     }
     static readonly Rules R0 = Rules.Base;
 
@@ -429,7 +473,7 @@ static class Polygon
         public readonly List<(string scene, string kind, string unit, double t, double val, double lim, string line)> Recs = new List<(string, string, string, double, double, double, string)>();
         public int Samples;
         public int Count => Lines.Count;
-        public long HorsePairs, HorseFrames; public int HorsePairsWorst; public string HorsePairsAt = "";   // Г122: кони вплотную
+        public long HorsePairs, HorseFrames, HorsePairsMelee; public int HorsePairsWorst; public string HorsePairsAt = "";   // Г122: кони вплотную
         public readonly Dictionary<string, long> HorseByScene = new Dictionary<string, long>();
     }
     public static string TraceUnit; public static int TraceMan; public static bool TraceCol; public static double TraceNear; public static string DumpFile; public static double DumpEvery, DumpFrom, DumpTo = 1e9;   // след одного бойца по кадрам (зонд smooth --trace [--col])
@@ -438,11 +482,11 @@ static class Polygon
     static void HorseOverlaps(string scene, Mover m, double now)
     {
         var R = Rules.Base; double L = R.Ranged.HorseLength, Wd = R.Ranged.HorseWidth;
-        var men = m.Men.Where(x => x.Alive && x.Foe == null && x.DownLeft <= 0).ToList();
+        var men = m.Men.Where(x => x.Alive && x.DownLeft <= 0).ToList();   // в схватке — тоже (Алекс 13.10.2026: кони сквозь коней в рубке), счёт отдельно
         var grid = new Dictionary<long, List<Man>>();
         long Key(double x, double y) => ((long)Math.Floor(x / 3) << 32) ^ (uint)(int)Math.Floor(y / 3);
         foreach (var x in men) { var k = Key(x.X, x.Y); if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<Man>(); l.Add(x); }
-        int n = 0;
+        int n = 0, nm = 0;
         foreach (var a in men)
         {
             double h = a.Facing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h);
@@ -453,12 +497,12 @@ static class Polygon
                 {
                     if (b.Id <= a.Id) continue;
                     double ex = b.X - a.X, ey = b.Y - a.Y, along = Math.Abs(ex * fx + ey * fy), side = Math.Abs(-ex * fy + ey * fx);
-                    if (along < L * 0.8 && side < Wd * 0.8) n++;   // глубоко внутри друг друга (капсулы с запасом)
+                    if (along < L * 0.8 && side < Wd * 0.8) { if (a.Foe == null && b.Foe == null) n++; else nm++; }   // глубоко внутри друг друга (капсулы с запасом)
                 }
             }
         }
         if (n > 0 && curRep != null) { curRep.HorsePairs += n; curRep.HorseByScene[scene] = (curRep.HorseByScene.TryGetValue(scene, out var v) ? v : 0) + n; if (n > curRep.HorsePairsWorst) { curRep.HorsePairsWorst = n; curRep.HorsePairsAt = $"{scene}, {now:0.0} с «{m.P.U.Name}»"; } }
-        if (curRep != null) curRep.HorseFrames++;
+        if (curRep != null) { curRep.HorseFrames++; curRep.HorsePairsMelee += nm; }
     }
     public static SmoothReport Smooth(params string[] only)
     {

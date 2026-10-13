@@ -171,10 +171,14 @@ namespace BattleCore
             var target = t.TargetId != 0 ? ById(t.TargetId) : null;
             if (t.TargetId != 0 && (target == null || !OnField(target)))
                 return Ensure(m, new MoveOrder { Kind = OrderKind.Hold }) ? "цели больше нет — стоит" : null;
-            if (target != null && !Sees(f, target)) return SeekLastSeen(m, target);
-            if (t.Engaging && target != null && m.Order != null && m.Order.Kind == OrderKind.Attack && m.Order.TargetId == target.P.U.Id) return null;
+            // Алекс 13.10.2026 («вместо того, чтобы поехать к ближайшей цели и сражаться с ней, уезжают от неё к дальней»): рубящий,
+            // что уже бьётся с другим врагом или у кого враг ближе EngageM и ближе цели, бьёт его — цель подождёт
+            var near = Shooter(m) ? null : NearFoe(m, A.EngageM);
+            if (near != null && target != null && near != target && FightOf(m, near) == null && Gap(m, near) >= Gap(m, target)) near = null;
+            if (near == null && target != null && !Sees(f, target)) return SeekLastSeen(m, target);
+            if (near == null && t.Engaging && target != null && m.Order != null && m.Order.Kind == OrderKind.Attack && m.Order.TargetId == target.P.U.Id) return null;
             // по пути — враг рядом: рубящий бьёт того, кто ближе EngageM; стрелок стреляет по тому, кто в дальности
-            var foe = target;
+            var foe = near ?? target;
             if (foe == null)
             {
                 foe = Shooter(m) ? InRangeFoes(m).OrderBy(e => Gap(m, e)).FirstOrDefault()
@@ -254,8 +258,16 @@ namespace BattleCore
             var target = ById(t.TargetId);
             if (target == null || !OnField(target)) return Ensure(m, new MoveOrder { Kind = OrderKind.Hold }) ? "цели больше нет — стоит" : null;
             string name = target.P.U.Name;
-            if (!Sees(f, target)) return SeekLastSeen(m, target);
             bool cav = Units.IsCav(m.P.U) && !Shooter(m);
+            // Алекс 13.10.2026: в рубке с другим врагом или враг вплотную (BlockerM) — сперва он: из схватки к дальней цели не уезжает
+            var near = Shooter(m) ? null : NearFoe(m, A.BlockerM);
+            if (near != null && near != target)
+            {
+                var o = new MoveOrder { Kind = OrderKind.Attack, TargetId = near.P.U.Id, Charge = cav };
+                if (o.Charge && Preview(m, o).ChargeOk != true) o.Charge = false;
+                return Ensure(m, o) ? $"бьёт «{near.P.U.Name}», что рядом, — «{name}» после{(o.Charge ? " (с натиском)" : "")}" : null;
+            }
+            if (!Sees(f, target)) return SeekLastSeen(m, target);
             if (t.Engaging || m.InMelee || FightOf(m, target) != null)
             {
                 t.Engaging = true;
@@ -289,8 +301,8 @@ namespace BattleCore
             }
             if (t.Side == 0)
             {
-                int near = lx < 0 ? -1 : 1;
-                t.Side = Busy(near) && !Busy(-near) ? -near : near;
+                int nearSide = lx < 0 ? -1 : 1;
+                t.Side = Busy(nearSide) && !Busy(-nearSide) ? -nearSide : nearSide;
             }
             var pt = PointOn(t.Side);
             var mv = new MoveOrder { X = pt.x, Y = pt.y, Facing = pt.face };
@@ -338,6 +350,19 @@ namespace BattleCore
             return (foe.P.X + dx / l * dist, foe.P.Y + dy / l * dist);
         }
         // видимые стороне отряда враги на поле
+        // Враг, что не ждёт: тот, с кем отряд уже рубится (ближайший из таких), иначе ближайший не бегущий в пределах within (край до края)
+        Mover NearFoe(Mover m, double within)
+        {
+            Mover best = null; double bg = double.PositiveInfinity; bool bf = false;
+            foreach (var e in Foes(m))
+            {
+                var fi = FightOf(m, e); bool fight = fi != null && !fi.Over && fi.Of(m).Engaged > 0;
+                double g = Gap(m, e);
+                if (!fight && (g > within || e.Fleeing)) continue;
+                if (fight && !bf || fight == bf && g < bg) { best = e; bg = g; bf = fight; }
+            }
+            return best;
+        }
         IEnumerable<Mover> Foes(Mover m) { int f = FactionOf(m); return Movers.Where(e => e != m && OnField(e) && Enemies(m.P.U, e.P.U) && Sees(f, e)); }
         IEnumerable<Mover> InRangeFoes(Mover m) => Foes(m).Where(e => Gap(m, e) <= RangeVs(m, e));
         // идёт на отряд: приказ «атаковать» его или идёт курсом на него

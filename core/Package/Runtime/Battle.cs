@@ -500,7 +500,8 @@ namespace BattleCore
             if (k % replanEvery == 0) foreach (var m in Movers) Replan(m);
             if (k % Math.Max(1, (int)Math.Round(R.Fog.EverySec / dt)) == 0) UpdateFog(t);   // Г107
             var before = Movers.Select(m => (m.P.X, m.P.Y, m.WheelSec, m.Held && m.LastBlockerEnemy)).ToList();
-            foreach (var m in Movers) { m.Now = t; m.ChargeReady = MenMode && ChargeReadyOf(m); }   // Г90: натиск телами
+            foreach (var m in Movers) { m.Now = t; m.ChargeReady = MenMode && ChargeReadyOf(m); m.FightsHorse = false; }
+            foreach (var f in Fights) if (!f.Over) { if (BattleMap.IsHorse(f.B.P.U)) f.A.FightsHorse = true; if (BattleMap.IsHorse(f.A.P.U)) f.B.FightsHorse = true; }   // Г90: натиск телами
             long pb = Prof.Now();
             DuelStep(t, dt);   // Г108: поединки — круги в препятствия бойцов, раунды
             MoveSim.Step(Movers, Geo, R, k);

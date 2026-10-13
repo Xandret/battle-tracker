@@ -361,8 +361,11 @@ Test("мерило гладкости (Г118): по всем сценам пол
 
 if (args.Length > 0 && args[0] == "polygon") { Polygon.Write(root); return 0; }
 // Г118: мерило гладкости по сценам полигона (dotnet run --project Tests -- smooth [сцена…] [--all]): счёт по видам и первые примеры
+if (args.Length > 0 && args[0] == "cav") { if (args.Contains("own")) Rules.Base.Move.HorseBodyOwnCourseInMelee = true; Polygon.CavProbe(args[1]); return 0; }
 if (args.Length > 0 && args[0] == "smooth")
 {
+    if (Environment.GetEnvironmentVariable("OWN_MELEE") == "1") Rules.Base.Move.HorseBodyOwnCourseInMelee = true;
+    if (Environment.GetEnvironmentVariable("OWN_ALL") == "1") Rules.Base.Move.HorseBodyOwnCourse = true;
     bool all = args.Contains("--all");
     int ti = Array.IndexOf(args, "--trace");
     if (ti >= 0 && ti + 2 < args.Length) { Polygon.TraceUnit = args[ti + 1]; Polygon.TraceMan = int.Parse(args[ti + 2]); }
@@ -370,7 +373,7 @@ if (args.Length > 0 && args[0] == "smooth")
     int td = Array.IndexOf(args, "--dump"); if (td >= 0) { var dp = args[td + 1].Split(','); Polygon.DumpFile = dp[0]; Polygon.DumpEvery = double.Parse(dp[1], System.Globalization.CultureInfo.InvariantCulture); Polygon.DumpFrom = double.Parse(dp[2], System.Globalization.CultureInfo.InvariantCulture); Polygon.DumpTo = double.Parse(dp[3], System.Globalization.CultureInfo.InvariantCulture); if (System.IO.File.Exists(dp[0])) System.IO.File.Delete(dp[0]); }
     int tn = Array.IndexOf(args, "--near"); if (tn >= 0) Polygon.TraceNear = double.Parse(args[tn + 1], System.Globalization.CultureInfo.InvariantCulture);
     var rep = Polygon.Smooth(args.Skip(1).Where((a, i) => a != "--all" && a != "--col" && !(ti >= 0 && i + 1 >= ti && i + 1 <= ti + 2) && !(tn >= 0 && (i + 1 == tn || i + 1 == tn + 1)) && !(td >= 0 && (i + 1 == td || i + 1 == td + 1))).ToArray());
-    Console.WriteLine($"замеров {rep.Samples}, нарушений {rep.Count}; кони вплотную (Г122): {rep.HorsePairs} пар за {rep.HorseFrames} кадров отрядов, наибольшее {rep.HorsePairsWorst} — {rep.HorsePairsAt}");
+    Console.WriteLine($"замеров {rep.Samples}, нарушений {rep.Count}; кони вплотную (Г122): {rep.HorsePairs} пар за {rep.HorseFrames} кадров отрядов, наибольшее {rep.HorsePairsWorst} — {rep.HorsePairsAt}; в схватке {rep.HorsePairsMelee}");
     foreach (var kv in rep.ByKind.OrderByDescending(k => k.Value)) Console.WriteLine($"  {kv.Key}: {kv.Value} (худшее {rep.Worst[kv.Key]:0.0})");
     foreach (var kv in rep.ByScene.OrderByDescending(k => k.Value)) Console.WriteLine($"  сцена «{kv.Key}»: {kv.Value}{(rep.HorseByScene.TryGetValue(kv.Key, out var hp) ? $"; кони вплотную {hp}" : "")}");
     foreach (var kind in rep.ByKind.Keys) foreach (var l in rep.Lines.Where(l => l.Contains($": {kind} — ")).Take(all ? 1000 : 4)) Console.WriteLine("  " + l);
