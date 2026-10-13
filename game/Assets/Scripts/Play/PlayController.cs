@@ -934,7 +934,7 @@ namespace Journal.Play
             current = TurnSummary.Begin(Battle, Session.Turn);
             Session.Go();
             Phase = PlayPhase.Showing; Paused = false;
-            TurnStartTime = ShowTime; stepInTurn = 0; showRate = GameSettings.ComputeFirst ? 1 : 0.3f;
+            TurnStartTime = ShowTime; stepInTurn = 0; showRate = GameSettings.ComputeFirst ? 1 : 0.3f; showVel = 0; computeRate = Speed; lastComputed = -1;
             StartCompute();
             previews.Clear(); previewQueue.Clear();
             Changed?.Invoke();
@@ -975,6 +975,10 @@ namespace Journal.Play
         public bool Computing => !computeDone;
         public double ComputeProgress { get { double ts = Battle.R.Move.TurnSec; return ts <= 0 ? 1 : Math.Max(0, Math.Min(1, (ComputedTime - TurnStartTime) / ts)); } }
         float showRate = 1;
+        float showVel, computeRate; double lastComputed = -1;
+        // во сколько раз показ сейчас медленнее выбранной скорости: счёт не успевает (1 — успевает)
+        public float ShowLag => Phase == PlayPhase.Showing && Speed > 0 && !computeDone ? Mathf.Clamp01(showVel / Speed) : 1;
+        public float ComputeRate => computeRate;
         void StartCompute()
         {
             computeDone = false; computeCancel = false; computeError = null;
@@ -1002,12 +1006,21 @@ namespace Journal.Play
             if (computeError != null) { Debug.LogException(computeError); Say("Ошибка в счёте хода — подробности в журнале Unity"); computeError = null; }
             bool done = computeDone;
             double avail = done ? turnEnd : Math.Min(turnEnd, ComputedTime);
+            // темп счёта: секунд боя за секунду экрана, сглажено за ~1,5 с
+            float dt = Mathf.Max(1e-4f, Time.deltaTime);
+            double comp = ComputedTime;
+            if (!done && lastComputed >= 0 && comp >= lastComputed) computeRate += ((float)((comp - lastComputed) / dt) - computeRate) * (1 - Mathf.Exp(-dt / 1.5f));
+            lastComputed = comp;
             if (!Paused && (done || !GameSettings.ComputeFirst))
             {
-                // запас счёта ≥ 1 с — полная скорость, меньше — медленнее, у края — стоп; скорость показа меняется плавно
-                float want = done ? 1 : Mathf.Clamp01((float)((avail - ShowTime) / 1.0));
-                showRate = Mathf.MoveTowards(showRate, want, Time.deltaTime * 2.5f);
-                ShowTime = Math.Min(ShowTime + Time.deltaTime * Speed * Math.Max(showRate, want < 0.05f ? 0 : 0.05f), avail);
+                // Г126 (Алекс 13.10: «ход считается в отдельном потоке и показывается без рывков»): показ держит запас ~2 с
+                // досчитанного и идёт темпом счёта, если тот медленнее выбранной скорости: желаемая скорость = темп счёта +
+                // поправка за запас; меняется плавно (не быстрее 1,5 × скорость за секунду) — без «стоп — пошёл»
+                double buffer = avail - ShowTime;
+                float want = done ? Speed : Mathf.Clamp(computeRate + (float)(buffer - 2.0) * 0.5f, 0, Speed);
+                showVel = Mathf.MoveTowards(showVel, want, dt * 1.5f * Mathf.Max(1, Speed));
+                ShowTime = Math.Min(ShowTime + dt * showVel, avail);
+                showRate = Speed > 0 ? showVel / Speed : 1;
             }
             if (done && ShowTime >= turnEnd - 1e-6)
             {
