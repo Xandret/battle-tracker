@@ -380,6 +380,11 @@ if (args.Length > 0 && args[0] == "smooth")
     if (Environment.GetEnvironmentVariable("HKP") == "1") Rules.Base.Men.HorseKeepPush = true;
     if (Environment.GetEnvironmentVariable("HKP") == "2") { Rules.Base.Men.HorseKeepPush = true; Rules.Base.Men.HorseKeepPushMode = 2; }
     if (Environment.GetEnvironmentVariable("NOSPLIT") == "1") Rules.Base.Move.SplitAround = false;
+    if (Environment.GetEnvironmentVariable("NC") == "1") Rules.Base.Move.NarrowCentered = true;
+    if (Environment.GetEnvironmentVariable("CSK") != null) Rules.Base.Move.CorridorSlowK = double.Parse(Environment.GetEnvironmentVariable("CSK"), System.Globalization.CultureInfo.InvariantCulture);
+    if (Environment.GetEnvironmentVariable("SMH") == "1") Rules.Base.Move.SlotMorphHorse = true;
+    if (Environment.GetEnvironmentVariable("FRONT0") == "1") Rules.Base.Men.HorseFrontStrict = false;
+    if (Environment.GetEnvironmentVariable("MACC") != null) Rules.Base.Move.SlotMorphAccK = double.Parse(Environment.GetEnvironmentVariable("MACC"), System.Globalization.CultureInfo.InvariantCulture);
     bool all = args.Contains("--all");
     int ti = Array.IndexOf(args, "--trace");
     if (ti >= 0 && ti + 2 < args.Length) { Polygon.TraceUnit = args[ti + 1]; Polygon.TraceMan = int.Parse(args[ti + 2]); }

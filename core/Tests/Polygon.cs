@@ -370,6 +370,26 @@ static class Polygon
         list.Add(CavCav("Конница на стоящую конницу", false, "Натиск конницы на стоящую конницу: кони не проходят сквозь коней, атакующий не уезжает за цель."));
         list.Add(CavCav("Конница на конницу", true, "Встречный натиск двух конниц."));
         list.Add(CavCav("Конница вдогон", false, "Цель уходит налево, конница догоняет её и бьёт в тыл.", away: true));
+        {
+            // учебное поле игры (PlayScenarios.Training, Графика: замер Г118 в показе) — обе стороны под ИИ: Дарлтоны обходят, Пикшарп наступает на их конницу
+            var tmap = Terrain.Create(1600, 1100, Terrain.Id("field"));
+            Terrain.PaintDisc(tmap, "z", 230, 64, 26, 1); Terrain.PaintDisc(tmap, "z", 230, 64, 13, 2);
+            Terrain.PaintRect(tmap, "t", 40, 40, 90, 90, Terrain.Id("forest"));
+            Terrain.PaintSegment(tmap, "t", 0, 116, 320, 104, 1, Terrain.Id("water"));
+            Terrain.PaintSegment(tmap, "t", 140, 111, 156, 110, 1, Terrain.Id("ford"));
+            Terrain.PaintSegment(tmap, "t", 236, 107, 252, 106, 1, Terrain.Id("ford"));
+            var sc = new Scene { Name = "Учебное поле под ИИ", Turns = 7, Geo = new Geo { Map = tmap, W = Terrain.WidthM(tmap), H = Terrain.HeightM(tmap) }, Note = "Учебное поле игры: обе стороны под ИИ (Дарлтоны обходят, Пикшарп наступает на их конницу)." };
+            sc.Battle = new Battle(sc.Geo, R0, new EngineContext { Rng = new Mulberry32(uint.Parse(Environment.GetEnvironmentVariable("TSEED") ?? "2026")).Next });
+            var T = new List<Mover>();
+            void Put(string tpl, int id, string name, double x, double y, double f, int side) { var m = sc.Fighter(tpl, id, name, x, y, f, faction: side); sc.Order(m, new MoveOrder { Kind = OrderKind.Hold }); T.Add(m); }
+            Put("infantry", 1, "Пехота Арнора", 620, 900, 0, 1); Put("infantry", 2, "Пехота Арнора II", 820, 900, 0, 1); Put("archers", 3, "Лучники Арнора", 720, 990, 0, 1);
+            Put("knights", 4, "Королевская стража", 1150, 930, 0, 1); Put("pikemen", 5, "Пикинёры", 380, 930, 0, 1);
+            Put("infantry", 11, "Пехота Дарлтонов", 700, 260, 180, 2); Put("infantry", 12, "Пехота Тосавы", 920, 260, 180, 2); Put("militia", 13, "Ополчение Вульфхартов", 540, 380, 180, 2);
+            Put("knights", 14, "Конница Дарлтонов", 1180, 300, 180, 2); Put("crossbowmen", 15, "Арбалетчики Берга", 820, 160, 180, 2);
+            sc.Battle.AssignSide(2, AiKind.Flank, 1); sc.Battle.AssignSide(1, AiKind.Advance, 14);
+            var bt = sc.Battle; sc.Before = turn => bt.AiOrders();
+            list.Add(sc);
+        }
         return list;
     }
     // зонд: конница на конницу — по секундам: центры, кони врагов внутри друг друга, сколько атакующих за тылом цели

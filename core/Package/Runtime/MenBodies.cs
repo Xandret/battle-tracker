@@ -519,7 +519,7 @@ namespace BattleCore
                     {
                         if (j == i) continue;
                         double ex = tX[j] - xi, ey = tY[j] - yi, along = ex * ux + ey * uy;
-                        if (along <= tHalf[i] + tHalf[j]) continue;   // уступает только задний; сосед по шеренге рядом (на ходу наискось чуть впереди) — не передний
+                        if (along <= (MR.HorseFrontStrict ? tHalf[i] + tHalf[j] : 0)) continue;   // уступает только задний; сосед по шеренге рядом (на ходу наискось чуть впереди) — не передний
                         double side = Math.Abs(-ex * uy + ey * ux);
                         if (side > tRad[i] + tRad[j] + MR.HorseGapM) continue;   // не на пути: сбоку — по ширине коней
                         double gap = along - (tHalf[i] + tRad[i] + tHalf[j] + tRad[j]) - MR.HorseGapM;   // свободно до зазора
