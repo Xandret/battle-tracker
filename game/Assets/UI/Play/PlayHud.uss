@@ -2155,3 +2155,5 @@
 .gmj-box .me-btn { color: var(--ink-dim); background-color: var(--panel-2); border-color: var(--edge-dark); border-width: 1px; border-radius: 3px; padding: 3px 10px; }
 .gmj-box .me-btn:hover { color: var(--ink); border-color: var(--gold-deep); }
 .gmj-box .me-btn.is-on { color: var(--gold-bright); border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
+.gmj-calc { margin-top: 3px; -unity-font-style: bold; }
+.gmj-calcsub { color: #b9c9db; padding-left: 26px; border-left-width: 2px; border-left-color: #3d5068; margin-left: 2px; }

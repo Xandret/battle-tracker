@@ -17,7 +17,7 @@ namespace Journal.Play
 {
     public sealed class GmJournal
     {
-        enum Kind { Head, Sum, Calc, Event, Ai, Gm, Note }
+        enum Kind { Head, Sum, Calc, CalcSub, Event, Ai, Gm, Note }
         static readonly (Kind k, string name)[] Filters = { (Kind.Calc, "Расчёты"), (Kind.Event, "События"), (Kind.Ai, "ИИ"), (Kind.Gm, "Правки ГМа") };
         const int MaxLines = 2500;   // больше — в файл: тысячи надписей UI Toolkit тянет плохо
 
@@ -106,7 +106,8 @@ namespace Journal.Play
 
         bool Pass((Kind k, string t) l)
         {
-            if (l.k == Kind.Calc || l.k == Kind.Event || l.k == Kind.Ai || l.k == Kind.Gm) { if (!on.Contains(l.k)) return false; }
+            var f = l.k == Kind.CalcSub ? Kind.Calc : l.k;
+            if (f == Kind.Calc || f == Kind.Event || f == Kind.Ai || f == Kind.Gm) { if (!on.Contains(f)) return false; }
             var q = search.value?.Trim();
             return string.IsNullOrEmpty(q) || l.k == Kind.Head || l.t.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0;
         }
@@ -158,9 +159,11 @@ namespace Journal.Play
             foreach (var line in log)
             {
                 var k = Classify(line); calc |= k == Kind.Calc;
-                yield return (k, line.StartsWith("ƒ") ? line.Substring(1).TrimStart(' ') : line);
+                // «ƒ   …» — строка внутри окна удара (отступ движка), «ƒ …» — заголовок окна, итог, проверка
+                if (line.StartsWith("ƒ")) { string r = line.Substring(1); yield return (r.StartsWith("   ") ? Kind.CalcSub : Kind.Calc, r.Trim()); }
+                else yield return (k, line);
             }
-            if (!calc) yield return (Kind.Calc, "Разбора ударов по формуле движок в этот ход не записал (запрошено у чата движка) — выше только итоги схваток.");
+            if (!calc) yield return (Kind.Calc, "Разбора ударов по формуле движок в этот ход не записал — ход прошёл без ударов и залпов.");
         }
 
         static Label Line(string text, string cls) { var l = new Label(text); l.AddToClassList("gmj-line"); l.AddToClassList(cls); l.selection.isSelectable = true; return l; }
@@ -173,7 +176,7 @@ namespace Journal.Play
             foreach (var (k, t) in Lines(s, turn).Where(Pass))
             {
                 if (k == Kind.Head) sb.AppendLine().AppendLine("══ " + t + " ══");
-                else sb.AppendLine(k == Kind.Calc ? "  ƒ " + t : k == Kind.Ai || k == Kind.Event || k == Kind.Gm ? "  " + t : t);
+                else sb.AppendLine(k == Kind.Calc ? "  ƒ " + t : k == Kind.CalcSub ? "      " + t : k == Kind.Ai || k == Kind.Event || k == Kind.Gm ? "  " + t : t);
             }
             return sb.ToString().TrimStart();
         }
