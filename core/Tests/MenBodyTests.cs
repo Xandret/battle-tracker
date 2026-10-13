@@ -712,6 +712,37 @@ static class MenBodyTests
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
         });
 
+        // ── Г127: отзыв Алекса 13.10.2026 ──
+        yield return ("Г127: стена в одну клетку без ворот — пики и пехота по обе стороны приказом «атаковать» друг друга сквозь неё не бьётся (ни одного противника, потерь нет); частокол непроходим — сквозь него не войти, «пути нет»", () =>
+        {
+            var geo = MoveTests.Open(400, 400);
+            Terrain.PaintRect(geo.Map, "t", 0, 40, 79, 40, Terrain.Id("wall"));   // стена y 200…205 во всю ширину
+            var bt = new Battle(geo, RB, new EngineContext { Rng = new Mulberry32(3).Next });
+            var T = Templates.Get("infantry"); var TP = Templates.Get("pikemen");
+            var a = bt.Add(TP.Make(1, "Север: пики", 600, 1), 200, 194, 180); var b = bt.Add(T.Make(2, "Юг", 600, 2), 200, 211, 0);
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2 }); bt.Order(b, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1 });
+            int foes = 0;
+            bt.Turn(t => foes += a.Men.Count(x => x.Alive && x.Foe != null) + b.Men.Count(x => x.Alive && x.Foe != null));
+            True(foes == 0 && a.P.U.Soldiers == 600 && b.P.U.Soldiers == 600, $"сквозь стену: бойце-шагов с противником {foes}, потери {600 - a.P.U.Soldiers:0} / {600 - b.P.U.Soldiers:0}");
+            var geo2 = MoveTests.Open(400, 400);
+            Terrain.PaintRect(geo2.Map, "t", 0, 40, 79, 40, Terrain.Id("palisade"));
+            var bt2 = new Battle(geo2, RB, new EngineContext { Rng = new Mulberry32(4).Next });
+            var m = bt2.Add(T.Make(1, "Ополчение", 300, 1), 200, 300, 0);
+            var pv = bt2.Preview(m, new MoveOrder { X = 200, Y = 100, Facing = 0 });
+            True(pv.Note == "пути нет", $"сквозь частокол: {pv.Note ?? "путь есть"}");
+        });
+
+        yield return ("Г127: GroundUnder — карта без кодов, вода задела угол строя: под отрядом «не задано», а не «глубокая вода»", () =>
+        {
+            var geo = MoveTests.Open(400, 400);
+            for (int i = 0; i < geo.Map.T.Length; i++) geo.Map.T[i] = 0;   // ничего не нарисовано
+            Terrain.PaintRect(geo.Map, "t", 0, 0, 37, 37, Terrain.Id("water"));   // вода x, y 0…190
+            var u = Templates.Get("infantry").Make(1, "Пехота", 1000, 1);
+            u.OnMap = true; u.MapX = 200 / 400.0 * 100; u.MapY = 200 / 400.0 * 100; u.Facing = 0;   // строй 125 × 8: левый край заходит в воду
+            var g = BattleMap.GroundUnder(u, geo, RB);
+            True(g.Key == null && g.Name == "не задано", $"под отрядом «{g.Name}» (доля {g.Share:0.00})");
+        });
+
         // ── Алекс 13.10.2026: конница на конницу ──
         yield return ("Алекс 13.10.2026: встречный натиск двух конниц по 400 — в рубке кони не стоят друг в друге (капсула коня в схватке — по его курсу): в среднем за секунду боя меньше 40 пар вплотную на 800 коней (было ~100)", () =>
         {

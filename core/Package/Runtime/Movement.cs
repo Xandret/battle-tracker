@@ -543,6 +543,7 @@ namespace BattleCore
         }
         // Бегущая фигурка (Г70, Г71): сама по себе, по карте направлений к краю карты, на норме отряда — каждая
         // чуть со своим курсом и скоростью (толпа расходится веером и растягивается); строя и мест нет
+        const double FleeAheadM = 6;
         static void FleeDesire(Mover m, Rules r)
         {
             var M = r.Move; var u = m.P.U; var F = m.Field;
@@ -556,7 +557,9 @@ namespace BattleCore
                 double vmax = top * (1 + M.FleeSpeedJitter * (0.5 - h1)) / rho;
                 double own = double.IsNaN(s.FleeH) ? m.FleeHeading : s.FleeH;
                 double hx = Math.Sin(own * Math.PI / 180), hy = -Math.Cos(own * Math.PI / 180);
-                if (double.IsNaN(s.FleeH) && F != null && F.Inside(px, py) && Free(F, px, py))
+                // Г127: свой курс (уворот от врага) упирается в непроходимое — по полю пути, а не в стену или скалу
+                bool dodgeBlocked = !double.IsNaN(s.FleeH) && F != null && Free(F, px, py) && !Free(F, px + hx * FleeAheadM, py + hy * FleeAheadM);
+                if ((double.IsNaN(s.FleeH) || dodgeBlocked) && F != null && F.Inside(px, py) && Free(F, px, py))
                 {
                     int next = F.Next(F.CellOf(px, py));
                     if (next >= 0) { var c = F.CenterOf(next); double ex = c.x - px, ey = c.y - py, el = JsMath.Hypot(ex, ey); if (el > 1e-9) { hx = ex / el; hy = ey / el; } }

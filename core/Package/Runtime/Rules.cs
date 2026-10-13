@@ -100,7 +100,7 @@ namespace BattleCore
                 ["wall"] = new TerrainR("rough", null, cover: 50, sight: 0),
                 ["gate"] = new TerrainR("rough", null, cover: 50, sight: 0),
                 ["tower"] = new TerrainR("rough", null, cover: 50, sight: 0),
-                ["palisade"] = new TerrainR("rough", M(3, 4), cover: 30),
+                ["palisade"] = new TerrainR("rough", null, cover: 30),   // Г127 (отзыв Алекса 13.10.2026): непроходим, как стена — только ворота или пролом (было ход ×3/×4: входили сквозь и застревали)
                 ["moat"] = new TerrainR("rough", M(3, 4)),
                 ["trench"] = new TerrainR("rough", M(3, 4), cover: 30),
                 ["building"] = new TerrainR("rough", null, cover: 50, sight: 0),

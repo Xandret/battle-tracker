@@ -215,6 +215,7 @@ namespace BattleCore
                             if (!can && extra > 0 && gap <= reach + extra) can = dl > 1e-9 && (dx * mgUx[i] + dy * mgUy[i]) / dl >= cosFront;
                             if (!can && extraJ > 0 && gap <= reach + extraJ) can = dl > 1e-9 && (-dx * mgUx[j] - dy * mgUy[j]) / dl >= cosFront;
                             if (!can) continue;
+                            if (WallBetween(man.X, man.Y, oj.X, oj.Y)) continue;   // Г127: сквозь стену не бьются
                             if (mgMan[j] == man.Foe) { best = j; bestGap = gap; keep = true; break; }   // держится за своего
                             if (gap < bestGap || gap == bestGap && j < best) { best = j; bestGap = gap; }
                         }
@@ -234,6 +235,26 @@ namespace BattleCore
                 if (Alive(x)) strikers.Add((x, man, y));   // бегущий не бьёт (Г70)
             }
         }
+        // Г127 (отзыв Алекса 13.10.2026: «бойцы стоят по обе стороны каменной стены и бьются через неё»): между бойцами — клетка стены,
+        // башни, частокола, закрытых ворот или дома (кроме клеток, где стоят сами: гарнизон на стене бьёт как прежде) — не достать
+        bool WallBetween(double ax, double ay, double bx, double by)
+        {
+            var map = Geo?.Map; if (map == null) return false;
+            int W = map.W, H = map.H; double kx = W / Geo.W, ky = H / Geo.H;   // метры → клетки (ширина карты может быть своя)
+            int ca = (int)(ay * ky) * W + (int)(ax * kx), cb = (int)(by * ky) * W + (int)(bx * kx);
+            if (ca == cb) return false;
+            double d = JsMath.Hypot(bx - ax, by - ay); int n = (int)Math.Ceiling(d / 0.5);
+            for (int q = 1; q < n; q++)
+            {
+                double x = ax + (bx - ax) * q / n, y = ay + (by - ay) * q / n;
+                int cx = (int)(x * kx), cy = (int)(y * ky); if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+                int c = cy * W + cx; if (c == ca || c == cb) continue;
+                byte t = map.T[c];
+                if (t == wbWall || t == wbTower || t == wbPalisade || t == wbBuilding || t == wbGate && !openGates.Contains(c)) return true;
+            }
+            return false;
+        }
+        static readonly byte wbWall = Terrain.Id("wall"), wbTower = Terrain.Id("tower"), wbPalisade = Terrain.Id("palisade"), wbBuilding = Terrain.Id("building"), wbGate = Terrain.Id("gate");
         static (int ky, double d)[] Fresh(int n)
         {
             var a = new (int ky, double d)[n];

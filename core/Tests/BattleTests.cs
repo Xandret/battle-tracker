@@ -479,6 +479,17 @@ static class BattleTests
             True(b.Gone && b.Figs.Count == 0 && b.P.U.Status == "fled" && b.P.U.Soldiers > 0, $"ушёл с поля: {b.Gone}, фигурок {b.Figs.Count}, бойцов {b.P.U.Soldiers:0}");
         });
 
+        yield return ("Г127 (отзыв Алекса 13.10.2026: «бегущие упираются в склон и остаются»): край по курсу бегства — в скалах; толпа обходит их и уходит с поля, а не стоит у скал", () =>
+        {
+            var (bt, a, b) = Breaking("infantry", "infantry", 30, 1, 6, menA: 300, h: 900);
+            Terrain.PaintRect(bt.Geo.Map, "t", 50, 150, 189, 179, Terrain.Id("rocks"));   // скалы x 250…950, y 750…900 — прямо по курсу бегства (вниз)
+            bt.Turn();
+            True(b.Fleeing, "побежали в первый ход");
+            bt.Order(a, new MoveOrder { Kind = OrderKind.Hold });
+            for (int i = 0; i < 10 && !b.Gone; i++) bt.Turn();
+            True(b.Gone && b.P.U.Status == "fled", $"не ушёл с поля за 10 ходов: осталось фигурок {b.Figs.Count}, середина ({b.P.X:0}, {b.P.Y:0}), цель бегства ({b.FleeX:0}, {b.FleeY:0}), цель поля {b.Field?.Target}, свой курс у {b.Figs.Count(f => !double.IsNaN(f.FleeH))}, поле: следующая из середины {b.Field?.Next(b.Field.CellOf(b.P.X, b.P.Y))}");
+        });
+
         yield return ("преследование (Г70): рыцари рубят бегущую пехоту — та не отвечает", () =>
         {
             var (bt, a, b) = Breaking("knights", "infantry", 30, 1, 5);

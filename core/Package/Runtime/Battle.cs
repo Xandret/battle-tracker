@@ -893,7 +893,7 @@ namespace BattleCore
             m.FleeY = Math.Max(inset, Math.Min(Geo.H - inset, m.P.Y + hy * run));
             m.FleeHeading = head; m.Fleeing = true; m.FleeSince = t; m.RallyPending = false; m.Rallied = false;
             m.Order = null; m.Track = null; m.Done = false; m.Held = false; m.HoldLeft = 0; m.Vs = 0; aimed.Remove(m);
-            m.Field = FlowField.Build(Geo, R, BattleMap.IsHorse(u), m.FleeX, m.FleeY, 0, null, m.Pass);
+            m.Field = FleeField(m);
             foreach (var s in m.Figs)
             {
                 if (!s.Turned) { s.Turned = true; s.Axis = m.P.Facing; }
@@ -903,6 +903,40 @@ namespace BattleCore
             OwnFleeCourses(m);
             events.Add($"{At(t)} с · 🏃 «{u.Name}» бежит ({why}) — толпой прочь от врага, к краю карты");
         }
+
+        // Г127 (отзыв Алекса 13.10.2026: «бегущие упираются в склон или холм и остаются»): край по курсу бегства может быть в
+        // непроходимом (скалы, вода) или за ним, недостижимо — поле пути тогда пустое, и толпа бежала напрямик, пока не упрётся.
+        // Цель — ближайшая к той точке клетка края, проходимая и достижимая (до FleeEdgeTries построек поля)
+        FlowField FleeField(Mover m)
+        {
+            bool horse = BattleMap.IsHorse(m.P.U);
+            var F = FlowField.Build(Geo, R, horse, m.FleeX, m.FleeY, 0, null, m.Pass);
+            // цель поля — на краю карты (поле переносит цель из непроходимого в ближайшую проходимую клетку — та бывает у скал, а не у края)
+            bool Ok(FlowField f)
+            {
+                if (f.Target < 0) return false;
+                int tx = f.Target % f.W, ty = f.Target / f.W;
+                if (tx > 0 && ty > 0 && tx < f.W - 1 && ty < f.H - 1) return false;
+                int me = f.CellOf(m.P.X, m.P.Y); return me == f.Target || f.Next(me) >= 0;
+            }
+            if (Ok(F)) return F;
+            // клетки края — по удалению от точки бегства
+            var edge = new List<int>(); int W = F.W, H = F.H;
+            for (int x = 0; x < W; x++) { edge.Add(x); edge.Add((H - 1) * W + x); }
+            for (int y = 1; y < H - 1; y++) { edge.Add(y * W); edge.Add(y * W + W - 1); }
+            int tries = 0; var failed = new List<(double x, double y)>();
+            foreach (int c in edge.Where(F.Passable).OrderBy(c => { var p = F.CenterOf(c); return JsMath.Hypot(p.x - m.FleeX, p.y - m.FleeY); }))
+            {
+                var p = F.CenterOf(c);
+                if (failed.Exists(q => JsMath.Hypot(q.x - p.x, q.y - p.y) < FleeEdgeStepM)) continue;   // рядом с неудачной — та же беда
+                failed.Add(p);
+                var G = FlowField.Build(Geo, R, horse, p.x, p.y, 0, null, m.Pass);
+                if (Ok(G)) { m.FleeX = p.x; m.FleeY = p.y; return G; }
+                if (++tries >= FleeEdgeTries) break;
+            }
+            return F;
+        }
+        const int FleeEdgeTries = 6; const double FleeEdgeStepM = 60;
 
         // Г73: каскадная паника — волна целиком в миг бегства, как за столом (Panic.Wave трекера): свои и союзники
         // в 150 м от края до края, первое кольцо — только кто видел; побежавший тянет соседей; каждый — раз за волну
