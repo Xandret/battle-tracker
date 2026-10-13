@@ -9,12 +9,12 @@ namespace Journal.Play
     public sealed class MainMenu
     {
         readonly VisualElement root;
-        readonly Button continueButton;
+        readonly Button continueButton, exitButton, toMainButton; bool toMainAsked;
         readonly Label hint;
         public bool Visible => !root.ClassListContains("hidden");
         public bool CanContinue { get; private set; }
 
-        public MainMenu(VisualElement parent, Action onContinue, Action onNew, Action onArmies, Action onMaps, Action onSettings, Action onExit)
+        public MainMenu(VisualElement parent, Action onContinue, Action onNew, Action onArmies, Action onMaps, Action onSettings, Action onExit, Action onToMain)
         {
             root = new VisualElement(); root.AddToClassList("main-menu"); root.AddToClassList("hidden"); parent.Add(root);
             // заставка (Алекс 10.10.2026): за меню идёт бой сам по себе, по краям экрана — затемнение
@@ -36,7 +36,13 @@ namespace Journal.Play
             B("Армии", () => { Hide(); onArmies(); });
             B("Редактор карт", () => { Hide(); onMaps(); });
             B("Настройки", () => { Hide(); onSettings(); });
-            B("Выход", onExit, "is-quiet");
+            // в бою — не «Выход» из игры, а «Выйти в главное меню» (Алекс 13.10); битва не сохранится — по второму нажатию
+            toMainButton = B("Выйти в главное меню", () =>
+            {
+                if (!toMainAsked) { toMainAsked = true; toMainButton.text = "Битва не сохранится — нажми ещё раз"; return; }
+                toMainAsked = false; onToMain(); Show(false);
+            }, "is-quiet");
+            exitButton = B("Выход", onExit, "is-quiet");
             hint = new Label(); hint.AddToClassList("main-hint"); box.Add(hint);
             var ver = new Label("версия " + UnityEngine.Application.version); ver.AddToClassList("main-hint"); ver.style.opacity = 0.6f; box.Add(ver);
         }
@@ -46,6 +52,8 @@ namespace Journal.Play
         {
             CanContinue = canContinue;
             continueButton.EnableInClassList("hidden", !canContinue);
+            toMainButton.EnableInClassList("hidden", !canContinue); exitButton.EnableInClassList("hidden", canContinue);
+            toMainAsked = false; toMainButton.text = "Выйти в главное меню";
             hint.text = canContinue ? "Esc — вернуться к битве" : "Собери армию в «Армиях» или открой сохранение трекера в «Новой битве»";
             root.EnableInClassList("is-pause", canContinue);
             root.EnableInClassList("is-splash", !canContinue);

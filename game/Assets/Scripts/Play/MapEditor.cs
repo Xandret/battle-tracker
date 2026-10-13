@@ -176,8 +176,10 @@ namespace Journal.Play
         bool MenuOpen => !menu.ClassListContains("hidden");
 
         // ── открыть, закрыть ──
+        void Unfocus() { (uiRoot.panel?.focusController?.focusedElement as VisualElement)?.Blur(); }
         public void Show(MapDoc d = null)
         {
+            Unfocus();   // открыли редактор — клавиши камере, а не полю названия
             if (d != null) { doc = d; file = null; dirty = false; }
             else if (doc == null) { doc = MapMakers.Make("x-castle", null, genSeed); file = null; dirty = false; }
             undo.Clear(); redo.Clear(); drawing.Clear(); sel = null;
@@ -570,6 +572,11 @@ namespace Journal.Play
             bool overUi = OverPanel(mp) || MenuOpen || mp.x < 0 || mp.y < 0 || mp.x >= Screen.width || mp.y >= Screen.height;
             var w = viewer.ScreenToMap(mp); double mx = w.x, my = w.y;
             ppm = Screen.height / (2 * viewer.Cam.orthographicSize);
+            // поле ввода держит фокус, а клавиши — его (Алекс 13.10: «WASD в редакторе заставляет писать имя сейва»):
+            // щелчок по карте, Esc и Enter — из поля вон
+            if (Typing && (!overUi && (mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame || mouse.middleButton.wasPressedThisFrame)
+                           || kb != null && (kb.escapeKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)))
+            { Unfocus(); return; }
             if (kb != null && !Typing) KeysInput(kb);
             if (!ctx.ClassListContains("hidden") && (mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame) && !OverPanel(mp)) ctx.AddToClassList("hidden");
             else if (!overUi) MouseInput(mouse, kb, mx, my, mp);

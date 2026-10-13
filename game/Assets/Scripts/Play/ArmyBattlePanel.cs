@@ -17,8 +17,9 @@ namespace Journal.Play
     {
         sealed class Side
         {
-            public string Path; public ArmyFile File; public int? Fac; public readonly HashSet<int> Chosen = new HashSet<int>();
-            public DropdownField FileBox, FacBox; public ScrollView List; public Label Sum;
+            public string Path; public ArmyFile File; public readonly HashSet<int?> Facs = new HashSet<int?>(); public readonly HashSet<int> Chosen = new HashSet<int>();
+            public DropdownField FileBox; public VisualElement FacList; public ScrollView List; public Label Sum;
+            public int? Fac => Facs.FirstOrDefault();
         }
         static readonly (string Id, string Name)[] BuiltIn = { ("field", "Поле"), ("forest", "Лес"), ("hills", "Холмы"), ("river", "Река"), ("desert", "Пустыня") };
         // шаблоны движка и карты редактора (Saves/Maps, Г102): у них Id «file:путь»
@@ -37,25 +38,26 @@ namespace Journal.Play
 
         readonly VisualElement root;
         readonly Side[] sides = { new Side(), new Side() };
-        readonly DropdownField mapBox; readonly Label seedLabel, status; readonly Button startButton;
-        readonly Action<PlayScenarios.ArmyPick, PlayScenarios.ArmyPick, string, uint> start;
+        readonly DropdownField mapBox, placeBox; readonly Label seedLabel, status; readonly Button startButton;
+        readonly Action<PlayScenarios.ArmyPick, PlayScenarios.ArmyPick, string, uint, string> start;
         List<string> files = new List<string>();
         uint seed = 1;
         public bool Visible => !root.ClassListContains("hidden");
 
-        public ArmyBattlePanel(VisualElement parent, Action<PlayScenarios.ArmyPick, PlayScenarios.ArmyPick, string, uint> start, Action back)
+        public ArmyBattlePanel(VisualElement parent, Action<PlayScenarios.ArmyPick, PlayScenarios.ArmyPick, string, uint, string> start, Action back)
         {
             this.start = start;
             root = new VisualElement(); root.AddToClassList("menu"); root.AddToClassList("hidden"); parent.Add(root);
             var box = new VisualElement(); box.AddToClassList("panel"); box.AddToClassList("lineup-box"); root.Add(box);
             var title = new Label("Своя армия против армии"); title.AddToClassList("menu-title"); box.Add(title);
-            var sub = new Label("Армии — из файлов редактора «Армии» (и сохранений трекера): на каждую сторону файл и фракция, галочками — кто выйдет. Расстановка — сама."); sub.AddToClassList("lineup-sub"); box.Add(sub);
+            var sub = new Label("Армии — из файлов редактора «Армии» (и сохранений трекера): на каждую сторону файл и одна или несколько фракций-союзников, галочками — кто выйдет. Расстановка — сама, потом её можно поправить."); sub.AddToClassList("lineup-sub"); box.Add(sub);
             var cols = new VisualElement(); cols.AddToClassList("lineup-cols"); box.Add(cols);
             for (int k = 0; k < 2; k++) BuildSide(cols, k);
             var mapRow = new VisualElement(); mapRow.AddToClassList("ab-map"); box.Add(mapRow);
             mapBox = new DropdownField("Карта", Maps.Select(m => m.Name).ToList(), 0); mapBox.AddToClassList("ab-drop"); mapRow.Add(mapBox);
             seedLabel = new Label(); seedLabel.AddToClassList("ab-seed"); mapRow.Add(seedLabel);
             var reroll = new Button(() => { NewSeed(); }) { text = "Другая карта" }; reroll.AddToClassList("lineup-mini"); mapRow.Add(reroll);
+            placeBox = UiKit.Tip(new DropdownField("Где кто", PlayScenarios.Places.Select(p => p.Name).ToList(), 0)); placeBox.AddToClassList("ab-drop"); placeBox.AddToClassList("ab-place"); mapRow.Add(placeBox);
             status = new Label(); status.AddToClassList("menu-status"); box.Add(status);
             var foot = new VisualElement(); foot.AddToClassList("lineup-foot"); box.Add(foot);
             var backButton = new Button(() => { Hide(); back(); }) { text = "Назад" }; backButton.AddToClassList("menu-close"); foot.Add(backButton);
@@ -77,8 +79,8 @@ namespace Journal.Play
             }) { text = "Открыть…" };
             open.AddToClassList("lineup-mini"); fileRow.Add(open);
             sd.FileBox.RegisterValueChangedCallback(e => { int i = sd.FileBox.index; if (i >= 0 && i < files.Count && files[i] != sd.Path) SetFile(k, files[i]); });
-            sd.FacBox = new DropdownField("Фракция", new List<string>(), -1); sd.FacBox.AddToClassList("ab-drop"); col.Add(sd.FacBox);
-            sd.FacBox.RegisterValueChangedCallback(e => { var facs = Facs(sd); int i = sd.FacBox.index; if (i >= 0 && i < facs.Count) { sd.Fac = facs[i].Id; FillUnits(k, true); } });
+            var fh = new Label("Фракции стороны — союзники вместе"); fh.AddToClassList("ab-fac-head"); col.Add(fh);
+            sd.FacList = new VisualElement(); sd.FacList.AddToClassList("ab-facs"); col.Add(sd.FacList);
             var bar = new VisualElement(); bar.AddToClassList("lineup-bar"); col.Add(bar);
             var all = new Button(() => { foreach (var u in Units(sd)) sd.Chosen.Add((int)u["id"]); FillUnits(k, false); }) { text = "Все" }; all.AddToClassList("lineup-mini"); bar.Add(all);
             var none = new Button(() => { sd.Chosen.Clear(); FillUnits(k, false); }) { text = "Никого" }; none.AddToClassList("lineup-mini"); bar.Add(none);
@@ -127,14 +129,35 @@ namespace Journal.Play
             SetFac(k, facs.Count > 0 ? facs[0].Id : null);
         }
 
+        // одна фракция (по умолчанию) — остальные галочками
         void SetFac(int k, int? id)
         {
-            var sd = sides[k]; sd.Fac = id;
+            var sd = sides[k]; sd.Facs.Clear(); if (Facs(sd).Any(f => f.Id == id)) sd.Facs.Add(id);
+            FacToggles(k); FillUnits(k, true);
+        }
+        void FacToggles(int k)
+        {
+            var sd = sides[k]; sd.FacList.Clear();
             var facs = Facs(sd);
-            sd.FacBox.choices = facs.Select(f => $"{f.Name} — {f.Count} отр.").ToList();
-            int i = facs.FindIndex(f => f.Id == id);
-            sd.FacBox.SetValueWithoutNotify(i >= 0 ? sd.FacBox.choices[i] : "— нет отрядов —");
-            FillUnits(k, true);
+            if (facs.Count == 0) { var n = new Label("— в файле нет отрядов в строю —"); n.AddToClassList("ab-sum"); sd.FacList.Add(n); return; }
+            foreach (var (id, name, count) in facs)
+            {
+                var fid = id;
+                var row = new VisualElement(); row.AddToClassList("ab-fac"); sd.FacList.Add(row);
+                var sw = new VisualElement(); sw.AddToClassList("ab-fac-swatch");
+                if (UnityEngine.ColorUtility.TryParseHtmlString((string)sd.File.Faction(id)?["color"] ?? "#6e6a62", out var c)) sw.style.backgroundColor = c;
+                var t = new Toggle { text = $"{name} — {count} отр." }; t.AddToClassList("lineup-unit"); t.SetValueWithoutNotify(sd.Facs.Contains(id));
+                // фракция другой стороны того же файла — не взять (иначе бьётся сама с собой)
+                var other = sides[1 - k]; bool taken = other.File != null && string.Equals(other.Path, sd.Path, StringComparison.OrdinalIgnoreCase) && other.Facs.Contains(id);
+                t.SetEnabled(!taken); if (taken) t.tooltip = "Эта фракция уже воюет на другой стороне";
+                t.RegisterValueChangedCallback(e =>
+                {
+                    if (e.newValue) { sd.Facs.Add(fid); foreach (var u in sd.File.UnitsOf(fid).Where(Alive)) sd.Chosen.Add((int)u["id"]); }
+                    else { sd.Facs.Remove(fid); foreach (var u in sd.File.UnitsOf(fid)) sd.Chosen.Remove((int)u["id"]); }
+                    FillUnits(k, false); FacToggles(1 - k);
+                });
+                row.Add(sw); row.Add(t);
+            }
         }
 
         // фракции файла, где есть отряды в строю (и «без фракции», если такие отряды есть)
@@ -145,15 +168,18 @@ namespace Journal.Play
             return ids.Select(id => (id, sd.File.FactionName(id), sd.File.UnitsOf(id).Count(Alive))).Where(f => f.Item3 > 0).ToList();
         }
         static bool Alive(JObject u) => (string)u["status"] != "destroyed" && ((double?)u["soldiers"] ?? 0) >= 1;
-        static IEnumerable<JObject> Units(Side sd) => sd.File == null ? Enumerable.Empty<JObject>() : sd.File.UnitsOf(sd.Fac).Where(Alive);
+        static IEnumerable<JObject> Units(Side sd) => sd.File == null ? Enumerable.Empty<JObject>() : sd.Facs.SelectMany(f => sd.File.UnitsOf(f)).Where(Alive);
 
         void FillUnits(int k, bool selectAll)
         {
             var sd = sides[k];
             if (selectAll) { sd.Chosen.Clear(); foreach (var u in Units(sd)) sd.Chosen.Add((int)u["id"]); }
             sd.List.Clear();
-            foreach (var u in Units(sd).OrderByDescending(u => (double?)u["soldiers"] ?? 0))
+            int? lastFac = int.MinValue;
+            foreach (var u in Units(sd).OrderBy(u => ArmyFile.Id(u["factionId"]) ?? -1).ThenByDescending(u => (double?)u["soldiers"] ?? 0))
             {
+                var uf = ArmyFile.Id(u["factionId"]);
+                if (sd.Facs.Count > 1 && uf != lastFac) { var h = new Label(sd.File.FactionName(uf)); h.AddToClassList("ab-fac-group"); sd.List.Add(h); lastFac = uf; }
                 int id = (int)u["id"];
                 var t = new Toggle { text = $"{(string)u["name"]} — {(double?)u["soldiers"] ?? 0:0}" + ((string)u["status"] == "fled" ? " (бежал, вернётся)" : "") };
                 t.AddToClassList("lineup-unit"); t.SetValueWithoutNotify(sd.Chosen.Contains(id));
@@ -174,20 +200,20 @@ namespace Journal.Play
                 if (sd.Sum != null) sd.Sum.text = $"выбрано {sel.Count} · бойцов {sel.Sum(u => (double?)u["soldiers"] ?? 0):0}";
                 if (sel.Count == 0) ok = false;
             }
-            bool same = sides[0].Path != null && sides[1].Path != null && string.Equals(sides[0].Path, sides[1].Path, StringComparison.OrdinalIgnoreCase) && sides[0].Fac == sides[1].Fac;
+            bool same = sides[0].Path != null && sides[1].Path != null && string.Equals(sides[0].Path, sides[1].Path, StringComparison.OrdinalIgnoreCase) && sides[0].Facs.Overlaps(sides[1].Facs);
             startButton.SetEnabled(ok && !same);
-            status.text = same ? "Обе стороны — одна и та же фракция одного файла: выбери противнику другую" : !ok ? "Нужен хотя бы один отряд с каждой стороны" : "";
+            status.text = same ? "Одна и та же фракция на обеих сторонах — сними её с одной из них" : !ok ? "Нужен хотя бы один отряд с каждой стороны" : "";
         }
 
         void Start()
         {
-            var a = new PlayScenarios.ArmyPick { Path = sides[0].Path, FactionId = sides[0].Fac, Units = new HashSet<int>(sides[0].Chosen) };
-            var b = new PlayScenarios.ArmyPick { Path = sides[1].Path, FactionId = sides[1].Fac, Units = new HashSet<int>(sides[1].Chosen) };
-            string map = Maps[Math.Max(0, mapBox.index)].Id;
+            var a = new PlayScenarios.ArmyPick { Path = sides[0].Path, FactionId = sides[0].Fac, FactionIds = sides[0].Facs.ToList(), Units = new HashSet<int>(sides[0].Chosen) };
+            var b = new PlayScenarios.ArmyPick { Path = sides[1].Path, FactionId = sides[1].Fac, FactionIds = sides[1].Facs.ToList(), Units = new HashSet<int>(sides[1].Chosen) };
+            string map = Maps[Math.Max(0, mapBox.index)].Id, place = PlayScenarios.Places[Math.Max(0, placeBox.index)].Id;
             status.text = "Строю битву…";
             root.schedule.Execute(() =>
             {
-                try { start(a, b, map, seed); Hide(); }
+                try { start(a, b, map, seed, place); Hide(); }
                 catch (Exception e) { UnityEngine.Debug.LogException(e); status.text = "Не вышло: " + e.Message; }
             }).ExecuteLater(30);
         }

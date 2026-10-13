@@ -61,9 +61,13 @@ namespace Journal.Play
         // сторона), номера отрядов второй стороны сдвинуты, чтобы не совпали с первой. Расстановка — сама: в линию лицом
         // к врагу, пехота в центре, конница по флангам, стрелки на 70 м впереди; не влезает в ширину карты — следующая
         // линия позади. Между армиями ~520 м. Карта — шаблон генератора (поле, лес, холмы, река, пустыня).
-        public sealed class ArmyPick { public string Path; public int? FactionId; public ICollection<int> Units; }
+        // FactionIds — несколько фракций на сторону (Алекс 13.10: «не 1 на 1, а 5 подфракций на 3»); пусто — одна FactionId
+        public sealed class ArmyPick { public string Path; public int? FactionId; public ICollection<int?> FactionIds; public ICollection<int> Units; }
+        // где стоит сторона 1 (Алекс 13.10: «выбор полей: сверху или снизу, слева или справа»); сторона 2 — напротив
+        public static readonly (string Id, string Name)[] Places = { ("bottom", "ты снизу, противник сверху"), ("top", "ты сверху, противник снизу"), ("left", "ты слева, противник справа"), ("right", "ты справа, противник слева") };
+        static string Opposite(string p) => p switch { "top" => "bottom", "left" => "right", "right" => "left", _ => "top" };
 
-        public static PlayBattle FromArmies(ArmyPick a, ArmyPick b, string mapId, uint seed)
+        public static PlayBattle FromArmies(ArmyPick a, ArmyPick b, string mapId, uint seed, string place = "bottom")
         {
             var picks = new[] { a, b };
             var sides = new List<(Unit u, string tpl, string style, string color)>[2];
@@ -73,12 +77,14 @@ namespace Journal.Play
             {
                 var f = Journal.Armies.ArmyFile.Load(picks[k].Path);
                 foreach (var c in f.Commanders) { var cm = Journal.Viewer.SaveScene.CommanderOf(c); cm.Id += k * 100000; cm.FactionId = k + 1; cmdrs[cm.Id] = cm; }
-                var fac = f.Faction(picks[k].FactionId);
-                names[k] = (string)fac?["name"] ?? "Без фракции";
-                string color = (string)fac?["color"];
+                var facIds = picks[k].FactionIds != null && picks[k].FactionIds.Count > 0 ? picks[k].FactionIds.ToList() : new List<int?> { picks[k].FactionId };
+                var facNames = facIds.Select(id => (string)f.Faction(id)?["name"] ?? "Без фракции").ToList();
+                names[k] = facNames.Count <= 2 ? string.Join(" и ", facNames) : $"{facNames[0]}, {facNames[1]} и ещё {facNames.Count - 2}";
                 sides[k] = new List<(Unit, string, string, string)>();
-                foreach (var e in f.UnitsOf(picks[k].FactionId))
+                foreach (var fid in facIds)
+                foreach (var e in f.UnitsOf(fid))
                 {
+                    string color = (string)f.Faction(fid)?["color"];   // цвет — своей фракции: союзников видно
                     var u = SaveScene.UnitOf(e);
                     if (u.Status == "destroyed" || u.Soldiers < 1) continue;
                     if (picks[k].Units != null && !picks[k].Units.Contains(u.Id)) continue;
@@ -90,7 +96,9 @@ namespace Journal.Play
             }
             // ширина карты — под самую широкую линию, но не уже шаблона
             double widest = sides.Max(L => L.Sum(x => Formation.Of(x.u, R).Front + 25));
-            var input = new Dictionary<string, object> { ["widthM"] = Math.Max(1600, Math.Min(7000, widest + 500)), ["depthM"] = 1300.0 };
+            bool across = place == "left" || place == "right";   // стороны слева и справа — карта стоя: широкая сторона поперёк
+            double wide = Math.Max(1600, Math.Min(7000, widest + 500));
+            var input = new Dictionary<string, object> { ["widthM"] = across ? 1300.0 : wide, ["depthM"] = across ? wide : 1300.0 };
             // карта: шаблон движка или файл редактора карт («file:путь», Г102) — тогда её размер как есть
             bool fromFile = mapId.StartsWith("file:");
             var mapDoc = fromFile ? Journal.Maps.MapDoc.FromJson(System.IO.File.ReadAllText(mapId.Substring(5))) : null;
@@ -106,13 +114,18 @@ namespace Journal.Play
             };
             pb.Session = new BattleSession(pb.Battle);
             pb.Session.SideNames[1] = names[0]; pb.Session.SideNames[2] = names[1];
-            for (int k = 0; k < 2; k++) Deploy(pb, sides[k], k + 1);
+            Deploy(pb, sides[0], 1, place); Deploy(pb, sides[1], 2, Opposite(place));
             return pb;
         }
 
-        static void Deploy(PlayBattle pb, List<(Unit u, string tpl, string style, string color)> list, int side)
+        // сторона стоит у края where (bottom, top, left, right) лицом к середине карты; линия — вдоль этого края
+        static void Deploy(PlayBattle pb, List<(Unit u, string tpl, string style, string color)> list, int side, string where = null)
         {
-            double W = pb.Geo.W, H = pb.Geo.H, dir = side == 1 ? 1 : -1, facing = side == 1 ? 0 : 180;
+            where ??= side == 1 ? "bottom" : "top";
+            bool vert = where == "bottom" || where == "top";
+            double W = pb.Geo.W, H = pb.Geo.H, dir = where == "bottom" || where == "right" ? 1 : -1;
+            double facing = where switch { "top" => 180, "left" => 90, "right" => 270, _ => 0 };
+            double across = vert ? H : W;
             bool Ranged(Unit u) => u.Weapon == "ranged" || u.Type == "archer";
             var ranged = list.Where(x => Ranged(x.u)).ToList();
             var cav = list.Where(x => !Ranged(x.u) && x.u.Type == "cavalry").ToList();
@@ -120,15 +133,15 @@ namespace Journal.Play
             // главная линия: половина конницы, пехота, другая половина конницы
             var main = cav.Where((_, i) => i % 2 == 0).Concat(foot).Concat(cav.Where((_, i) => i % 2 == 1)).ToList();
             // между армиями ~520 м; на мелкой карте (редактор, Г102) — ближе, чтобы обе влезли
-            double off = Math.Min(260, H * 0.36);
-            Line(pb, main, H / 2 + dir * off, dir, facing, side);
-            Line(pb, ranged, H / 2 + dir * (off - 70), dir, facing, side);
+            double off = Math.Min(260, across * 0.36);
+            Line(pb, main, across / 2 + dir * off, dir, facing, side, vert);
+            Line(pb, ranged, across / 2 + dir * (off - 70), dir, facing, side, vert);
         }
 
         // ряд отрядов по центру карты на высоте y; не влез — следующий ряд дальше от врага
-        static void Line(PlayBattle pb, List<(Unit u, string tpl, string style, string color)> row, double y, double dir, double facing, int side)
+        static void Line(PlayBattle pb, List<(Unit u, string tpl, string style, string color)> row, double y, double dir, double facing, int side, bool vert = true)
         {
-            double W = pb.Geo.W, gap = 25, maxW = W - 200;
+            double W = vert ? pb.Geo.W : pb.Geo.H, gap = 25, maxW = W - 200;   // y — глубина (поперёк края), x — вдоль края
             int i = 0;
             while (i < row.Count)
             {
@@ -144,8 +157,8 @@ namespace Journal.Play
                 {
                     var fp = Formation.Of(t.u, R);
                     double cx = x + fp.Front / 2, cy = y;
-                    for (int s = 0; s < 12 && Blocked(pb.Geo, cx, cy); s++) cy += dir * 20;   // в воде или скалах — сдвинуть назад
-                    var m = pb.Battle.Add(t.u, cx, cy, facing);
+                    for (int s = 0; s < 12 && (vert ? Blocked(pb.Geo, cx, cy) : Blocked(pb.Geo, cy, cx)); s++) cy += dir * 20;   // в воде или скалах — сдвинуть назад
+                    var m = vert ? pb.Battle.Add(t.u, cx, cy, facing) : pb.Battle.Add(t.u, cy, cx, facing);
                     pb.Battle.Order(m, new MoveOrder { Kind = OrderKind.Hold });
                     pb.Tpl[m] = t.tpl; pb.StartMen[m] = t.u.Soldiers;
                     if (t.style != null) pb.Style[m] = t.style;

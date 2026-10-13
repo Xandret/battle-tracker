@@ -91,6 +91,8 @@ namespace Journal.Play
         }
 
         Func<PlayBattle> lastMake = () => PlayScenarios.Training();
+        // выйти из битвы в главное меню (Алекс 13.10): битва брошена, за меню снова идёт заставка
+        public void LeaveBattle() { Chosen = false; lastMake = () => PlayScenarios.Training(); NewBattle(); }
         // новая битва: из меню — выбранная; «ещё раз» — та же
         public void NewBattle(Func<PlayBattle> make = null)
         {

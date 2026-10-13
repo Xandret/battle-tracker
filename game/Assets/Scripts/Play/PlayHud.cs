@@ -81,11 +81,11 @@ namespace Journal.Play
             music = gameObject.AddComponent<MenuMusic>();   // музыка заставки (Алекс 10.10.2026)
             armies = new ArmyEditor(hud);
             lineup = new LineupPanel(hud, (path, ids) => { pc.NewBattle(() => PlayScenarios.FromSave(path, ids)); menu.AddToClassList("hidden"); }, ShowMenu);
-            armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed)); menu.AddToClassList("hidden"); }, ShowMenu);
+            armyBattle = new ArmyBattlePanel(hud, (a, b, map, seed, place) => { pc.NewBattle(() => PlayScenarios.FromArmies(a, b, map, seed, place)); menu.AddToClassList("hidden"); }, ShowMenu);
             settings = new SettingsPanel(hud, () => { if (!mapEditor.Visible) ShowMain(); });   // из меню редактора карт — назад в редактор
             settings.Changed += ApplySettings;
             mapEditor = new MapEditor(hud, pc, FindAnyObjectByType<Journal.Viewer.BattleViewer>());
-            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit);
+            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit, () => pc.LeaveBattle());
             mapEditor.Closed += ShowMain;
             mapEditor.Settings = settings;   // «Настройки» в меню редактора (Алекс 11.10)
             mapEditor.Test += f => armyBattle.Show(null, f);

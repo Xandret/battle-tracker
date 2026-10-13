@@ -1998,6 +1998,12 @@
 .ab-map > .ab-drop { width: 300px; }
 
 .ab-seed { color: var(--ink-faint); font-size: 12px; margin: 0 10px; }
+.ab-map > .ab-place { width: 340px; margin-left: 14px; }
+.ab-fac-head { color: var(--ink-dim); font-size: 12px; margin: 6px 0 2px 0; }
+.ab-facs { max-height: 120px; overflow: hidden; margin-bottom: 4px; }
+.ab-fac { flex-direction: row; align-items: center; }
+.ab-fac-swatch { width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.ab-fac-group { color: var(--gold); font-size: 12px; -unity-font-style: bold; margin: 6px 0 2px 0; }
 
 /* ── поля в тон окнам: выпадающие списки, галочки, ползунок (вместо светлых по умолчанию) ── */
 .unity-base-popup-field__input {
