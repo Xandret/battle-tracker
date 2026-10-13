@@ -727,7 +727,7 @@ namespace BattleCore
             int n = P.Figs.Count;
             double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
             friendsNear ??= new List<Mover>(); friendsNear.Clear();
-            if (M.MenBodies)
+            if (M.MenBodies && !m.Done)   // 13.10.2026: дошедший и стоящий проход между своими не меряет — соседи ему не стенки (конница в толпе стояла колонной по 2)
             {
                 double near = m.NominalFp.Front + M.NarrowAheadM + 60;
                 foreach (var q in ms)
@@ -778,7 +778,8 @@ namespace BattleCore
                     // проход между стоящими своими: сужаемся, только если в него войдёт не меньше FriendGapCols колонн — иначе
                     // это стена, а не проход: ждём и обходим (Г61)
                     double fl = FriendProbe(x, y, -dy, dx, l), fr = FriendProbe(x, y, dy, -dx, rr);
-                    if (fl + fr < l + rr && ColsFor(fl + fr) >= M.FriendGapCols) { l = fl; rr = fr; }
+                    // проход — если в него войдёт не меньше FriendGapCols колонн и FriendGapShare строя (иначе 400 коней шли змейкой по 2)
+                    if (fl + fr < l + rr && ColsFor(fl + fr) >= Math.Max(M.FriendGapCols, M.FriendGapShare * m.NominalCols)) { l = fl; rr = fr; }
                 }
                 int c = ColsFor(M.NarrowCentered ? 2 * Math.Min(l, rr) : l + rr);   // Г111 п.5: строй стоит на оси пути — меряем по меньшему плечу
                 if (c < want && (q <= s || q - s <= LeadFor(c))) want = c;

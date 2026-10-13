@@ -409,6 +409,33 @@ static class BattleTests
             True(bt.WrapOpposite == 0, $"колоннам давали место на противоположной стороне врага: {bt.WrapOpposite} раз (по счёту ядра; по наблюдению за якорями и сменой стороны места — {crossed})");
         });
 
+        yield return ("логика целей (Алекс 13.10.2026): цель разбита — рыцари атакуют ближайшего врага ближе 150 м сами (в журнале «больше нет — атакует»); врага рядом нет — стоят лицом к ближайшему, а не «дошли» в никуда", () =>
+        {
+            var (bt, a, b) = Duel("knights", "infantry", 40, 9);
+            var c = bt.Add(Templates.Get("infantry").Make(3, "Резерв врага", 1000, 2), 500 + 140, 500, 0);
+            bt.Order(a, Attack(2)); bt.Order(c, new MoveOrder { Kind = OrderKind.Hold });
+            b.P.U.Status = "destroyed"; b.P.U.Soldiers = 0;
+            var log = bt.Turn();
+            True(a.Order != null && a.Order.Kind == OrderKind.Attack && a.Order.TargetId == 3 && log.Any(l => l.Contains("больше нет — атакует ближайшего «Резерв врага»")), $"приказ {a.Order?.Kind} на {a.Order?.TargetId}: {string.Join(" | ", log.Where(l => l.Contains("больше нет")))}");
+            var (bt2, a2, b2) = Duel("knights", "infantry", 40, 10);
+            var far = bt2.Add(Templates.Get("infantry").Make(3, "Далеко", 1000, 2), 500, 900, 0);
+            bt2.Order(a2, Attack(2)); bt2.Order(far, new MoveOrder { Kind = OrderKind.Hold });
+            b2.P.U.Status = "destroyed"; b2.P.U.Soldiers = 0;
+            var log2 = bt2.Turn();
+            True(log2.Any(l => l.Contains("больше нет — врага ближе 150 м нет, стоит лицом к «Далеко»")) && Math.Abs(MoveSim.AngleDiff(a2.P.Facing, MoveSim.HeadingOf(far.P.X - a2.P.X, far.P.Y - a2.P.Y))) < 30, $"курс {a2.P.Facing:0}: {string.Join(" | ", log2.Where(l => l.Contains("больше нет")))}");
+        });
+
+        yield return ("узость между своими (13.10.2026): пехота стоит на месте среди своих стоящих отрядов — не ужимается в колонну; проход между своими уже пятой части строя — не проход (ждут и обходят), а не колонна по 2", () =>
+        {
+            var bt = new Battle(Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(12).Next });
+            var T = Templates.Get("infantry");
+            var m = bt.Add(T.Make(1, "Стоит", 1000, 1), 500, 500, 0);
+            bt.Add(T.Make(2, "Сосед слева", 1000, 1), 500 - 128, 500, 0); bt.Add(T.Make(3, "Сосед справа", 1000, 1), 500 + 128, 500, 0);
+            bt.Order(m, new MoveOrder { X = 500, Y = 495, Facing = 0 });
+            for (int i = 0; i < 2; i++) bt.Turn();
+            True(m.Done && m.Cols == m.NominalCols, $"дошёл {m.Done}, колонн {m.Cols} из {m.NominalCols}");
+        });
+
         yield return ("бой в файл для разбора (Алекс 13.10.2026): рыцари в рубке с пехотой, лучники стреляют, поручения ИИ — ход, сохранить, загрузить; следующий ход у сохранённого и у загруженного боец в боец (места, численность, павшие, журнал)", () =>
         {
             var bt = new Battle(Open(1200, 900), R, new EngineContext { Rng = new Mulberry32(17).Next });
