@@ -712,6 +712,16 @@ static class MenBodyTests
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
         });
 
+        yield return ("Г123 (графика 13.10.2026: учебное поле падало на 2-й секунде): место колонны едет к новому, а оно уже на цели (d = 0), разгон мест выключен (SlotMorphAccK = 0) — ни места, ни бойцы не уходят в NaN", () =>
+        {
+            var geo = MoveTests.Open(600, 600);
+            var m = Mover.Place(Templates.Get("infantry").Make(1, "Пехота", 400, 1), 300, 400, 0, RB);
+            MoveSim.Give(m, new MoveOrder { X = 300, Y = 200, Facing = 0 }, geo, RB);
+            var f = m.Figs[0]; f.Morph = true; f.MTX = m.P.Figs[0].X; f.MTY = m.P.Figs[0].Y;
+            MoveSim.Turn(new[] { m }, geo, RB);
+            True(m.P.Figs.All(q => !double.IsNaN(q.X) && !double.IsNaN(q.Y)) && m.Men.All(x => !double.IsNaN(x.X) && !double.IsNaN(x.Y)) && !double.IsNaN(m.P.X), $"NaN: мест {m.P.Figs.Count(q => double.IsNaN(q.X))}, бойцов {m.Men.Count(x => double.IsNaN(x.X))}");
+        });
+
         // ── Г127: отзыв Алекса 13.10.2026 ──
         yield return ("Г127: стена в одну клетку без ворот — пики и пехота по обе стороны приказом «атаковать» друг друга сквозь неё не бьётся (ни одного противника, потерь нет); частокол непроходим — сквозь него не войти, «пути нет»", () =>
         {

@@ -647,7 +647,9 @@ namespace BattleCore
                 var s = m.Figs[k]; if (!s.Morph) { s.MV = 0; continue; }
                 var f = P.Figs[k]; double dx = s.MTX - f.X, dy = s.MTY - f.Y, d = JsMath.Hypot(dx, dy);
                 // разгон и торможение места — не резче SlotMorphAccK разгона отряда: к цели подъезжает, успевая встать
-                s.MV = Math.Min(vcap, Math.Min(s.MV + acc * dt, Math.Max(SlotMorphMinStep / dt, Math.Sqrt(2 * acc * d))));
+                // без разгона (SlotMorphAccK = 0) — сразу во всю прыть; d = 0 при бесконечном разгоне давало √(∞·0) = NaN — место улетало в NaN
+                // (графика 13.10.2026: учебное поле падало на 2-й секунде, IndexOutOfRange в FlowField)
+                s.MV = double.IsPositiveInfinity(acc) ? vcap : Math.Min(vcap, Math.Min(s.MV + acc * dt, Math.Max(SlotMorphMinStep / dt, Math.Sqrt(2 * acc * d))));
                 double v = s.MV * dt;
                 if (d <= v) { f.X = s.MTX; f.Y = s.MTY; s.Morph = false; s.MV = 0; }
                 else { f.X += dx / d * v; f.Y += dy / d * v; }
