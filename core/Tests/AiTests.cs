@@ -176,6 +176,38 @@ static class AiTests
             True(a.Order != null && a.Order.Kind == OrderKind.Move && Math.Abs(a.P.Y - 400) < 30, $"приказ ГМа не перевесил: {a.Order?.Kind}, y {a.P.Y:0}");
             True(c.Order != null && c.Order.Kind != OrderKind.Attack && c.TaskOfKind(bt) == AiKind.Advance, $"свои без поручения: {c.Order?.Kind}");
         });
+
+        yield return ("Алекс 13.10.2026 («вместо того, чтобы поехать к ближайшей цели и сражаться с ней, уезжают от неё к дальней»): конница с поручением «наступать» или «обход» на дальнюю цель (450 м) бьёт врага, с которым уже рубится, и врага вплотную, а не уезжает к дальней", () =>
+        {
+            foreach (var kind in new[] { AiKind.Advance, AiKind.Flank })
+            {
+                // враг вплотную (≈20 м сбоку), в схватку ещё не вступили
+                var bt = New(81, 1200, 800);
+                var d = bt.Add(U("knights", 1, "Дарлтоны", 400, 1), 600, 400, 270);
+                var g = bt.Add(U("knights", 2, "Стража", 400, 2), 150, 400, 90);
+                var x = bt.Add(U("knights", 3, "Рядом", 400, 2), 600, 490, 0);
+                bt.Order(g, new MoveOrder { Kind = OrderKind.Hold }); bt.Order(x, new MoveOrder { Kind = OrderKind.Hold });
+                bt.Assign(d, kind, 2);
+                var said = bt.AiOrders();
+                True(d.Order != null && d.Order.Kind == OrderKind.Attack && d.Order.TargetId == 3, $"{kind}, враг вплотную: приказ {d.Order?.Kind} на {d.Order?.TargetId}: {string.Join(" | ", said)}");
+                // уже рубятся
+                var bt2 = New(82, 1200, 800);
+                var d2 = bt2.Add(U("knights", 1, "Дарлтоны", 400, 1), 600, 400, 270);
+                var g2 = bt2.Add(U("knights", 2, "Стража", 400, 2), 150, 400, 90);
+                var x2 = bt2.Add(U("knights", 3, "Рядом", 400, 2), 520, 400, 90);
+                bt2.Order(g2, new MoveOrder { Kind = OrderKind.Hold });
+                bt2.Order(x2, Attack(1)); bt2.Order(d2, Attack(3));
+                bt2.Turn();
+                True(FightOf(bt2, d2, x2) != null && d2.InMelee, "не сошлись");
+                bt2.Assign(d2, kind, 2);
+                double x0 = d2.Men.Where(q => q.Alive).Average(q => q.X);
+                said = bt2.AiOrders();
+                True(d2.Order != null && d2.Order.Kind == OrderKind.Attack && d2.Order.TargetId == 3, $"{kind}, в рубке: приказ {d2.Order?.Kind} на {d2.Order?.TargetId}: {string.Join(" | ", said)}");
+                bt2.Turn();
+                double x1 = d2.Men.Where(q => q.Alive).Average(q => q.X);
+                True(x0 - x1 < 40 && FightOf(bt2, d2, x2) != null, $"{kind}: уехал из рубки к дальней цели: середина x {x0:0} → {x1:0}");
+            }
+        });
     }
     static AiKind TaskOfKind(this Mover m, Battle bt) => bt.TaskOf(m).Kind;
 }

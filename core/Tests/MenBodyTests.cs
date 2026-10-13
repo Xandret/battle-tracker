@@ -711,6 +711,36 @@ static class MenBodyTests
             True(w.d.Men.All(x => x.Y < 160) && w.d.Men.Count(x => x.Z > 8) * 10 >= w.d.Men.Count * 8, $"живых на стене {w.d.Men.Count(x => x.Z > 8)} из {w.d.Men.Count}");
         });
 
+        // ── Алекс 13.10.2026: конница на конницу ──
+        yield return ("Алекс 13.10.2026: встречный натиск двух конниц по 400 — в рубке кони не стоят друг в друге (капсула коня в схватке — по его курсу): в среднем за секунду боя меньше 40 пар вплотную на 800 коней (было ~100)", () =>
+        {
+            var bt = new Battle(MoveTests.Open(1200, 800), RB, new EngineContext { Rng = new Mulberry32(11).Next });
+            var T = Templates.Get("knights");
+            var g = bt.Add(T.Make(2, "Стража", 400, 2), 350, 400, 90); var d = bt.Add(T.Make(1, "Дарлтоны", 400, 1), 800, 400, 270);
+            bt.Order(d, new MoveOrder { Kind = OrderKind.Attack, TargetId = 2, Charge = true });
+            bt.Order(g, new MoveOrder { Kind = OrderKind.Attack, TargetId = 1, Charge = true });
+            double L = RB.Ranged.HorseLength, W = RB.Ranged.HorseWidth, last = -1; long pairs = 0; int frames = 0;
+            for (int turn = 0; turn < 2; turn++)
+                bt.Turn(t =>
+                {
+                    double now = turn * RB.Move.TurnSec + t; if (now - last < 1 - 1e-6) return; last = now;
+                    if (!d.InMelee) return;
+                    var all = d.Men.Concat(g.Men).Where(x => x.Alive && x.DownLeft <= 0).ToList();
+                    for (int i = 0; i < all.Count; i++)
+                    {
+                        var a = all[i]; double h = a.Facing * Math.PI / 180, fx = Math.Sin(h), fy = -Math.Cos(h);
+                        for (int j = i + 1; j < all.Count; j++)
+                        {
+                            var b = all[j]; double ex = b.X - a.X, ey = b.Y - a.Y; if (Math.Abs(ex) > 4 || Math.Abs(ey) > 4) continue;
+                            if (Math.Abs(ex * fx + ey * fy) < L * 0.8 && Math.Abs(-ex * fy + ey * fx) < W * 0.8) pairs++;
+                        }
+                    }
+                    frames++;
+                });
+            True(frames >= 10, $"в рубке {frames} с");
+            True(pairs < 40.0 * frames, $"кони вплотную: {pairs} пар за {frames} с — {pairs / (double)Math.Max(1, frames):0} в секунду");
+        });
+
         // ── перестановка (Алекс 10.10.2026): боком, если так быстрее ──
         yield return ("перестановка (Алекс 10.10.2026): лучники в 200 м фронтом идут на 60 м влево-назад с тем же курсом — боком и назад без поворота строем (курс за ход меняется меньше 5°), на месте за два хода; та же точка в 500 м — обычным маршем с поворотом; конница (Г122) — всегда с поворотом, головой вперёд", () =>
         {
