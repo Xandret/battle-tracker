@@ -416,6 +416,8 @@ if (args.Length > 0 && args[0] == "smooth")
     if (Environment.GetEnvironmentVariable("NC") == "1") Rules.Base.Move.NarrowCentered = true;
     if (Environment.GetEnvironmentVariable("CSK") != null) Rules.Base.Move.CorridorSlowK = double.Parse(Environment.GetEnvironmentVariable("CSK"), System.Globalization.CultureInfo.InvariantCulture);
     if (Environment.GetEnvironmentVariable("SMH") == "1") Rules.Base.Move.SlotMorphHorse = true;
+    if (Environment.GetEnvironmentVariable("NLH") == "1") Rules.Base.Move.NarrowLeadHorse = true;
+    if (Environment.GetEnvironmentVariable("TRAIL") == "1") Rules.Base.Move.TrailColumns = true;
     if (Environment.GetEnvironmentVariable("FRONT0") == "1") Rules.Base.Men.HorseFrontStrict = false;
     if (Environment.GetEnvironmentVariable("AVOID") == "1") Rules.Base.Men.HorseAvoid = true;
     if (Environment.GetEnvironmentVariable("AVSIDE") != null) Rules.Base.Men.HorseAvoidSideK = double.Parse(Environment.GetEnvironmentVariable("AVSIDE"), System.Globalization.CultureInfo.InvariantCulture);

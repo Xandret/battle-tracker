@@ -63,7 +63,11 @@ namespace BattleCore
         // куда она смотрит; иначе — по строю
         public static double FigHeading(Mover m, FigState s)
         {
-            if (!s.Turned) return s.Face == 0 ? m.P.Facing : MoveSim.Norm(m.P.Facing + s.Face);   // Г106: грань каре и круга смотрит наружу
+            if (!s.Turned)
+            {
+                if (s.Face == 0) { double th = MoveSim.TrailHeading(m, s); if (!double.IsNaN(th)) return th; }   // колонна по следу головы
+                return s.Face == 0 ? m.P.Facing : MoveSim.Norm(m.P.Facing + s.Face);   // Г106: грань каре и круга смотрит наружу
+            }
             double want = s.Wrap ? s.WH : m.Fleeing && !double.IsNaN(s.FleeH) ? s.FleeH : m.P.Facing, a = s.Axis;
             if (Math.Abs(MoveSim.AngleDiff(a, want)) > 90) a += 180;
             return MoveSim.Norm(a);
