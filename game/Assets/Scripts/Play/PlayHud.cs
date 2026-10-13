@@ -30,6 +30,7 @@ namespace Journal.Play
         VisualElement menu, menuList; Label menuStatus;
         LineupPanel lineup;                 // состав битвы из сохранения трекера (Г98)
         MainMenu mainMenu; SettingsPanel settings; ArmyBattlePanel armyBattle;
+        GmJournal journal; SurrenderDialog surrender;   // журнал ГМа и капитуляция (Алекс 13.10)
         MapEditor mapEditor;                // редактор карт (Г102)   // главное меню, настройки, бой своими армиями
         VisualElement overTable; object overBuilt;   // итог битвы «кто сколько потерял» — строится раз на конец битвы
         ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
@@ -85,7 +86,8 @@ namespace Journal.Play
             settings = new SettingsPanel(hud, () => { if (!mapEditor.Visible) ShowMain(); });   // из меню редактора карт — назад в редактор
             settings.Changed += ApplySettings;
             mapEditor = new MapEditor(hud, pc, FindAnyObjectByType<Journal.Viewer.BattleViewer>());
-            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit, () => pc.LeaveBattle());
+            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit, () => pc.LeaveBattle(), () => surrender.Show());
+            journal = new GmJournal(hud, pc); surrender = new SurrenderDialog(hud, pc);
             mapEditor.Closed += ShowMain;
             mapEditor.Settings = settings;   // «Настройки» в меню редактора (Алекс 11.10)
             mapEditor.Test += f => armyBattle.Show(null, f);
@@ -95,10 +97,14 @@ namespace Journal.Play
             ApplySettings();
             overTable = new ScrollView(ScrollViewMode.Vertical); overTable.AddToClassList("over-table");
             againButton.parent.Insert(againButton.parent.IndexOf(againButton), overTable);
+            var overLog = new Button(() => journal.Show()) { text = "📜 Журнал боя" }; overLog.AddToClassList("menu-close"); overLog.style.marginBottom = 6;
+            againButton.parent.Insert(againButton.parent.IndexOf(againButton), overLog);
             ShowMain();   // в начале — главное меню (под ним — поле-заставка)
             if (SmokeTest.On) StartCoroutine(SmokeTest.Run(pc, lineup, mainMenu));   // Journal.exe -smoke: проверка сборки без рук
             logTitle.RegisterCallback<ClickEvent>(_ => logPanel.ToggleInClassList("is-collapsed"));
             feed = root.Q("feed");
+            var gmjOpen = new Label("📜 Журнал ГМа — расчёты, весь бой (J)"); gmjOpen.AddToClassList("sum-toggle"); gmjOpen.AddToClassList("gmj-open"); logPanel.Add(gmjOpen);
+            gmjOpen.RegisterCallback<ClickEvent>(_ => journal.Show());
             summaryBox = new VisualElement(); summaryBox.AddToClassList("sum-box"); logPanel.Add(summaryBox);
             detailsToggle = new Label("Подробно ▸"); detailsToggle.AddToClassList("sum-toggle"); logPanel.Add(detailsToggle);
             detailsScroll = new ScrollView(ScrollViewMode.Vertical); detailsScroll.AddToClassList("sum-details"); detailsScroll.AddToClassList("hidden"); logPanel.Add(detailsScroll);
@@ -147,6 +153,14 @@ namespace Journal.Play
                 end.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); pc.EndBattle(); });
                 menuList.Insert(0, end);
             }
+            if (pc.CanSurrender && pc.Chosen)
+            {
+                var sur = new VisualElement(); sur.AddToClassList("menu-item"); sur.AddToClassList("menu-end");
+                var sn = new Label("🏳 Капитуляция"); sn.AddToClassList("menu-item-name"); sur.Add(sn);
+                var sd = new Label("Одна из сторон сдаётся — битва кончается, победа другой стороне."); sd.AddToClassList("menu-item-note"); sur.Add(sd);
+                sur.RegisterCallback<ClickEvent>(_ => { menu.AddToClassList("hidden"); surrender.Show(); });
+                menuList.Insert(menuList.childCount > 0 && menuList[0].ClassListContains("menu-end") ? 1 : 0, sur);
+            }
             // своя армия против армии: армии из редактора «Армии» (или из сохранений трекера), расстановка — сама
             var ab = new VisualElement(); ab.AddToClassList("menu-item"); ab.AddToClassList("menu-armies");
             var abn = new Label("⚔ Своя армия против армии"); abn.AddToClassList("menu-item-name"); ab.Add(abn);
@@ -172,6 +186,8 @@ namespace Journal.Play
         bool escHandled;
         void Back()
         {
+            if (surrender.Visible) { surrender.Hide(); return; }
+            if (journal.Visible) { journal.Hide(); return; }
             if (armies.Visible) { armies.Escape(); return; }   // крупный вид, список файлов; само окно — своей кнопкой (правки)
             if (mapEditor.Visible) return;   // у редактора карт свой Esc — меню редактора
             if (mainMenu.Visible) { if (mainMenu.CanContinue) mainMenu.Hide(); return; }
@@ -358,7 +374,7 @@ namespace Journal.Play
         void LateBody()
         {
             if (pc?.Session == null || turnNumber == null) return;
-            pc.Blocked = !menu.ClassListContains("hidden") || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
+            pc.Blocked = !menu.ClassListContains("hidden") || journal.Visible || surrender.Visible || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
             mapEditor.Tick();
             hud.EnableInClassList("is-bare", !pc.Chosen || mapEditor.Visible);   // поле-заставка за главным меню — без панелей битвы
             pc.DemoHold = mapEditor.Visible || armies.Visible;   // в редакторах заставка не водит камеру
@@ -376,6 +392,8 @@ namespace Journal.Play
                 if (picked == null || picked == hud) { focused.Blur(); typing = false; }
             }
             Journal.Viewer.BattleViewer.KeysBlocked = typing;
+            if (kb != null && kb.jKey.wasPressedThisFrame && !typing && pc.Chosen && pc.Session != null && (journal.Visible || !pc.Blocked)) journal.Toggle();
+            journal.Tick();
             if (kb != null && kb.escapeKey.wasPressedThisFrame && typing) { focused.Blur(); escHandled = true; }   // Esc в поле — выйти из поля
             if (kb != null && kb.escapeKey.wasPressedThisFrame && pc.Blocked && !escHandled) Back();
             escHandled = false;

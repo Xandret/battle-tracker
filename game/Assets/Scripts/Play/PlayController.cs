@@ -949,6 +949,23 @@ namespace Journal.Play
             Changed?.Invoke();
         }
 
+        // капитуляция (Алекс 13.10): сторона сдаётся между ходами — битва кончается, победа — оставшейся стороне. Итог
+        // пишется в сессию, как его пишет сам движок при бегстве всех (Winner / Outcome); откат хода его снимает
+        public bool CanSurrender => Game != null && Phase == PlayPhase.Orders && !MidTurn && Session.Sides.Count() > 1;
+        public void Surrender(int side)
+        {
+            if (!CanSurrender) return;
+            CancelDrag();
+            var rest = Session.Sides.Where(sd => sd != side && Session.UnitsOf(sd).Any(Present)).ToList();
+            Session.Phase = BattleCore.Phase.Over;
+            Session.Winner = rest.Count == 1 ? rest[0] : 0;
+            Session.Outcome = $"Капитуляция: «{Session.Name(side)}» сдаётся" + (rest.Count == 1 ? $" — победа: {Session.Name(rest[0])}" : rest.Count > 1 ? $" — остаются: {string.Join(", ", rest.Select(Session.Name))}" : "");
+            GmLog.Add($"ход {Session.Turn}: {Session.Outcome}");
+            EndedByPlayer = false; Phase = PlayPhase.Over; recorder.Rec.Done = true;
+            Selection.Clear(); Selected = null; previews.Clear(); previewQueue.Clear();
+            Say(Session.Outcome); Changed?.Invoke();
+        }
+
         void OnDestroy() => StopCompute();
         void Update()
         {

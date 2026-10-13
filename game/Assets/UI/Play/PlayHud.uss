@@ -2124,3 +2124,34 @@
 .gm-box .unity-base-text-field__input, .gm-box .unity-base-popup-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }
 .gm-box .unity-base-text-field__input:focus, .gm-box .unity-base-popup-field__input:focus { border-color: var(--gold); }
 .gm-box .unity-base-popup-field__arrow { -unity-background-image-tint-color: var(--gold); }
+
+/* ── журнал ГМа (Алекс 13.10): ходы слева, записи справа ── */
+.gmj-open { color: var(--gold); margin-bottom: 4px; }
+.gmj-box { width: 80%; max-width: 1100px; height: 82%; padding: 14px 18px; }
+.gmj-top { flex-direction: row; align-items: center; margin-bottom: 6px; }
+.gmj-title { flex-grow: 1; font-size: 20px; -unity-font-style: bold; color: var(--gold-bright); }
+.gmj-close { width: 30px; height: 28px; color: var(--ink-dim); background-color: var(--panel-2); border-color: var(--edge-dark); }
+.gmj-close:hover { color: var(--ink); border-color: var(--gold-deep); }
+.gmj-bar { flex-direction: row; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.gmj-search { width: 220px; margin-left: 8px; }
+.gmj-row { flex-direction: row; flex-grow: 1; min-height: 0; }
+.gmj-turns { width: 130px; flex-shrink: 0; margin-right: 10px; border-right-width: 1px; border-right-color: var(--edge-dark); }
+.gmj-turn { padding: 5px 8px; margin: 1px 6px 1px 0; color: var(--ink-dim); border-radius: 3px; font-size: 13px; }
+.gmj-turn:hover { color: var(--ink); background-color: rgba(255, 255, 255, 0.05); }
+.gmj-turn.is-on { color: var(--gold-bright); background-color: rgba(217, 173, 85, 0.18); -unity-font-style: bold; }
+.gmj-body { flex-grow: 1; }
+.gmj-line { font-size: 12px; white-space: normal; margin-bottom: 2px; color: var(--ink-dim); }
+.gmj-line.gmj-head { font-size: 15px; -unity-font-style: bold; color: var(--gold); margin: 10px 0 4px 0; border-bottom-width: 1px; border-bottom-color: var(--edge-dark); }
+.gmj-sum { color: var(--ink); -unity-font-style: bold; }
+.gmj-calc { color: #cfe0f2; padding-left: 10px; border-left-width: 2px; border-left-color: #5d7896; margin-left: 2px; }
+.gmj-event { color: var(--ink-dim); }
+.gmj-ai { color: var(--ink-faint); font-size: 11px; }
+.gmj-gm { color: #e8c47a; }
+.gmj-note { color: var(--ink-faint); -unity-font-style: italic; white-space: normal; }
+.gmj-status { color: var(--gold-bright); font-size: 12px; margin-top: 6px; white-space: normal; }
+.gmj-box { background-color: rgba(22, 18, 13, 0.98); }
+.gmj-box .unity-base-text-field__input { background-color: #15110b; border-color: var(--edge); color: var(--ink); font-size: 12px; }
+.gmj-box .unity-base-text-field__input:focus { border-color: var(--gold); }
+.gmj-box .me-btn { color: var(--ink-dim); background-color: var(--panel-2); border-color: var(--edge-dark); border-width: 1px; border-radius: 3px; padding: 3px 10px; }
+.gmj-box .me-btn:hover { color: var(--ink); border-color: var(--gold-deep); }
+.gmj-box .me-btn.is-on { color: var(--gold-bright); border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
