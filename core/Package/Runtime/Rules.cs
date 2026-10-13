@@ -284,7 +284,10 @@ namespace BattleCore
             public double Tau = 0.5;          // Г76: боец догоняет своё место за ~Tau с — строй «дышит» на поворотах и в давке
             public double SpeedK = 1.4, WalkMin = 2;   // предел скорости бойца — скорость фигурки (не меньше WalkMin) × SpeedK
             public double BodyAccelBusyK = 12; public bool HorseKeepPush = false; public int HorseKeepPushMode = 1;   // Г123: разгон тела в лесу, на пересадке и сквозь своих — во столько раз резвее нормы (было без предела: срывы 1 → 22 м/с за кадр)
-            public double HorseGapM = 0.4; public bool HorseFrontStrict = true;     // Г122: зазор, с которым конь держится за своим передним (подравнивает ход загодя, не толкается)
+            public double HorseGapM = 0.4; public bool HorseFrontStrict = true;
+            // Проба (Алекс 13.10.2026): конь заранее расходится со своими по скоростям (взаимное избегание) — на HorseAvoidSec вперёд, своя доля
+            // HorseAvoidShare, зазор HorseAvoidGapM; поправка не больше HorseAvoidMaxK своего хода (не меньше 1 м/с). Выключено до замера
+            public bool HorseAvoid = false; public double HorseAvoidSec = 0.6, HorseAvoidShare = 0.5, HorseAvoidGapM = 0.2, HorseAvoidMaxK = 0.5, HorseAvoidRelMax = 6, HorseAvoidSideK = 0.3, HorseAvoidMaxMps = 2;     // Г122: зазор, с которым конь держится за своим передним (подравнивает ход загодя, не толкается)
             public double BodyMaxK = 1.05;    // Г118: и никогда не быстрее своей наибольшей (норма отряда после разгона, в натиске × Cavalry.ChargeMult) × BodyMaxK (мерило даёт 1,1)
             public double AccelK = 1.0;       // Г118: разгон и тормоз бойца — ровно как у его отряда (FigureAccelK 1 × 1; было 1,5 × 2 — втрое резвее нормы) (иначе всадник пролетает мимо остановившейся фигурки)
             public double MaxLagM = 2.5;      // дальше этого от своего места боец не отстаёт и не вылетает

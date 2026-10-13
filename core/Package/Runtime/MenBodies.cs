@@ -42,7 +42,8 @@ namespace BattleCore
         public static int RigidMen, RigidUnits;      // Г86: сколько бойцов на жёстких местах и отрядов «вдали» на последнем шаге (для тестов и замеров)
         [ThreadStatic] static int[] tBlocked;        // номер отряда, которому уступил на этом шаге (0 — никому)
         [ThreadStatic] static bool[] tBlockedEnemy;
-        [ThreadStatic] static Dictionary<FigState, List<int>> colOf;   // Г122: кони по колоннам — для «своего переднего»
+        [ThreadStatic] static Dictionary<FigState, List<int>> colOf;
+        [ThreadStatic] static double[] avDx, avDy;   // проба: поправка желаемой скорости коня — разойтись со своими заранее   // Г122: кони по колоннам — для «своего переднего»
         [ThreadStatic] static bool[] tYield, tSamePush, tPushOther;   // Г123: толкнули только свои по отряду / кто-то чужой
         [ThreadStatic] static double[] tPx, tPy;   // Г118: на этом шаге уступил (взгляд вперёд) — ход меняет без предела тормоза
         [ThreadStatic] static bool[] tFree;    // Г118: тело в свободном ходу (не в лесу, не на пересадке, не сквозь своих) — только там пределы разгона
@@ -529,6 +530,64 @@ namespace BattleCore
                         if (a < allow) allow = a;
                     }
                     if (allow < vl) { double k = allow / vl; tDvx[i] *= k; tDvy[i] *= k; }
+                }
+            }
+            // Проба (Алекс 13.10.2026, «свой ИИ у каждого»): конь заранее расходится со своими — по желаемым скоростям прикидывает,
+            // сойдётся ли с соседом ближе суммы тел за HorseAvoidSec, и меняет свою скорость на свою долю (HorseAvoidShare), чтобы разойтись.
+            // Только свои и союзники на ходу (во врага в рубке и натиске — касание нужно); идущие рядом той же скоростью — без поправки
+            if (MR.HorseAvoid)
+            {
+                double T = MR.HorseAvoidSec;
+                if (avDx == null || avDx.Length < c) { avDx = new double[Math.Max(c, 1024)]; avDy = new double[avDx.Length]; }
+                for (int i = 0; i < c; i++)
+                {
+                    avDx[i] = 0; avDy[i] = 0;
+                    if (tRigid[i] || (tFlag[i] & 64) == 0 || tM[i].Fleeing || tMan[i].Foe != null || (tFlag[i] & 16) != 0 || tM[i].InMelee) continue;
+                    double vix = tDvx[i], viy = tDvy[i];
+                    double ri = tRad[i] + 0.5 * tHalf[i], xi = tX[i], yi = tY[i];
+                    double reach = (JsMath.Hypot(vix, viy) + MR.HorseAvoidRelMax) * T + ri + maxBody;
+                    int cx0 = Math.Max(0, (int)((xi - reach - gx0) / gCell)), cx1 = Math.Min(gW - 1, (int)((xi + reach - gx0) / gCell));
+                    int cy0 = Math.Max(0, (int)((yi - reach - gy0) / gCell)), cy1 = Math.Min(gH - 1, (int)((yi + reach - gy0) / gCell));
+                    for (int cy = cy0; cy <= cy1; cy++)
+                        for (int cx = cx0; cx <= cx1; cx++)
+                            for (int j = gHead[cy * gW + cx]; j >= 0; j = gNext[j])
+                            {
+                                if (j == i || tMi[j] < 0) continue;
+                                var rel = RelOf(i, j);
+                                if (rel != Rel.Same && rel != Rel.Friend) continue;
+                                double px = tX[j] - xi, py = tY[j] - yi;
+                                double vx = vix - tDvx[j], vy = viy - tDvy[j], v2 = vx * vx + vy * vy;
+                                if (v2 < 0.25) continue;   // идут вместе — расходиться не от чего
+                                double pv = px * vx + py * vy;
+                                if (pv <= 0) continue;     // расходятся
+                                double ts = Math.Min(T, pv / v2);
+                                double qx = px - vx * ts, qy = py - vy * ts, d = Math.Sqrt(qx * qx + qy * qy);
+                                double rj = tRad[j] + ((tFlag[j] & 64) != 0 ? 0.5 * tHalf[j] : 0), Rr = ri + rj + MR.HorseAvoidGapM;
+                                if (d >= Rr) continue;
+                                double mx, my;
+                                if (d > 1e-6) { mx = qx / d; my = qy / d; } else { double vl = Math.Sqrt(v2); mx = -vy / vl; my = vx / vl; }
+                                // кто уступает: свой стоящий или жёсткий — не уступит, всё на мне; иначе пополам
+                                bool jMoves = !tRigid[j] && tDvx[j] * tDvx[j] + tDvy[j] * tDvy[j] > 0.25 && tMan[j].Foe == null;
+                                double share = jMoves ? MR.HorseAvoidShare : 1;
+                                double dv = share * (Rr - d) / Math.Max(ts, dt);
+                                avDx[i] -= mx * dv; avDy[i] -= my * dv;
+                            }
+                }
+                for (int i = 0; i < c; i++)
+                {
+                    double ax = avDx[i], ay = avDy[i], al = Math.Sqrt(ax * ax + ay * ay);
+                    if (al < 1e-9) continue;
+                    double vl = JsMath.Hypot(tDvx[i], tDvy[i]);
+                    // конь расходится ходом (прибавить, сбавить), вбок — только долей HorseAvoidSideK: иначе рывок «конь вбок»
+                    if (vl > 1)
+                    {
+                        double ux = tDvx[i] / vl, uy = tDvy[i] / vl, al2 = ax * ux + ay * uy;
+                        ax = ux * al2 + (ax - ux * al2) * MR.HorseAvoidSideK; ay = uy * al2 + (ay - uy * al2) * MR.HorseAvoidSideK;
+                        al = Math.Sqrt(ax * ax + ay * ay);
+                    }
+                    double cap = Math.Min(MR.HorseAvoidMaxMps, Math.Max(1, MR.HorseAvoidMaxK * vl));
+                    if (al > cap) { ax *= cap / al; ay *= cap / al; }
+                    tDvx[i] += ax; tDvy[i] += ay;
                 }
             }
             Prof.Add(13, ref pt);

@@ -384,6 +384,10 @@ if (args.Length > 0 && args[0] == "smooth")
     if (Environment.GetEnvironmentVariable("CSK") != null) Rules.Base.Move.CorridorSlowK = double.Parse(Environment.GetEnvironmentVariable("CSK"), System.Globalization.CultureInfo.InvariantCulture);
     if (Environment.GetEnvironmentVariable("SMH") == "1") Rules.Base.Move.SlotMorphHorse = true;
     if (Environment.GetEnvironmentVariable("FRONT0") == "1") Rules.Base.Men.HorseFrontStrict = false;
+    if (Environment.GetEnvironmentVariable("AVOID") == "1") Rules.Base.Men.HorseAvoid = true;
+    if (Environment.GetEnvironmentVariable("AVSIDE") != null) Rules.Base.Men.HorseAvoidSideK = double.Parse(Environment.GetEnvironmentVariable("AVSIDE"), System.Globalization.CultureInfo.InvariantCulture);
+    if (Environment.GetEnvironmentVariable("AVMAX") != null) Rules.Base.Men.HorseAvoidMaxMps = double.Parse(Environment.GetEnvironmentVariable("AVMAX"), System.Globalization.CultureInfo.InvariantCulture);
+    if (Environment.GetEnvironmentVariable("AVSEC") != null) Rules.Base.Men.HorseAvoidSec = double.Parse(Environment.GetEnvironmentVariable("AVSEC"), System.Globalization.CultureInfo.InvariantCulture);
     if (Environment.GetEnvironmentVariable("MACC") != null) Rules.Base.Move.SlotMorphAccK = double.Parse(Environment.GetEnvironmentVariable("MACC"), System.Globalization.CultureInfo.InvariantCulture);
     bool all = args.Contains("--all");
     int ti = Array.IndexOf(args, "--trace");
