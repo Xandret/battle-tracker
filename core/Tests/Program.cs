@@ -394,6 +394,50 @@ if (args.Length > 1 && args[0] == "replay")
     }
     return 0;
 }
+// поиск падений: учебное поле игры, N зёрен, приказы как у игрока (атака ближайшего, натиск, точка, держать, ИИ), до 10 ходов
+if (args.Length > 0 && args[0] == "fuzz")
+{
+    int n = args.Length > 1 ? int.Parse(args[1]) : 20, bad = 0;
+    for (int seed = 1; seed <= n; seed++)
+    {
+        var tmap = Terrain.Create(1600, 1100, Terrain.Id("field"));
+        Terrain.PaintDisc(tmap, "z", 230, 64, 26, 1); Terrain.PaintDisc(tmap, "z", 230, 64, 13, 2);
+        Terrain.PaintRect(tmap, "t", 40, 40, 90, 90, Terrain.Id("forest"));
+        Terrain.PaintSegment(tmap, "t", 0, 116, 320, 104, 1, Terrain.Id("water"));
+        Terrain.PaintSegment(tmap, "t", 140, 111, 156, 110, 1, Terrain.Id("ford"));
+        Terrain.PaintSegment(tmap, "t", 236, 107, 252, 106, 1, Terrain.Id("ford"));
+        var geo = new Geo { Map = tmap, W = Terrain.WidthM(tmap), H = Terrain.HeightM(tmap) };
+        var bt = new Battle(geo, Rules.Base, new EngineContext { Rng = new Mulberry32((uint)seed).Next });
+        var ses = new BattleSession(bt);
+        void Put(string tpl, int id, string name, double x, double y, double f, int side) { var m = bt.Add(Templates.Get(tpl).Make(id, name, 1000, side), x, y, f); bt.Order(m, new MoveOrder { Kind = OrderKind.Hold }); }
+        Put("infantry", 1, "Пехота Арнора", 620, 900, 0, 1); Put("infantry", 2, "Пехота Арнора II", 820, 900, 0, 1); Put("archers", 3, "Лучники Арнора", 720, 990, 0, 1);
+        Put("knights", 4, "Королевская стража", 1150, 930, 0, 1); Put("pikemen", 5, "Пикинёры", 380, 930, 0, 1);
+        Put("infantry", 11, "Пехота Дарлтонов", 700, 260, 180, 2); Put("infantry", 12, "Пехота Тосавы", 920, 260, 180, 2); Put("militia", 13, "Ополчение Вульфхартов", 540, 380, 180, 2);
+        Put("knights", 14, "Конница Дарлтонов", 1180, 300, 180, 2); Put("crossbowmen", 15, "Арбалетчики Берга", 820, 160, 180, 2);
+        var rnd = new Mulberry32((uint)(seed * 7919));
+        if (seed % 2 == 0) bt.AssignSide(2, AiKind.Flank, 1); else bt.AssignSide(2, AiKind.Advance, 4);
+        int turn = 0;
+        try
+        {
+            for (turn = 1; turn <= 10 && ses.Phase != Phase.Over; turn++)
+            {
+                foreach (var m in bt.Movers.Where(q => q.P.U.FactionId == 1 && q.P.U.Status == "active" && q.P.U.Soldiers > 0))
+                {
+                    double r = rnd.Next();
+                    var foe = bt.Movers.Where(e => e.P.U.FactionId == 2 && e.P.U.Soldiers > 0 && e.P.U.Status == "active").OrderBy(e => JsMath.Hypot(e.P.X - m.P.X, e.P.Y - m.P.Y)).FirstOrDefault();
+                    if (r < 0.45 && foe != null) ses.SetOrder(m, new MoveOrder { Kind = OrderKind.Attack, TargetId = foe.P.U.Id, Charge = m.P.U.Type == "cavalry" && rnd.Next() < 0.6 });
+                    else if (r < 0.75) ses.SetOrder(m, new MoveOrder { X = 100 + rnd.Next() * 1400, Y = 100 + rnd.Next() * 900, Facing = rnd.Next() * 360 });
+                    else if (r < 0.85) ses.SetOrder(m, new MoveOrder { Kind = OrderKind.Hold });
+                }
+                ses.Go(); while (ses.Step()) { }
+            }
+            Console.WriteLine($"зерно {seed}: {turn - 1} ходов, без ошибок");
+        }
+        catch (Exception e) { bad++; Console.WriteLine($"зерно {seed}, ход {turn}: {e}"); }
+    }
+    Console.WriteLine($"ошибок: {bad} из {n}");
+    return 0;
+}
 if (args.Length > 0 && args[0] == "calc")
 {
     var bt = new Battle(MoveTests.Open(1000, 1000), Rules.Base, new EngineContext { Rng = new Mulberry32(5).Next });
