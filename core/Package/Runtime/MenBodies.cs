@@ -374,6 +374,15 @@ namespace BattleCore
                     // капсула коня для толкотни лежит вдоль колонны (бегущего — по курсу): развернуть разом длинные тела в плотном
                     // строю — значит раскидать соседей; курс тела (Г94) — для хода и рисунка
                     double ph = m.Fleeing || inForest || horse && (M.HorseBodyOwnCourse || M.HorseBodyOwnCourseInMelee && m.FightsHorse && (man.Foe != null || s.Fighting)) ? fh : s.Hd * Math.PI / 180;   // Б5: в лесу — по своему курсу: иначе конь не повернётся между стволами
+                    // графика 14.10.2026 (рывок вбок в миг сшибки, 0.3.15): капсула коня — по колонне или по своему курсу (в рубке с конницей,
+                    // в лесу); переключалась разом у сотен коней — рисуемый по ней конь «прыгал» на 45–90°. Теперь доворачивается к нужной
+                    // не быстрее поворота тела (Men.BodyAxisTurnDegPerSec)
+                    if (man.BodyFacingSet && MR.BodyAxisTurnDegPerSec > 0)
+                    {
+                        double want0 = ph * 180 / Math.PI, dh0 = MoveSim.AngleDiff(man.BodyFacing, want0), lim = MR.BodyAxisTurnDegPerSec * dt;
+                        if (Math.Abs(dh0) > lim) ph = MoveSim.Norm(man.BodyFacing + Math.Sign(dh0) * lim) * Math.PI / 180;
+                    }
+                    man.BodyFacingSet = true;
                     tUx[c] = Math.Sin(ph); tUy[c] = -Math.Cos(ph); tHalf[c] = half; tRad[c] = rad; man.BodyFacing = ph * 180 / Math.PI;
                     tX0[c] = man.X; tY0[c] = man.Y; tX[c] = man.X; tY[c] = man.Y; tDvx[c] = vx; tDvy[c] = vy; tVmax[c] = vmax; tYield[c] = false; tSamePush[c] = false; tPushOther[c] = false; tPx[c] = 0; tPy[c] = 0; tFree[c] = !inForest && !man.Reseat && !Through(s);
                     // расталкивание — не быстрее PushMaxMps, как бы ни был скор сам боец: иначе конь на полном ходу, врезавшись,

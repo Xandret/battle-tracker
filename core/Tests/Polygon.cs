@@ -493,7 +493,9 @@ static class Polygon
         public readonly List<(string scene, string kind, string unit, double t, double val, double lim, string line)> Recs = new List<(string, string, string, double, double, double, string)>();
         public int Samples;
         public int Count => Lines.Count;
-        public long HorsePairs, HorseFrames, HorsePairsMelee; public int HorsePairsWorst; public string HorsePairsAt = "";   // Г122: кони вплотную
+        public long HorsePairs, HorseFrames, HorsePairsMelee;
+        public readonly Dictionary<string, int> BodyJumps = new Dictionary<string, int>();
+        public int HorsePairsWorst; public string HorsePairsAt = "";   // Г122: кони вплотную   // BodyJumps — рисуемый курс тела коня (BodyFacing) прыгнул > 45° за кадр: «отряд, секунда» → сколько коней
         public readonly Dictionary<string, long> HorseByScene = new Dictionary<string, long>();
     }
     public static string TraceUnit; public static int TraceMan; public static bool TraceCol; public static double TraceNear; public static string DumpFile; public static double DumpEvery, DumpFrom, DumpTo = 1e9;   // след одного бойца по кадрам (зонд smooth --trace [--col])
@@ -528,6 +530,7 @@ static class Polygon
     {
         var R = Rules.Base; var S = R.Smooth; var rep = new SmoothReport(); curRep = rep;
         var prev = new Dictionary<Man, (double x, double y, double vx, double vy, double head, double t, bool contact)>();
+        var prevBody = new Dictionary<Man, double>();
         var prevC = new Dictionary<Mover, (double x, double y, double t)>();   // опорная точка отряда (m.P) — по ней знамёна и таблички (Графика, Г118 п.а)
         void Add(string scene, string kind, double val, string what, string unit = "", double t = 0, double lim = 0)
         {
@@ -584,6 +587,12 @@ static class Polygon
                         foreach (var man in m.Men)
                         {
                             if (!man.Alive) { prev.Remove(man); continue; }
+                            if (horse)
+                            {
+                                if (prevBody.TryGetValue(man, out var pbf) && Math.Abs(MoveSim.AngleDiff(pbf, man.BodyFacing)) > 45)
+                                { string key = $"{sc.Name} · «{u.Name}» · {now:0.0} с"; rep.BodyJumps[key] = (rep.BodyJumps.TryGetValue(key, out var bj) ? bj : 0) + 1; }
+                                prevBody[man] = man.BodyFacing;
+                            }
                             bool contact = man.Foe != null || man.DownLeft > 0 || man.InDuel || !double.IsNaN(man.PostX);
                             if (TraceUnit != null && u.Name == TraceUnit && man.Id == TraceMan && prev.TryGetValue(man, out var tp))
                             {
@@ -597,7 +606,7 @@ static class Polygon
                                 if (TraceNear > 0 && Math.Abs(now - TraceNear) < 0.11)
                                     foreach (var o in ms.SelectMany(q => q.Men.Where(x => x.Alive && x != man && JsMath.Hypot(x.X - man.X, x.Y - man.Y) < 6).Select(x => (q, x))))
                                     { var oh = Soldiers.HomeOf(o.q, o.x); Console.WriteLine($"      рядом «{o.q.P.U.Name}» №{o.x.Id}: ({o.x.X - man.X:+0.0;-0.0},{o.x.Y - man.Y:+0.0;-0.0}) v {JsMath.Hypot(o.x.LastVx, o.x.LastVy):0.0} курс {o.x.Facing:0}° до места {JsMath.Hypot(oh.x - o.x.X, oh.y - o.x.Y):0.0} ряд {o.x.Row}{(o.x.WasRigid ? " ж" : "")} ф{o.x.LastFlag}"); }
-                                Console.WriteLine($"  {now,6:0.0} с ({man.X:0.0},{man.Y:0.0}) v {JsMath.Hypot(tvx, tvy):0.0} ход {MoveSim.HeadingOf(tvx, tvy):0}° курс {man.Facing:0}° колонна {man.Fig?.Hd:0}° якорь v {JsMath.Hypot(man.Fig?.AVx ?? 0, man.Fig?.AVy ?? 0):0.0} до места {JsMath.Hypot(hm.x - man.X, hm.y - man.Y):0.0} ряд {man.Row}{(man.WasRigid ? " жёсткий" : "")}{(man.Reseat ? " пересадка" : "")}{(man.Fig != null && man.Fig.Wrap ? " охват" : "")}{(m.Held ? " упёрся" : "")}{(double.IsNaN(man.ViaX) ? "" : " в обход")} отряд v {m.Vs:0.0} курс {m.P.Facing:0}°{(m.Done ? " дошёл" : "")}{(m.OnSpot ? " на месте" : "")}{(man.Fig != null && man.Fig.Moving ? "" : " колонна стоит")}");
+                                Console.WriteLine($"  {now,6:0.0} с ({man.X:0.0},{man.Y:0.0}) v {JsMath.Hypot(tvx, tvy):0.0} ход {MoveSim.HeadingOf(tvx, tvy):0}° курс {man.Facing:0}° колонна {man.Fig?.Hd:0}° якорь v {JsMath.Hypot(man.Fig?.AVx ?? 0, man.Fig?.AVy ?? 0):0.0} до места {JsMath.Hypot(hm.x - man.X, hm.y - man.Y):0.0} ряд {man.Row}{(man.WasRigid ? " жёсткий" : "")}{(man.Reseat ? " пересадка" : "")}{(man.Fig != null && man.Fig.Wrap ? " охват" : "")}{(m.Held ? " упёрся" : "")}{(double.IsNaN(man.ViaX) ? "" : " в обход")} отряд v {m.Vs:0.0} курс {m.P.Facing:0}° рамка ({m.P.X:0.0},{m.P.Y:0.0}) колонн {m.Cols}{(m.InMelee ? " в бою" : "")}{(m.Order != null ? " " + m.Order.Kind : "")}{(m.Done ? " дошёл" : "")}{(m.OnSpot ? " на месте" : "")}{(man.Fig != null && man.Fig.Moving ? "" : " колонна стоит")}");
                             }
                             if (prev.TryGetValue(man, out var p) && !p.contact && !contact)
                             {
