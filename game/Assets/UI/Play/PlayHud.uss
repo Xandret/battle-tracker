@@ -2157,3 +2157,7 @@
 .gmj-box .me-btn.is-on { color: var(--gold-bright); border-color: var(--gold); background-color: rgba(217, 173, 85, 0.18); }
 .gmj-calc { margin-top: 3px; -unity-font-style: bold; }
 .gmj-calcsub { color: #b9c9db; padding-left: 26px; border-left-width: 2px; border-left-color: #3d5068; margin-left: 2px; }
+.rv-box { width: 640px; height: auto; max-width: 90%; }
+.rv-note { min-height: 110px; white-space: normal; margin: 4px 0 8px 0; }
+.rv-note .unity-base-text-field__input { min-height: 110px; -unity-text-align: upper-left; white-space: normal; }
+.rv-box .unity-radio-button-group { flex-direction: column; } .rv-box .unity-radio-button-group > Label { margin-bottom: 4px; }

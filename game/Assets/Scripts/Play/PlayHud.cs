@@ -30,7 +30,7 @@ namespace Journal.Play
         VisualElement menu, menuList; Label menuStatus;
         LineupPanel lineup;                 // состав битвы из сохранения трекера (Г98)
         MainMenu mainMenu; SettingsPanel settings; ArmyBattlePanel armyBattle;
-        GmJournal journal; SurrenderDialog surrender;   // журнал ГМа и капитуляция (Алекс 13.10)
+        GmJournal journal; SurrenderDialog surrender; ReviewDialog review;   // журнал ГМа и капитуляция (Алекс 13.10)
         MapEditor mapEditor;                // редактор карт (Г102)   // главное меню, настройки, бой своими армиями
         VisualElement overTable; object overBuilt;   // итог битвы «кто сколько потерял» — строится раз на конец битвы
         ArmyEditor armies;                                      // редактор армий (Г93, шаг 1)
@@ -86,8 +86,8 @@ namespace Journal.Play
             settings = new SettingsPanel(hud, () => { if (!mapEditor.Visible) ShowMain(); });   // из меню редактора карт — назад в редактор
             settings.Changed += ApplySettings;
             mapEditor = new MapEditor(hud, pc, FindAnyObjectByType<Journal.Viewer.BattleViewer>());
-            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit, () => pc.LeaveBattle(), () => surrender.Show());
-            journal = new GmJournal(hud, pc); surrender = new SurrenderDialog(hud, pc);
+            mainMenu = new MainMenu(hud, () => { }, ShowMenu, () => armies.Show(), () => mapEditor.Show(), settings.Show, Quit, () => pc.LeaveBattle(), () => surrender.Show(), () => review.Show());
+            journal = new GmJournal(hud, pc, () => review.Show()); surrender = new SurrenderDialog(hud, pc); review = new ReviewDialog(hud, pc);
             mapEditor.Closed += ShowMain;
             mapEditor.Settings = settings;   // «Настройки» в меню редактора (Алекс 11.10)
             mapEditor.Test += f => armyBattle.Show(null, f);
@@ -186,6 +186,7 @@ namespace Journal.Play
         bool escHandled;
         void Back()
         {
+            if (review.Visible) { review.Hide(); return; }
             if (surrender.Visible) { surrender.Hide(); return; }
             if (journal.Visible) { journal.Hide(); return; }
             if (armies.Visible) { armies.Escape(); return; }   // крупный вид, список файлов; само окно — своей кнопкой (правки)
@@ -374,7 +375,7 @@ namespace Journal.Play
         void LateBody()
         {
             if (pc?.Session == null || turnNumber == null) return;
-            pc.Blocked = !menu.ClassListContains("hidden") || journal.Visible || surrender.Visible || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
+            pc.Blocked = !menu.ClassListContains("hidden") || journal.Visible || surrender.Visible || review.Visible || armies.Visible || lineup.Visible || mainMenu.Visible || settings.Visible || armyBattle.Visible || mapEditor.Visible;
             mapEditor.Tick();
             hud.EnableInClassList("is-bare", !pc.Chosen || mapEditor.Visible);   // поле-заставка за главным меню — без панелей битвы
             pc.DemoHold = mapEditor.Visible || armies.Visible;   // в редакторах заставка не водит камеру

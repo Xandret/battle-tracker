@@ -899,6 +899,56 @@ namespace Journal.Play
             turnSnaps.Add(new TurnSnap { Snap = Battle.Snapshot(), Refs = SaveRefs(), Turn = Session.Turn, Frame = recorder.Rec.Frames.Count - 1, Summaries = Summaries.Count, Logs = Session.Logs.Count, Show = ShowTime, Orders = PendingCopy() });
             if (turnSnaps.Count > 5) turnSnaps.RemoveAt(0);
         }
+        // ── бой в файл для разбора (Алекс 14.10, BattleFile движка): на начало последнего хода с его приказами — или как
+        // сейчас, между ходами. Живой бой не трогаем: снимок хода — сам по себе Battle, к нему — своя сессия ──
+        public static string GameDir => Application.isEditor ? System.IO.Path.Combine(Application.dataPath, "..", "Temp") : System.IO.Path.GetDirectoryName(Application.dataPath);
+        public static string ReviewDir => System.IO.Path.GetFullPath(System.IO.Path.Combine(GameDir, "Saves", "Разбор"));
+        public bool CanSaveReview => Game != null && computeDone && Phase != PlayPhase.Showing;
+        public int LastTurnStart => turnSnaps.Count > 0 ? turnSnaps[turnSnaps.Count - 1].Turn : 0;
+        public string SaveReview(string note, bool turnStart)
+        {
+            if (Game == null || !computeDone) throw new InvalidOperationException("идёт счёт хода — сохранить можно, когда он досчитан");
+            BattleSession s;
+            if (turnStart && turnSnaps.Count > 0)
+            {
+                var ts = turnSnaps[turnSnaps.Count - 1];
+                s = new BattleSession((Battle)ts.Snap) { Turn = ts.Turn, Phase = BattleCore.Phase.Orders, MaxTurns = Session.MaxTurns };
+                foreach (var kv in Session.SideNames) s.SideNames[kv.Key] = kv.Value;
+                foreach (var kv in Session.Zones) s.Zones[kv.Key] = kv.Value;
+                for (int i = 0; i < ts.Logs && i < Session.Logs.Count; i++) s.Logs.Add(Session.Logs[i]);
+                var byId = s.Battle.Movers.ToDictionary(m => m.P.U.Id);
+                foreach (var (id, o) in ts.Orders) if (byId.TryGetValue(id, out var m)) s.Pending[m] = CopyOrder(o);
+                if (ts.Mid.Count > 0) note += $"\n[игра] посреди хода ГМ отдавал приказы ({ts.Mid.Count} раз) — в файле их нет";
+            }
+            else s = Session;
+            string scene = string.Concat((Game.Name ?? "битва").Select(c => System.IO.Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            System.IO.Directory.CreateDirectory(ReviewDir);
+            string f = System.IO.Path.Combine(ReviewDir, $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}_{scene}_ход{s.Turn}.jbf");
+            var info = new BattleFileInfo { Note = note ?? "", Saved = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), Build = Application.version };
+            lock (StepLock) BattleFile.Save(s, f, info);
+            GmLog.Add($"ход {Session.Turn}: бой сохранён для разбора — {System.IO.Path.GetFileName(f)}");
+            return f;
+        }
+        // ошибка в счёте хода: стек — в файл рядом с журналами (Player.log у Алекса не пишется), бой на начало хода — в «Разбор»
+        void ReportComputeError(Exception e)
+        {
+            Debug.LogException(e);
+            string where = "";
+            try
+            {
+                string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(GameDir, "Журналы")); System.IO.Directory.CreateDirectory(dir);
+                string f = System.IO.Path.Combine(dir, $"ошибка_хода_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.txt");
+                double tin = ComputedTime - TurnStartTime;
+                string head = $"Сборка {Application.version} · «{Game?.Name}» · ход {Session?.Turn} · счёт дошёл до {tin:0.0} с хода · {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+                string jbf = null;
+                try { jbf = SaveReview($"[игра] ошибка в счёте хода {Session?.Turn} на {tin:0.0} с:\n{e}", true); } catch (Exception e2) { head += $"\nбой не сохранился: {e2.Message}"; }
+                System.IO.File.WriteAllText(f, head + (jbf != null ? $"\nбой на начало хода: {jbf}" : "") + "\n\n" + e, new System.Text.UTF8Encoding(true));
+                where = $" — записано: Журналы\\{System.IO.Path.GetFileName(f)}";
+            }
+            catch (Exception e3) { Debug.LogException(e3); }
+            Say("Ошибка в счёте хода" + where); ToastUntil = Time.time + 10;
+        }
+
         public void RollbackTurn()
         {
             if ((Phase != PlayPhase.Orders && Phase != PlayPhase.Over) || Battle == null || turnSnaps.Count == 0) return;
@@ -1020,7 +1070,7 @@ namespace Journal.Play
         void AdvanceTurn()
         {
             double turnEnd = TurnStartTime + Battle.R.Move.TurnSec;
-            if (computeError != null) { Debug.LogException(computeError); Say("Ошибка в счёте хода — подробности в журнале Unity"); computeError = null; }
+            if (computeError != null && computeDone) { var ce = computeError; computeError = null; ReportComputeError(ce); }
             bool done = computeDone;
             double avail = done ? turnEnd : Math.Min(turnEnd, ComputedTime);
             // темп счёта: секунд боя за секунду экрана, сглажено за ~1,5 с

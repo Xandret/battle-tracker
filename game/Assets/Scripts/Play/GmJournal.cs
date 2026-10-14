@@ -31,7 +31,7 @@ namespace Journal.Play
         string builtKey;
         public bool Visible => !root.ClassListContains("hidden");
 
-        public GmJournal(VisualElement parent, PlayController pc)
+        public GmJournal(VisualElement parent, PlayController pc, Action onReview)
         {
             this.pc = pc;
             root = new VisualElement(); root.AddToClassList("menu"); root.AddToClassList("hidden"); parent.Add(root);
@@ -52,6 +52,7 @@ namespace Journal.Play
             var sp = new VisualElement(); sp.style.flexGrow = 1; bar.Add(sp);
             var copy = new Button(() => { GUIUtility.systemCopyBuffer = Text(); status.text = "Скопировано в буфер обмена"; }) { text = "Копировать" }; copy.AddToClassList("me-btn"); bar.Add(copy);
             var file = new Button(Save) { text = "В файл" }; file.AddToClassList("me-btn"); bar.Add(file);
+            var rv = new Button(() => { Hide(); onReview(); }) { text = "💾 Бой для разбора" }; rv.AddToClassList("me-btn"); bar.Add(rv);
 
             var row = new VisualElement(); row.AddToClassList("gmj-row"); box.Add(row);
             var turns = new ScrollView(ScrollViewMode.Vertical); turns.AddToClassList("gmj-turns"); row.Add(turns);
@@ -241,6 +242,68 @@ namespace Journal.Play
                     list.Add(item);
                 }
             root.RemoveFromClassList("hidden");
+        }
+    }
+}
+
+namespace Journal.Play
+{
+    // ── бой в файл для разбора (Алекс 14.10): «что не так» + бой на начало хода → Saves/Разбор/*.jbf — Алекс шлёт файл движку ──
+    public sealed class ReviewDialog
+    {
+        readonly PlayController pc;
+        readonly VisualElement root;
+        readonly TextField note;
+        readonly RadioButtonGroup when;
+        readonly Label status;
+        readonly Button save, openDir;
+        public bool Visible => !root.ClassListContains("hidden");
+
+        public ReviewDialog(VisualElement parent, PlayController pc)
+        {
+            this.pc = pc;
+            root = new VisualElement(); root.AddToClassList("menu"); root.AddToClassList("hidden"); parent.Add(root);
+            var box = new VisualElement(); box.AddToClassList("panel"); box.AddToClassList("menu-box"); box.AddToClassList("gmj-box"); box.AddToClassList("rv-box"); root.Add(box);
+            var title = new Label("💾 Сохранить бой для разбора"); title.AddToClassList("menu-title"); box.Add(title);
+            var hint = new Label("Весь бой как есть — отряды, бойцы, схватки, приказы, журнал. Файл отправь в чат движка вместе с описанием."); hint.AddToClassList("menu-item-note"); box.Add(hint);
+            var nh = new Label("Что не так: ход, секунда, какой отряд, что делал и чего ты ждал"); nh.AddToClassList("set-head"); box.Add(nh);
+            note = new TextField { multiline = true, value = "" }; note.AddToClassList("rv-note"); box.Add(note);
+            when = new RadioButtonGroup("Какой момент сохранить"); when.tooltip = "Начало хода — движок переиграет ход, в котором беда, боец в боец"; when.AddToClassList("set-field"); box.Add(when);
+            var row = new VisualElement(); row.AddToClassList("gmj-bar"); row.style.marginTop = 10; box.Add(row);
+            save = new Button(Save) { text = "Сохранить" }; save.AddToClassList("me-btn"); save.AddToClassList("is-on"); row.Add(save);
+            openDir = new Button(() => Application.OpenURL("file:///" + PlayController.ReviewDir.Replace('\\', '/'))) { text = "Открыть папку" }; openDir.AddToClassList("me-btn"); row.Add(openDir);
+            var sp = new VisualElement(); sp.style.flexGrow = 1; row.Add(sp);
+            var close = new Button(Hide) { text = "Закрыть" }; close.AddToClassList("me-btn"); row.Add(close);
+            status = new Label(); status.AddToClassList("gmj-status"); box.Add(status);
+        }
+
+        public void Hide() { note.Blur(); root.AddToClassList("hidden"); }
+        public void Show()
+        {
+            if (pc.Game == null) return;
+            int t0 = pc.LastTurnStart, now = pc.Session.Turn;
+            var choices = new List<string>();
+            if (t0 > 0) choices.Add($"Начало хода {t0} — с его приказами (лучше)");
+            choices.Add(pc.Phase == PlayPhase.Over ? "Как сейчас — после конца битвы" : $"Как сейчас — перед ходом {now}");
+            when.choices = choices; when.value = 0;
+            status.text = pc.CanSaveReview ? $"Папка: {PlayController.ReviewDir}" : "Идёт ход — сохранить можно, когда он досчитан и показан (пауза не годится: дождись приказов).";
+            save.SetEnabled(pc.CanSaveReview);
+            root.RemoveFromClassList("hidden");
+            note.Focus();
+        }
+
+        void Save()
+        {
+            if (!pc.CanSaveReview) return;
+            try
+            {
+                bool start = pc.LastTurnStart > 0 && when.value == 0;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                string f = pc.SaveReview(note.value?.Trim(), start);
+                status.text = $"Сохранено за {sw.Elapsed.TotalSeconds:0.0} с ({new FileInfo(f).Length / 1048576.0:0.0} МБ):\n{f}";
+                note.value = "";
+            }
+            catch (Exception e) { Debug.LogException(e); status.text = "Не сохранилось: " + e.Message; }
         }
     }
 }
