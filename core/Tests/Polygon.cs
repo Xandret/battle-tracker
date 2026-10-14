@@ -543,6 +543,18 @@ static class Polygon
             var ms = sc.Units.Select(u => u.M).ToList();
             if (sc.Battle == null) foreach (var (m, o) in sc.Units) if (o != null) MoveSim.Give(m, o, sc.Geo, R);
             prev.Clear(); prevC.Clear(); double clock = 0, last = double.NegativeInfinity;
+            if (DumpFile != null && sc.Geo?.Map != null)
+                using (var w = System.IO.File.AppendText(DumpFile))
+                {
+                    var gm = sc.Geo.Map; double cw = sc.Geo.W / gm.W, ch = sc.Geo.H / gm.H;
+                    for (int c = 0; c < gm.T.Length; c++)
+                    {
+                        var key = Terrain.ById.TryGetValue(gm.T[c], out var tt) ? tt.Key : "";
+                        if (key != "water" && key != "ford" && key != "bridge" && key != "wall" && key != "building" && key != "forest") continue;
+                        double x0 = (c % gm.W) * cw, y0 = (c / gm.W) * ch;
+                        w.WriteLine(FormattableString.Invariant($"#;{key};{x0:0.0};{y0:0.0};{x0 + cw:0.0};{y0 + ch:0.0}"));
+                    }
+                }
             for (int turn = 0; turn < sc.Turns; turn++)
             {
                 sc.Before?.Invoke(turn);

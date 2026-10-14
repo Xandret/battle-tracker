@@ -463,12 +463,37 @@ namespace BattleCore
             px = Math.Max(1, Math.Min(Geo.W - 1, px)); py = Math.Max(1, Math.Min(Geo.H - 1, py));
             return (px, py);
         }
+        // Логика целей (Алекс 13.10.2026, разбор «ход 5»: цель разбита — десять отрядов конницы «дошли» и стояли рядом с живыми врагами):
+        // цели больше нет на поле — ближайший видимый не бегущий враг ближе Ai.RetargetM (край до края) — атаковать его; нет такого —
+        // стоять, развернувшись к ближайшему врагу. Черновик до ГМа
+        void Retarget(Mover m, Mover old)
+        {
+            int f = FactionOf(m); Mover best = null, near = null; double bg = R.Ai.RetargetM, nd = double.MaxValue;
+            foreach (var e in Movers)
+            {
+                if (e == m || !OnField(e) || !Alive(e) || !Enemies(m.P.U, e.P.U) || !Sees(f, e)) continue;
+                double g = Gap(m, e);
+                if (g < nd) { nd = g; near = e; }
+                if (!e.Fleeing && g < bg) { bg = g; best = e; }
+            }
+            string was = old != null ? $"«{old.P.U.Name}»" : "цели";
+            string at = At(turnStart + StepTime);
+            if (best != null)
+            {
+                Order(m, new MoveOrder { Kind = OrderKind.Attack, TargetId = best.P.U.Id });
+                events.Add($"{at} с · «{m.P.U.Name}»: {was} больше нет — атакует ближайшего «{best.P.U.Name}» ({Js.Num(Js.Round(bg))} м)");
+                return;
+            }
+            Order(m, new MoveOrder { Kind = OrderKind.Hold });
+            if (near != null) MoveSim.TurnInPlace(m, new MoveOrder { X = m.P.X, Y = m.P.Y, Facing = MoveSim.HeadingOf(near.P.X - m.P.X, near.P.Y - m.P.Y) });
+            events.Add($"{at} с · «{m.P.U.Name}»: {was} больше нет — врага ближе {Js.Num(R.Ai.RetargetM)} м нет, стоит{(near != null ? $" лицом к «{near.P.U.Name}»" : "")}");
+        }
         // цель ушла дальше ReplanMoveM — путь заново (раз в ReplanSec); в схватке с ней — не дёргаемся
         void Replan(Mover m)
         {
             if (m.Order == null || m.Order.Kind != OrderKind.Attack || !Alive(m)) return;
             var t = ById(m.Order.TargetId);
-            if (t == null || !OnField(t)) { m.Done = true; m.Vs = 0; return; }   // бегущего — преследует
+            if (t == null || !OnField(t)) { Retarget(m, t); return; }   // бегущего — преследует
             if (Shooter(m)) { ReplanShoot(m, t); return; }
             var f = FightOf(m, t);
             if (f != null && f.Of(m).Engaged > 0 && !t.Fleeing) return;   // бегущего — догоняет (Г70)

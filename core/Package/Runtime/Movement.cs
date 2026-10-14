@@ -322,11 +322,11 @@ namespace BattleCore
             int every = Math.Max(1, (int)Math.Round(M.ReassignEverySec / M.Dt)), narrowEvery = Math.Max(1, (int)Math.Round(M.NarrowCheckSec / M.Dt));
             var prev = new List<(double x, double y)[]>();
             foreach (var m in ms) m.NarrowSince += M.Dt;
-            MorphOn = M.MenBodies && M.SlotMorphK > 0; MorphHorse = M.SlotMorphHorse;
+            MorphOn = M.MenBodies && M.SlotMorphK > 0; MorphHorse = M.SlotMorphHorse; TrailOn = M.MenBodies && M.TrailColumns;
             if (k % narrowEvery == 0) foreach (var m in ms) if (m.Track != null) Narrow(m, ms, r);   // узости впереди (Г59); Б5 — и проходы между своими
             foreach (var m in ms)
             {
-                prev.Add(Slots(m.P));
+                prev.Add(Slots(m));
                 if (m.Order != null && m.Track != null && !m.Done && !m.Fleeing) Lead(m, t, M.Dt, r);
                 if (M.MenBodies && M.SlotMorphK > 0) MorphSlots(m, M.Dt, r);
                 m.Steps++;
@@ -378,6 +378,53 @@ namespace BattleCore
             var s = new (double x, double y)[P.Figs.Count];
             for (int k = 0; k < s.Length; k++) { P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var wx, out var wy); s[k] = (wx, wy); }
             return s;
+        }
+        static (double x, double y)[] Slots(Mover m)
+        {
+            var P = m.P; var s = new (double x, double y)[P.Figs.Count];
+            for (int k = 0; k < s.Length; k++) { SlotWorld(m, k, out var wx, out var wy); s[k] = (wx, wy); }
+            return s;
+        }
+        // Алекс 13.10.2026 («врезаются в берег, а только потом поворачивают»): суженный строй (колонна в узости) на ходу — не жёсткая
+        // рамка, что поворачивается вокруг середины, а колонна по следу головы: место ряда в y метрах за серединой — на пути в y метрах
+        // позади, поперёк — на x от пути; курс места — вдоль пути там (по хорде ±TrailChordM: излом пути без скачка курса).
+        // Строй в линию, стоящий, бегущий, боком и в охвате — по рамке, как было
+        [ThreadStatic] static bool TrailOn;
+        public static bool Trailing(Mover m) => TrailOn && m.Track != null && m.Track.Pieces.Count > 0 && !m.Done && !m.Fleeing && !m.Side && m.Cols < m.NominalCols && m.Order != null;
+        const double TrailChordM = 6;
+        public static void SlotWorld(Mover m, int k, out double x, out double y)
+        {
+            var P = m.P; var f = P.Figs[k];
+            if (!Trailing(m) || k >= m.Figs.Count || m.Figs[k].Wrap || m.Figs[k].Turned) { P.ToWorld(f.X, f.Y, out x, out y); return; }
+            TrailAt(m, f.X, f.Y, out x, out y, out _);
+        }
+        static void TrailAt(Mover m, double lx, double ly, out double x, out double y, out double hd)
+        {
+            var T = m.Track; var P = m.P;
+            double s0 = T.MetersAt(m.Along), s = s0 - ly;
+            var (cx, cy, _, _) = T.AtMeters(Math.Max(0, Math.Min(T.Length, s0)));
+            double ox = P.X - cx, oy = P.Y - cy;   // рамка чуть в стороне от пути — места с ней
+            Point(T, s, out double px, out double py);
+            Point(T, s - TrailChordM, out double ax, out double ay); Point(T, s + TrailChordM, out double bx, out double by);
+            double dx = bx - ax, dy = by - ay, dl = JsMath.Hypot(dx, dy);
+            if (dl < 1e-9) { double h0 = P.Facing * Math.PI / 180; dx = Math.Sin(h0); dy = -Math.Cos(h0); } else { dx /= dl; dy /= dl; }
+            x = px + ox - dy * lx; y = py + oy + dx * lx;   // вправо от хода (dx, dy) — (−dy, dx)
+            hd = HeadingOf(dx, dy);
+        }
+        // точка пути в s метрах; до начала и за концом — по прямой первого и последнего куска
+        static void Point(Track T, double s, out double x, out double y)
+        {
+            if (s < 0) { var (x0, y0, dx, dy) = T.AtMeters(0); x = x0 + dx * s; y = y0 + dy * s; return; }
+            if (s > T.Length) { var (x1, y1, dx, dy) = T.AtMeters(T.Length); x = x1 + dx * (s - T.Length); y = y1 + dy * (s - T.Length); return; }
+            var p = T.AtMeters(s); x = p.x; y = p.y;
+        }
+        // курс колонны по следу (Soldiers.FigHeading); NaN — по рамке
+        public static double TrailHeading(Mover m, FigState s)
+        {
+            if (!Trailing(m) || s.Wrap || s.Turned) return double.NaN;
+            int k = m.Figs.IndexOf(s); if (k < 0 || k >= m.P.Figs.Count) return double.NaN;
+            TrailAt(m, m.P.Figs[k].X, m.P.Figs[k].Y, out _, out _, out double hd);
+            return hd;
         }
 
         // Центр строя: курс, скорость по пути, шаг по пути
@@ -448,7 +495,7 @@ namespace BattleCore
             {
                 for (int k = 0; k < P.Figs.Count; k++)
                 {
-                    P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
+                    SlotWorld(m, k, out var sx, out var sy);
                     double fx = M.MenBodies ? m.Figs[k].AX : m.Figs[k].X, fy = M.MenBodies ? m.Figs[k].AY : m.Figs[k].Y;   // Б1: колонна — по якорю
                     // Б1: место в воде (хвост сложенной колонны ещё за рекой) — колонна стоит у ближайшего сухого, как и идёт (Desire)
                     if (M.MenBodies && m.Field != null && !Free(m.Field, sx, sy)) { int c = m.Field.NearestPassableCached(m.Field.CellOf(sx, sy)); if (c >= 0) (sx, sy) = m.Field.CenterOf(c); }
@@ -589,7 +636,7 @@ namespace BattleCore
             {
                 var s = m.Figs[k];
                 double px = mb ? s.AX : s.X, py = mb ? s.AY : s.Y;   // Б1: колонну ведёт якорь, бойцы идут за ним
-                P.ToWorld(P.Figs[k].X, P.Figs[k].Y, out var sx, out var sy);
+                SlotWorld(m, k, out var sx, out var sy);
                 double gx = s.Wrap ? s.WX : sx, gy = s.Wrap ? s.WY : sy;
                 double rho = F != null && F.Inside(px, py) ? F.Mult(F.CellOf(px, py)) ?? 1 : 1;
                 double vmax = vmax0 / rho;
@@ -727,7 +774,7 @@ namespace BattleCore
             int n = P.Figs.Count;
             double fw = P.Figs.Max(f => f.Width), fd = P.Figs.Max(f => f.Depth);
             friendsNear ??= new List<Mover>(); friendsNear.Clear();
-            if (M.MenBodies)
+            if (M.MenBodies && !m.Done)   // 13.10.2026: дошедший и стоящий проход между своими не меряет — соседи ему не стенки (конница в толпе стояла колонной по 2)
             {
                 double near = m.NominalFp.Front + M.NarrowAheadM + 60;
                 foreach (var q in ms)
@@ -755,7 +802,7 @@ namespace BattleCore
             int ColsFor(double width) => Math.Max(1, Math.Min(m.NominalCols, (int)Math.Floor((width * (1 + M.NarrowSlack) - 2 * M.NarrowMarginM) / fw)));
             // Г123: упреждение — и на то, чтобы места успели съехаться (поперёк не быстрее SlotMorphK хода): готовится с подхода
             double LeadFor(int cols) => Math.Ceiling(n / (double)cols) * fd / 2 + M.NarrowAheadM
-                + (M.MenBodies && M.SlotMorphK > 0 && (M.SlotMorphHorse || !BattleMap.IsHorse(P.U)) ? Math.Max(0, m.NominalFp.Front - cols * fw) / 2 / M.SlotMorphK : 0);
+                + (M.MenBodies && M.SlotMorphK > 0 && (M.SlotMorphHorse || M.NarrowLeadHorse || !BattleMap.IsHorse(P.U)) ? Math.Max(0, m.NominalFp.Front - cols * fw) / 2 / M.SlotMorphK : 0);
             double s = T.MetersAt(m.Along), half = m.NominalFp.Front / 2 + M.NarrowMarginM;
             // Г123: хвост — по самому дальнему назад бойцу, а не по рамке: строй не расходится, пока из прохода не вышел последний
             double tail = P.Fp.Depth / 2;
@@ -778,7 +825,8 @@ namespace BattleCore
                     // проход между стоящими своими: сужаемся, только если в него войдёт не меньше FriendGapCols колонн — иначе
                     // это стена, а не проход: ждём и обходим (Г61)
                     double fl = FriendProbe(x, y, -dy, dx, l), fr = FriendProbe(x, y, dy, -dx, rr);
-                    if (fl + fr < l + rr && ColsFor(fl + fr) >= M.FriendGapCols) { l = fl; rr = fr; }
+                    // проход — если в него войдёт не меньше FriendGapCols колонн и FriendGapShare строя (иначе 400 коней шли змейкой по 2)
+                    if (fl + fr < l + rr && ColsFor(fl + fr) >= Math.Max(M.FriendGapCols, M.FriendGapShare * m.NominalCols)) { l = fl; rr = fr; }
                 }
                 int c = ColsFor(M.NarrowCentered ? 2 * Math.Min(l, rr) : l + rr);   // Г111 п.5: строй стоит на оси пути — меряем по меньшему плечу
                 if (c < want && (q <= s || q - s <= LeadFor(c))) want = c;
