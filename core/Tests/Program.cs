@@ -462,6 +462,7 @@ if (args.Length > 0 && args[0] == "smooth")
     if (Environment.GetEnvironmentVariable("SMH") == "1") Rules.Base.Move.SlotMorphHorse = true;
     if (Environment.GetEnvironmentVariable("NLH") == "1") Rules.Base.Move.NarrowLeadHorse = true;
     if (Environment.GetEnvironmentVariable("TRAIL") == "1") Rules.Base.Move.TrailColumns = true;
+    if (Environment.GetEnvironmentVariable("BAX0") == "1") Rules.Base.Men.BodyAxisTurnDegPerSec = 0;
     if (Environment.GetEnvironmentVariable("FRONT0") == "1") Rules.Base.Men.HorseFrontStrict = false;
     if (Environment.GetEnvironmentVariable("AVOID") == "1") Rules.Base.Men.HorseAvoid = true;
     if (Environment.GetEnvironmentVariable("AVSIDE") != null) Rules.Base.Men.HorseAvoidSideK = double.Parse(Environment.GetEnvironmentVariable("AVSIDE"), System.Globalization.CultureInfo.InvariantCulture);
@@ -477,6 +478,7 @@ if (args.Length > 0 && args[0] == "smooth")
     var rep = Polygon.Smooth(args.Skip(1).Where((a, i) => a != "--all" && a != "--col" && !(ti >= 0 && i + 1 >= ti && i + 1 <= ti + 2) && !(tn >= 0 && (i + 1 == tn || i + 1 == tn + 1)) && !(td >= 0 && (i + 1 == td || i + 1 == td + 1))).ToArray());
     Console.WriteLine($"замеров {rep.Samples}, нарушений {rep.Count}; кони вплотную (Г122): {rep.HorsePairs} пар за {rep.HorseFrames} кадров отрядов, наибольшее {rep.HorsePairsWorst} — {rep.HorsePairsAt}; в схватке {rep.HorsePairsMelee}");
     foreach (var kv in rep.ByKind.OrderByDescending(k => k.Value)) Console.WriteLine($"  {kv.Key}: {kv.Value} (худшее {rep.Worst[kv.Key]:0.0})");
+    foreach (var kv in rep.BodyJumps.OrderByDescending(k => k.Value).Take(8)) Console.WriteLine($"  курс тела коня прыгнул > 45°: {kv.Key} — {kv.Value} коней");
     foreach (var kv in rep.ByScene.OrderByDescending(k => k.Value)) Console.WriteLine($"  сцена «{kv.Key}»: {kv.Value}{(rep.HorseByScene.TryGetValue(kv.Key, out var hp) ? $"; кони вплотную {hp}" : "")}");
     foreach (var kind in rep.ByKind.Keys) foreach (var l in rep.Lines.Where(l => l.Contains($": {kind} — ")).Take(all ? 1000 : 4)) Console.WriteLine("  " + l);
     foreach (var g in rep.Recs.GroupBy(r => r.kind)) { Console.WriteLine($"худшие по виду «{g.Key}»:"); foreach (var r in g.OrderByDescending(r => r.val).Take(6)) Console.WriteLine("  " + r.line); }

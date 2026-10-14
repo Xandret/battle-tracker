@@ -287,6 +287,7 @@ namespace BattleCore
             public double SpeedK = 1.4, WalkMin = 2;   // предел скорости бойца — скорость фигурки (не меньше WalkMin) × SpeedK
             public double BodyAccelBusyK = 12; public bool HorseKeepPush = false; public int HorseKeepPushMode = 1;   // Г123: разгон тела в лесу, на пересадке и сквозь своих — во столько раз резвее нормы (было без предела: срывы 1 → 22 м/с за кадр)
             public double HorseGapM = 0.4; public bool HorseFrontStrict = true;
+            public double BodyAxisTurnDegPerSec = 0;   // 14.10.2026: капсула тела (Man.BodyFacing) доворачивается к нужной оси не быстрее (0 — разом). Проба 90 °/с: учебное поле, 4 зерна — грубых «вбок» −19 %, но нарушений +7,6 % — выключено
             // Проба (Алекс 13.10.2026): конь заранее расходится со своими по скоростям (взаимное избегание) — на HorseAvoidSec вперёд, своя доля
             // HorseAvoidShare, зазор HorseAvoidGapM; поправка не больше HorseAvoidMaxK своего хода (не меньше 1 м/с). Выключено до замера
             public bool HorseAvoid = false; public double HorseAvoidSec = 0.6, HorseAvoidShare = 0.5, HorseAvoidGapM = 0.2, HorseAvoidMaxK = 0.5, HorseAvoidRelMax = 6, HorseAvoidSideK = 0.3, HorseAvoidMaxMps = 2;     // Г122: зазор, с которым конь держится за своим передним (подравнивает ход загодя, не толкается)
