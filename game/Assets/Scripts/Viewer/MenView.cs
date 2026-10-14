@@ -138,7 +138,7 @@ namespace Journal.Viewer
             int n = r.Units.Count;
             kits = new Kit[n][]; looks = new string[n];
             cmdId = new int[n]; guardIds = new int[n][]; guardSet = new HashSet<int>[n]; cmdKit = new Kit[n]; guardKits = new Kit[n][];
-            lowL = new List<float>[n]; lowNear = new bool[n]; arrowsOf = new List<int>[n]; arrowsSeen = 0; vis = new Vis[n][];
+            lowL = new List<float>[n]; lowNear = new bool[n]; arrowsOf = new List<int>[n]; arrowsSeen = 0; vis = new Vis[n][]; ucs = new UC[n];
             for (int i = 0; i < n; i++)
             {
                 looks[i] = Kits.LookOf(r.Units[i].Tpl, r.Units[i].Type);
@@ -476,6 +476,31 @@ namespace Journal.Viewer
         // поворот головы, Act — «на ходу» 0…1 (после остановки гаснет плавно), Stop — когда последний раз шёл
         struct Vis { public float T, Ex, Ey, Vx, Vy, Px, Py, Sp, Ph, Melee, Since, Dx, Dy, Cx, Cy, Fd, Ft, Hf, Hy, Act, Stop; }
         Vis[][] vis;
+        // середина отряда для сглаживания бойцов — плавная (Г118, 14.10): между кадрами записи она шла по прямой, и на стыке
+        // кадров её скорость менялась скачком (рамка строя в сшибке — до 19 м/с вбок за кадр); пружина бойцов считает от
+        // середины и несла этот скачок всем бойцам разом — «рывок вбок» в мериле. Теперь середина — пружина за CenterSt с
+        // (скорость непрерывна), скачок рамки уходит в смещения бойцов и гасится их пружиной. Скачок дальше 20 м — сразу
+        struct UC { public bool On; public float T, X, Y, Vx, Vy; }
+        UC[] ucs;
+        // CenterMode: 0 — рамка строя по прямой между кадрами (до 14.10), 1 — рамка пружиной, 2 — середина самих бойцов (их пути
+        // плавные, рамка же в сшибке перескакивает), 3 — середина бойцов пружиной CenterSt (в рубке среднее дрожит вместе с давкой).
+        // Мерило Г118, учебное поле, 7 ходов: 0 — конь вбок 5,5 % / наиб. 22,8 (рывок 19 м/с на 20,4 с), 2 — 7,5 % / 15,1,
+        // 3 при 0,3 с — 5,7 % / 13,1, назад наиб. 20,7 → 9,2, рывка нет
+        public static int CenterMode = 3; public static float CenterSt = 0.3f;
+        public static bool CenterSmooth { get => CenterMode == 1; set => CenterMode = value ? 1 : 0; }
+        void SmoothCenter(int ui, float t, ref float x, ref float y)
+        {
+            if ((CenterMode != 1 && CenterMode != 3) || ucs == null || ui >= ucs.Length) return;
+            ref var c = ref ucs[ui]; float dt = t - c.T, dx = x - c.X, dy = y - c.Y;
+            if (!c.On || dt < 0 || dt > 0.5f || dx * dx + dy * dy > 400) { c = new UC { On = true, T = t, X = x, Y = y }; return; }
+            if (dt > 0)
+            {
+                c.X = Mathf.SmoothDamp(c.X, x, ref c.Vx, CenterSt, Mathf.Infinity, dt);
+                c.Y = Mathf.SmoothDamp(c.Y, y, ref c.Vy, CenterSt, Mathf.Infinity, dt);
+                c.T = t;
+            }
+            x = c.X; y = c.Y;
+        }
         Vis[] VisOf(int ui, int n)
         {
             var a = vis[ui];
@@ -541,6 +566,18 @@ namespace Journal.Viewer
             // середина отряда в кадре — бойцов сглаживаем относительно неё (на марше не отстают, дрожь в схватке гаснет)
             var ua = rec.Frames[fi][ui]; var ub = rec.Frames[Math.Min(fi + 1, rec.Frames.Count - 1)][ui];
             float ucx = ua[0] + (ub[0] - ua[0]) * q, ucy = ua[1] + (ub[1] - ua[1]) * q;
+            if (CenterMode >= 2)
+            {
+                double sx = 0, sy = 0; int cnt = 0; var a0 = m0.Xyh; var a1 = m1.Xyh;
+                for (int id = 1; 3 * id + 1 < a0.Length && 3 * id + 1 < a1.Length; id++)
+                {
+                    float x0 = a0[3 * id], x1 = a1[3 * id];
+                    if (float.IsNaN(x0) || float.IsNaN(x1)) continue;
+                    sx += x0 + (x1 - x0) * q; sy += a0[3 * id + 1] + (a1[3 * id + 1] - a0[3 * id + 1]) * q; cnt++;
+                }
+                if (cnt > 0) { ucx = (float)(sx / cnt); ucy = (float)(sy / cnt); }
+            }
+            SmoothCenter(ui, (float)t, ref ucx, ref ucy);
             var vs = VisOf(ui, n);
             // полководец пал — его место у ближайшего живого из стражи; есть в записи (движок, Г108) — из записи
             int cmd = cmdId[ui];

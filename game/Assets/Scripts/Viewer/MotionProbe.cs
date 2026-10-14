@@ -15,6 +15,8 @@ namespace Journal.Viewer
     public static class MotionProbe
     {
         public static bool On;
+        // трассировка выбранных бойцов (ui << 32 | id): каждый шаг показа — место, нарисованный курс, скорость вперёд и вбок
+        public static HashSet<long> Trace; public static readonly List<string> TraceOut = new List<string>();
         // черновик Г118: м/с, °/с, м/с²
         public static float MaxHorse = 12, MaxFoot = 6, Over = 1.1f, HorseSideBack = 2, TurnHorse = 90, TurnFoot = 180, AccHorse = 6, AccFoot = 9;
         // пределы по норме отряда (м/с — норма хода за ход; разгон — с от места до нормы): числа Г118 (конь 10–12, пеший 5–6 м/с)
@@ -79,6 +81,7 @@ namespace Journal.Viewer
                 float h = r.F * Mathf.Deg2Rad, fx = Mathf.Sin(h), fy = -Mathf.Cos(h);
                 float vf = (dx * fx + dy * fy) / dt, vs = Mathf.Abs(-dx * fy + dy * fx) / dt;
                 Count("вбок", true, vs, HorseSideBack * Over, ui, id, t, melee);
+                if (Trace != null && Trace.Contains(key)) TraceOut.Add($"{ui}:{id}	{t:0.000}	x {x:0.00}	y {y:0.00}	курс {f:0.0}°	ход {Mathf.Atan2(dx, -dy) * Mathf.Rad2Deg:0.0}°	v {v:0.0}	вперёд {vf:0.0}	вбок {vs:0.0}	{(melee ? "в схватке" : "")}");
                 Count("назад", true, Mathf.Max(0, -vf), HorseSideBack * Over, ui, id, t, melee);
             }
             Count("поворот", horse, Mathf.Abs(Mathf.DeltaAngle(r.F, f)) / dt, horse ? TurnHorse : TurnFoot, ui, id, t, melee);
