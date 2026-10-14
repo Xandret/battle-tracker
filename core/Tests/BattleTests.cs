@@ -436,6 +436,22 @@ static class BattleTests
             True(m.Done && m.Cols == m.NominalCols, $"дошёл {m.Done}, колонн {m.Cols} из {m.NominalCols}");
         });
 
+        yield return ("усталость в поле (Алекс 14.10.2026, черновик): отряд без боя за ход снимает 20 усталости; измотанные (100) в рубке бросают проверку на побег — тупик «никто никого не ранит» рассыпается за несколько ходов", () =>
+        {
+            var bt = new Battle(Open(1000, 1000), R, new EngineContext { Rng = new Mulberry32(41).Next });
+            var rest = bt.Add(Templates.Get("infantry").Make(1, "Отдыхает", 1000, 1), 300, 500, 0); rest.P.U.Fatigue = 50; rest.P.U.TurnsActive = 9;
+            bt.Order(rest, new MoveOrder { Kind = OrderKind.Hold });
+            var log = bt.Turn();
+            True(rest.P.U.Fatigue == 30 && rest.P.U.TurnsActive == 0 && log.Any(l => l.Contains("Отдыхает: отдых")), $"усталость {rest.P.U.Fatigue}, ходов в деле {rest.P.U.TurnsActive}");
+            var (b2, a, b) = Duel("infantry", "infantry", 0.5, 42);
+            a.P.U.Fatigue = 100; b.P.U.Fatigue = 100; a.P.U.TurnsActive = 20; b.P.U.TurnsActive = 20; a.P.U.Discipline = 30; b.P.U.Discipline = 30;
+            b2.Order(a, Attack(2)); b2.Order(b, Attack(1));
+            var all = new List<string>(); int turns = 0;
+            for (; turns < 6 && a.P.U.Status == "active" && b.P.U.Status == "active"; turns++) all.AddRange(b2.Turn());
+            True(a.P.U.Status == "fled" || b.P.U.Status == "fled", $"за {turns} ходов никто не побежал: {string.Join(" | ", all.Where(l => l.Contains("побег")))}");
+            True(all.Any(l => l.Contains("измотан")), "бегство не от усталости");
+        });
+
         yield return ("бой в файл для разбора (Алекс 13.10.2026): рыцари в рубке с пехотой, лучники стреляют, поручения ИИ — ход, сохранить, загрузить; следующий ход у сохранённого и у загруженного боец в боец (места, численность, павшие, журнал)", () =>
         {
             var bt = new Battle(Open(1200, 900), R, new EngineContext { Rng = new Mulberry32(17).Next });

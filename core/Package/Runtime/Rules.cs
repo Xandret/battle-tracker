@@ -47,6 +47,10 @@ namespace BattleCore
         public BreakdownR Breakdown = new BreakdownR();
         public FleeR Flee = new FleeR();
         public FatigueR Fatigue = new FatigueR();
+        // Алекс 14.10.2026: усталость в поле (черновик до ГМа, поверх стола) — отдых снимает RestPerTurn за ход без боя; на пределе —
+        // проверка на побег в конце хода (за столом бой редко длится 10 ходов, в игре — десятки: при 100 урон стола ×0, рубка вечная)
+        public sealed class FieldFatigueR { public double RestPerTurn = 20; public bool ExhaustedFleeCheck = true; }
+        public FieldFatigueR FieldFatigue = new FieldFatigueR();
         public SectorsR Sectors = new SectorsR();
 
         // ── Карта в метрах (черновик 6а) — пока перенесены строй и высота; остальное — вместе с battlemap.js ──

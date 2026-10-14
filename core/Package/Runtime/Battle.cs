@@ -1170,9 +1170,35 @@ namespace BattleCore
 
         // Конец хода стола (turn.js): усталость у тех, кто бился 4 хода подряд (элита — 8); сломленный (БД 0) теряет
         // дисциплину, иссякла — бежит без броска (и тянет соседей паникой)
+        // Алекс 14.10.2026 (разбор «Учебное поле, ход 38»: пять отрядов десятки ходов в рубке, у всех усталость 100 — урон стола ×0, никто
+        // никого не ранит). Черновик до ГМа, поверх стола (набор 1 не тронут): отдых — отряд, что целый ход не бился и не стрелял, не в
+        // схватке и не бежит, снимает FieldFatigue.RestPerTurn усталости, счёт ходов в деле — заново; измотанный (усталость на пределе) в
+        // конце хода бросает проверку на побег — провал: бежит, тупик рассыпается
+        void FieldFatigue(double t, List<bool> acted)
+        {
+            var FF = R.FieldFatigue; var F = R.Fatigue;
+            for (int i = 0; i < Movers.Count; i++)
+            {
+                var m = Movers[i]; var u = m.P.U;
+                if (!OnField(m) || u.Status != "active" || m.Fleeing) continue;
+                if (FF.RestPerTurn > 0 && !acted[i] && !m.InMelee && u.Fatigue > 0)
+                {
+                    double was = u.Fatigue; u.Fatigue = Math.Max(0, u.Fatigue - FF.RestPerTurn); u.TurnsActive = 0;
+                    events.Add($"конец хода · {u.Name}: отдых — усталость −{Js.Num(was - u.Fatigue)} → {Js.Num(u.Fatigue)} (черновик)");
+                    Calc($"🕐 {u.Name}: отдых — ход без боя, усталость {Js.Num(was)} − {Js.Num(FF.RestPerTurn)} = {Js.Num(u.Fatigue)}");
+                    continue;
+                }
+                if (FF.ExhaustedFleeCheck && MoraleChecks && u.Fatigue >= F.Max)
+                {
+                    Check(t, MoraleRules.FleeCheck(u, Ctx), u);
+                    if (u.Status == "fled") { Flee(m, t, "измотан — усталость на пределе"); PanicFrom(m, t); }
+                }
+            }
+        }
         void EndOfTurnTable(double t)
         {
             var units = Movers.Select(m => m.P.U).ToList();
+            var acted = units.Select(u => u.Acted).ToList();   // до стола: стол сбрасывает «походил»
             var res = BattleCore.Turn.EndTurn(units, Ctx);
             for (int i = 0; i < units.Count; i++)
             {
@@ -1186,6 +1212,7 @@ namespace BattleCore
                 }
             }
             foreach (var l in res.Lines) events.Add($"конец хода · {l}");
+            FieldFatigue(t, acted);
             if (res.Lines.Count > 0) Calc("🕐 конец хода (усталость, дисциплина, бегство — по формулам стола)", res.Lines);
         }
 

@@ -25,7 +25,7 @@ namespace BattleCore
 
     public static class BattleFile
     {
-        const string Magic = "JBF1";
+        const string Magic = "JBF2";   // JBF2 (14.10.2026): поля по именам — файл открывается и после новых полей движка (JBF1 — по порядку)
         enum Tag : byte { Null, Ref, Obj, Arr, PrimArr, List, Dict, Rng, Rules, RulesPart, Ctx, Type, Bool, Byte, SByte, Short, UShort, Int, UInt, Long, ULong, Float, Double, Char, Str, Enum, Decimal, Struct, DropDelegate }
 
         public static void Save(BattleSession session, string path, BattleFileInfo info)
@@ -73,6 +73,15 @@ namespace BattleCore
         sealed class Writer
         {
             readonly BinaryWriter w; readonly Dictionary<object, int> ids = new Dictionary<object, int>(RefEq.I);
+            readonly Dictionary<Type, int> shapes = new Dictionary<Type, int>();
+            // тип объекта или структуры: в первый раз — имя типа и имена его полей, дальше — номер
+            void Shape(Type t)
+            {
+                if (shapes.TryGetValue(t, out int n)) { w.Write(n); return; }
+                shapes[t] = shapes.Count; w.Write(-1); TypeName(t);
+                var fs = DeepCopy.FieldsOf(t); int k = 0; foreach (var f in fs) if (!f.IsStatic) k++;
+                w.Write(k); foreach (var f in fs) if (!f.IsStatic) w.Write(f.DeclaringType.Name + "." + f.Name);
+            }
             public Writer(BinaryWriter w) { this.w = w; Parts(); }
             void T(Tag t) => w.Write((byte)t);
             void TypeName(Type t) => w.Write(t.AssemblyQualifiedName);
@@ -88,7 +97,7 @@ namespace BattleCore
                     if (d.Target is Mulberry32 g && d.Method.Name == "Next") { T(Tag.Rng); TypeName(t); Value(g); return; }
                     T(Tag.DropDelegate); return;   // делегаты игры не пишутся
                 }
-                if (t.IsValueType) { T(Tag.Struct); TypeName(t); Fields(v, t); return; }
+                if (t.IsValueType) { T(Tag.Struct); Shape(t); Fields(v, t); return; }
                 if (ids.TryGetValue(v, out int id)) { T(Tag.Ref); w.Write(id); return; }
                 if (v is Rules) { T(Tag.Rules); return; }
                 if (partName.TryGetValue(v, out var pname)) { T(Tag.RulesPart); w.Write(pname); return; }
@@ -121,7 +130,7 @@ namespace BattleCore
                         return;
                     }
                 }
-                T(Tag.Obj); TypeName(t); Fields(v, t);
+                T(Tag.Obj); Shape(t); Fields(v, t);
             }
             void Fields(object v, Type t)
             {
@@ -153,6 +162,26 @@ namespace BattleCore
         sealed class Reader
         {
             readonly BinaryReader r; readonly List<object> objs = new List<object>();
+            readonly List<(Type t, FieldInfo[] map)> shapes = new List<(Type, FieldInfo[])>();
+            // тип и соответствие полей файла полям этой версии движка (по имени; поля, которых больше нет, — читаются и пропускаются)
+            (Type t, FieldInfo[] map) Shape()
+            {
+                int n = r.ReadInt32();
+                if (n >= 0) return shapes[n];
+                var t = ReadType(); int k = r.ReadInt32();
+                var byName = new Dictionary<string, FieldInfo>();
+                foreach (var f in DeepCopy.FieldsOf(t)) if (!f.IsStatic) byName[f.DeclaringType.Name + "." + f.Name] = f;
+                var map = new FieldInfo[k];
+                for (int i = 0; i < k; i++) byName.TryGetValue(r.ReadString(), out map[i]);
+                shapes.Add((t, map)); return (t, map);
+            }
+            static object New(Type t)
+            {
+                // с конструктором без параметров — через него: новые поля получают свои значения по умолчанию (NaN и т. п.), а не нули
+                if (!t.IsValueType && t.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null) != null)
+                    try { return Activator.CreateInstance(t, true); } catch { }
+                return t.IsValueType ? Activator.CreateInstance(t) : FormatterServices.GetUninitializedObject(t);
+            }
             readonly Dictionary<string, Type> types = new Dictionary<string, Type>();
             public Reader(BinaryReader r) { this.r = r; Parts(); }
             Type TypeOf(string n) { if (!types.TryGetValue(n, out var t)) types[n] = t = Type.GetType(n, true); return t; }
@@ -185,7 +214,7 @@ namespace BattleCore
                     case Tag.RulesPart: return partByName[r.ReadString()];
                     case Tag.Rng: { var dt = ReadType(); var g = (Mulberry32)Value(); return Delegate.CreateDelegate(dt, g, typeof(Mulberry32).GetMethod("Next")); }
                     case Tag.Ctx: { int id = Reserve(); var c = new EngineContext(); objs[id] = c; c.Rng = (Func<double>)Value(); return c; }
-                    case Tag.Struct: { var t = ReadType(); object o = Activator.CreateInstance(t); Fields(o, t); return o; }
+                    case Tag.Struct: { var (t, map) = Shape(); object o = Activator.CreateInstance(t); Fields(o, map); return o; }
                     case Tag.PrimArr:
                         {
                             var et = ReadType(); int n = r.ReadInt32(); var a = Array.CreateInstance(et, n); objs.Add(a);
@@ -218,19 +247,21 @@ namespace BattleCore
                         }
                     case Tag.Obj:
                         {
-                            var t = ReadType(); var o = FormatterServices.GetUninitializedObject(t); objs.Add(o);
-                            Fields(o, t); return o;
+                            var (t, map) = Shape(); var o = New(t); objs.Add(o);
+                            Fields(o, map); return o;
                         }
                 }
                 throw new InvalidDataException("файл боя повреждён: метка " + tag);
             }
-            void Fields(object o, Type t)
+            void Fields(object o, FieldInfo[] map)
             {
-                foreach (var f in DeepCopy.FieldsOf(t))
+                foreach (var f in map)
                 {
-                    if (f.IsStatic) continue;
                     var v = Value();
-                    if (v != null || !f.FieldType.IsValueType) f.SetValue(o, v);
+                    if (f == null) continue;   // поля больше нет — пропуск
+                    if (v == null && f.FieldType.IsValueType) continue;
+                    if (v != null && !f.FieldType.IsInstanceOfType(v)) continue;   // тип поля сменился — остаётся по умолчанию
+                    f.SetValue(o, v);
                 }
             }
             static object RefEqFor(Type k) => Activator.CreateInstance(typeof(RefEqT<>).MakeGenericType(k));
